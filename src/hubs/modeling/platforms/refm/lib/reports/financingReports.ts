@@ -37,6 +37,15 @@ export const LAND_FUNDING_UNSET_NOTE = 'Not stated: land with no split stated is
 export function landSplitApplies(funding: { customDebtByPeriod?: readonly number[] }): boolean {
   return !funding.customDebtByPeriod;
 }
+/**
+ * WHAT THE SPLIT'S OWN CELLS SAY (2026-10-07, founder). Under a method that sizes funding to its own curve
+ * the per-phase Debt % / Equity % is read by nothing, so no surface offers it as an input or prints a stored
+ * value as if it applied: the cells say this instead, and the note below the table says why. The stored
+ * split is kept, so switching back to a capex-sized method restores it. Null where the split is used.
+ */
+export function landSplitCellText(funding: { customDebtByPeriod?: readonly number[] }, methodId: number | undefined): string | null {
+  return landSplitApplies(funding) ? null : `Not used under Method ${methodId ?? '?'}`;
+}
 export function landFundingNote(
   funding: { customDebtByPeriod?: readonly number[]; debtPct: number; equityPct: number },
   methodId: number | undefined,

@@ -14,6 +14,7 @@
  *
  * Run: npx tsx scripts/verify-funding-methods.ts
  */
+import { buildModelWorkbook } from '../src/hubs/modeling/platforms/refm/lib/excel/buildModelWorkbook';
 import { computeFundingRequirement, type FundingGapInputs } from '../src/core/calculations/financing/funding';
 import type { CapexAggregate } from '../src/core/calculations/financing/types';
 import type { ProjectFinancingConfig } from '../src/hubs/modeling/platforms/refm/lib/state/module1-types';
@@ -580,6 +581,38 @@ console.log('\n[SWEEP] Repayment method wired: engine schedule is the single sou
   const callers = ['components/modules/Module1Financing.tsx', 'lib/excel/buildModelWorkbook.ts', 'lib/pdf/generateProjectPdf.ts']
     .filter((f) => { const t = readFileSync(R + f, 'utf8'); return !/phaseLandSplit\(/.test(t) || !/landFundingNote\(/.test(t) || /the default split applies/.test(t); });
   check('LF5 the screen, the workbook and the PDF read the split and the note through the one rule', callers.length === 0, callers.join(', '));
+  // LF7 (2026-10-07, founder): where the split is read by nothing it is not OFFERED either. Both halves.
+  {
+    const stOf = (method: 1 | 3) => { const st = buildSnapState(method); const fc = st.project.financing as any; fc.parcelFunding = [{ parcelId: 'parcel1', debtPct: 40, equityPct: 60 }]; fc.fixedRatio = { debtPct: 70, equityPct: 30 }; return st; };
+    // BOTH workbook print sites: the Financing sheet's "<phase>, Debt % / Equity %" rows (value in D), and
+    // the Inputs sheet's land table (one row per phase under its section header, Debt % in D, Equity % in E).
+    const cellsOf = (method: 1 | 3) => {
+      const wb = buildModelWorkbook({ state: stOf(method) as any, projectName: 'X', dateLabel: 'd' });
+      const fin = wb.getWorksheet('Financing')!;
+      const out: Array<{ where: string; d: unknown; e: unknown }> = [];
+      const debt = new Map<string, unknown>();
+      fin.eachRow((r) => { const a = String(r.getCell(1).value ?? ''); const m = /^(.+), (Debt|Equity) %$/.exec(a); if (m) { if (m[2] === 'Debt') debt.set(m[1], r.getCell(4).value); else out.push({ where: `Financing ${m[1]}`, d: debt.get(m[1]), e: r.getCell(4).value }); } });
+      wb.eachSheet((ws) => {
+        if (ws.name === 'Financing') return;
+        ws.eachRow((r, i) => {
+          if (String(r.getCell(1).value ?? '') !== 'Land Funding (per phase, from the Capex results)') return;
+          for (let k = i + 2; k < i + 8; k++) { const row = ws.getRow(k); if (!row.getCell(1).value || row.getCell(4).value == null) break; out.push({ where: `${ws.name} ${row.getCell(1).value}`, d: row.getCell(4).value, e: row.getCell(5).value }); }
+        });
+      });
+      return out;
+    };
+    const m3c = cellsOf(3), m1c = cellsOf(1);
+    const sites = (c: Array<{ where: string }>) => new Set(c.map((x) => x.where.split(' ')[0])).size;
+    check('LF7 Method 3: every split cell, on both workbook sheets, says "Not used under Method 3", not a stored 40 / 60',
+      sites(m3c) === 2 && m3c.every((c) => c.d === 'Not used under Method 3' && c.e === 'Not used under Method 3'), JSON.stringify(m3c));
+    const num = (v: unknown): number => Number((v as { result?: unknown })?.result ?? v);
+    check('LF7 Method 1: the stated split is still the typed 40 / 60, on both sheets (not vacuous)',
+      sites(m1c) === 2 && m1c.every((c) => Math.abs(num(c.d) - 0.4) < 1e-9 && Math.abs(num(c.e) - 0.6) < 1e-9), JSON.stringify(m1c));
+    const scr = readFileSync(R + 'components/modules/Module1Financing.tsx', 'utf8');
+    check('LF7 the screen offers the inputs only where the split is used (landSplitCellText gates the PercentageInputs)',
+      /const notUsed = landSplitCellText\(result\.funding, financingConfig\.fundingMethod\);[\s\S]{0,1200}\{notUsed \? \([\s\S]{0,400}\) : \([\s\S]{0,200}<PercentageInput/.test(scr));
+    check('LF7 the PDF prints the same words through the same rule', /landSplitCellText\(fin\.funding, cfg\?\.fundingMethod\) \?\?/.test(readFileSync(R + 'lib/pdf/generateProjectPdf.ts', 'utf8')));
+  }
 }
 
 (async () => {

@@ -100,7 +100,7 @@ import type { IndexationConfig } from '@/src/core/calculations/revenue/types';
 import { assetPlotLabel } from '@/src/core/calculations/assetName';
 import { deriveCostStage, isLandValueLine } from '@/src/core/calculations';
 import { CAPEX_PHASING_SOURCE_LABELS, FUNDING_METHOD_DESCRIPTIONS, REPAYMENT_METHOD_LABELS, DEFAULT_PROJECT_FINANCING_CONFIG } from '../state/module1-types';
-import { buildIdcAllocationTables, buildFinancingSummary, FINANCING_SUMMARY_CAPTIONS, operatingInflowClasses, phaseLandSplit, landFundingNote, landSplitApplies } from '../reports/financingReports';
+import { landSplitCellText, buildIdcAllocationTables, buildFinancingSummary, FINANCING_SUMMARY_CAPTIONS, operatingInflowClasses, phaseLandSplit, landFundingNote } from '../reports/financingReports';
 import { CAPITALISED_INTEREST_RULE } from '@/src/core/calculations/capitalisedInterest';
 import { computeFundingBasis } from '../reports/fundingBasis';
 import { buildPartiesTable, PARTIES_TITLE, PARTIES_EMPTY_TEXT } from '../reports/partiesReport';
@@ -956,8 +956,13 @@ function addAssumptions(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFin
       setLabel(ws.getCell(`A${r}`), `${lp.phaseName}${mixed ? ' (mixed split across its plots)' : ''}`);
       setFormula(ws.getCell(`B${r}`), fcell('0', lp.landCashTotal), NUMFMT.money);
       setFormula(ws.getCell(`C${r}`), fcell('0', lp.landInKindTotal), NUMFMT.money);
-      if (!landSplitApplies(fin.funding)) setLabel(ws.getCell(`F${r}`), landFundingNote(fin.funding, p.financing?.fundingMethod, false) ?? '');
-      if (split.stated) {
+      const notUsed = landSplitCellText(fin.funding, p.financing?.fundingMethod);
+      if (notUsed) {
+        // Read by nothing under this method (2026-10-07): no input, no stored value printed as if it applied.
+        setLabel(ws.getCell(`D${r}`), notUsed);
+        setLabel(ws.getCell(`E${r}`), notUsed);
+        setLabel(ws.getCell(`F${r}`), landFundingNote(fin.funding, p.financing?.fundingMethod, false) ?? '');
+      } else if (split.stated) {
         setInput(ws.getCell(`D${r}`), debtPct / 100, NUMFMT.pct);
         setInput(ws.getCell(`E${r}`), equityPct / 100, NUMFMT.pct);
         registerCell(`inp=${FIN('4. Land Funding (per phase, from the Capex results)', `${lp.phaseName}, Debt %`)}`, ws, ws.getCell(`D${r}`));
@@ -3338,17 +3343,20 @@ function addFinancing(ctx: EmitCtx): FinLinks {
   subTitle('4. Land Funding (per phase, from the Capex results)');
   const landByPhase = fin.capex.landByPhase ?? [];
   if (landByPhase.length === 0) note('No phases with land yet.');
+  // The split through the ONE rule the screen and the PDF read (phaseLandSplit), and not offered at all
+  // where the method's own curve funds the land (landSplitCellText, 2026-10-07).
+  const landNotUsed = landSplitCellText(fin.funding, cfg.fundingMethod);
   for (const lp of landByPhase) {
-    const phaseParcels = state.parcels.filter((p) => p.phaseId === lp.phaseId);
-    const cfgs = phaseParcels.map((p) => (cfg.parcelFunding ?? []).find((x) => x.parcelId === p.id));
-    const debts = cfgs.map((c) => c?.debtPct ?? 0);
-    const equities = cfgs.map((c, i) => c?.equityPct ?? (100 - debts[i]));
-    const mixed = debts.some((d) => d !== debts[0]) || equities.some((e) => e !== equities[0]);
-    const debtPct = debts[0] ?? 0; const equityPct = equities[0] ?? (100 - debtPct);
+    const { debtPct, equityPct, mixed } = phaseLandSplit(state.parcels.filter((p) => p.phaseId === lp.phaseId).map((p) => p.id), cfg.parcelFunding);
     emitM4({ label: `${lp.phaseName}, Land Cash (Capex Table 5)`, values: sl(lp.landCash) }, 'Capex Table 5, land cash');
     emitM4({ label: `${lp.phaseName}, Land In-Kind (Capex Table 5)`, values: sl(lp.landInKind) }, 'Capex Table 5, land in-kind');
-    scalar(`${lp.phaseName}, Debt %`, debtPct / 100, pctFmt, mixed ? 'Mixed split across its plots; retype to unify' : 'Share of the phase land funded by debt', true, 1);
-    scalar(`${lp.phaseName}, Equity %`, equityPct / 100, pctFmt, '', true, 1);
+    if (landNotUsed) {
+      scalar(`${lp.phaseName}, Debt %`, landNotUsed, '@', landFundingNote(fin.funding, cfg.fundingMethod, false) ?? '', false, 1);
+      scalar(`${lp.phaseName}, Equity %`, landNotUsed, '@', '', false, 1);
+    } else {
+      scalar(`${lp.phaseName}, Debt %`, debtPct / 100, pctFmt, mixed ? 'Mixed split across its plots; retype to unify' : 'Share of the phase land funded by debt', true, 1);
+      scalar(`${lp.phaseName}, Equity %`, equityPct / 100, pctFmt, '', true, 1);
+    }
   }
   if (landByPhase.length > 0) {
     emitM4({ label: 'Total, Land Cash', values: landByPhase.reduce((acc, lp) => acc.map((v, t) => v + (lp.landCash[t] ?? 0)), zeros()), isSubtotal: true }, 'All phases');

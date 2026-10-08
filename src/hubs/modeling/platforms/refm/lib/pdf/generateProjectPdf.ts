@@ -100,7 +100,7 @@ import {
 import { computeFundingBasis } from '../reports/fundingBasis';
 import { countryLabel } from '@/src/core/countries';
 import { deriveCostStage, isLandValueLine } from '@/src/core/calculations';
-import { buildFinancingScheduleTables, buildCashSweepTables, buildIdcAllocationTables, phaseLandSplit, landFundingNote, financingRowBasis } from '../reports/financingReports';
+import { buildFinancingScheduleTables, buildCashSweepTables, buildIdcAllocationTables, landSplitCellText, phaseLandSplit, landFundingNote, financingRowBasis } from '../reports/financingReports';
 import { CAPITALISED_INTEREST_RULE } from '@/src/core/calculations/capitalisedInterest';
 import { buildCostOfSalesReport } from '../reports/cosReports';
 import { buildCaseComparisonReport, type CaseComparisonInput, type CaseComparisonReport } from '../reports/caseComparisonReport';
@@ -2230,7 +2230,7 @@ function buildModule1(
         rows.push(periodRow(`${lp.phaseName}, Land Cash (Capex Table 5)`, sl(lp.landCash), 'sum'));
         rows.push(periodRow(`${lp.phaseName}, Land In-Kind (Capex Table 5)`, sl(lp.landInKind), 'sum'));
         rows.push(strPeriodRow(`${lp.phaseName}, Debt % / Equity %`, new Array<string>(yl.length).fill(''),
-          `${fmt.pctRaw(debtPct, 2)} / ${fmt.pctRaw(equityPct, 2)}${mixed ? ' (mixed across its plots)' : ''}`));
+          landSplitCellText(fin.funding, cfg?.fundingMethod) ?? `${fmt.pctRaw(debtPct, 2)} / ${fmt.pctRaw(equityPct, 2)}${mixed ? ' (mixed across its plots)' : ''}`));
       }
       const zeros = new Array<number>(yl.length).fill(0);
       rows.push(periodRow('Total, Land Cash', landByPhase.reduce((acc, lp) => acc.map((v, t) => v + (lp.landCash[t] ?? 0)), [...zeros]), 'sum', 'subtotal'));

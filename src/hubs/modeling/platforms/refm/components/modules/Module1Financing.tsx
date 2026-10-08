@@ -53,7 +53,7 @@ import {
   getAssetPreCapexTotal,
 } from '../../lib/state/module1-types';
 import { computeFinancingResult } from '@/src/core/calculations/financing';
-import { buildFinancingSummary, FINANCING_SUMMARY_CAPTIONS, operatingInflowClasses, phaseLandSplit, landFundingNote } from '../../lib/reports/financingReports';
+import { buildFinancingSummary, FINANCING_SUMMARY_CAPTIONS, operatingInflowClasses, phaseLandSplit, landFundingNote, landSplitCellText } from '../../lib/reports/financingReports';
 import { facilityShareTotal, facilityShareSumIsValid } from '@/src/core/calculations/financing/shares';
 import { computeIdcSnapshot, computeFundingGap, computeFinancialsSnapshot } from '../../lib/financials-resolvers';
 import { computeFundingBasis } from '../../lib/reports/fundingBasis';
@@ -810,6 +810,9 @@ export default function Module1Financing({ projectId = null }: { projectId?: str
                 </thead>
                 <tbody>
                   {(result.capex.landByPhase ?? []).map((lp) => {
+                    // Under a method that sizes funding to its own curve the split is read by
+                    // nothing, so it is not offered as an input (2026-10-07, landSplitCellText).
+                    const notUsed = landSplitCellText(result.funding, financingConfig.fundingMethod);
                     const phaseParcels = parcels.filter((p) => p.phaseId === lp.phaseId);
                     const { debtPct, equityPct, mixed } = phaseLandSplit(phaseParcels.map((p) => p.id), financingConfig.parcelFunding);
                     const writeAll = (patch: Partial<ParcelFundingConfig>): void => { phaseParcels.forEach((p) => setParcelFundingPatch(p.id, patch)); };
@@ -818,20 +821,26 @@ export default function Module1Financing({ projectId = null }: { projectId?: str
                         <td style={ROW_DATA.name}>{lp.phaseName}{mixed ? ' (mixed split across its plots, retype to unify)' : ''}</td>
                         <td style={ROW_DATA.num} data-testid={`financing-land-funding-${lp.phaseId}-cash`}>{fmt(lp.landCashTotal)}</td>
                         <td style={ROW_DATA.num} data-testid={`financing-land-funding-${lp.phaseId}-inkind`}>{fmt(lp.landInKindTotal)}</td>
-                        <td style={ROW_DATA.num}>
-                          <PercentageInput
-                            value={debtPct}
-                            style={{ ...inputStyle, padding: '3px 4px', fontSize: 11, textAlign: 'right' }}
-                            onChange={(v) => writeAll({ debtPct: v, equityPct: Math.max(0, 100 - v) })}
-                          />
-                        </td>
-                        <td style={ROW_DATA.num}>
-                          <PercentageInput
-                            value={equityPct}
-                            style={{ ...inputStyle, padding: '3px 4px', fontSize: 11, textAlign: 'right' }}
-                            onChange={(v) => writeAll({ equityPct: v, debtPct: Math.max(0, 100 - v) })}
-                          />
-                        </td>
+                        {notUsed ? (
+                          <td colSpan={2} style={{ ...ROW_DATA.num, color: 'var(--color-text-muted)', fontStyle: 'italic' }} data-testid={`financing-land-funding-${lp.phaseId}-not-used`}>{notUsed}</td>
+                        ) : (
+                          <>
+                            <td style={ROW_DATA.num}>
+                              <PercentageInput
+                                value={debtPct}
+                                style={{ ...inputStyle, padding: '3px 4px', fontSize: 11, textAlign: 'right' }}
+                                onChange={(v) => writeAll({ debtPct: v, equityPct: Math.max(0, 100 - v) })}
+                              />
+                            </td>
+                            <td style={ROW_DATA.num}>
+                              <PercentageInput
+                                value={equityPct}
+                                style={{ ...inputStyle, padding: '3px 4px', fontSize: 11, textAlign: 'right' }}
+                                onChange={(v) => writeAll({ equityPct: v, debtPct: Math.max(0, 100 - v) })}
+                              />
+                            </td>
+                          </>
+                        )}
                       </tr>
                     );
                   })}
