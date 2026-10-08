@@ -43,6 +43,8 @@
  * Run: npx tsx scripts/verify-module6-field-census.ts
  * (Refresh the fixture from prod with: npx tsx scripts/fetch-census-fixture.ts)
  */
+import { caseModelOf } from '../src/hubs/modeling/platforms/refm/lib/cases/caseModel';
+import { loadStoredModel } from '../src/hubs/modeling/platforms/refm/lib/state/loadStoredModel';
 import { readFileSync, existsSync, writeFileSync } from 'node:fs';
 import {
   enumerateOverridableFields, applyOverrides, type OverridableField,
@@ -71,7 +73,13 @@ if (!existsSync(FIXTURE)) {
   process.exit(0);
 }
 const doc = JSON.parse(readFileSync(FIXTURE, 'utf8'));
-const base = doc.snapshot as any;
+// RE-AIMED 2026-10-07 (founder, item 4): THE CENSUS MEASURES THE PATH THE PRODUCT USES. Until now it took
+// the RAW stored snapshot and probed with value-only applyOverrides. Since 2026-09-15 every saved version
+// is read through loadStoredModel and every case model is caseModelOf (settled, derived overrides dropped,
+// TRAPS 7.47/7.48), so the census was measuring a model no screen, export or scenario computes: it read a
+// platform-written field (derivedAreas) as a hidden live lever, and a type default the settle stamps onto
+// rows as a dead one. Its four failures from 2026-09-13 on were all of that shape.
+const base = loadStoredModel(doc.snapshot).snapshot as any;
 console.log(`=== Module 6 field census on LIVE project "${doc.projectName}" (v${doc.versionNumber}) ===`);
 console.log(`funding method ${base.project?.financing?.fundingMethod}, terminal ${base.project?.returns?.terminalMethod}, ${base.assets?.length} assets, ${base.subUnits?.length} sub-units, ${base.costLines?.length} cost lines, ${base.costOverrides?.length} overrides\n`);
 
@@ -252,7 +260,7 @@ const rows: Row[] = [];
 for (const f of picker) {
   let best: string[] = []; let bestVal: unknown;
   for (const c of candidatesFor(f)) {
-    const moved = movedKpis(kpisOf(applyOverrides(base, { [f.path]: c })));
+    const moved = movedKpis(kpisOf(caseModelOf(base, { [f.path]: c })));
     if (moved.length > best.length) { best = moved; bestVal = c; }
     if (best.length === CASE_KPIS.length) break;
   }
@@ -349,6 +357,16 @@ if (unmeasurable.length) {
   console.log('');
 }
 
+// The verdicts below print their first few paths; CENSUS_DUMP=<file> writes every one, so a failure can be
+// classified in full rather than from a sample (2026-10-07).
+if (process.env.CENSUS_DUMP) {
+  writeFileSync(process.env.CENSUS_DUMP, JSON.stringify({
+    hiddenMovers: hiddenMovers.map((r) => ({ path: r.path, moved: r.moved })),
+    undocumentedAnnotated: undocumentedAnnotated.map((r) => ({ path: r.path, moved: r.moved })),
+    undeclaredStringDomains: undeclaredStringDomains.map((f) => f.path),
+    dead: dead.map((r) => r.path),
+  }, null, 1));
+}
 check('base model computes a full KPI set', Object.values(baseKpis).some((v) => v != null));
 check('a non-trivial number of fields empirically move a comparison KPI', movers.length > 30, `movers=${movers.length}`);
 check('NO live lever is HIDDEN: no empirical KPI mover is removed from the picker by nonEconomicLeverReason', hiddenMovers.length === 0,
@@ -373,7 +391,7 @@ console.log('\n=== Spot-proof: representative levers move named KPIs (observed) 
 function proveMoves(label: string, path: string, value: unknown, kpi: string): void {
   const f = picker.find((x) => x.path === path);
   if (!f) { check(`${label}: field present in catalog`, false, `path not found: ${path}`); return; }
-  const scen = kpisOf(applyOverrides(base, { [path]: value }));
+  const scen = kpisOf(caseModelOf(base, { [path]: value }));
   const b = baseKpis![kpi], s = scen?.[kpi] ?? null;
   const moved = b != null && s != null && Math.abs(s - b) > 1e-6 * Math.max(1, Math.abs(b));
   check(`${label} moves ${kpi}`, moved, `base=${b} scen=${s}`);
@@ -382,7 +400,7 @@ function proveMoves(label: string, path: string, value: unknown, kpi: string): v
 function proveMovesAny(label: string, path: string, value: unknown): void {
   const f = picker.find((x) => x.path === path);
   if (!f) { check(`${label}: field present in catalog`, false, `path not found: ${path}`); return; }
-  const moved = movedKpis(kpisOf(applyOverrides(base, { [path]: value })));
+  const moved = movedKpis(kpisOf(caseModelOf(base, { [path]: value })));
   check(`${label} moves at least one comparison KPI`, moved.length > 0, `movedKpis=${moved.join(',') || 'none'}`);
 }
 const sellAsset = (base.assets as any[]).find((a) => a.strategy === 'Sell');
