@@ -4,6 +4,31 @@
 
 Entries are grouped by their most recent date. Fuller per-day narrative for REFM platform work lives in [CLAUDE-REFM.md](CLAUDE-REFM.md); per-route and migration detail in [CLAUDE-ROUTES.md](CLAUDE-ROUTES.md) and [CLAUDE-DB.md](CLAUDE-DB.md); the general lessons in [docs/TRAPS.md](docs/TRAPS.md); fund-layer standing rules in [docs/FUND_LAYER_GUIDELINE.md](docs/FUND_LAYER_GUIDELINE.md). This file is loaded on demand only and has no size limit.
 
+## 2026-10-08
+
+- **THE EXISTING-OPERATIONS BALANCE SHEET BALANCES** (`993d878e`, TRAPS 7.63).
+  - **The break:** 1,350.7m, one step in year 0. The fixed asset schedule priced an operational phase's plot that capex rightly skips.
+  - **The fix:** `phaseHasModelCapex` is the one rule, applied inside `computeAssetCost`.
+  - **Also in that commit:**
+    - A Sell variant fixture: 1,913.7m before, 0.0 after.
+    - `verify-model-capex`, per asset.
+    - `parseAccounting` refuses values past 2^53. A saved field held two typed figures joined into one, 36820510001282052000.
+    - The exports' existing-operations note now reads land + building (3,600.0m), not the stale legacy total (3,682.1m).
+  - **Marina Gate:** byte-identical.
+- **The per-phase land split is not offered under a gap-sized method** (`22e183e2`). Under those methods it says "Not used under Method N" on the screen, the PDF and both workbook sites. The stored split is kept, so switching back to Method 1 restores it.
+- **The Module 6 census measures the real path** (`f6b747ef`): `loadStoredModel` plus `caseModelOf`, with a refreshed fixture.
+  - **What it found:** a scenario override of a value the settle derives is undone by the settle. That covers standard-origin per-asset cost rates, unstated phase rates and type-priced sub-unit prices, about 90 levers on Marina Gate.
+  - **Status:** a founder decision, open.
+- **Measured, nothing changed:**
+  - **Selling costs, capitalised against expensed on Marina Gate** (61.0m of Marketing at 3.5% on the villas):
+    - total development cost 1,336.7 against 1,275.7;
+    - margin 30.2% against 33.0%;
+    - cost to value 61.8% against 59.0%;
+    - yield on cost unchanged;
+    - PAT 675.2 against 675.0;
+    - IRRs unchanged.
+  - **Hotel keys:** 144 keys from 18,750 sqm of GFA (FAR 2.5, 0% service share) at the type's 130 sqm per key. At 55 to 85 sqm per key: 341 to 221 keys, distributed IRR 20.09% to 18.41%.
+
 ## 2026-10-07
 
 - **THE EXPORT REVIEW IS CLOSED, measured.** Founder follow-ups, one commit each:
