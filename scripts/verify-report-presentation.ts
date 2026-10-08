@@ -263,8 +263,13 @@ async function main(): Promise<void> {
     check('P3: an ordinary asset is NOT', structuralZeroKindFor(normal) === null);
     // The detection must be on the DECLARED shape. An asset with no historical
     // spend and no companion flag is just an empty asset and must stay one.
+    // RE-AIMED 2026-10-08: historical spend is the ONE rule the engine and the Existing Operations inputs
+    // use (getAssetPreCapexTotal: land + building, the legacy single figure only where neither is stated),
+    // so "no historical spend" zeroes all three; zeroing the legacy field alone leaves a 200 + 600 split.
     check('P3: "operational" alone does not qualify without historical spend',
-      structuralZeroKindFor({ ...ex, historicalPreCapex: 0 } as any) === null);
+      structuralZeroKindFor({ ...ex, historicalPreCapex: 0, historicalPreCapexLand: 0, historicalPreCapexBuilding: 0 } as any) === null);
+    check('P3: a stated land + building split qualifies even with the legacy single figure at zero (the one rule, not the legacy field)',
+      structuralZeroKindFor({ ...ex, historicalPreCapex: 0 } as any) === 'existing_operations');
     check('P3: a real figure is never suppressed', notes.hasBuaNote('EX1', 12_000) === null);
     check('P3: a zero on a structural asset IS marked', notes.hasBuaNote('EX1', 0) !== null);
     check('P3: a zero on an ordinary asset is NOT marked', notes.hasBuaNote('R1', 0) === null);

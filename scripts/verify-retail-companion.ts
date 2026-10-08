@@ -332,10 +332,12 @@ function offlineChecks(): void {
   // was: that one carries no physical attributes and mirrors its parent's
   // units, so charging it any line would count the parent building twice.
   check('C6 the cost short-circuit is the OPERATE companion alone, and a retail companion falls through it',
-    engineSrc.includes('if (asset.isCompanion === true && !isRetailCompanion(asset)) {')
-    // The Operate half is still a short-circuit and still returns the canonical
-    // empty breakdown, so nothing about that asset changed.
-    && engineSrc.includes('byStage: { land: 0, hard: 0, soft: 0, marketing: 0, operating: 0 },')
+    // RE-AIMED 2026-10-08: the short-circuit returns the ONE canonical empty breakdown
+    // (emptyAssetCostBreakdown, shared with the operational-phase rule, TRAPS 7.63) instead of
+    // spelling a literal, so this asserts the rule: the Operate companion alone short-circuits,
+    // to that builder, and the builder covers every stage (COST_STAGES, never a literal).
+    /if \(asset\.isCompanion === true && !isRetailCompanion\(asset\)\) return emptyAssetCostBreakdown\(phase\);/.test(engineSrc)
+    && /function emptyAssetCostBreakdown[\s\S]{0,400}for \(const k of COST_STAGES\) byStage\[k\] = 0;/.test(engineSrc)
     // THE BEHAVIOUR IS PROVEN ON LIVE DATA in section F, on a real phase with a
     // real period axis, rather than on a synthetic phase here: this fixture has
     // no timeline and computeAssetCost needs one.
