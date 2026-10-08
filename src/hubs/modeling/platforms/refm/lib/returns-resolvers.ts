@@ -707,7 +707,10 @@ export function computeReturnsSnapshot(snap: ProjectFinancialsSnapshot, project:
   const sum = (arr: number[], len = N): number => arr.slice(0, len).reduce((s, v) => s + (v ?? 0), 0);
   const gdv = totalRevenue; // total project revenue over the hold = GDV
   const totalFinancingCost = sum(fin.combined.totalInterestAccrued);
-  const devEconomics = developmentEconomics(gdv, totalDevelopmentCost, totalFinancingCost);
+  // The operating expenses over the same years the GDV counts revenue (2026-10-08): the surplus deducts what
+  // earning that revenue cost, selling and marketing (expensed as incurred) included.
+  const operatingExpenses = pl.totalOpexPerPeriod.slice(0, E).reduce((s, v) => s + (v ?? 0), 0);
+  const devEconomics = developmentEconomics(gdv, totalDevelopmentCost, totalFinancingCost, operatingExpenses);
 
   const exitAnalysisBlock = exitAnalysis({
     exitYearLabel,

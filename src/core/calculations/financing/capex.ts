@@ -88,6 +88,7 @@ export function aggregateProjectCapex(inputs: CapexInputs, axis: ProjectAxis): C
   for (const s of COST_STAGES) perStagePerPeriod[s] = new Array<number>(N).fill(0);
 
   const landByPhase: CapexLandByPhase[] = [];
+  const expensedPerPeriod = new Array<number>(N).fill(0);
   for (const phase of inputs.phases) {
     if (!phaseHasModelCapex(phase)) continue;
     const offset = axis.phaseOffsets.get(phase.id) ?? 0;
@@ -138,6 +139,12 @@ export function aggregateProjectCapex(inputs: CapexInputs, axis: ProjectAxis): C
           if (projIdx < 0 || projIdx >= N) continue;
           bucket[projIdx] += dist[i] ?? 0;
         }
+      }
+      // Expensed as incurred (marketing): the same offset rule, kept apart from every capex series.
+      const perExp = breakdown.expensed?.perPeriod ?? [];
+      for (let i = 0; i < perExp.length; i++) {
+        const projIdx = phaseLocalToProjectIndex(i, offset);
+        if (projIdx >= 0 && projIdx < N) expensedPerPeriod[projIdx] += perExp[i] ?? 0;
       }
       const perAll  = breakdown.perPeriod ?? [];
       const perLand = breakdown.perPeriodLandTotal ?? [];
@@ -194,6 +201,7 @@ export function aggregateProjectCapex(inputs: CapexInputs, axis: ProjectAxis): C
     perLineTotals,
     perStagePerPeriod,
     landByPhase,
+    expensedPerPeriod,
   };
 }
 

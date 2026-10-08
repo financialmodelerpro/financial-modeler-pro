@@ -20,13 +20,22 @@ export function developmentEconomics(
   gdv: number,
   totalDevelopmentCost: number,
   totalFinancingCost: number,
+  /**
+   * THE OPERATING EXPENSES OVER THE SAME YEARS AS THE GDV (2026-10-08, founder). The GDV is the revenue
+   * over the hold, hotel and lease income included, so the surplus deducts what earning it cost: the
+   * operating expenses and the selling and marketing expensed as incurred. Without it the surplus counted
+   * operating revenue and none of its cost, and expensing marketing made that cost vanish from the summary.
+   * Fund fees are not here; the summary states them beside the surplus. Defaults to 0 for a caller with none.
+   */
+  operatingExpenses = 0,
 ): DevelopmentEconomics {
-  const profitBeforeFinancing = gdv - totalDevelopmentCost;
-  const profitAfterFinancing = gdv - totalDevelopmentCost - totalFinancingCost;
+  const profitBeforeFinancing = gdv - totalDevelopmentCost - operatingExpenses;
+  const profitAfterFinancing = profitBeforeFinancing - totalFinancingCost;
   return {
     gdv,
     totalDevelopmentCost,
     totalFinancingCost,
+    operatingExpenses,
     profitBeforeFinancing,
     profitAfterFinancing,
     developmentMargin: safeRatio(profitAfterFinancing, gdv),

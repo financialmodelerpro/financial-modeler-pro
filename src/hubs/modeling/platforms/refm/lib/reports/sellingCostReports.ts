@@ -237,7 +237,9 @@ function buildSchedule(
       revenue,
       collectionsPerPeriod: collectionsForAsset(revenue, r.assetId, phase, projectStartYear),
     } as Parameters<typeof computeAssetCost>[0]);
-    const local = bd.perLinePerPeriod?.[r.lineId] ?? [];
+    // A capitalised selling cost (commission) is in the capex breakdown; marketing is expensed as incurred and
+    // sits in its `expensed` part (sellingExpense.ts, 2026-10-08). Same local axis either way.
+    const local = bd.perLinePerPeriod?.[r.lineId] ?? bd.expensed?.perLinePerPeriod?.[r.lineId] ?? [];
     const phaseStartYear = phase.startDate ? new Date(phase.startDate).getUTCFullYear() : projectStartYear;
     const offset = Math.max(0, phaseStartYear - projectStartYear);
     const values = new Array<number>(N).fill(0);

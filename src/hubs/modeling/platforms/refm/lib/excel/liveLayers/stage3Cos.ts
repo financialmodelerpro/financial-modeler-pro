@@ -86,13 +86,16 @@ export const stage3Cos: LiveLayer = {
       costOverrides: state.costOverrides, parcels: state.parcels, landAllocationMode: state.landAllocationMode,
       project: state.project, subUnits: state.subUnits, yearLabels: snap.yearLabels, projectStartYear: snap.revenue.projectStartYear,
     });
+    // A selling line's working row: `cxc:` when capitalised (commission), `cxe:` when expensed as incurred
+    // (marketing, sellingExpense.ts), as stage 2 keys them (2026-10-08).
+    const workingRowOf = (plot: string, lineId: string): string => (has(`cxc:${plot}:${lineId}`) ? `cxc:${plot}:${lineId}` : `cxe:${plot}:${lineId}`);
     if (sc) {
       const costRows: string[] = [];
       for (const d of sc.display) {
         const key = keyOf(`rev|__sell__||${d.label}`);
         if (!has(key)) continue;
         const l = lines.find((x) => x.key === d.lineKey);
-        const members = (l?.members ?? []).map((m) => `cxc:${m.id}:${d.lineId}`).filter(has);
+        const members = (l?.members ?? []).map((m) => workingRowOf(m.id, d.lineId)).filter(has);
         if (!members.length) continue;
         const r = w.addr(key).row;
         const at = (k: string, col: number): string => w.refA({ sheet: CXCALC, row: w.addr(k).row, col });
@@ -108,7 +111,7 @@ export const stage3Cos: LiveLayer = {
         const key = keyOf(`rev|__sell__|Selling Costs|${s.assetName}`);
         const [lineKey, lineId] = s.key.split('::');
         const l = lines.find((x) => x.key === lineKey) ?? lineOfAsset(lineKey);
-        const members = (l?.members ?? []).map((m) => `cxc:${m.id}:${lineId}`).filter(has);
+        const members = (l?.members ?? []).map((m) => workingRowOf(m.id, lineId)).filter(has);
         row(key, (t) => members.map((k) => cxP(w.addr(k).row, t)).join('+') || '0');
         if (has(key)) yoyRows.push(key);
       }

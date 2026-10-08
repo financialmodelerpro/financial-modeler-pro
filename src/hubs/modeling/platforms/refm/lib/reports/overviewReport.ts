@@ -335,3 +335,15 @@ export function fundFeesLife(snap: Pick<ProjectFinancialsSnapshot, 'fundFees'>):
 export function surplusExcludesFundCaption(fees: number, money: (v: number) => string): string | undefined {
   return fees > 0 ? `excludes fund fees of ${money(fees)}` : undefined;
 }
+/**
+ * WHAT THE SURPLUS DEDUCTS AND WHAT IT DOES NOT (2026-10-08, founder): after the operating expenses over the
+ * hold (selling and marketing included, now expensed as incurred), and without the fund fees, which sit in
+ * their own tile. One sentence for every surface that prints the surplus.
+ */
+export function surplusCaption(operatingExpenses: number, fees: number, money: (v: number) => string): string | undefined {
+  const parts: string[] = [];
+  if (operatingExpenses > 0) parts.push(`after operating expenses of ${money(operatingExpenses)}`);
+  const fund = surplusExcludesFundCaption(fees, money);
+  if (fund) parts.push(fund);
+  return parts.length ? parts.join('; ') : undefined;
+}

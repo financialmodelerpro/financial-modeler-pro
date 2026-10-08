@@ -51,6 +51,12 @@ export interface CapexAggregate {
    * priced. Optional for the same reason as the two above.
    */
   landByPhase?: CapexLandByPhase[];
+  /**
+   * COSTS EXPENSED AS INCURRED (2026-10-08, sellingExpense.ts: marketing), on the project axis. NOT capex:
+   * none of the series above contains it. The P&L charges it as an operating expense in the period it is
+   * incurred and the cash flow pays it then. Optional for the same reason as the fields above.
+   */
+  expensedPerPeriod?: number[];
 }
 
 export interface CapexLandByPhase {

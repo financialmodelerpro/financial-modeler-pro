@@ -29,15 +29,18 @@ import { terminalMetricIndex, type TerminalValueBasis } from '@/src/core/calcula
 export const METRIC_LABELS = {
   developmentSurplusBefore: 'Development Surplus before Finance',
   developmentSurplusAfter: 'Development Surplus after Finance',
+  operatingExpenses: 'Operating Expenses',
   /** Each one's SHARE OF ALL SOURCES (2026-09-29, export review item 10), not a debt-to-equity ratio:
    *  called "Debt / Equity" it read 35.8% / 20.8% two rows above a capital stack of 63.3 / 25.6 / 11.1. */
   shareOfSources: 'Debt / equity, share of all sources',
 } as const;
 
 export const METRIC_CAPTIONS = {
-  /** GDV less development cost: an appraisal figure, before operating costs and fund fees. */
-  developmentSurplusBefore: 'GDV less development cost',
-  developmentSurplusAfter: 'less finance cost; before opex, fees and tax',
+  /** GDV less development cost and the operating expenses over the same years (2026-10-08: the GDV counts
+   *  operating revenue, so the surplus deducts what earning it cost, selling and marketing included). */
+  developmentSurplusBefore: 'GDV less development cost and operating expenses',
+  developmentSurplusAfter: 'less finance cost; before fund fees and tax',
+  operatingExpenses: 'to the exit, selling and marketing included',
   developmentMargin: 'surplus after finance / GDV',
   shareOfSources: 'not a D/E ratio; sales and operations fund the rest',
   /** MOIC on the levered free-cash-flow stream. */

@@ -265,6 +265,8 @@ export const stage7Returns: LiveLayer = {
     const sumA = (r: number): string => w.rangeA(CALC, r, cT(0), cT(N - 1));
     const gdv = (): string => `SUM(${w.rangeA('P&L', w.addr('pl|__all__||Total Revenue').row, pc(0), pc(X))})`;
     const tdc = (): string => `SUM(${w.rangeA('Financing Calc', w.addr('fnc:capexall').row, 4, 4 + N - 1)})`;
+    // The operating expenses over the same years as the GDV (2026-10-08): the P&L row is printed negative.
+    const opx = (): string => `(-SUM(${w.rangeA('P&L', w.addr('pl|__all__||Total Operating Expenses').row, pc(0), pc(X))}))`;
     const tfc = (): string => `SUM(${w.rangeA('Financing Calc', w.addr('fnc:main:interest').row, 4, 4 + N - 1)})`;
     const invested = (): string => `MAX(0,SUM(${sumA(eqCash)})+SUM(${sumA(inKind)}))`;
     const distTotal = (): string => `(SUM(${sumA(div)})+${sc3(tvDist)})`;
@@ -348,10 +350,11 @@ export const stage7Returns: LiveLayer = {
     // Development economics.
     const DE = 'Development Economics';
     kpi(DE, 'Total Development Cost', () => moneyT(tdc()));
+    kpi(DE, METRIC_LABELS.operatingExpenses, () => moneyT(opx()));
     kpi(DE, 'Total Financing Cost', () => moneyT(tfc()));
-    kpi(DE, METRIC_LABELS.developmentSurplusBefore, () => moneyT(`(${gdv()}-${tdc()})`));
-    kpi(DE, METRIC_LABELS.developmentSurplusAfter, () => moneyT(`(${gdv()}-${tdc()}-${tfc()})`));
-    kpi(DE, 'Development Margin', () => ratioT(`${gdv()}-${tdc()}-${tfc()}`, gdv()));
+    kpi(DE, METRIC_LABELS.developmentSurplusBefore, () => moneyT(`(${gdv()}-${tdc()}-${opx()})`));
+    kpi(DE, METRIC_LABELS.developmentSurplusAfter, () => moneyT(`(${gdv()}-${tdc()}-${opx()}-${tfc()})`));
+    kpi(DE, 'Development Margin', () => ratioT(`${gdv()}-${tdc()}-${opx()}-${tfc()}`, gdv()));
 
     // Equity partners.
     {

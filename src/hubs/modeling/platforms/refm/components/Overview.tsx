@@ -22,7 +22,7 @@ import { useModule1Store } from '../lib/state/module1-store';
 import { computeFinancialsSnapshot } from '../lib/financials-resolvers';
 import { computeReturnsSnapshot } from '../lib/returns-resolvers';
 import { fundingChartPoints, type FundingYearPoint } from '../lib/portfolio/fundingSeries';
-import { buildOverviewReport, type OverviewReport , fundFeesLife, surplusExcludesFundCaption, FUND_FEES_TILE_LABEL, FUND_FEES_TILE_SUB } from '../lib/reports/overviewReport';
+import { buildOverviewReport, type OverviewReport , fundFeesLife, surplusCaption, FUND_FEES_TILE_LABEL, FUND_FEES_TILE_SUB } from '../lib/reports/overviewReport';
 import { METRIC_LABELS, METRIC_CAPTIONS } from '../lib/reports/metricCaptions';
 
 interface OverviewProps {
@@ -303,7 +303,7 @@ export default function Overview({ projectName, status }: OverviewProps): React.
       <div style={sectionGrid}>
         <Kpi label="Gross Development Value" value={money(de.gdv)} accent="var(--color-navy)" />
         <Kpi label="Total Development Cost" value={money(rs.totalDevelopmentCost)} sub="land + capex" accent="var(--color-navy)" />
-        <Kpi label={METRIC_LABELS.developmentSurplusAfter} value={money(de.profitAfterFinancing)} sub={surplusExcludesFundCaption(computed?.fundFees ?? 0, money)} accent="var(--color-navy)" />
+        <Kpi label={METRIC_LABELS.developmentSurplusAfter} value={money(de.profitAfterFinancing)} sub={surplusCaption(de.operatingExpenses, computed?.fundFees ?? 0, money)} accent="var(--color-navy)" />
         {(computed?.fundFees ?? 0) > 0 && <Kpi label={FUND_FEES_TILE_LABEL} value={money(computed?.fundFees ?? 0)} sub={FUND_FEES_TILE_SUB} accent="var(--color-navy)" />}
         <Kpi label="Development Margin" value={pct(de.developmentMargin)} sub="profit / GDV" accent="var(--color-navy)" />
       </div>

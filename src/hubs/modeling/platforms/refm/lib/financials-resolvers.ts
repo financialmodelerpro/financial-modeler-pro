@@ -141,6 +141,8 @@ export interface ProjectPL {
   hospitalityOpexPerPeriod: number[];
   retailOpexPerPeriod: number[];
   hqOpexPerPeriod: number[];
+  /** Selling and marketing expensed as incurred (2026-10-08, sellingExpense.ts); inside totalOpexPerPeriod. */
+  sellingExpensePerPeriod: number[];
   totalOpexPerPeriod: number[];
   // Profit waterfall
   /** EBITDA, struck AFTER the fund fees (2026-08-05, reference alignment).
@@ -192,6 +194,8 @@ export interface ProjectDirectCF {
   netRevenueAdjustmentPerPeriod: number[]; // = release - held
   opexPaidPerPeriod: number[];             // negative
   hqOpexPaidPerPeriod: number[];           // negative
+  /** Selling and marketing paid, in the period it is charged (2026-10-08). */
+  sellingExpensePaidPerPeriod: number[];   // negative
   /** Fund layer Step 3 (2026-08-04): fund fees PAID, negative. Paid in the
    *  period charged (no payable), which is what keeps the balance sheet
    *  balanced by construction: the expense reduces retained earnings through
@@ -2065,8 +2069,13 @@ function computeFinancialsSnapshotOnce(
   for (let t = 0; t < N; t++) totalRev[t] = residentialRev[t] + hospitalityRev[t] + retailRev[t];
 
   const hqOpex = opex.hq.totalOpexPerPeriod.slice(0, N);
+  // SELLING AND MARKETING, EXPENSED AS INCURRED (2026-10-08, sellingExpense.ts): the capex engine keeps it
+  // out of every capex series and hands it over on the project axis; it is an operating expense here and
+  // paid in the period it is charged (no payables days), exactly as the fund fees are.
+  const sellingExpense = (financing.capex.expensedPerPeriod ?? []).slice(0, N);
+  while (sellingExpense.length < N) sellingExpense.push(0);
   const totalOpex = zeros(N);
-  for (let t = 0; t < N; t++) totalOpex[t] = hospOpex[t] + retailOpex[t] + hqOpex[t];
+  for (let t = 0; t < N; t++) totalOpex[t] = hospOpex[t] + retailOpex[t] + hqOpex[t] + sellingExpense[t];
 
   // Project D&A = base depreciation + IDC-derived depreciation
   // (Operate/Lease assets only, Sell assets recover IDC via CoS instead).
@@ -2148,6 +2157,7 @@ function computeFinancialsSnapshotOnce(
     hospitalityOpexPerPeriod: hospOpex,
     retailOpexPerPeriod: retailOpex,
     hqOpexPerPeriod: hqOpex,
+    sellingExpensePerPeriod: sellingExpense,
     totalOpexPerPeriod: totalOpex,
     ebitdaPerPeriod: ebitda,
     ebitdaBeforeFundFeesPerPeriod: ebitdaBeforeFundFees,
@@ -2265,7 +2275,7 @@ function computeFinancialsSnapshotOnce(
   const inKindForExit = financing.equity.inKindPerPeriod;
   const fcffForExit = zeros(N);
   for (let t = 0; t < N; t++) {
-    const cfoBeforeGainTax = revRcvProject[t] + netRevAdj[t] - opexPaidProject[t] - hqOpexPaid[t] - fundFees[t] - taxArr[t];
+    const cfoBeforeGainTax = revRcvProject[t] + netRevAdj[t] - opexPaidProject[t] - hqOpexPaid[t] - sellingExpense[t] - fundFees[t] - taxArr[t];
     fcffForExit[t] = cfoBeforeGainTax - (capexCashForExit[t] ?? 0) - (inKindForExit[t] ?? 0);
   }
   const exitValuation = valueAtExit({
@@ -2342,7 +2352,7 @@ function computeFinancialsSnapshotOnce(
     // arrays, so a fee lowers available cash and the gap sizes more funding to
     // keep the minimum reserve. No extra plumbing, and no way to book the fee
     // in the P&L while forgetting the cash.
-    cashFromOps[t] = revRcvProject[t] + netRevAdj[t] - opexPaidProject[t] - hqOpexPaid[t] - fundFees[t] - taxPaidArr[t];
+    cashFromOps[t] = revRcvProject[t] + netRevAdj[t] - opexPaidProject[t] - hqOpexPaid[t] - sellingExpense[t] - fundFees[t] - taxPaidArr[t];
   }
 
   // Capex: project total per-period from financing engine.
@@ -2622,6 +2632,7 @@ function computeFinancialsSnapshotOnce(
     netRevenueAdjustmentPerPeriod: netRevAdj,
     opexPaidPerPeriod: opexPaidProject.map((v) => -v),
     hqOpexPaidPerPeriod: hqOpexPaid.map((v) => -v),
+    sellingExpensePaidPerPeriod: sellingExpense.map((v) => -v),
     fundFeesPaidPerPeriod: fundFees.map((v) => -v),
     taxPaidPerPeriod: taxPaidArr.map((v) => -v),
     cashFromOperationsPerPeriod: cashFromOps,

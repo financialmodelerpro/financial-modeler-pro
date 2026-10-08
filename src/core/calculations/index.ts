@@ -54,6 +54,7 @@
  */
 
 import { phaseHasModelCapex } from './modelCapex';
+import { isExpensedAsIncurred } from './sellingExpense';
 import type {
   Project,
   Phase,
@@ -1687,6 +1688,16 @@ export interface AssetCostBreakdown {
    * caption, so the number shown is the number used.
    */
   selectedBaseByLineId: Record<string, number>;
+  /** Costs expensed as incurred (marketing, sellingExpense.ts), on the same local axis; never in the
+   *  capex figures above. The P&L charges them as an operating expense (2026-10-08). */
+  expensed: AssetExpensedCosts;
+}
+
+export interface AssetExpensedCosts {
+  byLineId: Record<string, number>;
+  perLinePerPeriod: Record<string, number[]>;
+  total: number;
+  perPeriod: number[];
 }
 
 export interface ResolvedLineWindow {
@@ -1770,6 +1781,7 @@ function emptyAssetCostBreakdown(phase: { constructionPeriods: number }): AssetC
     perLinePerPeriod: {},
     resolvedWindowByLineId: {},
     selectedBaseByLineId: {},
+    expensed: { byLineId: {}, perLinePerPeriod: {}, total: 0, perPeriod: new Array<number>(cpZero).fill(0) },
   };
 }
 
@@ -2317,9 +2329,36 @@ export function computeAssetCost(input: ComputeAssetCostInput): AssetCostBreakdo
     perPeriodLandInKind[i] = perPeriodLandInKind[i] ?? 0;
   }
 
+  // MARKETING IS EXPENSED AS INCURRED, NOT CAPITALISED (2026-10-08, founder: IAS 2 excludes selling
+  // costs, marketing among them, from the cost of inventory). A marketing-stage line (sellingExpense.ts,
+  // the ONE rule) leaves the capex breakdown entirely, so every reader of an asset's capex (the
+  // aggregate, fixed assets, cost of sales, financing, the capex report, the live workbook) excludes it
+  // with nothing to restate, and lands in `expensed` on the same local axis, which the P&L charges as an
+  // operating expense in the period it is incurred. Commission stays capitalised (a soft line released
+  // through cost of sales as the revenue is recognised, the IFRS 15 timing for a cost of obtaining a
+  // contract).
+  const expensed: AssetExpensedCosts = { byLineId: {}, perLinePerPeriod: {}, total: 0, perPeriod: new Array<number>(perPeriod.length).fill(0) };
+  for (const r of resolved) {
+    if (!isExpensedAsIncurred(r.line)) continue;
+    const t = byLineId[r.line.id] ?? 0;
+    const dist = perLinePerPeriod[r.line.id] ?? [];
+    expensed.byLineId[r.line.id] = t;
+    if (dist.length) expensed.perLinePerPeriod[r.line.id] = dist;
+    expensed.total += t;
+    for (let i = 0; i < dist.length; i++) {
+      expensed.perPeriod[i] = (expensed.perPeriod[i] ?? 0) + (dist[i] ?? 0);
+      perPeriod[i] = (perPeriod[i] ?? 0) - (dist[i] ?? 0);
+    }
+    total -= t;
+    byStage[deriveCostStage(r.line)] -= t;
+    delete byLineId[r.line.id];
+    delete perLinePerPeriod[r.line.id];
+  }
+  for (let i = 0; i < expensed.perPeriod.length; i++) expensed.perPeriod[i] = expensed.perPeriod[i] ?? 0;
+
   return {
     byLineId, byStage, total, perPeriod, perPeriodLandTotal, perPeriodLandInKind,
-    perLinePerPeriod, resolvedWindowByLineId, selectedBaseByLineId,
+    perLinePerPeriod, resolvedWindowByLineId, selectedBaseByLineId, expensed,
   };
 }
 

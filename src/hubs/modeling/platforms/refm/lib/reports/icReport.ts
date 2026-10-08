@@ -524,6 +524,8 @@ export function buildICReportModel(input: {
   const valueBridge: ICBridgeRow[] = [
     { label: 'Gross development value', value: de.gdv },
     { label: 'less Total development cost', value: -de.totalDevelopmentCost },
+    // 2026-10-08: the surplus deducts the operating expenses over the hold, so the bridge carries the row.
+    { label: 'less Operating expenses', value: -de.operatingExpenses },
     { label: METRIC_LABELS.developmentSurplusBefore, value: de.profitBeforeFinancing, emphasis: true },
     { label: 'less Financing cost', value: -de.totalFinancingCost },
     { label: METRIC_LABELS.developmentSurplusAfter, value: de.profitAfterFinancing, emphasis: true },

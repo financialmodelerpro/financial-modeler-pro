@@ -137,7 +137,8 @@ export const stage9InputLinks: LiveLayer = {
       for (const k of reg.keys()) {
         if (!k.startsWith('inpcx:')) continue;
         const [, plot, line] = k.split(':');
-        const calcKey = `cxc:${plot}:${line}`;
+        // An expensed line's working row is `cxe:` (stage 2), every other line's `cxc:`.
+        const calcKey = w.has(`cxc:${plot}:${line}`) ? `cxc:${plot}:${line}` : `cxe:${plot}:${line}`;
         const row = reg.get(k)!.row;
         const I = (col: number) => ({ sheet: INPUTS, row, col });
         if (!w.has(calcKey)) { for (const col of [3, 6, 7]) declaredCapex.set(cellId(INPUTS, row, col), 'This plot does not price the line in the live workbook.'); continue; }

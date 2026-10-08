@@ -58,6 +58,7 @@ import { assetVisibleLines, allowedSelectedIds } from '@/src/core/calculations/s
 import { isParcelDrivenLandLine, resolvePhasingSource, collectionsForAsset } from '@/src/core/calculations/capexPhasing';
 import { isRetailCompanion } from '@/src/core/calculations/retailCompanion';
 import { resolveSellingCostBasis, isSellingCostMethod } from '@/src/core/calculations/revenue/sellingCosts';
+import { isExpensedAsIncurred } from '@/src/core/calculations/sellingExpense';
 import { standardTypeIdFor, standardIdentity, pickStandardRate } from '../../state/costStandards';
 import { deriveLineBaseId } from '../../state/module1-types';
 import type { Asset, CostLine, CostOverride, Phase } from '../../state/module1-types';
@@ -166,7 +167,10 @@ export const stage2Capex: LiveLayer = {
         else if (src === 'land_cash') mode = 'land_cash';
         else if (src === 'collections') mode = 'collections';
         else if (src !== 'own') refuse.push(`${where} follows ${src}`);
-        calc.push({ asset: a, line, method, row: 0, key: `cxc:${a.id}:${line.id}`, mode, follows: line.windowFollowsConstruction === true, disabled, stdKey, base });
+        // A line EXPENSED AS INCURRED (marketing, sellingExpense.ts) keeps its working row, priced exactly as
+        // before, under its own key namespace `cxe:`: every stage that sums a plot's capex scans `cxc:`, so it
+        // excludes the line with nothing to restate, as computeAssetCost does on the platform (2026-10-08).
+        calc.push({ asset: a, line, method, row: 0, key: `${isExpensedAsIncurred(line) ? 'cxe' : 'cxc'}:${a.id}:${line.id}`, mode, follows: line.windowFollowsConstruction === true, disabled, stdKey, base });
       }
     }
     // Every pooled line must file under one category, and the check the layout rests on.

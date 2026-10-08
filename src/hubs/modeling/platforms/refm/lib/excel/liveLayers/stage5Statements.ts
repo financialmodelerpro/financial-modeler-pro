@@ -34,7 +34,7 @@ import { isRevenueSubUnit, isLandValueLine } from '@/src/core/calculations';
 import { getFinancialLabels, defaultTerminologyForCountry } from '@/src/core/calculations/financials';
 import { computeFinancialsSnapshot } from '../../financials-resolvers';
 import { planRevenueLines, lineForAsset } from '../../revenueLines';
-import { buildPLRows, buildDirectCFRows, buildIndirectCFRows, buildBSRows } from '../../reports/m4Reports';
+import { buildPLRows, buildDirectCFRows, buildIndirectCFRows, buildBSRows, SELLING_EXPENSE_LABEL } from '../../reports/m4Reports';
 import { planReportLines, lineRowLabel, sumLine } from '../../reports/lineRows';
 import { hospitalityStatementsByLine, hospitalityRevenueParts, hospitalityCostParts, HOSPITALITY_COST_GROUPS } from '../../reports/hospitalityStatement';
 import { revenueBySection } from '../../reports/revenueSections';
@@ -111,6 +111,8 @@ export const stage5Statements: LiveLayer = {
     const sumF = (fs: F[]): F => (t) => fs.map((f) => f(t)).join('+') || '0';
     const neg = (f: F): F => (t) => `-(${f(t)})`;
     const hq: F = (t) => sheetAt('Opex Calc', 'oxc:hq:total', t);
+    const expensedKeys = w.reg.keys().filter((k) => k.startsWith('cxe:') && k.split(':').length === 3);
+    const sellingExp: F = (t) => (expensedKeys.length ? expensedKeys.map((k) => w.refA({ sheet: 'Capex Calc', row: w.addr(k).row, col: w.addr('cxc:P0').col + t })).join('+') : '0');
     const projDep: F = (t) => `${sheetAt('Schedules Calc', 'schg:__project__:dep', t)}${has('schg:__project__:idcDep') ? `+${sheetAt('Schedules Calc', 'schg:__project__:idcDep', t)}` : ''}`;
     const disposed: F = (t) => ['schg:__project__:land:disp', 'schg:__project__:cap:disp', 'schg:__project__:idc:disp'].filter(has).map((k) => sheetAt('Schedules Calc', k, t)).join('+') || '0';
 
@@ -190,7 +192,9 @@ export const stage5Statements: LiveLayer = {
       const retailOpex = sumF(retail.map(assetOpex));
       heads.set('pl-opex-ret', neg(retailOpex));
       groups.set('pl-opex-ret', lineF(new Set(retail.map((a) => a.id)), assetOpex, 'opexPerPeriod').map((m) => ({ label: m.label, f: neg(m.f) })));
-      const totalOpex: F = (t) => `${hospOpex(t)}+${retailOpex(t)}+${hq(t)}`;
+      // Selling and marketing, expensed as incurred (2026-10-08): the plots' `cxe:` working rows on Capex
+      // Calc, summed on the project axis; project level, like HQ.
+      const totalOpex: F = (t) => `${hospOpex(t)}+${retailOpex(t)}+${hq(t)}+${sellingExp(t)}`;
 
       // Walk the emitted rows.
       const seen = new Map<string, number>();
@@ -219,6 +223,7 @@ export const stage5Statements: LiveLayer = {
           f = m.f;
         } else if (r.label === 'Total Revenue') f = totalRev;
         else if (r.label.startsWith('HQ Expenses')) f = neg(hq);
+        else if (r.label.startsWith(SELLING_EXPENSE_LABEL)) f = neg(sellingExp);
         else if (r.label === 'Total Operating Expenses') f = neg(totalOpex);
         else if (r.label === labels.ebitda && phaseFiltered) f = (t) => `${cell(K('Total Revenue'), t)}-(${cosTotal(t)})-(${totalOpex(t)})`;
         else if (!phaseFiltered) {
@@ -384,10 +389,11 @@ export const stage5Statements: LiveLayer = {
         else if (L === 'Less: Inaccessible Funds Locked') f = phaseFiltered ? neg(phaseEscrow('held')) : (t) => `-${revCell(escB('Total Additions'), t)}`;
         else if (L === 'Add: Release of Inaccessible Funds') f = phaseFiltered ? phaseEscrow('release') : (t) => `-${revCell(escB('Less: Release of Locked Funds'), t)}`;
         else if (L.startsWith('HQ Expenses')) f = neg(hqPaid);
+        else if (L.startsWith(SELLING_EXPENSE_LABEL)) f = neg(sellingExp);
         else if (L === '= Residential Cash Collection') f = (t) => `${sumF(res.map(revRcv))(t)}-(${sumF(res.map(opexPaid))(t)})`;
         else if (L === '= Hospitality EBITDA') f = (t) => `${sumF(hosp.map(revRcv))(t)}-(${sumF(hosp.map(opexPaid))(t)})`;
         else if (L === '= Retail NOI') f = (t) => `${sumF(ret.map(revRcv))(t)}-(${sumF(ret.map(opexPaid))(t)})`;
-        else if (L === 'Total Operating Expenses Paid') f = (t) => `-(${sumF(all.map(opexPaid))(t)})-${hqPaid(t)}`;
+        else if (L === 'Total Operating Expenses Paid') f = (t) => `-(${sumF(all.map(opexPaid))(t)})-${hqPaid(t)}-(${sellingExp(t)})`;
         else if (L === 'Fund Management and Other Expenses') f = (t) => `-(${feeRows.map((fr) => at(fr, t)).join('+') || '0'})`;
         else if (L === labels.taxPaid) { const tk = plKey(`${labels.tax} (`); if (tk) f = (t) => w.refA({ sheet: PL, row: w.addr(tk).row, col: pc(t) }); }
         else if (L === 'Cash Flow from Operations') {

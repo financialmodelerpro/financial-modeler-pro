@@ -30,6 +30,9 @@ import { buildAccountsReceivableDSO } from '@/src/core/calculations/revenue/acco
 
 type Labels = ReturnType<typeof getFinancialLabels>;
 
+/** Selling and marketing expensed as incurred (2026-10-08): the one label every statement prints. */
+export const SELLING_EXPENSE_LABEL = 'Selling & Marketing Expenses';
+
 export interface M4ReportCtx {
   snap: ProjectFinancialsSnapshot;
   state: FinancialsResolverState;
@@ -178,7 +181,11 @@ export function buildPLRows(ctx: M4ReportCtx): M4Row[] {
   const hospOpex = phaseFiltered ? sumAssetsSeries(hospitalityAssets, 'opexPerPeriod') : p.hospitalityOpexPerPeriod;
   const retailOpex = phaseFiltered ? sumAssetsSeries(retailAssets, 'opexPerPeriod') : p.retailOpexPerPeriod;
   const hqOpex = p.hqOpexPerPeriod;
-  const totalOpex = hospOpex.map((v, i) => v + retailOpex[i] + hqOpex[i]);
+  // Selling and marketing, expensed as incurred (2026-10-08, sellingExpense.ts): project level, like HQ.
+  const sellingExp = p.sellingExpensePerPeriod ?? hqOpex.map(() => 0);
+  // THE ENGINE'S OWN SUBTOTAL where it has one (TRAPS 7.51): a recomputed total cannot see a row added above
+  // it. Only the phase filter, which the engine does not total, sums here.
+  const totalOpex = phaseFiltered ? hospOpex.map((v, i) => v + retailOpex[i] + hqOpex[i] + (sellingExp[i] ?? 0)) : p.totalOpexPerPeriod;
 
   // D&A: per-asset depreciation + IDC NBV depreciation (IDC allocated by
   // phase land-sqm share under filter).
@@ -323,6 +330,9 @@ export function buildPLRows(ctx: M4ReportCtx): M4Row[] {
   }
   if (hqOpex.some((v) => v !== 0)) {
     rows.push({ label: `HQ Expenses${projTag}`, values: negArr(hqOpex), indent: 1 });
+  }
+  if (sellingExp.some((v) => v !== 0)) {
+    rows.push({ label: `${SELLING_EXPENSE_LABEL}${projTag}`, values: negArr(sellingExp), indent: 1 });
   }
   rows.push({ label: 'Total Operating Expenses', values: negArr(totalOpex), isSubtotal: true });
 
@@ -953,6 +963,10 @@ export function buildDirectCFRows(ctx: M4ReportCtx): M4Row[] {
   if (d.hqOpexPaidPerPeriod.some((v) => v !== 0)) {
     rows.push({ label: `HQ Expenses${projTag}`, values: d.hqOpexPaidPerPeriod, indent: 1 });
   }
+  const sellingPaid = d.sellingExpensePaidPerPeriod ?? d.hqOpexPaidPerPeriod.map(() => 0);
+  if (sellingPaid.some((v) => v !== 0)) {
+    rows.push({ label: `${SELLING_EXPENSE_LABEL}${projTag}`, values: sellingPaid, indent: 1 });
+  }
 
   // ITEM E (2026-08-18b): PER-CLASS CONTRIBUTION, struck from the rows above.
   //
@@ -992,7 +1006,7 @@ export function buildDirectCFRows(ctx: M4ReportCtx): M4Row[] {
       for (const c of contribution) rows.push({ label: c.label, values: c.series, isSubtotal: true });
     }
   }
-  const totalOpexPaid = opexPaid.map((v, i) => v + (d.hqOpexPaidPerPeriod[i] ?? 0));
+  const totalOpexPaid = opexPaid.map((v, i) => v + (d.hqOpexPaidPerPeriod[i] ?? 0) + (sellingPaid[i] ?? 0));
   rows.push({ label: 'Total Operating Expenses Paid', values: totalOpexPaid, isSubtotal: true });
 
   // Fund fees paid (2026-08-05). They were ALWAYS inside cash from operations

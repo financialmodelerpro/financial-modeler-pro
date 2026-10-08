@@ -171,9 +171,11 @@ export interface DevelopmentEconomics {
   gdv: number;
   totalDevelopmentCost: number;
   totalFinancingCost: number;
-  /** GDV − total development cost (unlevered profit). */
+  /** Operating expenses over the same years as the GDV (2026-10-08), selling and marketing included. */
+  operatingExpenses: number;
+  /** GDV less total development cost less operating expenses (unlevered profit). */
   profitBeforeFinancing: number;
-  /** GDV − total development cost − total financing cost (levered profit). */
+  /** The same less total financing cost (levered profit). */
   profitAfterFinancing: number;
   /** profitAfterFinancing / GDV (decimal); null if GDV ≤ 0. */
   developmentMargin: number | null;

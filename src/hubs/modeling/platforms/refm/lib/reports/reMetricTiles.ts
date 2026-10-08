@@ -87,6 +87,7 @@ export function buildReMetricDetailGroups(rs: ReturnsSnapshot, debtOutstandingPe
       tiles: [
         { label: 'Gross Development Value', value: money(de.gdv), sub: 'GDV' },
         { label: 'Total Development Cost', value: money(de.totalDevelopmentCost) },
+        { label: METRIC_LABELS.operatingExpenses, value: money(de.operatingExpenses), sub: METRIC_CAPTIONS.operatingExpenses },
         { label: 'Total Financing Cost', value: money(de.totalFinancingCost) },
         { label: METRIC_LABELS.developmentSurplusBefore, value: money(de.profitBeforeFinancing), sub: METRIC_CAPTIONS.developmentSurplusBefore, tone: sign(de.profitBeforeFinancing) },
         { label: METRIC_LABELS.developmentSurplusAfter, value: money(de.profitAfterFinancing), sub: METRIC_CAPTIONS.developmentSurplusAfter, tone: sign(de.profitAfterFinancing) },
