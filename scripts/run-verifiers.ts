@@ -40,6 +40,14 @@
  *                                                    (one count from several batch logs)
  *   --timeout-min N   per-verifier limit (default 40); a verifier over it FAILS as TIMEOUT
  *   --allow-sleep     do not hold the machine awake (it is held awake on Windows by default)
+ *   --batch heavy     the memory-heavy verifiers only (HEAVY), each in its own process with a heap ceiling;
+ *                     the numbered batches leave them out, so a laptop never runs them back to back with the rest
+ *   --resume          skip every verifier that already has a result in a log AT THIS COMMIT (clean tree only),
+ *                     so a run lost to sleep, a lid or memory continues where it stopped
+ *
+ * RESILIENCE (2026-10-09, founder): three runs in a week were lost to a lid, a hibernation and memory.
+ * A process that exits with NO output at all never ran (the hibernation signature: 35 verifiers "failed" in
+ * 0.1 s each) and is logged NORUN, never FAIL; --resume runs it again.
  *
  * THE LOG (2026-10-06, founder): every verifier's name, PASS / FAIL / TIMEOUT,
  * check count and duration is APPENDED to .suite-logs/<run>/suite.log the
@@ -107,7 +115,18 @@ const timeoutIdx = process.argv.indexOf('--timeout-min');
 const TIMEOUT_MS = (timeoutIdx >= 0 ? Number(process.argv[timeoutIdx + 1]) : 40) * 60_000;
 
 /** One verifier's line in the log. The summariser parses exactly this shape. */
-const LOG_LINE = /^\S+ (PASS|FAIL|TIMEOUT) (verify-[\w.-]+\.ts) checks (\d+) \((\d+) passed, (\d+) failed\) ([\d.]+)s$/;
+const LOG_LINE = /^\S+ (PASS|FAIL|TIMEOUT|NORUN) (verify-[\w.-]+\.ts) checks (\d+) \((\d+) passed, (\d+) failed\) ([\d.]+)s$/;
+/**
+ * THE MEMORY-HEAVY VERIFIERS (measured 2026-10-09: each builds several full PDFs or drives Excel). They run
+ * in their own batch, one process each, under a heap ceiling, so they can neither exhaust a laptop's memory
+ * together nor take the light verifiers down with them.
+ */
+const HEAVY = new Set([
+  'verify-pdf-export.ts', 'verify-report-readability.ts', 'verify-report-consistency.ts', 'verify-report-arithmetic.ts',
+  'verify-fund-pdf.ts', 'verify-formula-workbook.ts', 'verify-fund-e2e.ts',
+]);
+const HEAVY_HEAP_MB = 3072;
+const RESUME = process.argv.includes('--resume');
 
 function allVerifiers(): string[] {
   return readdirSync('scripts').filter((f) => f.startsWith('verify-') && f.endsWith('.ts')).sort();
@@ -132,10 +151,12 @@ function keepAwake(): () => void {
 }
 
 /** Runs one verifier, killing its whole process tree if it passes the limit. */
-function runOne(args: string[]): Promise<{ status: 'PASS' | 'FAIL' | 'TIMEOUT'; out: string; secs: number }> {
+function runOne(args: string[], heavy = false): Promise<{ status: 'PASS' | 'FAIL' | 'TIMEOUT' | 'NORUN'; out: string; secs: number }> {
   const t0 = Date.now();
   return new Promise((resolve) => {
-    const child = spawn('npx', args, { shell: true });
+    // A heavy verifier gets a heap ceiling: it fails alone, with a message, instead of starving the machine.
+    const env = heavy ? { ...process.env, NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ''} --max-old-space-size=${HEAVY_HEAP_MB}`.trim() } : process.env;
+    const child = spawn('npx', args, { shell: true, env });
     let out = '';
     child.stdout.on('data', (d) => { out += d; });
     child.stderr.on('data', (d) => { out += d; });
@@ -148,7 +169,9 @@ function runOne(args: string[]): Promise<{ status: 'PASS' | 'FAIL' | 'TIMEOUT'; 
     }, TIMEOUT_MS);
     child.on('close', (code) => {
       clearTimeout(timer);
-      resolve({ status: timedOut ? 'TIMEOUT' : code === 0 ? 'PASS' : 'FAIL', out, secs: (Date.now() - t0) / 1000 });
+      // No output at all and a failing exit: the process never ran (sleep, hibernation, memory), not a failure.
+      const status = timedOut ? 'TIMEOUT' : code === 0 ? 'PASS' : out.trim() === '' ? 'NORUN' : 'FAIL';
+      resolve({ status, out, secs: (Date.now() - t0) / 1000 });
     });
   });
 }
@@ -161,7 +184,7 @@ function summarise(logs: string[]): void {
     const head = text.split(/\r?\n/)[0] ?? '';
     for (const line of text.split(/\r?\n/)) {
       const m = LOG_LINE.exec(line);
-      if (m) latest.set(m[2], { status: m[1], checks: Number(m[3]), log, head });
+      if (m && m[1] !== 'NORUN') latest.set(m[2], { status: m[1], checks: Number(m[3]), log, head });
     }
   }
   const all = allVerifiers();
@@ -194,10 +217,12 @@ async function main(): Promise<void> {
   }
 
   let files = allVerifiers().filter((f) => (FILTER ? f.includes(FILTER) : true));
-  if (BATCH) {
+  if (BATCH === 'heavy') files = files.filter((f) => HEAVY.has(f));
+  else if (BATCH) {
+    const light = files.filter((f) => !HEAVY.has(f));
     const [k, n] = BATCH.split('/').map(Number);
-    const size = Math.ceil(files.length / n);
-    files = files.slice((k - 1) * size, k * size);
+    const size = Math.ceil(light.length / n);
+    files = light.slice((k - 1) * size, k * size);
   }
   const runDir = `.suite-logs/${new Date().toISOString().replace(/[:.]/g, '-')}${BATCH ? `_batch-${BATCH.replace('/', 'of')}` : ''}`;
   mkdirSync(runDir, { recursive: true });
@@ -205,6 +230,22 @@ async function main(): Promise<void> {
   const commit = spawnSync('git', ['rev-parse', '--short', 'HEAD'], { encoding: 'utf8' }).stdout.trim();
   const dirty = spawnSync('git', ['status', '--porcelain', '--untracked-files=no'], { encoding: 'utf8' }).stdout.trim() !== '';
   const creds = haveEnv && !ALLOW_OFFLINE ? 'WITH' : 'WITHOUT';
+  // RESUME: a verifier with a PASS, FAIL or TIMEOUT in a clean-tree log at this commit is done; NORUN is not.
+  if (RESUME) {
+    if (dirty) { console.error('--resume needs a clean tree: a count over a moving tree is not a count.'); process.exit(2); }
+    const done = new Set<string>();
+    for (const d of (existsSync('.suite-logs') ? readdirSync('.suite-logs') : [])) {
+      const p = `.suite-logs/${d}/suite.log`;
+      if (!existsSync(p)) continue;
+      const text = readFileSync(p, 'utf8');
+      const head = text.split(/\r?\n/)[0] ?? '';
+      if (!head.includes(` at ${commit}`) || head.includes('TREE NOT CLEAN')) continue;
+      for (const line of text.split(/\r?\n/)) { const m = LOG_LINE.exec(line); if (m && m[1] !== 'NORUN') done.add(m[2]); }
+    }
+    const before = files.length;
+    files = files.filter((f) => !done.has(f));
+    console.log(`--resume: ${before - files.length} already measured at ${commit}, ${files.length} to run.`);
+  }
   writeFileSync(LOG, `# suite run at ${commit}${dirty ? ' (TREE NOT CLEAN: do not quote this count)' : ''}, ${files.length} verifiers, ${creds} credentials${BATCH ? `, batch ${BATCH}` : ''}\n`);
 
   let passed = 0;
@@ -219,7 +260,7 @@ async function main(): Promise<void> {
     const args = haveEnv && !ALLOW_OFFLINE
       ? ['tsx', `--env-file=${ENV_FILE}`, `scripts/${f}`]
       : ['tsx', `scripts/${f}`];
-    const r = await runOne(args);
+    const r = await runOne(args, HEAVY.has(f));
     const out = r.out;
     writeFileSync(`${runDir}/${f.replace(/\.ts$/, '')}.out`, out);
 
@@ -235,7 +276,7 @@ async function main(): Promise<void> {
     if (skipLines.length) skipped.push({ name: f, lines: [...new Set(skipLines)].slice(0, 4) });
 
     if (r.status === 'PASS') passed++;
-    else failed.push(r.status === 'TIMEOUT' ? `${f} (TIMEOUT after ${TIMEOUT_MS / 60_000} min)` : f);
+    else failed.push(r.status === 'TIMEOUT' ? `${f} (TIMEOUT after ${TIMEOUT_MS / 60_000} min)` : r.status === 'NORUN' ? `${f} (NOT RUN: no output; resume runs it again)` : f);
     console.log(`  ${r.status.padEnd(7)} ${f.padEnd(48)} ${String(p + q).padStart(5)} checks ${r.secs.toFixed(1).padStart(7)}s`);
   }
 
