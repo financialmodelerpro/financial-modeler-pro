@@ -581,16 +581,31 @@ export const stage7Returns: LiveLayer = {
       const ys = defaultSensitivityValues('sales_price_pct', cfg.discountRate);
       const xs = defaultSensitivityValues('exit_cap_rate', cfg.discountRate);
       const yLabel = (v: number): string => `${v >= 0 ? '+' : ''}${(v * 100).toFixed(0)}%`;
+      // SIMPLE FORMULAS (2026-10-11): each grid cell's FCFE stream is its own row on the
+      // working sheet (the shock and the cap rate in cells beside it, the terminal equity
+      // in one cell), so the grid cell is an IRR over a short range, not over an inline
+      // array expression repeated per guess.
+      const shockCells = new Map<number, number>(), capCells = new Map<number, number>();
+      const axisCell = (key: string, label: string, v: number): number => {
+        const r = cr++; cs.getCell(r, 1).value = label; w.claim(key, CALC, r, 1);
+        w.valueA(C(r, 3), v); return r;
+      };
+      for (const y of ys) shockCells.set(y, axisCell(`rtc:sens:y:${y}`, `sensitivity axis: sales price shock ${yLabel(y)}`, y));
+      for (const xv of xs) capCells.set(xv, axisCell(`rtc:sens:x:${xv}`, `sensitivity axis: exit cap rate ${(xv * 100).toFixed(1)}%`, xv));
       for (const y of ys) {
         const rk = `${SE}${yLabel(y)}`;
         if (!has(`${rk}|0`)) continue;
-        xs.forEach((xv, i) => gridCell(rk, i, () => {
-          const evx = `MAX(0,${at(noi, M)}*${1 + y}/${xv})`;
-          const eq = `MAX(0,${evx}-MAX(0,${at(debt, X)}))`;
-          const stream = `${rngS(sbFe)}+${y}*${rngS(sbCfo)}+${rngS(sbEx)}*(${eq}+${sc3(held)})`;
-          return `IFERROR(${irrOf(stream)},"n/a")`;
-        }));
+        xs.forEach((xv, i) => {
+          const yc = (): string => sc3(shockCells.get(y)!), xc = (): string => sc3(capCells.get(xv)!);
+          const tag = `${yLabel(y)} / ${(xv * 100).toFixed(1)}%`;
+          const eq = cellS(`rtc:sens:eq:${y}:${xv}`, `sensitivity ${tag}: terminal equity plus cash released`,
+            () => `MAX(0,MAX(0,${at(noi, M)}*(1+${yc()})/${xc()})-MAX(0,${at(debt, X)}))+${sc3(held)}`);
+          const st = rowS(`rtc:sens:fe:${y}:${xv}`, `sensitivity ${tag}: FCFE`,
+            (s) => `${w.refA(C(sbFe, 4 + s))}+${yc()}*${w.refA(C(sbCfo, 4 + s))}${s === X + 1 ? `+${sc3(eq)}` : ''}`);
+          gridCell(rk, i, () => `IFERROR(${irrOf(rngS(st))},"n/a")`);
+        });
       }
+      void sbEx;
       void sbFf;
     }
 

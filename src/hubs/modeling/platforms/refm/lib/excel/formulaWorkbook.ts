@@ -49,6 +49,7 @@ import { stage7dSummary } from './liveLayers/stage7dSummary';
 import { stage8Schedules, stage8FundFees } from './liveLayers/stage8Schedules';
 import { stage8Capex7 } from './liveLayers/stage8Capex7';
 import { stage9InputLinks } from './liveLayers/stage9InputLinks';
+import { simplifyWorkbook } from './liveLayers/simplify';
 
 export type SheetStatus = 'live' | 'partial' | 'values' | 'values-by-design' | 'front';
 
@@ -144,6 +145,9 @@ export function buildFormulaWorkbook(opts: BuildModelOptions): FormulaWorkbookRe
   }
   // Pending settles to a fixed point: a formula written before a pending cell it reads is pending too.
   settlePending(pending);
+  // SIMPLE FORMULAS (founder, 2026-10-11): sum chains become SUM over ranges and terms
+  // that add nothing go, the arithmetic unchanged (liveLayers/simplify.ts).
+  simplifyWorkbook(wb);
   // A layer's hidden working sheet is not a tab the reader sees, so it gets no status line.
   for (const ws of wb.worksheets) if (ws.state !== 'visible' && ws.state !== undefined) status.delete(ws.name);
   relabel(wb, status);
