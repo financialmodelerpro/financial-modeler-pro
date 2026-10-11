@@ -64,7 +64,16 @@ const S = (a: readonly number[]): number => a.reduce((s, v) => s + (v ?? 0), 0);
   const R = 'src/hubs/modeling/platforms/refm/';
   const surfaces = ['components/modules/Module4PL.tsx', 'lib/pdf/generateProjectPdf.ts', 'lib/excel/buildModelWorkbook.ts'].filter((f) => !readFileSync(R + f, 'utf8').includes('taxBasisNote('));
   check('the P&L screen, the PDF and the workbook print the one sentence', surfaces.length === 0, surfaces.join(', '));
-  check('the live formula layer refuses a basis it does not mirror', /basis === 'cit'\) refuse\.push/.test(readFileSync(R + 'lib/excel/liveLayers/stage5Statements.ts', 'utf8')));
+  // RE-AIMED 2026-10-11: the live formula layer used to REFUSE the cit basis; it now MIRRORS
+  // it (liveLayers/taxRule.ts, the formula twin of chargeTax, proved in real Excel by
+  // verify-formula-workbook on a cit copy). The rule is "mirror or refuse, never ignore":
+  // both P&L and solve read the twin, the twin reads the core cap, and no refusal is left.
+  const L5 = readFileSync(R + 'lib/excel/liveLayers/stage5Statements.ts', 'utf8');
+  const L6 = readFileSync(R + 'lib/excel/liveLayers/stage6Financing.ts', 'utf8');
+  const twin = readFileSync(R + 'lib/excel/liveLayers/taxRule.ts', 'utf8');
+  check('the live formula layer mirrors the cit basis: the P&L and the financing solve both build the loss relief from the one formula twin, on the core 25% cap',
+    [L5, L6].every((s) => /basis === 'cit'/.test(s) && /citReliefF\(/.test(s) && /citPoolF\(/.test(s)) && /CIT_LOSS_RELIEF_CAP/.test(twin)
+      && !/basis === 'cit'\) refuse\.push/.test(L5));
 
   // Marina Gate: zakat, unchanged, and the sentence names its losses.
   const live = await readLiveProjectVersion();
