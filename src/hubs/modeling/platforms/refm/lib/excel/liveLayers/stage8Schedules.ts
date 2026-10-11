@@ -75,6 +75,18 @@ export const stage8Schedules: LiveLayer = {
             : rule(t);
           w.fA({ sheet: SCH, row: r, col: pc(t) }, f);
         }
+        // The Total / Closing column: a balance shows its last year, a flow its sum, read
+        // off how the platform totalled this row (fixedAssetReports' `aggregation`).
+        const tot = w.platformValue({ sheet: SCH, row: r, col: TOTAL_COL });
+        if (typeof tot === 'number') {
+          const vals = Array.from({ length: N }, (_, t) => Number(w.platformValue({ sheet: SCH, row: r, col: pc(t) }) ?? 0));
+          const last = vals[N - 1] ?? 0, sum = vals.reduce((s, v) => s + v, 0);
+          const near = (a: number, b: number): boolean => Math.abs(a - b) <= Math.max(0.005, Math.abs(b) * 1e-9);
+          const balance = /opening|closing|cumulative|outstanding/i.test(label(k));
+          const kind = near(tot, last) && (balance || !near(tot, sum)) ? 'last' : near(tot, sum) ? 'sum' : null;
+          if (kind === 'last') w.fA({ sheet: SCH, row: r, col: TOTAL_COL }, w.refA({ sheet: SCH, row: r, col: pc(N - 1) }));
+          else if (kind === 'sum') w.fA({ sheet: SCH, row: r, col: TOTAL_COL }, `SUM(${w.rangeA(SCH, r, pc(0), pc(N - 1))})`);
+        }
       }
       done.push(name);
     };
