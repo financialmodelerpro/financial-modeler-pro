@@ -531,7 +531,16 @@ function perturbations(input: LiveExportInputs, reg: CellRegistry): Perturbation
     out.push({ movesRevenue: false, label: `the exit cap rate to ${(cap * 100).toFixed(2)}%`, cell: 'ret|Exit Cap Rate (%)', col: RC.TOTAL, value: cap,
       edit: (s) => { s.project.returns = { ...(s.project.returns ?? {}), capRate: cap }; } });
   } else out.push({ label: 'the exit cap rate', skip: 'no typed exit cap rate on the Returns sheet' });
-  const ft = st.project.fundTerms;
+  // 2026-10-11: the EXIT MULTIPLE (the platform's default method) is live too. On a copy
+  // valued at 12x the capitalised income, the multiple moves to 13x: the proceeds, the
+  // gain, the debt repaid at the exit, every stream and the exit-year analysis follow.
+  if (ret.terminalMethod !== 'exit_multiple') {
+    const toMultiple = (m: number) => (s: Snap): void => { s.project.returns = { ...(s.project.returns ?? {}), terminalMethod: 'exit_multiple', exitMultiple: m }; };
+    out.push({ movesRevenue: false, label: 'the exit multiple 12x to 13x (on a copy valued by exit multiple)', cell: 'ret|Exit Multiple (x stabilised NOI)', col: RC.TOTAL, value: 13,
+      edit: toMultiple(13), variant: toMultiple(12) });
+  } else out.push({ movesRevenue: false, label: `the exit multiple to ${(ret.exitMultiple ?? 0) + 1}x`, cell: 'ret|Exit Multiple (x stabilised NOI)', col: RC.TOTAL, value: (ret.exitMultiple ?? 0) + 1,
+    edit: (s) => { s.project.returns = { ...(s.project.returns ?? {}), exitMultiple: (ret.exitMultiple ?? 0) + 1 }; } });
+  const ft =st.project.fundTerms;
   if (ft?.enabled && reg.get('ft:Hurdle rate (preferred return)')) {
     const h = (ft.hurdleRatePct ?? 0) + 0.04;
     out.push({ movesRevenue: false, label: `the hurdle rate to ${(h * 100).toFixed(1)}%`, cell: 'ft:Hurdle rate (preferred return)', value: h,
@@ -730,7 +739,9 @@ function formulaCells(wb: ExcelJS.Workbook): Map<string, { formula: string; resu
 }
 
 (async () => {
-  const input = await loadLiveExportInputs();
+  // --project <id> proves another open project (B in full; C's rules may find no target there).
+  const projAt = process.argv.indexOf('--project');
+  const input = await loadLiveExportInputs(projAt > 0 ? process.argv[projAt + 1] : undefined);
   const opts = { state: input.state, projectName: input.projectName, dateLabel: 'verify', caseComparison: input.caseComparison, parties: input.parties, includeSensitivity: true };
   console.log(`Project: ${input.projectName}, version ${input.versionLabel ?? '(unlabelled)'}\n`);
 
@@ -910,7 +921,11 @@ function formulaCells(wb: ExcelJS.Workbook): Map<string, { formula: string; resu
     // --no-c skips the input changes, for iterating on B; the committed proof runs them.
     if (process.argv.includes('--no-c')) check('C skipped by --no-c (iteration only; never a proof)', false);
     const liveResult = { wb, registry, plain, path, opts, pending: buildPending };
-    for (const pt of process.argv.includes('--no-c') ? [] : perturbations(input, registry)) {
+    // --only <text> runs the input changes whose label contains the text, for iterating;
+    // like --no-c it is never a proof, so it reports itself as a failure.
+    const onlyAt = process.argv.indexOf('--only'), only = onlyAt > 0 ? process.argv[onlyAt + 1] ?? '' : '';
+    if (only) check(`C filtered by --only "${only}" (iteration only; never a proof)`, false);
+    for (const pt of process.argv.includes('--no-c') ? [] : perturbations(input, registry).filter((x) => !only || x.label.includes(only))) {
       if ('skip' in pt) { check(`C ${pt.label}`, false, `no target on this model: ${pt.skip}`); continue; }
       // The workbook under test: the export itself, or a copy made for a branch the live model lacks.
       let base = liveResult;

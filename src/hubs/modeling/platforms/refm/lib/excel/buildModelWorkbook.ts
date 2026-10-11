@@ -95,7 +95,7 @@ import { priceKeyFor, hasDualPrice } from '../state/subUnitPrices';
 import type { Asset, Phase, SubUnit } from '../state/module1-types';
 import { computeSubUnitArea, resolveSubUnitMetric, keysFromArea } from '@/src/core/calculations';
 import { applyIndexation, buildAccountsReceivable, buildUnearnedRevenue } from '@/src/core/calculations/revenue';
-import { defaultHQOpexLines, normalizeOpexIndexation, type OpexLine } from '@/src/core/calculations/opex';
+import { hqOpexLinesInForce, normalizeOpexIndexation, type OpexLine } from '@/src/core/calculations/opex';
 import type { IndexationConfig } from '@/src/core/calculations/revenue/types';
 import { assetPlotLabel } from '@/src/core/calculations/assetName';
 import { deriveCostStage, isLandValueLine } from '@/src/core/calculations';
@@ -3038,7 +3038,7 @@ function addOpex(ctx: EmitCtx): OpexLinks {
     em.setRegLine('__hq__');
     em.subTitle('HQ & Corporate Overheads');
     setBasis(ws.getCell(em.cursor() - 1, META_B), 'project-wide');
-    const hqLines = state.project.hqOpex?.lines && state.project.hqOpex.lines.length > 0 ? state.project.hqOpex.lines : defaultHQOpexLines();
+    const hqLines = hqOpexLinesInForce(state.project.hqOpex?.lines);
     const hqDefault = normalizeOpexIndexation(state.project.hqOpex?.defaultIndexation);
     const fullAxis = Array.from({ length: N }, (_, i) => i);
     inflationRows('HQ Inflation', hqDefault, fullAxis);

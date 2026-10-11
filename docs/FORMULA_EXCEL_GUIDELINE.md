@@ -62,8 +62,21 @@ This is the working document for the build. Update the status table at the end o
 | 7 | Lift the 2026-10-06 refusals (CIT loss carry-forward, tax payment lag, per-line receivable days) and cost escalation | refusals removed, each proved on a test copy |
 | 8 | Docs, CHANGELOG, session-end suite | counts stated |
 
-## 5. Status log
+## 5. Findings along the way (for the founder)
+
+- **The five other open projects have no assets** (XYZ, ORA EAST - VILLAS, ABC, Jadan Maroom, the Musoma hall): shells. Marina Gate stays the real test bed; other shapes are proved on COPIES of it (the verifier's variants).
+- **Summary phase EBITDA disagrees with the phase P&L** since 2026-10-08: the overview sums per-asset EBITDA, which leaves out the expensed selling and marketing; the phase P&L deducts it. The live Summary keeps the platform's value for that cell and says so. One rule should win (founder's call).
+- **Excel runs one proof at a time**: a COM start failure (0x80080005) reads as a crash, not a check failure; re-run.
+
+## 6. How to prove a step
+
+- Full proof: `npx tsx --env-file=.env.local scripts/verify-formula-workbook.ts` (about 75 minutes in real Excel).
+- Another project: `--project <id>` (B in full; C's rules may find no target there).
+- Iterating: `--only <label text>` or `--no-c` (both report themselves as a failure, never a proof).
+
+## 7. Status log
 
 | Step | Commit | Result |
 |---|---|---|
-| 0 | (this commit) | guideline written; baseline `verify-formula-workbook` green |
+| 0 | c060dc1c | guideline written; baseline `verify-formula-workbook` 167 / 0 in real Excel |
+| 1 + 2 | (this commit) | exit multiple live (`liveLayers/terminal.ts`, one formula twin read by the solve and the exit-year analysis); HQ default lines shown on Inputs and live (`hqOpexLinesInForce`); the indirect cash flow's cost of sales add-back no longer needs a P&L row that prints only when non-zero. Every open project now builds with no sheet on values (was 7 sheets on values on 5 of 6). Proof: `verify-formula-workbook` 170 / 1 (the one: the Inputs copy of the exit multiple was not linked, fixed in this commit, re-proved with `--only "exit multiple"`); `verify-excel-export` 363 / 0; `verify-report-readability` green |

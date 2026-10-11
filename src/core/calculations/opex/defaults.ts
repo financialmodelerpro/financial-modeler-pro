@@ -119,6 +119,15 @@ export function defaultHQOpexLines(): OpexLine[] {
 }
 
 /**
+ * THE HQ LINES IN FORCE: the stored lines, or the default structure while none is
+ * stored (the engine's rule in opex-resolvers). One reader for every surface that
+ * prints them, so the Inputs sheet, the Opex card and the live workbook agree.
+ */
+export function hqOpexLinesInForce(stored: OpexLine[] | undefined): OpexLine[] {
+  return stored && stored.length > 0 ? stored : defaultHQOpexLines();
+}
+
+/**
  * THE VALUES THIS FILE USED TO SEED (frozen 2026-08-20).
  *
  * Every builder above now seeds a value of ZERO: the line items are the

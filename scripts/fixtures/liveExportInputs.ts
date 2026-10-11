@@ -28,15 +28,16 @@ export interface LiveExportInputs {
   snapshot: ReturnType<typeof loadStoredModel>['snapshot'];
 }
 
-export async function loadLiveExportInputs(): Promise<LiveExportInputs> {
+/** `projectId` defaults to the live reference project; a verifier may name another open project. */
+export async function loadLiveExportInputs(projectId: string = LIVE_PROJECT_ID): Promise<LiveExportInputs> {
   const url = process.env.SUPABASE_URL, key = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !key) throw new Error('no credentials: run with --env-file=.env.local');
   const sb = createClient(url, key, { auth: { persistSession: false } });
-  const { data: projRows, error: projErr } = await sb.from('refm_projects').select('id, name').eq('id', LIVE_PROJECT_ID).limit(1);
+  const { data: projRows, error: projErr } = await sb.from('refm_projects').select('id, name').eq('id', projectId).limit(1);
   if (projErr) throw new Error(`project read: ${projErr.message}`);
   if (!projRows?.length) throw new Error('project not found (deleted or purged?)');
   const { data: verRows, error: verErr } = await sb.from('refm_project_versions').select('snapshot, label, comment')
-    .eq('project_id', LIVE_PROJECT_ID).order('created_at', { ascending: false }).limit(1);
+    .eq('project_id', projectId).order('created_at', { ascending: false }).limit(1);
   if (verErr) throw new Error(`version read: ${verErr.message}`);
   if (!verRows?.length) throw new Error('no saved version');
   const v = verRows[0] as { snapshot: unknown; label: string | null; comment: string | null };
@@ -44,7 +45,7 @@ export async function loadLiveExportInputs(): Promise<LiveExportInputs> {
   const { migrated, state: st, caseComparison: cc } = savedVersionInputs(v.snapshot);
   const state = st as LiveExportInputs['state'];
   const caseComparison = cc as BuildModelOptions['caseComparison'];
-  const { data: partyRows } = await sb.from('refm_parties').select('*').eq('project_id', LIVE_PROJECT_ID);
+  const { data: partyRows } = await sb.from('refm_parties').select('*').eq('project_id', projectId);
   return {
     projectName: (projRows[0] as { name: string }).name,
     versionLabel: v.label, versionComment: v.comment,

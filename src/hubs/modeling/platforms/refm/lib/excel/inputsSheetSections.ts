@@ -30,6 +30,7 @@ import {
   buildStandardsView, buildAssetAreaTables, buildSubUnitLines, type ViewCell, type AssetAreaTables,
 } from '../../components/modules/_shared/assetInputsView';
 import { registerCell } from './cellRegistry';
+import { hqOpexLinesInForce } from '@/src/core/calculations/opex';
 import { planRevenueLines, groupRevenueLines, type RevenueLine } from '../revenueLines';
 import { planReportLines, lineTitle } from '../reports/lineRows';
 import { resolveRowVelocity } from '../revenue-resolvers';
@@ -443,7 +444,7 @@ export function emitReturnsSection(c: SheetCursor, state: FinancialsResolverStat
   kv(c, 'Discount Rate (%)', cfg.discountRate, NUMFMT.pct, stored.discountRate !== undefined, 'DiscountRate', undefined, 'inp=ret|Discount Rate (%)@4');
   kv(c, 'Exit Year', snap.projectStartYear + cfg.exitYearOffset, NUMFMT.year, stored.exitYearOffset !== undefined, 'ExitYear', undefined, 'inp=ret|Exit Year@4');
   kv(c, 'Terminal Value Method', TERMINAL_METHOD_LABELS[cfg.terminalMethod] ?? cfg.terminalMethod, '@', stored.terminalMethod !== undefined);
-  if (cfg.terminalMethod === 'exit_multiple') kv(c, 'Exit Multiple (x stabilised NOI)', cfg.exitMultiple, NUMFMT.mult, stored.exitMultiple !== undefined, 'ExitMultiple');
+  if (cfg.terminalMethod === 'exit_multiple') kv(c, 'Exit Multiple (x stabilised NOI)', cfg.exitMultiple, NUMFMT.mult, stored.exitMultiple !== undefined, 'ExitMultiple', undefined, 'inp=ret|Exit Multiple (x stabilised NOI)@4');
   if (cfg.terminalMethod === 'perpetuity' || cfg.terminalMethod === 'cap_rate') kv(c, 'Growth g (%)', cfg.perpetuityGrowth, NUMFMT.pct2, stored.perpetuityGrowth !== undefined, 'PerpetuityGrowth', undefined, 'inp=ret|Growth g (%)@4');
   if (cfg.terminalMethod !== 'none') {
     kv(c, 'Terminal value basis', cfg.terminalValueBasis === 'exit_year' ? 'Exit year' : 'Year before exit', '@', stored.terminalValueBasis !== undefined);
@@ -730,7 +731,7 @@ export function emitOpexInputs(c: SheetCursor, state: FinancialsResolverState): 
     }
     c.r += 1;
   }
-  const hq = p.hqOpex?.lines ?? [];
+  const hq = hqOpexLinesInForce(p.hqOpex?.lines);
   if (hq.length > 0) {
     setSectionHeader(c.ws.getRow(c.r), 'HQ / Corporate opex lines', 6); c.r += 1;
     headers(c, ['Line item', 'Category', 'Mode', 'Value', 'Inflation', 'On']);

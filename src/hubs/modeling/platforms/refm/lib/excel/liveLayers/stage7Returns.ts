@@ -32,6 +32,7 @@
  */
 import type { LayerContext, LiveLayer } from '../formulaWorkbook';
 import { LiveWriter } from './writer';
+import { terminalRefusal } from './terminal';
 import { irrOf, pctT, irrT, multT, moicOf, moneyT as moneyWords, ratioT } from './excelText';
 import { PERIOD_COLS } from '../buildModelWorkbook';
 import { withResolvedAssetNames } from '@/src/core/calculations/assetName';
@@ -77,7 +78,8 @@ export const stage7Returns: LiveLayer = {
     // ── Refusals ─────────────────────────────────────────────────────────────
     const refuse: string[] = [];
     if (X !== N - 1) refuse.push('an exit before the last year');
-    if (!booked || cfg.terminalMethod !== 'cap_rate') refuse.push('a terminal value other than the exit cap rate');
+    if (!booked) refuse.push('no terminal value');
+    { const why = terminalRefusal(cfg, has); if (why) refuse.push(why); }
     if (rs.fcffPerPeriod.length !== N + 1) refuse.push('a stream length other than the axis plus inception');
     for (const k of ['cf|direct||Cash Flow from Operations', 'cf|direct||Cash Flow from Investment', 'cf|direct||Closing cash', 'pl|__all__||Total Revenue', 'fnc:proceeds', 'fnc:noi', 'fnc:inkind', 'fnc:min', 'fnc:don']) if (!has(k)) refuse.push(`the ${k} cell is not live`);
     if (refuse.length) return values(`The Returns sheet stays the platform's values: ${[...new Set(refuse)].join('; ')}.`);
@@ -515,7 +517,7 @@ export const stage7Returns: LiveLayer = {
     }
 
     // A cap rate nobody typed follows the discount rate less growth (resolveCapRate), so it is a formula.
-    if (cfg.capRateSource === 'derived') scalar('ret|Exit Cap Rate (%)', () => `MAX(0,N(${w.ref('ret|Discount Rate (%)', TOTAL_COL)})-N(${w.ref('ret|Growth g (%)', TOTAL_COL)}))`);
+    if (cfg.terminalMethod === 'cap_rate' && cfg.capRateSource === 'derived') scalar('ret|Exit Cap Rate (%)', () => `MAX(0,N(${w.ref('ret|Discount Rate (%)', TOTAL_COL)})-N(${w.ref('ret|Growth g (%)', TOTAL_COL)}))`);
 
     // The exit working.
     {
@@ -528,6 +530,8 @@ export const stage7Returns: LiveLayer = {
       exitCell(`Retail NOI, ${my}`, () => `${at(noi, M)}-${hosp()}`);
       exitCell('Income capitalised', () => at(noi, M));
       exitCell('Exit cap rate', capRef);
+      exitCell('Exit multiple', () => w.ref('ret|Exit Multiple (x stabilised NOI)', TOTAL_COL));
+      exitCell('Income grown by (1 + g) before capitalising', () => w.ref('ret|Growth g (%)', TOTAL_COL));
       exitCell('Terminal value, booked as proceeds from disposal', () => sc3(ev));
       const sg = (k: string): string => (has(k) ? w.refA({ sheet: 'Schedules Calc', row: w.addr(k).row, col: 4 + X }) : '0');
       const bld = (): string => sg('schg:__project__:cap:disp'), lnd = (): string => sg('schg:__project__:land:disp');

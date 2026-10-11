@@ -24,6 +24,7 @@ import type { LayerContext, LiveLayer } from '../formulaWorkbook';
 import { LiveWriter } from './writer';
 import { irrOf, pctT, irrT, multT, moicOf, moneyT as moneyWords, ratioT, seriesT } from './excelText';
 import { PERIOD_COLS } from '../buildModelWorkbook';
+import { terminalValueFormula } from './terminal';
 import { withResolvedAssetNames } from '@/src/core/calculations/assetName';
 import { computeFinancialsSnapshot } from '../../financials-resolvers';
 import { computeReturnsSnapshot, resolveReturnsConfig } from '../../returns-resolvers';
@@ -195,14 +196,13 @@ export const stage7bMetrics: LiveLayer = {
 
     // Exit-year analysis: each candidate's streams, rebuilt from the same rows with its own terminal value.
     const sbFf = w.addr('rtc:s:ffpre').row, sbFe = w.addr('rtc:s:fepre').row, level = w.addr('rtc:trapLevel').row;
-    const capRef = (): string => `N(${w.ref('ret|Exit Cap Rate (%)', TOTAL_COL)})`;
     const EY = 'retg|Exit-Year Analysis (hold vs sell timing)|';
     for (const x of rs.exitYears) {
       const e = x.exitIdx;
       const rk = `${EY}${x.exitYearLabel}${x.isSelected ? '  ◀ selected' : ''}`;
       if (!has(`${rk}|0`)) { missing.push(rk); continue; }
       const m = cfg.terminalValueBasis === 'exit_year' ? e : Math.max(0, e - 1);
-      const evE = cellS(`rtm:x:${e}:ev`, `exit ${x.exitYearLabel}: enterprise value`, () => `IF(${capRef()}<=0.000000001,0,MAX(0,${at(noi, m)}/${capRef()}))`);
+      const evE = cellS(`rtm:x:${e}:ev`, `exit ${x.exitYearLabel}: enterprise value`, () => terminalValueFormula(w, cfg, at(noi, m)));
       const eqE = cellS(`rtm:x:${e}:eq`, `exit ${x.exitYearLabel}: equity value`, () => `MAX(0,${sc3(evE)}-MAX(0,${at(debt, e)}))`);
       const s = (key: string, label: string, base: number, add: () => string): number => {
         const r = cr++; cs.getCell(r, 1).value = label; w.claim(key, CALC, r, 1);

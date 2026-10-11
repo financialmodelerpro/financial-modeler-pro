@@ -2433,7 +2433,7 @@ import { priceKeyFor, hasDualPrice } from '../state/subUnitPrices';
 import type { Phase, SubUnit } from '../state/module1-types';
 import { resolveSubUnitMetric, keysFromArea } from '@/src/core/calculations';
 import { applyIndexation, buildAccountsReceivable, buildUnearnedRevenue } from '@/src/core/calculations/revenue';
-import { defaultHQOpexLines, normalizeOpexIndexation, type OpexLine } from '@/src/core/calculations/opex';
+import { hqOpexLinesInForce, normalizeOpexIndexation, type OpexLine } from '@/src/core/calculations/opex';
 import type { IndexationConfig } from '@/src/core/calculations/revenue/types';
 import { assetPlotLabel } from '@/src/core/calculations/assetName';
 import { poolResults, planReportLines, lineTitle } from '../reports/lineRows';
@@ -3140,7 +3140,7 @@ function buildModule3(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
 
   // ── Tab 1: Inputs. HQ, the payables card, then one card per line ────────────
   {
-    const hqLines = state.project.hqOpex?.lines && state.project.hqOpex.lines.length > 0 ? state.project.hqOpex.lines : defaultHQOpexLines();
+    const hqLines = hqOpexLinesInForce(state.project.hqOpex?.lines);
     const hqDefault = normalizeOpexIndexation(state.project.hqOpex?.defaultIndexation);
     card('HQ & Corporate Overheads (project-wide)', 'HQ Inflation', hqLines, hqDefault, Array.from({ length: N }, (_, i) => i));
   }

@@ -129,6 +129,8 @@ export const stage5Statements: LiveLayer = {
     };
     const nonZero = (v: readonly number[]): boolean => v.some((x) => x !== 0);
     let refused = '';
+    /** The project's cost of sales (the whole-project view's), for the indirect cash flow. */
+    let cosTotalF: F = () => '0';
 
     const doView = (phaseId: string): void => {
       const phaseFiltered = phaseId !== ALL;
@@ -175,6 +177,7 @@ export const stage5Statements: LiveLayer = {
       }
       totalRev = sumF(secFs);
       const cosTotal = sumF(residential.map(assetCos));
+      if (!phaseFiltered) cosTotalF = cosTotal;
       heads.set('pl-cos', neg(cosTotal));
       groups.set('pl-cos', lineF(new Set(residential.map((a) => a.id)), assetCos, 'cosPerPeriod').map((m) => ({ label: m.label, f: neg(m.f) })));
       const hospOpex = sumF(hosp.map(assetOpex));
@@ -267,6 +270,9 @@ export const stage5Statements: LiveLayer = {
 
     // ── THE CASH FLOW, direct (project and per phase) and indirect ───────────
     const CF = 'Cash Flow';
+    // The P&L prints its cost of sales rows only while non-zero, so where it has none the
+    // add-back reads the same working-sheet rows the P&L header would have summed.
+    const cosAddBack: F = (t) => (has(`pl|${ALL}||Residential cost of sales`) ? `-${plCell('Residential cost of sales', t)}` : cosTotalF(t));
     const cfWrites: Array<[string, F, 'sum' | 'first' | 'last']> = [];
     let cfRefused = '';
     const plCell = (label: string, t: number): string => w.refA({ sheet: PL, row: w.addr(`pl|${ALL}||${label}`).row, col: pc(t) });
@@ -379,7 +385,7 @@ export const stage5Statements: LiveLayer = {
             else if (L === '(+) Depreciation & Amortization') f = (t) => `-${plCell('Depreciation & Amortization', t)}`;
             else if (L === '(+) Interest expense (add back)') f = (t) => `-${plCell('Interest & financing cost', t)}`;
             else if (L.startsWith('(−) Change in AR')) f = (t) => `-((${opAr(t)}+${resAr(t)})-(${prevOf(opAr, t)}+${prevOf(resAr, t)}))`;
-            else if (L === '(+) Cost of sales (add back; capex in investing)') f = (t) => `-${plCell('Residential cost of sales', t)}`;
+            else if (L === '(+) Cost of sales (add back; capex in investing)') f = cosAddBack;
             else if (L.startsWith('(−) Gain on disposal')) f = (t) => `-${plCell('Gain on Disposal of Operating Assets', t)}`;
             else if (L === '(+) Change in AP') f = (t) => `${apClose(t)}-${prevOf(apClose, t)}`;
             else if (L === '(+) Change in Unearned Revenue') f = (t) => `(${unearned(t)})-(${prevOf(unearned, t)})`;

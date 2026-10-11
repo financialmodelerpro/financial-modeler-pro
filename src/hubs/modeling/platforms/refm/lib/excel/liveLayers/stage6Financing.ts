@@ -46,6 +46,7 @@
 import type { LayerContext, LiveLayer } from '../formulaWorkbook';
 import { LiveWriter } from './writer';
 import { PERIOD_COLS } from '../buildModelWorkbook';
+import { terminalRefusal, terminalValueFormula } from './terminal';
 import { withResolvedAssetNames } from '@/src/core/calculations/assetName';
 import { sharesCapitalisedInterest } from '@/src/core/calculations/capitalisedInterest';
 import { isRevenueSubUnit, resolveUsefulLifeYears, isLandValueLine } from '@/src/core/calculations';
@@ -106,7 +107,6 @@ export const stage6Financing: LiveLayer = {
       divOn: 'fin|Dividend Policy|Pay Dividends',
       payout: 'fin|Dividend Policy|Payout Ratio',
       divStart: 'fin|Dividend Policy|Start Year',
-      capRate: 'ret|Exit Cap Rate (%)',
     };
     if (![1, 2, 3].includes(METHOD)) refuse.push(`funding method ${METHOD} (specified debt and equity amounts)`);
     // ANY NUMBER OF NEW FACILITIES (2026-09-28, stage B), each repaid by the sweep or on a
@@ -154,7 +154,7 @@ export const stage6Financing: LiveLayer = {
     if (project.modelType === 'monthly') refuse.push('monthly periods');
     if (phases.some((p) => p.status === 'operational' || (p.overlapPeriods ?? 0) !== 0)) refuse.push('an operational phase or a phase overlap');
     if (snap.bs.historicalOpeningCashTotal !== 0 || snap.financing.existing.equityTotal !== 0) refuse.push('existing operations');
-    if (booked && (retCfg.terminalMethod !== 'cap_rate' || retCfg.applyGrowthToTerminal)) refuse.push(`a terminal value by ${retCfg.terminalMethod}${retCfg.applyGrowthToTerminal ? ' with growth' : ''}`);
+    { const why = booked ? terminalRefusal(retCfg, has) : null; if (why) refuse.push(why); }
     if (booked && X < N - 1) refuse.push('an exit before the last year');
     // NO DIVIDEND POLICY IS DIVIDENDS OFF (2026-09-29), the new-project default: with no
     // project policy the engine falls back to each phase's own, and where no phase has one
@@ -178,7 +178,6 @@ export const stage6Financing: LiveLayer = {
     // The Cash Flow always prints "Dividends paid" (at zero with dividends off, 2026-09-29), so switching
     // dividends on in the workbook has a row to fill; without it the switch could show nothing.
     if (!has('cf|direct||Dividends paid')) refuse.push('a Cash Flow with no dividends row');
-    if (booked && !has(K.capRate)) refuse.push('the exit cap rate is not on the Returns sheet');
     for (const k of ['stc:interest', 'stc:proceeds', 'schg:__project__:dep', `cf|direct||Total Revenue Received`, `pl|__all__||Total Revenue`]) if (!has(k)) refuse.push(`the ${k} cell is not live`);
     if (refuse.length) return values(`The circular financing could not be made live for this model: ${[...new Set(refuse)].join('; ')}.`);
 
@@ -312,7 +311,7 @@ export const stage6Financing: LiveLayer = {
     const metricIdx = retCfg.terminalValueBasis === 'exit_year' ? X : Math.max(0, X - 1);
     const proceedsCached = Array.from({ length: N }, (_, t) => (booked && t === X ? snap.disposal.proceeds : 0));
     const proceeds = row('fnc:proceeds', 'exit proceeds (terminal value)', (t) => (booked && t === X
-      ? `IF(N(${w.ref(K.capRate, PERIOD_COLS.TOTAL_COL)})<=0.000000001,0,MAX(0,${at(noi, metricIdx)}/N(${w.ref(K.capRate, PERIOD_COLS.TOTAL_COL)})))`
+      ? terminalValueFormula(w, retCfg, at(noi, metricIdx))
       : '0'), proceedsCached);
     const cfi = row('fnc:cfi', 'cash from investing', (t) => `-${at(capexCash, t)}+${at(proceeds, t)}`);
     // Operating cash that does not depend on the financing (revenue received, escrow, opex paid).

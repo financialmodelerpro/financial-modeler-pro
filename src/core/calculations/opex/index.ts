@@ -25,6 +25,7 @@ export {
   defaultHospitalityOpexLines,
   defaultLeaseOpexLines,
   defaultHQOpexLines,
+  hqOpexLinesInForce,
   defaultOpexIndexation,
   normalizeOpexIndexation,
   // The frozen record of the values these builders used to seed, and the

@@ -43,7 +43,7 @@ import { LiveWriter } from './writer';
 import { PERIOD_COLS } from '../buildModelWorkbook';
 import { ARGB, NUMFMT, setInput, setLabel, fillRange } from '../styles';
 import { withResolvedAssetNames } from '@/src/core/calculations/assetName';
-import { normalizeOpexIndexation, type OpexLine } from '@/src/core/calculations/opex';
+import { normalizeOpexIndexation, hqOpexLinesInForce, type OpexLine } from '@/src/core/calculations/opex';
 import { isRevenueSubUnit } from '@/src/core/calculations';
 import { computeFinancialsSnapshot } from '../../financials-resolvers';
 import { planRevenueLines, lineForAsset } from '../../revenueLines';
@@ -109,14 +109,13 @@ export const stage3Opex: LiveLayer = {
         if (!IDX_METHODS.has(ix.method ?? 'none')) refuse.push(`${name}: ${ln.name} inflation ${ix.method}`);
       }
     }
-    const hqStored = (project.hqOpex?.lines ?? []) as OpexLine[];
+    const hqStored = hqOpexLinesInForce(project.hqOpex?.lines as OpexLine[] | undefined);
     const hqDefault = idxOf(project.hqOpex?.defaultIndexation);
     for (const ln of hqStored) {
       if (ln.rateMode === 'yoy') refuse.push(`HQ: ${ln.name} has year-by-year rates`);
       const ix = lineIdx(null, ln, hqDefault);
       if (!IDX_METHODS.has(ix.method ?? 'none')) refuse.push(`HQ: ${ln.name} inflation ${ix.method}`);
     }
-    if (hqStored.length === 0) refuse.push('HQ runs on the default seed, which the sheet does not show');
     // An exit before the last year stops the held assets trading after it (`stopAfterExit`).
     if (snap.disposal.booked && snap.disposal.exitIdx < N - 1 && opexAssets.length) refuse.push('the exit falls before the last year, which stops the held assets trading after it');
     if (refuse.length) return values(`Opex could not be made live for this model: ${[...new Set(refuse)].join('; ')}.`);
