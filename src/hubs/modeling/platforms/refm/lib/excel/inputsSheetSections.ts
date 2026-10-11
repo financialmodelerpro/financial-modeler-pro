@@ -201,7 +201,9 @@ export function emitStandardsSection(c: SheetCursor, state: FinancialsResolverSt
   registerCell('project:retailSlotArea', c.ws, c.ws.getCell(c.r - 1, 4));
   // BLANK WHEN ABSENT, NEVER 0: an absent rate is "not set" on the platform.
   kv(c, `Construction cost escalation (% a year, from ${v.baseYear})`, v.escalationPct === undefined ? undefined : v.escalationPct / 100, NUMFMT.pct2, true,
-    undefined, v.escalationPct === undefined ? 'Not set: rates are not escalated.' : undefined);
+    undefined, v.escalationPct === undefined ? 'Not set: rates are not escalated.' : undefined,
+    // A stated rate is the input the live Capex reads (stage2Capex); unset, the Capex sheet's own cell is.
+    v.escalationPct === undefined ? undefined : 'inp=cx:esc@3');
   c.r += 1;
 
   const standardsTable = (title: string, rows: typeof v.construction, construction: boolean): void => {
@@ -414,8 +416,10 @@ export function emitStatementInputsSection(c: SheetCursor, state: FinancialsReso
     undefined, p.financialTerminology === undefined ? 'Not set: follows the country.' : undefined);
   kv(c, `${zakat ? 'Zakat' : 'Tax'} Rate (%)`, p.tax?.rate ?? 0, NUMFMT.pct2, true, 'TaxRate', undefined, 'project:taxRate');
   kv(c, `${zakat ? 'Zakat' : 'Tax'} on the disposal gain`, p.tax?.applyToDisposalGain === true ? 'Charge it on the gain at exit' : 'Not charged on the gain at exit', '@', true);
-  const payRow = kv(c, `${zakat ? 'Zakat' : 'Tax'} payment (days)`, p.tax?.paymentDays ?? 0, NUMFMT.int, true);
-  fixedHere(c, payRow, 2, `Days after the year end it is paid; 0 pays it in the year it is charged.`);
+  // Live where a lag was stated at export (the payable rows exist); a zero lag prints no payable.
+  const lag = (p.tax?.paymentDays ?? 0) > 0;
+  const payRow = kv(c, `${zakat ? 'Zakat' : 'Tax'} payment (days)`, p.tax?.paymentDays ?? 0, NUMFMT.int, true, undefined, undefined, lag ? 'project:taxDays' : undefined);
+  if (!lag) fixedHere(c, payRow, 2, `Days after the year end it is paid; 0 pays it in the year it is charged. A lag stated at export is live.`);
   kv(c, 'Basis', (p.tax?.basis ?? 'zakat') === 'cit' ? 'Corporate income tax (losses carried forward, 25% cap)' : 'Zakat (net worth; no loss carry-forward)', '@', true);
   kv(c, 'Statutory reserve transfer (% of PAT)', p.statutoryReserve?.transferRate ?? 0, NUMFMT.pct, true, undefined, undefined, 'project:reserveRate');
   const capRow = kv(c, 'Statutory reserve cap (% share capital)', p.statutoryReserve?.capOfShareCapital ?? 0, NUMFMT.pct, true, undefined, undefined, 'project:reserveCap');

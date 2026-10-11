@@ -28,6 +28,7 @@
  */
 import type { LayerContext, LiveLayer, SheetWait } from '../formulaWorkbook';
 import { LiveWriter } from './writer';
+import { citReliefF, citPoolF, taxF } from './taxRule';
 import { PERIOD_COLS } from '../buildModelWorkbook';
 import { withResolvedAssetNames } from '@/src/core/calculations/assetName';
 import { isRevenueSubUnit, isLandValueLine } from '@/src/core/calculations';
@@ -71,8 +72,11 @@ export const stage5Statements: LiveLayer = {
     if (!has('project:taxRate')) refuse.push('the tax rate is not on the Inputs sheet');
     // 2026-10-05: the formulas charge the rate on each year's profit and pay it
     // in the year; a carried-forward loss or a later payment is not mirrored yet.
-    if (state.project.tax?.basis === 'cit') refuse.push('the tax basis carries losses forward, which these formulas do not mirror');
-    if ((state.project.tax?.paymentDays ?? 0) > 0) refuse.push('tax is paid after the year end, which these formulas do not mirror');
+    // TAX PAID AFTER THE YEAR END (2026-10-11): days / 365 of each year's charge is payable at
+    // the close and paid the next year. Its rows print only while non-zero, so the lag is live
+    // where it was stated at export.
+    const taxLag = (state.project.tax?.paymentDays ?? 0) > 0;
+    if (taxLag && !has('project:taxDays')) refuse.push('the tax payment days are not on the Inputs sheet');
     if (refuse.length) return [{ sheet: PL, status: 'values' as const, formulas: 0, note: `The P&L could not be made live for this model: ${refuse.join('; ')}.` }];
 
     // ── The working sheet: what the loop and Returns still own, pending ─────
@@ -241,7 +245,20 @@ export const stage5Statements: LiveLayer = {
           else if (r.label.startsWith(`${labels.tax} (`)) {
             const gain = (t: number): string => (has(K('Gain on Disposal of Operating Assets')) ? cell(K('Gain on Disposal of Operating Assets'), t) : '0');
             const taxed = state.project.tax?.applyToDisposalGain === true;
-            f = (t) => `-MAX(0,${cell(K(labels.pbt), t)}${taxed ? '' : `-${gain(t)}`})*MAX(0,N(${w.ref('project:taxRate')}))`;
+            // The taxable profit and, on the cit basis, the loss pool, on the working sheet (taxRule.ts).
+            const rate = (): string => `MAX(0,N(${w.ref('project:taxRate')}))`;
+            const base = cr++; cs.getCell(base, 1).value = 'taxable profit'; w.claim('stc:tax:base', CALC, base, 1);
+            for (let t = 0; t < N; t++) w.fA(C(base, cT(t)), `${cell(K(labels.pbt), t)}${taxed ? '' : `-${gain(t)}`}`, { cached: 0 });
+            let relief: number | undefined;
+            if (state.project.tax?.basis === 'cit') {
+              const pool = cr++; cs.getCell(pool, 1).value = 'tax losses carried forward'; w.claim('stc:tax:pool', CALC, pool, 1);
+              const rel = cr++; cs.getCell(rel, 1).value = 'tax loss relief'; w.claim('stc:tax:relief', CALC, rel, 1);
+              const before = (t: number): string => (t === 0 ? '0' : at(pool, t - 1));
+              for (let t = 0; t < N; t++) w.fA(C(rel, cT(t)), citReliefF(at(base, t), before(t)), { cached: snap.pl.taxLossReliefPerPeriod?.[t] ?? 0 });
+              for (let t = 0; t < N; t++) w.fA(C(pool, cT(t)), citPoolF(at(base, t), before(t), at(rel, t)), { cached: snap.pl.taxLossCarriedForwardPerPeriod?.[t] ?? 0 });
+              relief = rel;
+            }
+            f = (t) => `-${taxF(at(base, t), rate(), relief !== undefined ? at(relief, t) : undefined)}`;
           } else if (r.label === labels.pat) {
             const taxKey = w.reg.keys().find((k) => k.startsWith(`pl|${phaseId}||${labels.tax} (`)) as string;
             f = (t) => `${cell(K(labels.pbt), t)}+${cell(taxKey, t)}`;
@@ -277,6 +294,15 @@ export const stage5Statements: LiveLayer = {
     let cfRefused = '';
     const plCell = (label: string, t: number): string => w.refA({ sheet: PL, row: w.addr(`pl|${ALL}||${label}`).row, col: pc(t) });
     const plKey = (prefix: string): string | undefined => w.reg.keys().find((k) => k.startsWith(`pl|${ALL}||${prefix}`));
+    // The tax payable at each close (taxPayable in the resolver), on the working sheet.
+    const taxPlKey = plKey(`${labels.tax} (`);
+    let taxPay: F = () => '0';
+    if (taxLag && taxPlKey) {
+      const rPay = cr++; cs.getCell(rPay, 1).value = 'tax payable at the year end'; w.claim('stc:tax:payable', CALC, rPay, 1);
+      for (let t = 0; t < N; t++) w.fA(C(rPay, cT(t)), `-${w.refA({ sheet: PL, row: w.addr(taxPlKey).row, col: pc(t) })}*MIN(365,MAX(0,N(${w.ref('project:taxDays')})))/365`, { cached: snap.bs.taxPayablePerPeriod?.[t] ?? 0 });
+      taxPay = (t) => at(rPay, t);
+    }
+    const taxPayChange: F = (t) => (t === 0 ? taxPay(t) : `(${taxPay(t)}-${taxPay(t - 1)})`);
     const P0 = w.addr('cxc:P0').col;
     const cx = (k: string, t: number): string => w.refA({ sheet: 'Capex Calc', row: w.addr(k).row, col: P0 + t });
     const costLineOf = (id: string): Pick<CostLine, 'id' | 'catalogId'> => (state.costLines as CostLine[]).find((x) => x.id === id) ?? { id };
@@ -389,6 +415,7 @@ export const stage5Statements: LiveLayer = {
             else if (L.startsWith('(−) Gain on disposal')) f = (t) => `-${plCell('Gain on Disposal of Operating Assets', t)}`;
             else if (L === '(+) Change in AP') f = (t) => `${apClose(t)}-${prevOf(apClose, t)}`;
             else if (L === '(+) Change in Unearned Revenue') f = (t) => `(${unearned(t)})-(${prevOf(unearned, t)})`;
+            else if (L === `(+) Change in ${labels.tax} payable`) f = taxPayChange;
             else if (L === '(+) Change in Escrow balance') f = (t) => `-((${escClose(t)})-(${prevOf(escClose, t)}))`;
           }
         } else if (L === 'Total Revenue Received') f = (t) => `${sumF(res.map(revRcv))(t)}+${opCash(t)}`;
@@ -401,7 +428,7 @@ export const stage5Statements: LiveLayer = {
         else if (L === '= Retail NOI') f = (t) => `${sumF(ret.map(revRcv))(t)}-(${sumF(ret.map(opexPaid))(t)})`;
         else if (L === 'Total Operating Expenses Paid') f = (t) => `-(${sumF(all.map(opexPaid))(t)})-${hqPaid(t)}-(${sellingExp(t)})`;
         else if (L === 'Fund Management and Other Expenses') f = (t) => `-(${feeRows.map((fr) => at(fr, t)).join('+') || '0'})`;
-        else if (L === labels.taxPaid) { const tk = plKey(`${labels.tax} (`); if (tk) f = (t) => w.refA({ sheet: PL, row: w.addr(tk).row, col: pc(t) }); }
+        else if (L === labels.taxPaid) { const tk = plKey(`${labels.tax} (`); if (tk) f = (t) => `${w.refA({ sheet: PL, row: w.addr(tk).row, col: pc(t) })}${taxLag ? `+${taxPayChange(t)}` : ''}`; }
         else if (L === 'Cash Flow from Operations') {
           // A TOTAL CARRIES EVERY COMPONENT, SHOWN OR NOT (2026-09-27): the platform
           // prints the escrow, fee and tax rows only while non-zero, so a row absent
@@ -516,7 +543,8 @@ export const stage5Statements: LiveLayer = {
       else if (L === 'TOTAL ASSETS') f = sumB(['Total Fixed Assets', 'Total Current Assets']);
       else if (L === 'Accounts Payable') f = apClose;
       else if (L === 'Unearned Revenue (Off-plan advances)') f = unearned;
-      else if (L === 'Total Current Liabilities') f = sumB(['Accounts Payable', 'Unearned Revenue (Off-plan advances)']);
+      else if (L === `${labels.tax} payable`) f = taxPay;
+      else if (L === 'Total Current Liabilities') f = (t) => `${sumB(['Accounts Payable', 'Unearned Revenue (Off-plan advances)'])(t)}${taxLag ? `+${taxPay(t)}` : ''}`;
       else if (L === 'Debt (long-term)') f = (t) => at(debtRow, t);
       else if (L === 'TOTAL LIABILITIES') f = sumB(['Total Current Liabilities', 'Debt (long-term)']);
       else if (L === 'Share Capital') f = (t) => at(shareRow, t);
@@ -558,6 +586,7 @@ export const stage5Statements: LiveLayer = {
         ['Δ Reserve + Retained earnings', neg(delta((t) => `${at(rReserve, t)}+${at(rRetained, t)}`))],
         ['Δ Accounts payable', neg(delta(apClose))],
         ['Δ Unearned revenue', neg(delta(unearned))],
+        ...(taxLag ? [['Δ Tax payable', neg(delta(taxPay))] as [string, F]] : []),
         ['Δ Restricted cash (escrow)', delta(escClose)],
         ['Δ AR (operating)', delta(opArProject)],
         ['Δ Receivables (residential)', delta(resAr)],

@@ -47,6 +47,7 @@ import type { LayerContext, LiveLayer } from '../formulaWorkbook';
 import { LiveWriter } from './writer';
 import { PERIOD_COLS } from '../buildModelWorkbook';
 import { terminalRefusal, terminalValueFormula } from './terminal';
+import { citReliefF, citPoolF, taxF } from './taxRule';
 import { withResolvedAssetNames } from '@/src/core/calculations/assetName';
 import { sharesCapitalisedInterest } from '@/src/core/calculations/capitalisedInterest';
 import { isRevenueSubUnit, resolveUsefulLifeYears, isLandValueLine } from '@/src/core/calculations';
@@ -92,6 +93,7 @@ export const stage6Financing: LiveLayer = {
     const retCfg = resolveReturnsConfig(project, N);
     const X = retCfg.exitYearOffset;
     const booked = retCfg.terminalMethod !== 'none';
+    const taxLagDays = (project.tax?.paymentDays ?? 0) > 0;
     const values = (note: string) => [{ sheet: 'Financing', status: 'values' as const, formulas: 0, note }];
 
     // ── Refusals ─────────────────────────────────────────────────────────────
@@ -435,8 +437,20 @@ export const stage6Financing: LiveLayer = {
       const gain = row(k('gain'), L('gain on disposal'), (t) => (booked && t === X ? `${at(proceeds, t)}-(${disposedFixed(t)})-${at(idcDisp, t)}` : '0'));
       const pbt = row(k('pbt'), L('profit before tax'), (t) => `${at(ebitdaBase, t)}-${at(cosTotal, t)}-(${fee(t)})-${capexDep(t)}-${at(idcDepProj, t)}-${at(intExp, t)}+${at(gain, t)}`);
       const taxed = project.tax?.applyToDisposalGain === true;
-      const tax = row(k('tax'), L('tax'), (t) => `MAX(0,${at(pbt, t)}${taxed ? '' : `-${at(gain, t)}`})*${sc3(taxRate)}`, cachedFrom(tag, snap.pl.taxPerPeriod));
-      const cfo = row(k('cfo'), L('cash from operations'), (t) => `${at(opsBase, t)}-(${fee(t)})-${at(tax, t)}`, cachedFrom(tag, snap.directCF.cashFromOperationsPerPeriod));
+      // Tax by the project's basis (taxRule.ts): on cit a loss pool relieves later profit.
+      const taxBase = row(k('taxbase'), L('taxable profit'), (t) => `${at(pbt, t)}${taxed ? '' : `-${at(gain, t)}`}`);
+      let relief: number | undefined;
+      if (project.tax?.basis === 'cit') {
+        const pool = claimRow(k('losspool'), L('tax losses carried forward'));
+        const rel = row(k('relief'), L('tax loss relief'), (t) => citReliefF(at(taxBase, t), prev(pool, t)));
+        for (let t = 0; t < N; t++) w.fA(C(pool, cT(t)), citPoolF(at(taxBase, t), prev(pool, t), at(rel, t)), { cached: 0 });
+        relief = rel;
+      }
+      const tax = row(k('tax'), L('tax'), (t) => taxF(at(taxBase, t), sc3(taxRate), relief !== undefined ? at(relief, t) : undefined), cachedFrom(tag, snap.pl.taxPerPeriod));
+      // Tax paid: the charge less the change in what is still payable at the close (paymentDays).
+      const lagF = (tt: number): string => `${at(tax, tt)}*MIN(365,MAX(0,N(${w.ref('project:taxDays')})))/365`;
+      const taxPaid: F = (t) => (taxLagDays ? `(${at(tax, t)}-(${lagF(t)}${t === 0 ? '' : `-${lagF(t - 1)}`}))` : at(tax, t));
+      const cfo = row(k('cfo'), L('cash from operations'), (t) => `${at(opsBase, t)}-(${fee(t)})-${taxPaid(t)}`, cachedFrom(tag, snap.directCF.cashFromOperationsPerPeriod));
       // Method 3: the waterfall.
       const rOpen = claimRow(k('open'), L('opening cash (waterfall)'));
       const cashAvail = row(k('avail'), L('cash before new funding'), (t) => `${at(rOpen, t)}+${at(cfo, t)}${feeByEquity ? `+(${fee(t)})` : ''}+${at(cfi, t)}`);

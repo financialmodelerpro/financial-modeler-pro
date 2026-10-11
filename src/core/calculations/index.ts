@@ -89,6 +89,7 @@ import {
   resolveLinePhasing,
   isParcelDrivenLandLine,
   type CapexPhasingContext,
+  type EffectivePhasing,
   phaseLocalToProjectIndex,
 } from './capexPhasing';
 import { lineEscalates, escalationFactorAt, weightedEscalation } from './costEscalation';
@@ -1991,12 +1992,26 @@ export function computeAssetCost(input: ComputeAssetCostInput): AssetCostBreakdo
   const escOffset = Math.max(0, escPhaseStartYear - new Date(project.startDate).getUTCFullYear());
   const escFactorByLineId: Record<string, number> = {};
   if (escalationRatePct !== 0) {
+    // THE SHAPE THE LINE REALLY SPENDS ON (2026-10-11). The capex phasing resolution
+    // further down (an asset's spend curve inherited by its lines) runs after the
+    // totals, so weighting by the line's own stored shape escalated a curve-following
+    // line as if it spent evenly, and its total stopped equalling the sum of its own
+    // periods (Marina Gate at 4%: 232,350,373.52 against 234,100,591.55). The same
+    // resolution is applied here for the weights. The land cash and collections
+    // shapes it can also follow drive only lines that never escalate (land, RETT,
+    // selling costs), so they are not needed for this.
+    const phasingInert = capexPhasingIsInert(asset, phaseLines, costOverrides);
     for (const r of resolved) {
       const base = directTotals[r.line.id];
       if (base === undefined || base === 0) continue;
       if (!lineEscalates({ method: r.method, isLandValue: isLandValueLine(r.line) })) continue;
+      let shape: EffectivePhasing = { phasing: r.phasing, distribution: r.distribution, startPeriod: r.startPeriod, endPeriod: r.endPeriod };
+      if (!phasingInert) {
+        const ov = costOverrides.find((o) => o.assetId === asset.id && o.lineId === r.line.id);
+        shape = resolveLinePhasing(r.line, shape, asset, { collectionsPerPeriod }, ov).effective;
+      }
       const weights = distributeItemCost(
-        { ...r.line, phasing: r.phasing, distribution: r.distribution, startPeriod: r.startPeriod, endPeriod: r.endPeriod },
+        { ...r.line, ...shape },
         1,
         phase.constructionPeriods,
       );

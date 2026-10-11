@@ -106,6 +106,22 @@ check('B6 phase 2 spends in project years 3 and 4, so it is the average of 1.04^
   near((e2.byLineId as any)[buaId2] / (f2.byLineId as any)[buaId2], (Math.pow(1.04, 3) + Math.pow(1.04, 4)) / 2, 1e-9),
   `${(e2.byLineId as any)[buaId2] / (f2.byLineId as any)[buaId2]}`);
 
+// B7 (2026-10-11): an asset SPEND CURVE its lines inherit (capex phasing, resolved after
+// the totals) is the shape the line escalates on. With 10% in year 1 and 90% in year 2,
+// phase 1's factor is 0.1 x 1.00 + 0.9 x 1.04, and the line still sums to its periods.
+// Before the fix the factor was the even 1.02 while the periods followed the curve, so
+// the total and the periods beside it disagreed.
+{
+  const st = buildState(4);
+  st.assets[0].capexPhasing = { phasing: 'manual', distribution: [0, 10, 90] };
+  const c = costOf(st, 'a1'); const c0 = costOf({ ...buildState(0), assets: [{ ...st.assets[0] }, st.assets[1]] }, 'a1');
+  const id = Object.keys(c.byLineId).find((k) => k.startsWith('construction-bua'))!;
+  const f = (c.byLineId as any)[id] / (c0.byLineId as any)[id];
+  check('B7 a line following its asset\'s spend curve escalates on that curve (0.1 x 1.00 + 0.9 x 1.04), and its periods sum to its total',
+    near(f, 0.1 + 0.9 * 1.04, 1e-9) && near(sum((c.perLinePerPeriod as any)[id]), (c.byLineId as any)[id], 1e-9),
+    `factor ${f}, periods ${sum((c.perLinePerPeriod as any)[id])} vs total ${(c.byLineId as any)[id]}`);
+}
+
 console.log('\nC. The exemptions');
 const landIds = Object.keys(b1a.byLineId).filter((id) => /land-cash|land-inkind|rett/.test(id));
 check('C1 the land value lines and the transfer tax on them do not escalate',

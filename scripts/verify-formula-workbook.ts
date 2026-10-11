@@ -487,6 +487,32 @@ function perturbations(input: LiveExportInputs, reg: CellRegistry): Perturbation
   out.push({ movesRevenue: false, label: `the tax rate ${(taxRate * 100).toFixed(2)}% to ${((taxRate + 0.01) * 100).toFixed(2)}%`, cell: 'project:taxRate', value: taxRate + 0.01,
     edit: (s) => { s.project.tax = { ...(s.project.tax ?? {}), rate: taxRate + 0.01 }; } });
 
+  // P&L (2026-10-11): corporate income tax, losses carried forward with relief capped at
+  // 25% of a year's profit (taxRule.ts). On a copy taxed on that basis (Marina Gate makes
+  // losses in its build years, relieved later), the rate moves one point.
+  if ((st.project.tax?.basis ?? 'zakat') !== 'cit') {
+    const cit = (s: Snap): void => { s.project.tax = { ...(s.project.tax ?? {}), basis: 'cit' }; };
+    out.push({ movesRevenue: false, label: `the tax rate ${(taxRate * 100).toFixed(2)}% to ${((taxRate + 0.01) * 100).toFixed(2)}% (on a copy on the corporate income tax basis)`, cell: 'project:taxRate', value: taxRate + 0.01,
+      edit: (s) => { cit(s); s.project.tax = { ...(s.project.tax ?? {}), rate: taxRate + 0.01 }; }, variant: cit });
+  }
+
+  // Cash Flow and Balance Sheet (2026-10-11): tax paid after the year end. On a copy paying
+  // 90 days late (a payable at each close, paid the next year), the lag moves to 180 days.
+  if ((st.project.tax?.paymentDays ?? 0) === 0) {
+    const lag = (d: number) => (s: Snap): void => { s.project.tax = { ...(s.project.tax ?? {}), paymentDays: d }; };
+    out.push({ movesRevenue: false, label: 'tax payment 90 to 180 days after the year end (on a copy that pays late)', cell: 'project:taxDays', value: 180, edit: lag(180), variant: lag(90) });
+  }
+
+  // Capex (2026-10-11): construction cost escalation, base-year rates priced into the
+  // years each line spends. On a copy escalating at 4% a year, the rate moves to 6%.
+  {
+    const esc0 = st.project.costEscalationPct ?? 0;
+    const escTo = (pct: number) => (s: Snap): void => { (s.project as { costEscalationPct?: number }).costEscalationPct = pct; };
+    out.push(esc0 === 0
+      ? { movesRevenue: false, label: 'construction cost escalation 4% to 6% a year (on a copy that escalates)', cell: 'cx:esc', value: 0.06, edit: escTo(6), variant: escTo(4) }
+      : { movesRevenue: false, label: `construction cost escalation ${esc0}% to ${esc0 + 2}% a year`, cell: 'cx:esc', value: (esc0 + 2) / 100, edit: escTo(esc0 + 2) });
+  }
+
   // Financing (stage 6): the minimum cash reserve (the Method 3 deficit, the IDC
   // headroom, the sweep and dividends all turn on it), and escrow, whose rows the
   // statements print only while non-zero (a total must carry them unshown).
@@ -925,7 +951,7 @@ function formulaCells(wb: ExcelJS.Workbook): Map<string, { formula: string; resu
     // like --no-c it is never a proof, so it reports itself as a failure.
     const onlyAt = process.argv.indexOf('--only'), only = onlyAt > 0 ? process.argv[onlyAt + 1] ?? '' : '';
     if (only) check(`C filtered by --only "${only}" (iteration only; never a proof)`, false);
-    for (const pt of process.argv.includes('--no-c') ? [] : perturbations(input, registry).filter((x) => !only || x.label.includes(only))) {
+    for (const pt of process.argv.includes('--no-c') ? [] : perturbations(input, registry).filter((x) => !only || only.split("|").some((o) => x.label.includes(o)))) {
       if ('skip' in pt) { check(`C ${pt.label}`, false, `no target on this model: ${pt.skip}`); continue; }
       // The workbook under test: the export itself, or a copy made for a branch the live model lacks.
       let base = liveResult;

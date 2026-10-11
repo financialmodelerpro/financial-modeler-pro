@@ -55,10 +55,11 @@ import {
   computeAssetCost, resolveCostCategory, isLandValueLine, deriveCostStage, computeAssetRevenue,
 } from '@/src/core/calculations';
 import { assetVisibleLines, allowedSelectedIds } from '@/src/core/calculations/selectedBase';
-import { isParcelDrivenLandLine, resolvePhasingSource, collectionsForAsset } from '@/src/core/calculations/capexPhasing';
+import { isParcelDrivenLandLine, resolvePhasingSource, collectionsForAsset, phaseLocalToProjectIndex } from '@/src/core/calculations/capexPhasing';
 import { isRetailCompanion } from '@/src/core/calculations/retailCompanion';
 import { resolveSellingCostBasis, isSellingCostMethod } from '@/src/core/calculations/revenue/sellingCosts';
 import { isExpensedAsIncurred } from '@/src/core/calculations/sellingExpense';
+import { lineEscalates, escalationFactorAt } from '@/src/core/calculations/costEscalation';
 import { standardTypeIdFor, standardIdentity, pickStandardRate } from '../../state/costStandards';
 import { deriveLineBaseId } from '../../state/module1-types';
 import type { Asset, CostLine, CostOverride, Phase } from '../../state/module1-types';
@@ -101,7 +102,7 @@ export const stage2Capex: LiveLayer = {
 
     // ── Refusals ─────────────────────────────────────────────────────────────
     const refuse: string[] = [];
-    if ((project.costEscalationPct ?? 0) !== 0) refuse.push('construction cost escalation is on');
+    if (!w.has('cx:esc')) refuse.push('the construction cost escalation rate is not on the Capex sheet');
     if ((project.financing?.parcelFunding ?? []).some((p) => p.fundingType === 'deferred_payment')) refuse.push('a plot is paid on a deferred schedule');
     const rows = project.costStandardRows ?? [];
     const assetTypes = project.assetTypes ?? [];
@@ -227,13 +228,35 @@ export const stage2Capex: LiveLayer = {
     for (const [c, h] of [[1, 'Plot'], [2, 'Cost line'], [3, 'Method'], [cD, 'Rate'], [cE, 'Base'], [cF, 'Amount'], [cG, 'Start'], [cH, 'End'], [cI, 'Shape sum']] as Array<[number, string]>) cs.getCell(cr, c).value = h;
     for (let i = 0; i < L; i++) cs.getCell(cr, wCol(i)).value = `W${i}`;
     for (let t = 0; t < N; t++) cs.getCell(cr, pCol(t)).value = `Year ${t + 1}`;
+    // An escalating line: its base-year amount and its spend-weighted escalation factor.
+    const cB = pCol(N) + 1, cX = pCol(N) + 2;
+    cs.getCell(cr, cB).value = 'Base-year amount'; cs.getCell(cr, cX).value = 'Escalation factor';
     cr += 1;
+    const A0 = (row: number, col: number) => ({ sheet: CALC, row, col });
     // Phase offsets on the project axis.
     for (const ph of phases) {
       cs.getCell(cr, 1).value = `Phase: ${ph.name}`;
       w.claim(`cxc:ph:${ph.id}`, CALC, cr, 1);
       w.fA({ sheet: CALC, row: cr, col: 2 }, `${w.ref(`phase:${ph.id}:cp`)}`, { cached: ph.constructionPeriods });
       w.fA({ sheet: CALC, row: cr, col: 3 }, `MAX(0,YEAR(${w.ref(`phase:${ph.id}:start`)})-${w.ref('project:axisYear')})`, { cached: Math.max(0, new Date(ph.startDate as string).getUTCFullYear() - snap.projectStartYear) });
+      cr += 1;
+    }
+    // CONSTRUCTION COST ESCALATION (costEscalation.ts): money spent in project year t costs
+    // (1 + rate)^t of its base-year rate. Per phase, the factor of each local period, on the
+    // project year that period lands in (phaseLocalToProjectIndex), so a line's escalated
+    // total is its spend-weighted factor.
+    const escPct = project.costEscalationPct ?? 0;
+    for (const ph of phases) {
+      const phRow = w.addr(`cxc:ph:${ph.id}`).row;
+      cs.getCell(cr, 1).value = `Escalation factor by period: ${ph.name}`;
+      w.claim(`cxc:esc:${ph.id}`, CALC, cr, 1);
+      const off0 = Math.max(0, new Date(ph.startDate as string).getUTCFullYear() - snap.projectStartYear);
+      for (let i = 0; i < L; i++) {
+        const off = w.refA(A0(phRow, 3));
+        const yr = i === 0 ? `MAX(0,${off}-1)` : `${off}+${i - 1}`;
+        const yrN = i === 0 ? Math.max(0, off0 - 1) : off0 + i - 1;
+        w.fA(A0(cr, wCol(i)), `(1+${w.ref('cx:esc')})^(${yr})`, { cached: Math.pow(1 + escPct / 100, yrN) });
+      }
       cr += 1;
     }
     // Sales collections, phase-local, for each plot with a line that follows them (PENDING: Revenue).
@@ -305,7 +328,18 @@ export const stage2Capex: LiveLayer = {
       } else w.valueA(A(row, cE), 0);
       // Amount.
       const D = w.refA(A(row, cD)), E = w.refA(A(row, cE));
-      w.fA(A(row, cF), c.disabled ? '0' : PERCENT(c.method) ? `MIN(MAX(${D},0),1)*${E}` : `MAX(0,${D})*${E}`, { cached: amount });
+      const amountF = c.disabled ? '0' : PERCENT(c.method) ? `MIN(MAX(${D},0),1)*${E}` : `MAX(0,${D})*${E}`;
+      // Escalation is structural per line (lineEscalates: the method), the rate a live input.
+      const esc = !c.disabled && lineEscalates({ method: c.method, isLandValue: isLandValueLine(c.line) });
+      if (esc) {
+        // The engine's base-year amount: each period's spend back in base-year money.
+        const off0 = Math.max(0, new Date(phase.startDate as string).getUTCFullYear() - snap.projectStartYear);
+        const per = bd.perLinePerPeriod[c.line.id] ?? [];
+        const baseAmt = per.reduce((s2, v, i) => s2 + (v ?? 0) / escalationFactorAt(phaseLocalToProjectIndex(i, off0), escPct), 0);
+        w.fA(A(row, cB), amountF, { cached: baseAmt });
+        w.fA(A(row, cX), `IF(SUM(${w.rangeA(CALC, row, wCol(0), wCol(L - 1))})>0,SUMPRODUCT(${w.rangeA(CALC, row, wCol(0), wCol(L - 1))},${w.rangeA(CALC, w.addr(`cxc:esc:${phase.id}`).row, wCol(0), wCol(L - 1))})/SUM(${w.rangeA(CALC, row, wCol(0), wCol(L - 1))}),1)`, { cached: baseAmt ? amount / baseAmt : 1 });
+        w.fA(A(row, cF), `${w.refA(A(row, cB))}*${w.refA(A(row, cX))}`, { cached: amount });
+      } else w.fA(A(row, cF), amountF, { cached: amount });
       // Window: the line's own, derived from construction years where it follows them.
       if (c.follows) {
         const cp = `MAX(1,${w.ref(`phase:${phase.id}:cp`)})`;
@@ -357,7 +391,7 @@ export const stage2Capex: LiveLayer = {
       for (let t = 0; t < N; t++) {
         const offRef = w.refA(A(phRow, 3));
         const wr = w.rangeA(CALC, row, wCol(0), wCol(L - 1));
-        const Fr = w.refA(A(row, cF)), W0 = w.refA(A(row, wCol(0)));
+        const Fr = esc ? `${w.refA(A(row, cB))}*(1+${w.ref('cx:esc')})^${t}` : w.refA(A(row, cF)), W0 = w.refA(A(row, wCol(0)));
         w.fA(A(row, pCol(t)), `${Fr}*(IF(${t}=MAX(0,${offRef}-1),${W0},0)+IF(AND(${t}-${offRef}+1>=1,${t}-${offRef}+1<=${L - 1}),INDEX(${wr},1,${t}-${offRef}+2),0))`,
           { cached: projectedCached(bd.perLinePerPeriod[c.line.id], Math.max(0, new Date(phase.startDate as string).getUTCFullYear() - snap.projectStartYear), t) });
       }
