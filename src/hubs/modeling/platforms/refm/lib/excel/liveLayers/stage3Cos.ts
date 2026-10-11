@@ -233,10 +233,8 @@ export const stage3Cos: LiveLayer = {
       } else if (l.form !== 'sell') {
         const revKey = l.form === 'operate' ? `rvc:${l.key}:total` : `rvc:${l.key}:rev`;
         if (!has(revKey)) continue;
-        // The project DSO, the terms the balance sheet uses (revenueOutputReports).
-        const dso = (): string => `MAX(0,N(${w.ref('project:dso')}))`;
-        const days = (): string => String(Math.max(1, state.project.operatingAr?.daysPerYear ?? 365));
-        const close = (t: number): string => `MAX(0,${rv(revKey, t)})*(${dso()}/${days()})`;
+        // The line's receivable at the close, at its own days or the project DSO (Revenue Calc).
+        const close = (t: number): string => rv(`rvc:${l.key}:opar`, t);
         feeds.push({
           name, section: l.section,
           revenue: (t) => rv(revKey, t),

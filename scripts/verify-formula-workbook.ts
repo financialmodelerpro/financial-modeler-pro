@@ -463,6 +463,14 @@ function perturbations(input: LiveExportInputs, reg: CellRegistry): Perturbation
   const ga = opexLine(hotA, (l) => l.mode === 'pct_of_total_rev' && l.value > 0 && !l.disabled);
   if (hotA && ga) out.push({ movesRevenue: false, label: `hotel opex, ${ga.l.name} +5 points of total revenue`, cell: cardKey(hotA, ga.l.name), col: RC.OPEN + 1, value: ga.l.value + 0.05, edit: setLine(hotA.id, ga.i, ga.l.value + 0.05) });
   else out.push({ label: 'a hotel opex share of revenue', skip: 'none' });
+  // 2026-10-11: a hotel line's OWN receivable days (receivableDays.ts). On a copy where
+  // the hotel states 60 days, they move to 90 at the line's door.
+  const arKey = hotL ? reg.keys().find((k) => k.startsWith(`revin|${hotL.key}|`) && k.endsWith('|Accounts Receivable Days')) : undefined;
+  if (hotL && arKey) {
+    const ids = (hotL.members as any[]).map((m) => m.id);
+    const own = (d: number) => (s: Snap): void => { for (const q of s.assets as any[]) if (ids.includes(q.id) && q.revenue?.operate) q.revenue.operate.dso = d; };
+    out.push({ movesRevenue: false, label: 'the hotel line\'s own receivable days 60 to 90 (on a copy where the line states its own)', cell: arKey, col: RC.TOTAL, value: 90, edit: own(90), variant: own(60) });
+  } else out.push({ label: 'a hotel line\'s own receivable days', skip: 'no hotel line card with receivable days' });
   const inc = opexLine(hotA, (l) => l.mode === 'pct_of_gop' && !l.disabled);
   if (hotA && inc) out.push({ movesRevenue: false, label: `hotel opex, ${inc.l.name} (on GOP) ${inc.l.value} to ${inc.l.value + 0.08}`, cell: cardKey(hotA, inc.l.name), col: RC.OPEN + 1, value: inc.l.value + 0.08, edit: setLine(hotA.id, inc.i, inc.l.value + 0.08) });
   else out.push({ label: 'a hotel opex line on GOP', skip: 'none' });

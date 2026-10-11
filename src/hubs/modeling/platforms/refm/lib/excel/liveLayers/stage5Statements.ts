@@ -318,8 +318,6 @@ export const stage5Statements: LiveLayer = {
       : assetRev(a));
     const opexPaid = (a: Asset): F => (has(`oxc:ap:${a.id}:paid`) ? (t) => sheetAt('Opex Calc', `oxc:ap:${a.id}:paid`, t) : () => '0');
     const hqPaid: F = (t) => sheetAt('Opex Calc', 'oxc:ap:hq:paid', t);
-    const dso = (): string => `MAX(0,N(${w.ref('project:dso')}))`;
-    const arDays = Math.max(1, state.project.operatingAr?.daysPerYear ?? 365);
     const sellEarners = visible.filter((a) => (a.strategy === 'Sell' || a.strategy === 'Sell + Manage') && has(`rvc:${a.id}:cash`));
     const lineSeries = (k: string): F => (t) => sellEarners.map((a) => { const l = lineForAsset(lines, a.id); return l && has(`rvc:${l.key}:${k}`) ? rv(`rvc:${l.key}:${k}`, t) : '0'; }).join('+') || '0';
     const resAr = lineSeries('ar');
@@ -367,7 +365,10 @@ export const stage5Statements: LiveLayer = {
       ]);
       // The operating receivable: on the project's (or this phase's) operating revenue, at the project DSO.
       const opRev = sumF([...hosp, ...ret].map(assetRev));
-      const opAr: F = (t) => `MAX(0,${opRev(t)})*${dso()}/${arDays}`;
+      // The receivable of the lines in this view, each at its own days (Revenue Calc).
+      const viewIds = new Set([...hosp, ...ret].map((a) => a.id));
+      const oparKeys = lines.filter((l) => l.form !== 'sell' && l.members.some((m) => viewIds.has(m.id))).map((l) => `rvc:${l.key}:opar`).filter(has);
+      const opAr: F = (t) => oparKeys.map((k) => rv(k, t)).join('+') || '0';
       const opCash: F = (t) => `MAX(0,${opRev(t)})-(${opAr(t)}-(${prevOf(opAr, t)}))`;
       const inKind = sumF(all.map(inKindOf));
       const cash = sumF(all.map(capexCash));
@@ -501,7 +502,7 @@ export const stage5Statements: LiveLayer = {
     const sumB = (labs: string[]): F => (t) => labs.filter(hasB).map((l) => bsCell(l, t)).join('+') || '0';
     const sc = (key: string): F => (t) => sheetAt('Schedules Calc', key, t);
     const cfCell = (label: string, t: number): string => w.refA({ sheet: CF, row: w.addr(`cf|direct||${label}`).row, col: pc(t) });
-    const opArProject: F = (t) => `MAX(0,${sumF(visible.filter((a) => a.strategy === 'Operate' || a.strategy === 'Lease').map(assetRev))(t)})*${dso()}/${arDays}`;
+    const opArProject: F = (t) => rv('rvc:opar:total', t);
     const debtRow = pendingRow('stc:bs:debt', 'debt outstanding (financing, pending)', snap.bs.debtOutstandingPerPeriod);
     const shareRow = pendingRow('stc:bs:share', 'share capital (financing, pending)', snap.bs.shareCapitalPerPeriod);
     const reserveCapPct = Math.max(0, state.project.statutoryReserve?.capOfShareCapital ?? 0);

@@ -41,6 +41,7 @@
  */
 import type { LayerContext, LiveLayer } from '../formulaWorkbook';
 import { LiveWriter } from './writer';
+import { statedLineReceivableDays } from '../../receivableDays';
 import { PERIOD_COLS } from '../buildModelWorkbook';
 import { ARGB, NUMFMT, setInput, setLabel, fillRange } from '../styles';
 import { withResolvedAssetNames } from '@/src/core/calculations/assetName';
@@ -101,6 +102,9 @@ export const stage3Revenue: LiveLayer = {
       if (earners.length > 1) refuse.push(`${name}: revenue sits on more than one plot`);
       const a = earners[0] ?? l.host;
       const off = offsetAt(p);
+      // A line's own receivable days are read from its card, which shows the host's.
+      if (l.form !== 'sell' && statedLineReceivableDays(a) !== statedLineReceivableDays(l.host)) refuse.push(`${name}: the earning plot and the line card state different receivable days`);
+      if (l.form !== 'sell' && statedLineReceivableDays(a) !== undefined && !w.reg.keys().some((k) => k.startsWith(`revin|${l.key}|`) && k.endsWith('|Accounts Receivable Days'))) refuse.push(`${name}: its own receivable days are not on the sheet`);
       if (l.form === 'sell') {
         const sell = a.revenue?.sell;
         if (!sell) continue;
@@ -435,6 +439,26 @@ export const stage3Revenue: LiveLayer = {
         leaseRes.set(l.key, { win, inOps, occ, factor, rate, occupied, rev, gla: glaTot, su: suMap });
       }
     }
+    // ── THE OPERATING RECEIVABLE, PER LINE (receivableDays.ts, 2026-10-11) ────
+    // Each hotel or lease line's receivable at the close: its revenue at its OWN days
+    // where it states them (the line card's cell), else at the project DSO; one total.
+    // Every surface that carries the operating receivable (the Schedules feed, the
+    // receivables schedule, the cash flow, the balance sheet) reads these rows.
+    const oparRows: Array<{ line: RevenueLine; row: number }> = [];
+    for (const l of lines) {
+      if (l.form === 'sell') continue;
+      const revKey = l.form === 'operate' ? `rvc:${l.key}:total` : `rvc:${l.key}:rev`;
+      if (!w.has(revKey)) continue;
+      const own = statedLineReceivableDays(l.host);
+      const daysKey = own !== undefined ? w.reg.keys().find((k) => k.startsWith(`revin|${l.key}|`) && k.endsWith('|Accounts Receivable Days')) : undefined;
+      const days = (): string => (daysKey ? `MAX(0,N(${w.ref(daysKey, TOTAL_COL)}))` : `MAX(0,N(${w.ref('project:dso')}))`);
+      const revRow = w.addr(revKey).row;
+      const r = newRow(`rvc:${l.key}:opar`, `operating receivable at the close (${own !== undefined ? 'its own days' : 'the project DSO'})`);
+      perT(r, (t) => `MAX(0,${at(revRow, t)})*${days()}/365`);
+      oparRows.push({ line: l, row: r });
+    }
+    const oparTotal = newRow('rvc:opar:total', 'operating receivable at the close, every line');
+    perT(oparTotal, (t) => oparRows.map((x) => at(x.row, t)).join('+') || '0');
     for (let col = 1; col <= cT(N - 1); col++) cs.getColumn(col).width = col <= 3 ? 26 : 14;
 
     // ── The visible Revenue sheet ────────────────────────────────────────────

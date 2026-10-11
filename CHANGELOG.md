@@ -4,6 +4,16 @@
 
 Entries are grouped by their most recent date. Fuller per-day narrative for REFM platform work lives in [CLAUDE-REFM.md](CLAUDE-REFM.md); per-route and migration detail in [CLAUDE-ROUTES.md](CLAUDE-ROUTES.md) and [CLAUDE-DB.md](CLAUDE-DB.md); the general lessons in [docs/TRAPS.md](docs/TRAPS.md); fund-layer standing rules in [docs/FUND_LAYER_GUIDELINE.md](docs/FUND_LAYER_GUIDELINE.md). This file is loaded on demand only and has no size limit.
 
+## 2026-10-11
+
+- **THE FORMULA-LINKED WORKBOOK, RESUMED AND CARRIED TO EVERY OPEN PROJECT** (founder: finalise it, simple formulas, a commit per step; working document [docs/FORMULA_EXCEL_GUIDELINE.md](docs/FORMULA_EXCEL_GUIDELINE.md)). Measured first: Marina Gate was fully live, but the other five open projects (all empty shells) fell to values on seven sheets for two reasons only.
+  - **Steps 1 and 2** (`8d358c0b`): the exit multiple, the platform's default terminal method, is live (one formula twin, `liveLayers/terminal.ts`, read by the solve and the exit-year analysis); HQ opex on the default structure is shown on Inputs and live (`hqOpexLinesInForce`, core); the indirect cash flow's cost of sales add-back no longer needs a P&L row that prints only when non-zero. Every open project now builds with no sheet on values.
+  - **Steps 4 and 5, simple formulas** (`18dafff8`): `liveLayers/simplify.ts` rewrites formula text, never arithmetic (sum chains to SUM over ranges, positive-part chains to SUMIF, stacked SUMs into one block, dead `+0` terms and brackets dropped); the sensitivity grid's streams are helper rows. Inside the circular solve the `+` chains stay: SUM there left the loop at #VALUE! in real Excel (TRAPS 3.33).
+  - **Step 6** (`5cdfa5a8`): the Schedules roll-forward tables' Total / Closing column is live.
+  - **Step 7** (`2780159e`): construction cost escalation, CIT loss carry-forward (`liveLayers/taxRule.ts`, P&L and both solves) and tax paid after the year end are live. **PLATFORM DEFECT FIXED**: escalation weighted a curve-following line by its stored even shape, so its total disagreed with its own periods (Marina Gate at 4%: 232,350,373.52 against 234,100,591.55); `verify-cost-escalation` B7 (TRAPS 7.65). No live project escalates, so nothing live moves.
+  - **Step 8**: a hotel or lease line's own receivable days are live through one operating-receivables block on Revenue Calc (a row per line at its own days, one total), which every receivable surface reads.
+  - **Measured on Marina Gate**: formulas over 800 characters 149 to 22, over 400 351 to 133; `verify-formula-workbook` 187 / 0 in real Excel after step 8 (167 at the start; the new cases each on a copy of Marina Gate). Left: Summary phase EBITDA (two platform definitions, founder's call), the refusals no project needs yet, and the preview gate.
+
 ## 2026-10-08
 
 - **FOUNDER DECISION 1, a scenario can flex a per-asset cost rate** (`653d3594`, TRAPS 7.64). A case's override of a value the settle derives now marks it the user's own, the same mechanism prices already used: a standard-origin override drops its origin, and a phase line gets `rateStated: true`.

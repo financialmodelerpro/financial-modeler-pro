@@ -31,7 +31,6 @@
  *
  * No em dashes in this file.
  */
-import { lineReceivableDays } from '../../receivableDays';
 import type { LayerContext, LiveLayer } from '../formulaWorkbook';
 import { LiveWriter } from './writer';
 import { PERIOD_COLS } from '../buildModelWorkbook';
@@ -84,12 +83,9 @@ export const stage4Schedules: LiveLayer = {
       const lives = new Set(l.assetIds.map((id) => resolveUsefulLifeYears(state.assets.find((a) => a.id === id)!)));
       if (lives.size > 1) refuse.push(`${l.assetIds.join(', ')}: plots of one line depreciate over different lives`);
     }
-    // 2026-10-05: a hotel or lease line with its OWN receivable days differing
-    // from the project DSO (receivableDays.ts) is not mirrored by these formulas.
-    const projectDso = Math.max(0, state.project.operatingAr?.dsoDays ?? 0);
-    if (state.assets.some((a) => a.visible !== false && (a.strategy === 'Operate' || a.strategy === 'Lease') && lineReceivableDays(a, state.project) !== projectDso)) {
-      refuse.push('a line collects on its own receivable days, which these formulas do not mirror');
-    }
+    // A hotel or lease line's own receivable days are live (2026-10-11): the receivable is
+    // the Revenue working sheet's per-line rows (rvc:<line>:opar), at each line's days.
+    if (!has('rvc:opar:total')) refuse.push('the operating receivable rows are not on the Revenue working sheet');
     const arDays = state.project.operatingAr?.daysPerYear;
     if (arDays !== undefined && arDays !== 365) refuse.push('the operating receivables use a year that is not 365 days, which the sheet does not show');
     if (refuse.length) return values(`Schedules could not be made live for this model: ${[...new Set(refuse)].join('; ')}.`);
@@ -311,7 +307,7 @@ export const stage4Schedules: LiveLayer = {
       } else if (tbl.key === 'A2') {
         const opKeys = lines.filter((l) => l.form !== 'sell').map((l) => `rvc:${l.key}:${l.form === 'operate' ? 'total' : 'rev'}`).filter(has);
         const rev = newRow('schc:A2:rev', 'operating revenue', (t) => sumRv(opKeys, t));
-        const close = newRow('schc:A2:close', 'operating receivables, closing', (t) => `MAX(0,${at(rev, t)})*MAX(0,N(${w.ref('project:dso')}))/365`);
+        const close = newRow('schc:A2:close', 'operating receivables, closing', (t) => sumRv(['rvc:opar:total'], t));
         row(F('A2', 'Opening AR'), (t) => prev(close, t), 'first');
         row(F('A2', '(+) Operating revenue billed'), (t) => at(rev, t), 'sumPrior');
         row(F('A2', '(−) Cash collected'), (t) => `-(${at(rev, t)}-(${at(close, t)}-${prev(close, t)}))`, 'sumPrior');

@@ -2,6 +2,15 @@
 
 > Forward-looking only: active follow-ups, in-progress work, backlog, legacy reference. Completed phase narratives live in **CLAUDE-FEATURES.md** (archive) and `git log` (authoritative). Do not re-add "Recently Completed" sections here when closing a phase, write the closure into CLAUDE-FEATURES.md instead.
 
+## START HERE 2026-10-11: THE FORMULA-LINKED WORKBOOK IS UNPARKED AND LIVE ON EVERY OPEN PROJECT
+
+**Working document: [docs/FORMULA_EXCEL_GUIDELINE.md](docs/FORMULA_EXCEL_GUIDELINE.md)** (status, rules, step log, what is open). Done
+today: exit multiple, HQ default opex, simple formulas, Schedules totals, cost escalation, CIT, tax lag, per-line receivable
+days (CHANGELOG 2026-10-11). **OPEN, in order:** (1) Summary phase EBITDA vs the phase P&L (two platform definitions since
+2026-10-08, founder's call); (2) refusals no project needs yet (exit before the last year, Exit Year live, reducing balance,
+deferred plot payment, Method 4, balloon / custom repayment, NAV fees, monthly, overlap, existing operations, perpetuity);
+(3) opening the export beyond the founder-only preview gate (founder's call, feature key `excel_formula`).
+
 ## 2026-10-05: TRAINING HUB, A MODEL APPROVED IN ERROR (PARKED, NOT BUILT)
 
 A 3SFM model scored 5.5% "Not Yet Competent" was approved by a mis-click. One click issued the certificate, sent three emails (approval, held final-exam result, certificate) and unlocked BVM, with no confirmation and no undo. Reversed by hand the same day (submission set to rejected with the same note, certificate row + PDF + badge deleted, BVM enrollment row deleted, audit row written); backup of what was deleted is kept OUTSIDE the repo at `D:\FMP\backups\2026-10-05_FMP-3SFM-2026-0240\`. The correcting email goes through Communications Hub > Campaigns > Custom List. Open, in order:

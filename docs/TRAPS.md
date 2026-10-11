@@ -1244,6 +1244,23 @@ and agrees with the platform until an input changes. Assert the status: every sh
 live on every test copy (`verify-formula-workbook` C "keeps every sheet"), and no formula exceeds Excel's limit
 (A2b, and on every test copy before Excel opens it).
 
+### 3.33 SUM() inside Excel's circular solve: the loop never starts, a + chain works
+
+**Symptom (2026-10-11):** after a formula simplifier rewrote `a+b+c` chains to `SUM(a,b,c)` across the live
+workbook, real Excel recalculated 7,612 cells to #VALUE!, every one downstream of the financing solve. Each other
+working sheet, simplified alone, recalculated exactly.
+
+**Mechanism:** bisected to one row of `Financing Calc` (cash before new funding, opening cash plus cash from
+operations plus investing). As `a+b+c` the iterative solve starts and converges; as `SUM(a,b,c)` (single cells,
+no range) the whole loop stays at #VALUE!. Measured, not explained: inside a circular reference Excel's
+iteration treats the two differently. (TRAPS 3.26 is the neighbouring fact: a loop with no cached value never starts.)
+
+**Fix:** the simplifier keeps `+` chains on the circular sheet (`CIRCULAR_SHEETS` in `liveLayers/simplify.ts`);
+every other rewrite there (dead `+0` terms, brackets, SUMs the layers already wrote) is proved exact.
+
+**The trap to avoid:** "an algebraically equal formula is safe to swap" holds for a normal sheet, not inside an
+iterated circle. Prove a rewrite of a circular block in real Excel, per sheet, before trusting it.
+
 ## 4. PDF export (pdf-lib)
 
 ### 4.1 PDF text is glyph ids, so a naive grep returns nothing
@@ -3124,6 +3141,25 @@ Marina Gate byte-identical (no case of it overrides a derived value). `verify-mo
 real path with a refreshed fixture, with a named exception for the four settle markers and identities, each
 obliged to stay hidden with a reason calling it one. **A verifier that measures a path the product stopped using
 reports green on exactly the defects the new path introduced: re-aim it the day the path changes.**
+
+### 7.65 A total escalated on one shape while its periods follow another
+
+**Symptom (2026-10-11):** with construction cost escalation on, a construction line on an asset with a typed spend
+curve (10 / 30 / 40 / 20) priced 232,350,373.52 on Marina Gate at 4% while its own periods summed to
+234,100,591.55. Found by the formula-linked workbook, whose escalated line (base x spend-weighted factor, periods at
+(1 + rate)^year) agreed with the periods and not with the total.
+
+**Mechanism:** `computeAssetCost` weights escalation by the line's spend profile, but the asset's curve is
+resolved into each line AFTER the totals (the capex phasing block says "phasing cannot change any total", true
+until escalation arrived on 2026-09-16). So the factor came from the line's stored even window, and the periods,
+built after the resolution, carried the curve.
+
+**Fix:** the escalation weights use the same `resolveLinePhasing`; the land-cash and collections shapes it can also
+follow drive only lines that never escalate. Moves money only where escalation is on (no live project).
+
+**Proof:** `verify-cost-escalation` B7: a 10 / 90 curve escalates at 0.1 x 1.00 + 0.9 x 1.04 and the line sums to
+its periods; fails on the old engine (factor 1.02, periods 51.8m against a 51.0m total). **A comment that says a
+step "cannot change any total" is a claim about every later feature too; re-check it when one arrives.**
 
 ## 8. Registries and two-step registration
 
