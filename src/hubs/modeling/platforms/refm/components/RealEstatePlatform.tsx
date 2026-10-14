@@ -1814,6 +1814,7 @@ export default function RealEstatePlatform(): React.JSX.Element {
     {/* Installed app (2026-09-26): the window keeps a footer below the workspace, so the shell gives up exactly its height there; in a browser tab --installed-footer-h is unset and this is 100vh as before. */}
     <div style={{ display: 'flex', flexDirection: 'column', height: 'calc((100vh - var(--installed-footer-h, 0px)) / 0.8)', width: 'calc(100vw / 0.8)', overflow: 'hidden', zoom: 0.8 }}>
       <Topbar
+        platformSlug={REFM_PLATFORM_SLUG}
         projectName={activeProjectData?.name ?? ''}
         activeProjectData={activeProjectData}
         activeVersionData={activeVersionData}

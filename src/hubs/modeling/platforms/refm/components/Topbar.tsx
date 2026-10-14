@@ -18,12 +18,15 @@ import Link from 'next/link';
 import { signOut } from 'next-auth/react';
 import type { Role, PermissionMap } from '@/src/core/types/settings.types';
 import { useBrandingStore } from '@/src/core/state';
-import { getPlatformLogo, DEFAULT_BRANDING } from '@/src/core/branding';
+import { DEFAULT_BRANDING } from '@/src/core/branding';
+import { usePlatformDisplayName } from '@/src/hubs/modeling/lib/usePlatformDisplayName';
 import OfficeColorPicker from '@/src/shared/components/ui/OfficeColorPicker';
 import CaseSwitcher from './CaseSwitcher';
 import type { StorageProject } from './RealEstatePlatform';
 
 interface TopbarProps {
+  /** The selected platform; the header shows ITS name (`resolvePlatformDisplayName`), never the company's. */
+  platformSlug: string;
   projectName: string;
   activeProjectData: StorageProject | null;
   activeVersionData: { name: string; createdAt: string; data: unknown } | null;
@@ -146,6 +149,7 @@ function QuickColorPanel({
 
 // ── Topbar ────────────────────────────────────────────────────────────────
 export default function Topbar({
+  platformSlug,
   projectName,
   activeProjectData,
   activeVersionData,
@@ -171,11 +175,7 @@ export default function Topbar({
   // Plan entitlement layered over role can(); default allows everything so the
   // gate only bites when the parent passes a real resolver.
   const isEntitled = (featureKey: string): boolean => (entitled ? entitled(featureKey) : true);
-  const branding = useBrandingStore((s) => s.branding);
-  const platformLogo = getPlatformLogo(branding);
-  const displayName = branding.platformName;
-  const displayLogo = platformLogo.type === 'image' ? platformLogo.value : null;
-  const displayLogoEmoji = platformLogo.type === 'emoji' ? platformLogo.value : '🏗️';
+  const displayName = usePlatformDisplayName(platformSlug);
   const [colorPanelOpen, setColorPanelOpen] = useState(false);
   const [colorPanelPos, setColorPanelPos] = useState({ top: 0, left: 0 });
   const colorBtnRef = useRef<HTMLButtonElement>(null);
@@ -196,13 +196,9 @@ export default function Topbar({
     <div className="pm-toolbar" data-testid="topbar">
       <span
         className="pm-brand"
-        style={{ display: 'flex', alignItems: 'center', gap: '7px', flexShrink: 0 }}
+        style={{ display: 'flex', alignItems: 'center', flexShrink: 0 }}
+        data-testid="topbar-platform-name"
       >
-        {displayLogo ? (
-          <img src={displayLogo} style={{ width: 18, height: 18, objectFit: 'contain' }} alt="logo" />
-        ) : (
-          <span style={{ fontSize: '16px' }}>{displayLogoEmoji}</span>
-        )}
         <span
           style={{
             letterSpacing: '0.06em',

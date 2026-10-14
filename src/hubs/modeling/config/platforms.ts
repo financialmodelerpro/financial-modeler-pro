@@ -401,6 +401,28 @@ export function getPlatform(slug: string): Platform | undefined {
   return PLATFORMS.find((p) => p.slug === slug);
 }
 
+/** What a platform header says when the slug resolves to no platform at all. */
+export const PLATFORM_NAME_FALLBACK = 'Modeling Hub';
+
+/**
+ * The ONE rule for the name a platform's own header shows (2026-10-14). The live
+ * catalog row (`modules`, edited on /admin/platform-modules, what the hub's
+ * platform picker shows) wins; this config is the name before the catalog has
+ * loaded or when it is unreachable; an unknown slug reads as the hub, never as
+ * the company name. Nothing is hardcoded per platform, so a new platform needs
+ * only its catalog row or its entry here.
+ */
+export function resolvePlatformDisplayName(
+  slug: string,
+  catalog?: ReadonlyArray<{ slug: string; name?: string | null }> | null,
+): string {
+  const live = catalog?.find((r) => r.slug === slug)?.name?.trim();
+  if (live) return live;
+  const configured = getPlatform(slug)?.name?.trim();
+  if (configured) return configured;
+  return PLATFORM_NAME_FALLBACK;
+}
+
 /**
  * URL segment for the per-platform pricing route (/pricing/<segment>). Derived
  * from the platform's shortName so it is short and branded (REFM -> refm),

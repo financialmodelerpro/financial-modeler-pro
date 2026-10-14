@@ -4,6 +4,10 @@
 
 Entries are grouped by their most recent date. Fuller per-day narrative for REFM platform work lives in [CLAUDE-REFM.md](CLAUDE-REFM.md); per-route and migration detail in [CLAUDE-ROUTES.md](CLAUDE-ROUTES.md) and [CLAUDE-DB.md](CLAUDE-DB.md); the general lessons in [docs/TRAPS.md](docs/TRAPS.md); fund-layer standing rules in [docs/FUND_LAYER_GUIDELINE.md](docs/FUND_LAYER_GUIDELINE.md). This file is loaded on demand only and has no size limit.
 
+## 2026-10-14
+
+- **A PLATFORM'S HEADER NAMES THE PLATFORM, NOT THE COMPANY, AND CARRIES NO ICON** (founder). The workspace header (`Topbar.tsx`, rendered once and unconditionally by the platform shell, so the Portfolio Dashboard with no project open included, web and installed app alike) read the company branding name with an emoji or logo beside it. It now reads `resolvePlatformDisplayName(slug, catalog)` (`src/hubs/modeling/config/platforms.ts`, the ONE rule): the live `modules` catalog row's name (what the hub's platform picker shows, admin-editable) wins, the configured `PLATFORMS` name stands until the catalog loads or when it is unreachable, and a slug neither knows reads as `PLATFORM_NAME_FALLBACK` ("Modeling Hub"), never the company. The shell passes its slug; nothing in the header names a platform, so a new platform needs no header change. Browser tab title (`APP_NAME`) and sidebar untouched. `verify-topbar-platform-name` 51 (live catalog half with credentials; the header checks fail on the previous Topbar).
+
 ## 2026-10-11
 
 - **THE FORMULA-LINKED WORKBOOK, RESUMED AND CARRIED TO EVERY OPEN PROJECT** (founder: finalise it, simple formulas, a commit per step; working document [docs/FORMULA_EXCEL_GUIDELINE.md](docs/FORMULA_EXCEL_GUIDELINE.md)). Measured first: Marina Gate was fully live, but the other five open projects (all empty shells) fell to values on seven sheets for two reasons only.
