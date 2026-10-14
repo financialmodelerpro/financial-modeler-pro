@@ -9,7 +9,7 @@ import type { BrandingConfig } from '@/src/core/types/branding.types';
 const SECTION = 'header_settings';
 
 const KEYS = [
-  'logo_enabled', 'logo_url', 'logo_width_px', 'logo_height_px', 'logo_position',
+  'logo_enabled', 'logo_url', 'logo_light_url', 'logo_width_px', 'logo_height_px', 'logo_position',
   'show_brand_name', 'brand_name', 'show_tagline', 'tagline',
   'icon_url', 'icon_as_favicon', 'icon_in_header', 'icon_size_px',
   'header_height_px', 'header_padding_top_px', 'header_padding_bottom_px',
@@ -191,6 +191,22 @@ export default function HeaderSettingsPage() {
                 <div style={{ marginTop: 8, padding: 12, background: '#0D2E5A', borderRadius: 8, display: 'inline-block' }}>
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img src={vals.logo_url} alt="Logo preview" style={{ height: parseInt(vals.logo_height_px || '36') || 36, width: vals.logo_width_px ? parseInt(vals.logo_width_px) : 'auto', objectFit: 'contain' }} />
+                </div>
+              )}
+            </div>
+            <div style={{ marginBottom: 12 }}>
+              <label style={LS}>Light Logo (for dark backgrounds)</label>
+              <div style={{ fontSize: 12, color: '#6B7280', marginBottom: 6 }}>
+                Every navy header shows this version when it is set (main site, Training Hub, Modeling Hub). Draw it on the same canvas as the logo above so the height setting fits both. Leave empty to use the logo above everywhere.
+              </div>
+              <div style={{ display: 'flex', gap: 6 }}>
+                <input style={{ ...IS, flex: 1 }} value={vals.logo_light_url ?? ''} onChange={e => set('logo_light_url', e.target.value)} placeholder="https://... or upload →" data-testid="header-logo-light-url" />
+                <MediaPickerButton onSelect={url => set('logo_light_url', url)} />
+              </div>
+              {vals.logo_light_url && (
+                <div style={{ marginTop: 8, padding: 12, background: '#0D2E5A', borderRadius: 8, display: 'inline-block' }}>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={vals.logo_light_url} alt="Light logo preview" style={{ height: parseInt(vals.logo_height_px || '36') || 36, width: vals.logo_width_px ? parseInt(vals.logo_width_px) : 'auto', objectFit: 'contain' }} />
                 </div>
               )}
             </div>

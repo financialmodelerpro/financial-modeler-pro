@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useSyncExternalStore } from 'react';
+import Link from 'next/link';
 import dynamic from 'next/dynamic';
 import { useSession, signOut } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
@@ -12,6 +13,7 @@ import { NONE_PLAN_KEY } from '@/src/shared/entitlements/gate';
 import BillingView from '@/src/hubs/modeling/components/BillingView';
 import { ShareExperienceModal } from '@/src/shared/components/ShareExperienceModal';
 import { isOffline } from '@/src/shared/utils/connection';
+import { logoForDarkHeader } from '@/src/shared/cms/headerLogo';
 
 // DB row shape returned by GET /api/admin/modules. Only fields we map to
 // `Platform` are listed; unused columns are tolerated as `unknown`.
@@ -70,10 +72,24 @@ const SIDEBAR_W = 220;
 const SIDEBAR_W_COLLAPSED = 52;
 // The logo height is the CMS value the main site's navbar shares, so this
 // screen caps it rather than editing it there; the header follows the logo.
+// The light logo (logoForDarkHeader) reads at a smaller size than the standard
+// one, whose dark lettering on navy needs 52px; with neither set the cap is moot.
 const HUB_LOGO_MAX_H = 52;
-const HUB_HEADER_H = 60;
+const HUB_LOGO_LIGHT_MAX_H = 40;
+const HUB_HEADER_H = 56;
 
 type Theme = ReturnType<typeof buildTheme>;
+
+// False on the server and on the hydrating render, true after: browser-only
+// state (the URL hash, stored preferences) is read once this is true, so the
+// first client render matches the server's and no effect has to set state.
+const noSubscribe = (): (() => void) => () => {};
+function useHydrated(): boolean {
+  return useSyncExternalStore(noSubscribe, () => true, () => false);
+}
+function readStored(key: string): string | null {
+  try { return localStorage.getItem(key); } catch { return null; }
+}
 
 function buildTheme(dark: boolean) {
   return dark
@@ -284,10 +300,10 @@ function AccessCard({ theme, pending, requestedAt, onGranted, onRequested }: {
               >
                 {granted ? 'Trial activated ✓' : busy ? 'Requesting…' : 'Request free trial'}
               </button>
-              <a href="/choose-plan" data-testid="dashboard-get-access"
+              <Link href="/choose-plan" data-testid="dashboard-get-access"
                 style={{ fontSize: 13, fontWeight: 700, color: '#0D2E5A', textDecoration: 'underline', whiteSpace: 'nowrap' }}>
                 View plans →
-              </a>
+              </Link>
             </div>
             {error && (
               <div data-testid="dashboard-access-error" style={{ marginTop: 10, fontSize: 12.5, color: '#991B1B', fontWeight: 600 }}>
@@ -339,8 +355,8 @@ function PlatformCard({ platform, theme, noPlan }: { platform: Platform; theme: 
         position: 'absolute', top: 12, right: 12,
         background: isLive ? theme.liveBg : theme.comingBg,
         color: isLive ? theme.liveFg : theme.comingFg,
-        fontSize: 10, fontWeight: 700,
-        padding: '3px 9px', borderRadius: 20,
+        fontSize: 12, fontWeight: 700,
+        padding: '2px 8px', borderRadius: 20,
         letterSpacing: '0.05em',
       }}>
         {isLive ? 'LIVE' : 'COMING SOON'}
@@ -356,7 +372,7 @@ function PlatformCard({ platform, theme, noPlan }: { platform: Platform; theme: 
           {platform.icon}
         </div>
         <div>
-          <div style={{ fontSize: 10, fontWeight: 800, color: platform.color, letterSpacing: '0.07em', textTransform: 'uppercase', marginBottom: 3 }}>
+          <div style={{ fontSize: 12, fontWeight: 800, color: platform.color, letterSpacing: '0.07em', textTransform: 'uppercase', marginBottom: 3 }}>
             {platform.shortName}
           </div>
           <div style={{ fontSize: 14, fontWeight: 700, color: theme.heading, lineHeight: 1.3 }}>
@@ -429,11 +445,27 @@ export default function ModelingDashboardPage() {
   const graceRenewHref = `/pricing/${platformPricingSegment(getPlatform('real-estate') ?? { slug: 'real-estate', shortName: 'REFM' })}`;
 
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
-  const [activeView, setActiveView] = useState<DashView>(DEFAULT_VIEW);
-  const [collapsed, setCollapsed] = useState(false);
+  const hydrated = useHydrated();
+  // A click sets the view; until then a view linked by its hash opens. The map
+  // is built from NAV_ITEMS, so the hash written on click and the hash read
+  // here can never drift; a view with no declared hash is simply not
+  // restorable. Deliberately only the STATIC items: the admin-only entries are
+  // appended per session, and restoring one before the session has resolved
+  // would set a view this user may not be allowed to see.
+  const [viewChoice, setActiveView] = useState<DashView | null>(null);
+  const activeView: DashView = viewChoice ?? (hydrated ? VIEW_BY_HASH.get(window.location.hash) : undefined) ?? DEFAULT_VIEW;
+  const [collapsedChoice, setCollapsed] = useState<boolean | null>(null);
+  const collapsed = collapsedChoice ?? (hydrated && readStored('modelingSidebarCollapsed') === 'true');
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [profileDropdown, setProfileDropdown] = useState(false);
-  const [darkMode, setDarkMode] = useState(false);
+  // Dark mode: a STORED CHOICE wins; no stored choice means LIGHT
+  // (2026-08-20). This used to fall back to the OS colour scheme, so a new
+  // user on a dark-OS machine opened their first session in dark mode having
+  // chosen nothing, which read as the product's default. The product default
+  // is light; dark is something a user turns on, and once they do, the
+  // stored value keeps winning exactly as before.
+  const [darkChoice, setDarkMode] = useState<boolean | null>(null);
+  const darkMode = darkChoice ?? (hydrated && readStored('modelingDarkMode') === 'true');
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
   const [platforms, setPlatforms] = useState<Platform[]>([]);
   const [platformsLoading, setPlatformsLoading] = useState(true);
@@ -455,19 +487,6 @@ export default function ModelingDashboardPage() {
     redirectUrl: '/signin?reason=inactivity&bypass=true',
   });
 
-  // Open a view directly when it is linked with its hash. The map is built
-  // from NAV_ITEMS, so the hash written on click and the hash read here can
-  // never drift; a view with no declared hash is simply not restorable.
-  //
-  // Deliberately only the STATIC items: the admin-only entries are appended
-  // per session, and restoring one before the session has resolved would set
-  // a view this user may not be allowed to see.
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    const view = VIEW_BY_HASH.get(window.location.hash);
-    if (view) setActiveView(view);
-  }, []);
-
   // Profile image: the session/JWT does not carry avatar_url, so fetch it for the
   // header + sidebar avatars. Falls back to initials when unset.
   useEffect(() => {
@@ -478,36 +497,21 @@ export default function ModelingDashboardPage() {
       .catch(() => {});
   }, [status]);
 
-  // Restore sidebar state
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    if (localStorage.getItem('modelingSidebarCollapsed') === 'true') {
-      setCollapsed(true);
-    }
-    // Dark mode: a STORED CHOICE wins; no stored choice means LIGHT
-    // (2026-08-20). This used to fall back to the OS colour scheme, so a new
-    // user on a dark-OS machine opened their first session in dark mode having
-    // chosen nothing, which read as the product's default. The product default
-    // is light; dark is something a user turns on, and once they do, the
-    // stored value keeps winning exactly as before.
-    const stored = localStorage.getItem('modelingDarkMode');
-    if (stored === 'true' || stored === 'false') {
-      setDarkMode(stored === 'true');
-    }
-  }, []);
-
   // Fetch CMS header settings, same source-of-truth as the main-site
   // NavbarServer, so logo and header chrome are consistent across all three
   // subdomains. The keys are read from cms_content section='header_settings'.
   useEffect(() => {
-    fetch('/api/cms?section=header_settings&keys=logo_url,logo_height_px,header_height_px')
+    fetch('/api/cms?section=header_settings&keys=logo_url,logo_light_url,logo_height_px,header_height_px')
       .then(r => r.json())
       .then((d: { map?: Record<string, string> }) => {
-        const url = d.map?.['header_settings__logo_url'];
+        const light = (d.map?.['header_settings__logo_light_url'] ?? '').trim();
+        // The header is navy: the light logo when one is set.
+        const url = logoForDarkHeader({ light, standard: d.map?.['header_settings__logo_url'] });
         const lh  = d.map?.['header_settings__logo_height_px'];
+        const cap = light ? HUB_LOGO_LIGHT_MAX_H : HUB_LOGO_MAX_H;
         const hh  = d.map?.['header_settings__header_height_px'];
         if (url) setLogoUrl(url);
-        if (lh)  setLogoHeight(Math.min(parseInt(lh, 10) || 36, HUB_LOGO_MAX_H));
+        if (lh)  setLogoHeight(Math.min(parseInt(lh, 10) || 36, cap));
         if (hh)  setHeaderHeight(Math.round((parseInt(hh, 10) || 64) * 0.85));
       })
       .catch(() => {});
@@ -525,7 +529,6 @@ export default function ModelingDashboardPage() {
   // reflected on the dashboard immediately.
   useEffect(() => {
     let cancelled = false;
-    setPlatformsLoading(true);
     fetch('/api/admin/modules')
       .then((r) => r.json())
       .then((j: { modules?: ModuleRow[] }) => {
@@ -659,7 +662,7 @@ export default function ModelingDashboardPage() {
                 <div style={{ width: 28, height: 28, borderRadius: 6, background: 'linear-gradient(135deg,#3B82F6,#1D4ED8)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14 }}>📐</div>
                 <div>
                   <div style={{ fontSize: 13, fontWeight: 800, color: '#fff', lineHeight: 1 }}>Financial Modeler Pro</div>
-                  <div style={{ fontSize: 9, fontWeight: 700, color: 'rgba(255,255,255,0.4)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>Modeling Hub</div>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: 'rgba(255,255,255,0.4)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>Modeling Hub</div>
                 </div>
               </>
             )}
@@ -671,7 +674,7 @@ export default function ModelingDashboardPage() {
             onClick={() => setProfileDropdown(v => !v)}
             style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '4px 10px 4px 4px', background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 20, cursor: 'pointer', color: '#fff' }}
           >
-            <div style={{ width: 26, height: 26, borderRadius: '50%', background: 'linear-gradient(135deg,#3B82F6,#1D4ED8)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 800, color: '#fff', flexShrink: 0, overflow: 'hidden' }}>
+            <div style={{ width: 26, height: 26, borderRadius: '50%', background: 'linear-gradient(135deg,#3B82F6,#1D4ED8)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 800, color: '#fff', flexShrink: 0, overflow: 'hidden' }}>
               {avatarUrl
                 // eslint-disable-next-line @next/next/no-img-element
                 ? <img src={avatarUrl} alt="Profile" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
@@ -680,16 +683,16 @@ export default function ModelingDashboardPage() {
             <span style={{ fontSize: 12, fontWeight: 700, maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {userName}
             </span>
-            <span style={{ fontSize: 10, opacity: 0.6 }}>▾</span>
+            <span style={{ fontSize: 12, opacity: 0.6 }}>▾</span>
           </button>
 
           {profileDropdown && (
             <div style={{ position: 'absolute', right: 0, top: '100%', marginTop: 6, background: theme.dropdownBg, borderRadius: 10, boxShadow: '0 8px 30px rgba(0,0,0,0.18)', minWidth: 200, zIndex: 300, overflow: 'hidden', border: `1px solid ${theme.border}` }}>
               <div style={{ padding: '10px 14px 8px', borderBottom: `1px solid ${theme.border}` }}>
                 <div style={{ fontSize: 12, fontWeight: 700, color: theme.heading, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{userName}</div>
-                <div style={{ fontSize: 11, color: theme.muted, marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{user.email}</div>
+                <div style={{ fontSize: 12, color: theme.muted, marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{user.email}</div>
               </div>
-              <a href="/settings" onClick={() => setProfileDropdown(false)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 14px', textDecoration: 'none', color: theme.body, fontSize: 13, fontWeight: 500 }}>⚙️ Settings</a>
+              <Link href="/settings" onClick={() => setProfileDropdown(false)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 14px', textDecoration: 'none', color: theme.body, fontSize: 13, fontWeight: 500 }}>⚙️ Settings</Link>
               {isAdmin && (
                 <a href={`${MAIN_URL}/admin`} onClick={() => setProfileDropdown(false)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 14px', textDecoration: 'none', color: '#1A7A30', fontSize: 13, fontWeight: 700 }}>🛡️ Admin Panel →</a>
               )}
@@ -737,7 +740,7 @@ export default function ModelingDashboardPage() {
               {!collapsed && (
                 <div style={{ minWidth: 0 }}>
                   <div style={{ fontSize: 13, fontWeight: 700, color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{userName}</div>
-                  <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{user.email}</div>
+                  <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{user.email}</div>
                 </div>
               )}
             </div>
@@ -745,7 +748,7 @@ export default function ModelingDashboardPage() {
 
           <div style={{ padding: collapsed ? '8px 6px' : '8px 8px', flex: 1 }}>
             {!collapsed && (
-              <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.25)', padding: '6px 4px', marginBottom: 4 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.25)', padding: '6px 4px', marginBottom: 4 }}>
                 Navigation
               </div>
             )}
@@ -791,7 +794,7 @@ export default function ModelingDashboardPage() {
                     <>
                       <span style={{ fontSize: 13, fontWeight: isActive ? 700 : 500, color: isActive ? '#fff' : 'rgba(255,255,255,0.7)', flex: 1 }}>{item.label}</span>
                       {item.badge && (
-                        <span style={{ fontSize: 9, fontWeight: 700, padding: '2px 7px', borderRadius: 10, background: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.3)' }}>{item.badge}</span>
+                        <span style={{ fontSize: 12, fontWeight: 700, padding: '2px 7px', borderRadius: 10, background: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.3)' }}>{item.badge}</span>
                       )}
                     </>
                   )}
@@ -902,7 +905,7 @@ export default function ModelingDashboardPage() {
                 <>
                   <div data-testid="team-operator-divider" style={{ margin: '26px 0 16px', display: 'flex', alignItems: 'center', gap: 10 }}>
                     <div style={{ flex: 1, height: 1, background: theme.border }} />
-                    <span style={{ fontSize: 11.5, fontWeight: 800, letterSpacing: '0.08em', textTransform: 'uppercase', color: theme.muted }}>
+                    <span style={{ fontSize: 12, fontWeight: 800, letterSpacing: '0.08em', textTransform: 'uppercase', color: theme.muted }}>
                       Operator panel · all accounts
                     </span>
                     <div style={{ flex: 1, height: 1, background: theme.border }} />
@@ -948,9 +951,9 @@ export default function ModelingDashboardPage() {
               <span style={{ fontSize: 13.5, color: '#0D2E5A', fontWeight: 600, flex: 1, minWidth: 220 }}>
                 Your plan has ended. Choose a plan to restore access to the platforms.
               </span>
-              <a href="/choose-plan" data-testid="dashboard-renew-access" style={{ background: '#C9A84C', color: '#0D2E5A', fontWeight: 800, fontSize: 13, padding: '9px 18px', borderRadius: 9, textDecoration: 'none', whiteSpace: 'nowrap' }}>
+              <Link href="/choose-plan" data-testid="dashboard-renew-access" style={{ background: '#C9A84C', color: '#0D2E5A', fontWeight: 800, fontSize: 13, padding: '9px 18px', borderRadius: 9, textDecoration: 'none', whiteSpace: 'nowrap' }}>
                 Get access →
-              </a>
+              </Link>
             </div>
           )}
 
@@ -1000,7 +1003,7 @@ export default function ModelingDashboardPage() {
                 <h2 style={{ fontSize: 13, fontWeight: 700, color: theme.body, margin: 0, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
                   Available Platforms
                 </h2>
-                <span style={{ fontSize: 11, color: theme.muted }}>{livePlatforms.length} live</span>
+                <span style={{ fontSize: 12, color: theme.muted }}>{livePlatforms.length} live</span>
               </div>
               <div
                 className="mh-grid"
@@ -1017,7 +1020,7 @@ export default function ModelingDashboardPage() {
                 <h2 style={{ fontSize: 13, fontWeight: 700, color: theme.body, margin: 0, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
                   Coming Soon
                 </h2>
-                <span style={{ fontSize: 11, color: theme.muted }}>{comingPlatforms.length} platforms</span>
+                <span style={{ fontSize: 12, color: theme.muted }}>{comingPlatforms.length} platforms</span>
               </div>
               <div
                 className="mh-grid"

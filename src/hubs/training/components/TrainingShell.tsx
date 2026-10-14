@@ -10,6 +10,7 @@ import {
 import { getTrainingSession, clearTrainingSession } from '@/src/hubs/training/lib/session/training-session';
 import { useInactivityLogout } from '@/src/shared/hooks/useInactivityLogout';
 import { WelcomeModal } from './WelcomeModal';
+import { logoForDarkHeader } from '@/src/shared/cms/headerLogo';
 
 const NAVY = '#0D2E5A';
 const GREEN = '#2EAA4A';
@@ -40,11 +41,12 @@ export function TrainingShell({ children, activeNav, headerOnly, logoUrl: logoUr
     const fetches: Promise<void>[] = [];
     if (!logoUrlProp) {
       fetches.push(
-        fetch('/api/cms?section=header_settings&keys=logo_url,logo_height_px')
+        fetch('/api/cms?section=header_settings&keys=logo_url,logo_light_url,logo_height_px')
           .then(r => r.json())
           .then((d: { map?: Record<string, string> }) => {
             const m = d.map ?? {};
-            const url = m['header_settings__logo_url'];
+            // The header is navy: the light logo when one is set.
+            const url = logoForDarkHeader({ light: m['header_settings__logo_light_url'], standard: m['header_settings__logo_url'] });
             const h = m['header_settings__logo_height_px'];
             if (url) setCmsLogo({ url, height: h || '36' });
           })

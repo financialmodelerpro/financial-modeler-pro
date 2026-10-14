@@ -4,6 +4,7 @@
  * All pages should use this instead of importing <Navbar /> directly.
  */
 import { getSitePages, getCmsContent, cms } from '@/src/shared/cms';
+import { logoForDarkHeader, LOGO_LIGHT_KEY } from '@/src/shared/cms/headerLogo';
 import { Navbar } from './Navbar';
 
 interface Props {
@@ -31,7 +32,11 @@ export async function NavbarServer({ topOffset = 0 }: Props) {
   const hs = (k: string, fallback: string) => cms(content, 'header_settings', k, fallback);
 
   // Backward compat: if header_settings.logo_url is empty, try old branding/platform keys
-  const logoUrlRaw = hs('logo_url', '') || cms(content, 'branding', 'logo_url', '') || cms(content, 'platform', 'logo_url', '');
+  // The navbar is navy, so it shows the light logo when one is set (logoForDarkHeader).
+  const logoUrlRaw = logoForDarkHeader({
+    light: hs(LOGO_LIGHT_KEY, ''),
+    standard: hs('logo_url', '') || cms(content, 'branding', 'logo_url', '') || cms(content, 'platform', 'logo_url', ''),
+  });
 
   const absolutePages = sitePages.map(p => ({ ...p, href: absolutizeHref(p.href) }));
 

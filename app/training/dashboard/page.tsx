@@ -41,6 +41,7 @@ import { LiveSessionsSection } from '@/src/hubs/training/components/dashboard/Li
 import { formatShareDate } from '@/src/shared/share/shareTemplates';
 import { DashboardTour } from '@/src/hubs/training/components/DashboardTour';
 import type { ModelSubmissionStatusResult } from '@/src/hubs/training/lib/modelSubmission/types';
+import { logoForDarkHeader } from '@/src/shared/cms/headerLogo';
 
 // ── Badge metadata ─────────────────────────────────────────────────────────────
 type LucideIcon = typeof Flame;
@@ -201,10 +202,11 @@ export default function TrainingDashboardPage() {
 
   // Fetch CMS logo for header
   useEffect(() => {
-    fetch('/api/cms?section=header_settings&keys=logo_url,logo_height_px')
+    fetch('/api/cms?section=header_settings&keys=logo_url,logo_light_url,logo_height_px')
       .then(r => r.json())
       .then((d: { map?: Record<string, string> }) => {
-        const url = d.map?.['header_settings__logo_url'];
+        // The header is navy: the light logo when one is set.
+        const url = logoForDarkHeader({ light: d.map?.['header_settings__logo_light_url'], standard: d.map?.['header_settings__logo_url'] });
         const h = d.map?.['header_settings__logo_height_px'];
         if (url) setDashLogoUrl(url);
         if (h) setDashLogoHeight(h);
