@@ -63,8 +63,15 @@ const PLATFORM_ROUTES: Record<string, string> = {
   'real-estate': `${APP_URL}/refm`,
 };
 
-const SIDEBAR_W = 260;
-const SIDEBAR_W_COLLAPSED = 60;
+// The hub home is sized for 100% browser zoom (2026-10-14): about 85% of its
+// earlier scale, by reducing sizes, never a CSS zoom. Text at 14px and below
+// was left as it was; only headings above that came down.
+const SIDEBAR_W = 220;
+const SIDEBAR_W_COLLAPSED = 52;
+// The logo height is the CMS value the main site's navbar shares, so this
+// screen caps it rather than editing it there; the header follows the logo.
+const HUB_LOGO_MAX_H = 52;
+const HUB_HEADER_H = 60;
 
 type Theme = ReturnType<typeof buildTheme>;
 
@@ -228,7 +235,7 @@ function AccessCard({ theme, pending, requestedAt, onGranted, onRequested }: {
       role="region"
       aria-label={pending ? 'Access request pending' : 'Access not active'}
       style={{
-        marginBottom: 28, padding: '22px 24px', borderRadius: 14,
+        marginBottom: 24, padding: '18px 20px', borderRadius: 14,
         background: pending ? theme.surface : '#FDF6E3',
         border: pending ? `1.5px solid ${theme.border}` : '2px solid #C9A84C',
         boxShadow: theme.cardShadow,
@@ -236,7 +243,7 @@ function AccessCard({ theme, pending, requestedAt, onGranted, onRequested }: {
       }}
     >
       <div style={{
-        width: 46, height: 46, borderRadius: 12, flexShrink: 0,
+        width: 40, height: 40, borderRadius: 10, flexShrink: 0,
         background: pending ? theme.surfaceAlt : '#C9A84C22',
         display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22,
       }} aria-hidden>
@@ -245,7 +252,7 @@ function AccessCard({ theme, pending, requestedAt, onGranted, onRequested }: {
       <div style={{ flex: 1, minWidth: 260 }}>
         {pending ? (
           <div data-testid="dashboard-access-pending">
-            <div style={{ fontSize: 16.5, fontWeight: 800, color: theme.heading, marginBottom: 5 }}>
+            <div style={{ fontSize: 15, fontWeight: 800, color: theme.heading, marginBottom: 5 }}>
               Your access request is with the team
             </div>
             <p style={{ fontSize: 13.5, color: theme.body, lineHeight: 1.65, margin: 0 }}>
@@ -256,7 +263,7 @@ function AccessCard({ theme, pending, requestedAt, onGranted, onRequested }: {
           </div>
         ) : (
           <>
-            <div style={{ fontSize: 16.5, fontWeight: 800, color: '#0D2E5A', marginBottom: 5 }}>
+            <div style={{ fontSize: 15, fontWeight: 800, color: '#0D2E5A', marginBottom: 5 }}>
               Your access is not active yet
             </div>
             <p style={{ fontSize: 13.5, color: '#374151', lineHeight: 1.65, margin: '0 0 14px' }}>
@@ -317,10 +324,10 @@ function PlatformCard({ platform, theme, noPlan }: { platform: Platform; theme: 
         background: theme.surface,
         borderRadius: 14,
         border: `1.5px solid ${isLive && hovered ? platform.color + '55' : isLive ? platform.color + '28' : theme.border}`,
-        padding: '24px 22px',
+        padding: '20px 18px',
         display: 'flex',
         flexDirection: 'column',
-        gap: 14,
+        gap: 12,
         position: 'relative',
         transition: 'box-shadow 0.18s, border-color 0.18s, transform 0.18s',
         boxShadow: isLive && hovered ? `0 6px 28px ${platform.color}33` : isLive ? theme.cardShadow : 'none',
@@ -329,7 +336,7 @@ function PlatformCard({ platform, theme, noPlan }: { platform: Platform; theme: 
       }}
     >
       <div style={{
-        position: 'absolute', top: 14, right: 14,
+        position: 'absolute', top: 12, right: 12,
         background: isLive ? theme.liveBg : theme.comingBg,
         color: isLive ? theme.liveFg : theme.comingFg,
         fontSize: 10, fontWeight: 700,
@@ -341,10 +348,10 @@ function PlatformCard({ platform, theme, noPlan }: { platform: Platform; theme: 
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
         <div style={{
-          width: 48, height: 48, borderRadius: 12,
+          width: 40, height: 40, borderRadius: 10,
           background: platform.bgColor,
           display: 'flex', alignItems: 'center', justifyContent: 'center',
-          fontSize: 24, flexShrink: 0,
+          fontSize: 20, flexShrink: 0,
         }}>
           {platform.icon}
         </div>
@@ -369,7 +376,7 @@ function PlatformCard({ platform, theme, noPlan }: { platform: Platform; theme: 
           style={{
             display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
             background: platform.color, color: '#fff',
-            fontWeight: 700, fontSize: 13, padding: '10px 18px',
+            fontWeight: 700, fontSize: 13, padding: '9px 16px',
             borderRadius: 8, textDecoration: 'none',
             transition: 'opacity 0.15s',
           }}
@@ -380,7 +387,7 @@ function PlatformCard({ platform, theme, noPlan }: { platform: Platform; theme: 
         <div style={{
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           background: theme.comingBg, color: theme.comingFg,
-          fontWeight: 600, fontSize: 12, padding: '10px 18px',
+          fontWeight: 600, fontSize: 12, padding: '9px 16px',
           borderRadius: 8,
         }}>
           Coming Soon
@@ -433,7 +440,7 @@ export default function ModelingDashboardPage() {
   // Defaults match NavbarServer / Navbar on the main site so header chrome is
   // consistent across all three subdomains. CMS keys override at runtime.
   const [logoHeight, setLogoHeight] = useState<number>(36);
-  const [headerHeight, setHeaderHeight] = useState<number>(64);
+  const [headerHeight, setHeaderHeight] = useState<number>(HUB_HEADER_H);
   const profileRef = useRef<HTMLDivElement>(null);
   // Share-experience prompt. This is the MODELING hub's testimonial (the
   // `testimonials` table via /api/modeling/submit-testimonial), a different
@@ -500,8 +507,8 @@ export default function ModelingDashboardPage() {
         const lh  = d.map?.['header_settings__logo_height_px'];
         const hh  = d.map?.['header_settings__header_height_px'];
         if (url) setLogoUrl(url);
-        if (lh)  setLogoHeight(parseInt(lh, 10) || 36);
-        if (hh)  setHeaderHeight(parseInt(hh, 10) || 64);
+        if (lh)  setLogoHeight(Math.min(parseInt(lh, 10) || 36, HUB_LOGO_MAX_H));
+        if (hh)  setHeaderHeight(Math.round((parseInt(hh, 10) || 64) * 0.85));
       })
       .catch(() => {});
   }, []);
@@ -607,7 +614,7 @@ export default function ModelingDashboardPage() {
           .mh-hamburger { display: flex !important; }
           .mh-sidebar {
             position: fixed !important;
-            left: ${mobileSidebarOpen ? '0' : '-270px'} !important;
+            left: ${mobileSidebarOpen ? '0' : '-230px'} !important;
             top: 0 !important; bottom: 0 !important;
             z-index: 200 !important;
             width: ${SIDEBAR_W}px !important;
@@ -630,7 +637,7 @@ export default function ModelingDashboardPage() {
       {/* TOP NAV, height + logo size driven by cms_content.header_settings
           so this header matches the main-site Navbar across all subdomains. */}
       <div style={{
-        background: theme.topbarBg, padding: '0 20px', minHeight: headerHeight,
+        background: theme.topbarBg, padding: '0 16px', minHeight: headerHeight,
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
         position: 'sticky', top: 0, zIndex: 150,
         boxShadow: '0 2px 12px rgba(0,0,0,0.2)',
@@ -639,7 +646,7 @@ export default function ModelingDashboardPage() {
           <button
             className="mh-hamburger"
             onClick={() => setMobileSidebarOpen(true)}
-            style={{ width: 36, height: 36, borderRadius: 6, background: 'rgba(255,255,255,0.1)', border: 'none', color: '#fff', fontSize: 18, cursor: 'pointer', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}
+            style={{ width: 32, height: 32, borderRadius: 6, background: 'rgba(255,255,255,0.1)', border: 'none', color: '#fff', fontSize: 16, cursor: 'pointer', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}
           >
             ☰
           </button>
@@ -664,7 +671,7 @@ export default function ModelingDashboardPage() {
             onClick={() => setProfileDropdown(v => !v)}
             style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '4px 10px 4px 4px', background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 20, cursor: 'pointer', color: '#fff' }}
           >
-            <div style={{ width: 28, height: 28, borderRadius: '50%', background: 'linear-gradient(135deg,#3B82F6,#1D4ED8)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 800, color: '#fff', flexShrink: 0, overflow: 'hidden' }}>
+            <div style={{ width: 26, height: 26, borderRadius: '50%', background: 'linear-gradient(135deg,#3B82F6,#1D4ED8)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 800, color: '#fff', flexShrink: 0, overflow: 'hidden' }}>
               {avatarUrl
                 // eslint-disable-next-line @next/next/no-img-element
                 ? <img src={avatarUrl} alt="Profile" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
@@ -719,9 +726,9 @@ export default function ModelingDashboardPage() {
             <button onClick={() => setMobileSidebarOpen(false)} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.6)', fontSize: 18, cursor: 'pointer', padding: 4 }}>✕</button>
           </div>
 
-          <div style={{ padding: collapsed ? '18px 8px' : '18px 16px 14px', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+          <div style={{ padding: collapsed ? '14px 8px' : '14px 14px 12px', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'linear-gradient(135deg,#3B82F6,#1D4ED8)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 800, color: '#fff', flexShrink: 0, overflow: 'hidden' }}>
+              <div style={{ width: 32, height: 32, borderRadius: '50%', background: 'linear-gradient(135deg,#3B82F6,#1D4ED8)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 800, color: '#fff', flexShrink: 0, overflow: 'hidden' }}>
                 {avatarUrl
                   // eslint-disable-next-line @next/next/no-img-element
                   ? <img src={avatarUrl} alt="Profile" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
@@ -736,7 +743,7 @@ export default function ModelingDashboardPage() {
             </div>
           </div>
 
-          <div style={{ padding: collapsed ? '10px 6px' : '10px 10px', flex: 1 }}>
+          <div style={{ padding: collapsed ? '8px 6px' : '8px 8px', flex: 1 }}>
             {!collapsed && (
               <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.25)', padding: '6px 4px', marginBottom: 4 }}>
                 Navigation
@@ -752,10 +759,10 @@ export default function ModelingDashboardPage() {
                   className="mh-nav-item"
                   data-testid={`nav-${item.id}`}
                   style={{
-                    display: 'flex', alignItems: 'center', gap: collapsed ? 0 : 10,
+                    display: 'flex', alignItems: 'center', gap: collapsed ? 0 : 9,
                     justifyContent: collapsed ? 'center' : 'flex-start',
-                    padding: collapsed ? '11px 0' : '10px 12px',
-                    borderRadius: 8, marginBottom: 4,
+                    padding: collapsed ? '9px 0' : '8px 10px',
+                    borderRadius: 8, marginBottom: 2,
                     borderLeft: isActive ? '3px solid #3B82F6' : '3px solid transparent',
                     background: isActive ? 'rgba(255,255,255,0.1)' : 'transparent',
                     cursor: item.kind === 'soon' ? 'default' : 'pointer',
@@ -794,7 +801,7 @@ export default function ModelingDashboardPage() {
           </div>
 
           {/* Footer: dark mode + sign out + collapse */}
-          <div style={{ padding: collapsed ? '10px 6px' : '10px 10px', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+          <div style={{ padding: collapsed ? '8px 6px' : '8px 8px', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
             {/* Share your experience (2026-09-24): the SAME modal as the card at
                 the foot of the dashboard, reachable from every view and while
                 scrolled, on the SAME condition (a user with access who has
@@ -810,11 +817,11 @@ export default function ModelingDashboardPage() {
                 onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setMobileSidebarOpen(false); setShareOpen(true); } }}
                 title={collapsed ? 'Share your experience' : undefined}
                 style={{
-                  display: 'flex', alignItems: 'center', gap: collapsed ? 0 : 10,
+                  display: 'flex', alignItems: 'center', gap: collapsed ? 0 : 9,
                   justifyContent: collapsed ? 'center' : 'flex-start',
-                  padding: collapsed ? '11px 0' : '10px 12px',
+                  padding: collapsed ? '9px 0' : '8px 10px',
                   borderRadius: 8, cursor: 'pointer',
-                  marginBottom: 6,
+                  marginBottom: 4,
                   borderLeft: '3px solid transparent',
                 }}
               >
@@ -829,11 +836,11 @@ export default function ModelingDashboardPage() {
               onClick={toggleDark}
               title={collapsed ? (darkMode ? 'Light Mode' : 'Dark Mode') : undefined}
               style={{
-                display: 'flex', alignItems: 'center', gap: collapsed ? 0 : 10,
+                display: 'flex', alignItems: 'center', gap: collapsed ? 0 : 9,
                 justifyContent: collapsed ? 'center' : 'flex-start',
-                padding: collapsed ? '11px 0' : '10px 12px',
+                padding: collapsed ? '9px 0' : '8px 10px',
                 borderRadius: 8, cursor: 'pointer',
-                marginBottom: 6,
+                marginBottom: 4,
                 borderLeft: '3px solid transparent',
               }}
             >
@@ -847,11 +854,11 @@ export default function ModelingDashboardPage() {
               onClick={() => signOut({ callbackUrl: '/signin' })}
               title={collapsed ? 'Sign Out' : undefined}
               style={{
-                display: 'flex', alignItems: 'center', gap: collapsed ? 0 : 10,
+                display: 'flex', alignItems: 'center', gap: collapsed ? 0 : 9,
                 justifyContent: collapsed ? 'center' : 'flex-start',
-                padding: collapsed ? '11px 0' : '10px 12px',
+                padding: collapsed ? '9px 0' : '8px 10px',
                 borderRadius: 8, cursor: 'pointer',
-                marginBottom: 6,
+                marginBottom: 4,
                 borderLeft: '3px solid transparent',
               }}
             >
@@ -863,7 +870,7 @@ export default function ModelingDashboardPage() {
               className="mh-toggle-btn"
               onClick={toggleSidebar}
               style={{
-                width: '100%', padding: '8px 0',
+                width: '100%', padding: '6px 0',
                 background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)',
                 borderRadius: 7, color: 'rgba(255,255,255,0.5)',
                 fontSize: 12, cursor: 'pointer', display: 'flex',
@@ -877,7 +884,7 @@ export default function ModelingDashboardPage() {
 
         <main
           className="mh-main"
-          style={{ flex: 1, padding: '32px 32px 60px', overflowY: 'auto', minWidth: 0 }}
+          style={{ flex: 1, padding: '26px 28px 48px', overflowY: 'auto', minWidth: 0 }}
         >
           {/* BILLING TAB: per-platform subscription management, source-driven
               (one section per live platform). Lives here, NOT on the main
@@ -911,8 +918,8 @@ export default function ModelingDashboardPage() {
 
           {activeView === 'dashboard' && (
           <>
-          <div style={{ marginBottom: noPlan ? 20 : 36 }}>
-            <h1 style={{ fontSize: 26, fontWeight: 800, color: theme.heading, margin: '0 0 6px' }}>
+          <div style={{ marginBottom: noPlan ? 16 : 30 }}>
+            <h1 style={{ fontSize: 22, fontWeight: 800, color: theme.heading, margin: '0 0 4px' }}>
               Welcome back{user.name ? `, ${user.name.split(' ')[0]}` : ''}
             </h1>
             <p style={{ fontSize: 13.5, color: theme.muted, margin: 0, lineHeight: 1.6 }}>
@@ -937,7 +944,7 @@ export default function ModelingDashboardPage() {
           {/* Lapsed-plan banner: the plan ended and the grace month elapsed; the
               path back is renew / choose a plan, not a trial request. */}
           {lapsedNoPlan && (
-            <div data-testid="dashboard-no-plan-banner" style={{ marginBottom: 28, padding: '14px 18px', borderRadius: 12, background: '#FDF6E3', border: '1px solid #C9A84C', display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
+            <div data-testid="dashboard-no-plan-banner" style={{ marginBottom: 24, padding: '12px 16px', borderRadius: 12, background: '#FDF6E3', border: '1px solid #C9A84C', display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
               <span style={{ fontSize: 13.5, color: '#0D2E5A', fontWeight: 600, flex: 1, minWidth: 220 }}>
                 Your plan has ended. Choose a plan to restore access to the platforms.
               </span>
@@ -951,7 +958,7 @@ export default function ModelingDashboardPage() {
               window. Same message + renew link the platform shows, surfaced on
               the dashboard so a grace user sees it on login. */}
           {graceReadOnly && (
-            <div data-testid="dashboard-grace-banner" role="alert" style={{ marginBottom: 28, padding: '14px 18px', borderRadius: 12, background: '#FDF6E3', border: '1px solid #C9A84C', display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
+            <div data-testid="dashboard-grace-banner" role="alert" style={{ marginBottom: 24, padding: '12px 16px', borderRadius: 12, background: '#FDF6E3', border: '1px solid #C9A84C', display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
               <span style={{ fontSize: 18 }} aria-hidden>⏳</span>
               <span style={{ fontSize: 13.5, color: '#0D2E5A', fontWeight: 600, flex: 1, minWidth: 220 }}>
                 Your subscription has expired. You have <strong>read-only</strong> access
@@ -965,10 +972,10 @@ export default function ModelingDashboardPage() {
           )}
 
           {platformsLoading && (
-            <section style={{ marginBottom: 40 }}>
+            <section style={{ marginBottom: 32 }}>
               <div
                 className="mh-grid"
-                style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 18 }}
+                style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 14 }}
               >
                 {[0, 1, 2, 3].map((i) => (
                   <div
@@ -977,8 +984,8 @@ export default function ModelingDashboardPage() {
                       background: theme.surface,
                       border: `1.5px solid ${theme.border}`,
                       borderRadius: 14,
-                      padding: '24px 22px',
-                      height: 200,
+                      padding: '20px 18px',
+                      height: 170,
                       opacity: 0.5,
                     }}
                   />
@@ -988,8 +995,8 @@ export default function ModelingDashboardPage() {
           )}
 
           {!platformsLoading && livePlatforms.length > 0 && (
-            <section style={{ marginBottom: 40 }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+            <section style={{ marginBottom: 32 }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
                 <h2 style={{ fontSize: 13, fontWeight: 700, color: theme.body, margin: 0, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
                   Available Platforms
                 </h2>
@@ -997,7 +1004,7 @@ export default function ModelingDashboardPage() {
               </div>
               <div
                 className="mh-grid"
-                style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 18 }}
+                style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 14 }}
               >
                 {livePlatforms.map(p => <PlatformCard key={p.slug} platform={p} theme={theme} noPlan={noPlan} />)}
               </div>
@@ -1006,7 +1013,7 @@ export default function ModelingDashboardPage() {
 
           {!platformsLoading && comingPlatforms.length > 0 && (
             <section>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
                 <h2 style={{ fontSize: 13, fontWeight: 700, color: theme.body, margin: 0, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
                   Coming Soon
                 </h2>
@@ -1014,7 +1021,7 @@ export default function ModelingDashboardPage() {
               </div>
               <div
                 className="mh-grid"
-                style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 18 }}
+                style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 14 }}
               >
                 {comingPlatforms.map(p => <PlatformCard key={p.slug} platform={p} theme={theme} noPlan={noPlan} />)}
               </div>
@@ -1024,15 +1031,15 @@ export default function ModelingDashboardPage() {
               users who actually have access (a no-plan user has not used the
               platform, so there is nothing to review yet). */}
           {!noPlan && !shareDone && (
-            <section style={{ marginTop: 40 }}>
+            <section style={{ marginTop: 32 }}>
               <div style={{
                 background: theme.surface, border: `1.5px solid ${theme.border}`, borderRadius: 14,
-                padding: '20px 22px', display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap',
+                padding: '16px 18px', display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap',
                 boxShadow: theme.cardShadow,
               }}>
-                <span style={{ fontSize: 26 }} aria-hidden>⭐</span>
+                <span style={{ fontSize: 22 }} aria-hidden>⭐</span>
                 <div style={{ flex: 1, minWidth: 220 }}>
-                  <div style={{ fontSize: 14.5, fontWeight: 700, color: theme.heading, marginBottom: 3 }}>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: theme.heading, marginBottom: 3 }}>
                     Using the Modeling Hub? Share your experience
                   </div>
                   <div style={{ fontSize: 12.5, color: theme.muted, lineHeight: 1.6 }}>
@@ -1044,7 +1051,7 @@ export default function ModelingDashboardPage() {
                   onClick={() => setShareOpen(true)}
                   style={{
                     background: '#C9A84C', color: '#0D2E5A', fontWeight: 800, fontSize: 13,
-                    padding: '10px 20px', borderRadius: 9, border: 'none', cursor: 'pointer', whiteSpace: 'nowrap',
+                    padding: '9px 18px', borderRadius: 9, border: 'none', cursor: 'pointer', whiteSpace: 'nowrap',
                   }}
                 >
                   Share your experience
