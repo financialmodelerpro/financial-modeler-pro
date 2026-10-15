@@ -90,6 +90,21 @@ export class LiveWriter {
     this.deps.push(addrId(a));
     return `${a.sheet === here ? '' : `${quoteSheet(a.sheet)}!`}${colLetter(a.col)}$${a.row}`;
   }
+  /**
+   * A REGISTERED ROW, WHEREVER IT LIVES (2026-10-15). A working sheet keeps its
+   * years from column D and its one figure in C; a visible tab keeps them from
+   * F (PERIOD_COLS) and in its Total column D. As each tab is rebuilt its keys
+   * move from the working sheet to the visible rows, and a reader that goes
+   * through these follows them without change.
+   */
+  static isWorking(sheet: string): boolean { return / Calc$/.test(sheet); }
+  private yearCol(sheet: string, t: number): number { return (LiveWriter.isWorking(sheet) ? 4 : 6) + t; }
+  /** The row's cell for model year t (0 = the first year). */
+  per(key: string, t: number): string { const a = this.addr(key); return this.refA({ sheet: a.sheet, row: a.row, col: this.yearCol(a.sheet, t) }); }
+  /** The row's years 0..n-1 as one range. */
+  perRange(key: string, n: number): string { const a = this.addr(key); return this.rangeA(a.sheet, a.row, this.yearCol(a.sheet, 0), this.yearCol(a.sheet, n - 1)); }
+  /** The row's one figure: a working sheet's column C, a visible tab's Total column. */
+  one(key: string): string { const a = this.addr(key); return this.refA({ sheet: a.sheet, row: a.row, col: LiveWriter.isWorking(a.sheet) ? 3 : 4 }); }
   /** An absolute range on one row, from column c0 to c1. */
   rangeA(sheet: string, row: number, c0: number, c1: number): string {
     for (let c = c0; c <= c1; c++) this.deps.push(addrId({ sheet, row, col: c }));

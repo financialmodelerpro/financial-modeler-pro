@@ -1212,7 +1212,8 @@ function addPhaseTimeline(ws: ExcelJS.Worksheet, snap: ReturnType<typeof compute
 
   // ── 1. Phase schedule (real dates) ──────────────────────────────────────────
   setSectionHeader(ws.getRow(r), 'Phase schedule (dated)', last, ARGB.sectionDark); r += 1;
-  const HEADS = ['Phase', 'Status', 'Construction start', 'Construction end', 'Operations start', 'Operations end', 'Construction (yrs)', 'Operations (yrs)'];
+  const HEADS = ['Phase', 'Status', 'Construction start', 'Construction end', 'Operations start', 'Operations end', 'Construction (yrs)', 'Operations (yrs)',
+    ...(isLiveLayout() ? ['Handover year', 'Last operating year', 'Start year at export', 'Years moved since export'] : [])];
   HEADS.forEach((h, i) => setColHeader(ws.getCell(r, 1 + i), h, i === 0 || i === 1 ? 'left' : 'right'));
   r += 1;
   for (const { phase, tl } of lines) {
@@ -1230,6 +1231,20 @@ function addPhaseTimeline(ws: ExcelJS.Worksheet, snap: ReturnType<typeof compute
     setFormula(ws.getCell(r, 7), fcell(String(phase.constructionPeriods), phase.constructionPeriods), NUMFMT.int);
     setFormula(ws.getCell(r, 8), fcell(String(phase.operationsPeriods), phase.operationsPeriods), NUMFMT.int);
     (['cs', 'ce', 'os', 'oe', 'cp', 'op'] as const).forEach((k, i) => registerCell(`tl:phase:${phase.id}:${k}`, ws, ws.getCell(r, 3 + i)));
+    if (isLiveLayout()) {
+      // THE PHASE IN YEARS (live layout, 2026-10-15): the handover (the last construction
+      // year, never before the first model year), the last operating year, and the year the
+      // phase started at export, which the input cards' year columns are laid out for.
+      const sy = yr(phase.startDate as string);
+      const hy = Math.max(snap.projectStartYear, sy + Math.max(0, phase.constructionPeriods ?? 0) - 1);
+      const vals: Array<[string, number]> = [['hy', hy], ['ly', hy + Math.max(0, phase.operationsPeriods ?? 0)], ['sx', sy], ['mv', 0]];
+      vals.forEach(([k, v], i) => {
+        const cell = ws.getCell(r, 9 + i); cell.value = v; cell.numFmt = NUMFMT.year;
+        cell.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } }; cell.alignment = { horizontal: 'right' };
+        registerCell(`tl:phase:${phase.id}:${k}`, ws, cell);
+      });
+      setNote(ws.getCell(r, 11), 'Fixed at export: the year this phase started when the workbook was exported. The input cards lay their years out for it, so a phase that moves reads its typed years shifted by the years moved.');
+    }
     r += 1;
   }
   // Project envelope.
@@ -2717,6 +2732,20 @@ function addRevenue(ctx: EmitCtx): { revLinks: RevLinks; cosLinks: CosLinks } {
           const denom = denomPerSU.reduce((s, v) => s + v, 0);
           const cfg = resolveSellConfig(a, state.project);
           const idxAxis = expandIndexationToAxis(cfg?.indexation, a.revenue?.sell?.indexation?.growthPerPeriodByPhase, w.phaseOffset, N);
+          if (isLiveLayout()) {
+            // THE VELOCITY IN FORCE (live layout, 2026-10-15): each sub-unit's pre-sales and
+            // sales during operation velocity on one row, at the years it applies to now. The
+            // engine sells the pre-sales years first, then the operation years, which is the
+            // order of the years, so one row and one sold row per sub-unit carry both passes.
+            em.tableTitle('0. Velocity in force (per sub-unit)', 'The velocity typed on Inputs, pre-sales then sales during operation, at the years it applies to now (a phase that moves carries its velocity with it). Each year sells this share of the inventory, capped at what is still unsold.');
+            for (const su of units) {
+              const v = resolveRowVelocity(a.revenue?.sell, su.id);
+              const pre = v.pre !== undefined ? axisFromPhase(v.pre, w.phaseOffset) : padded(v.preLegacy);
+              const post = v.post !== undefined ? axisFromPhase(v.post, w.phaseOffset) : padded(v.postLegacy);
+              const both = Array.from({ length: N }, (_, t) => Math.max(0, pre[t] ?? 0) + Math.max(0, post[t] ?? 0));
+              em.periodRow(su.name || 'sub-unit', both, range(0, N - 1), NUMFMT.pct, { total: both.reduce((x, y) => x + y, 0) });
+            }
+          }
           em.tableTitle('1a. Share of inventory sold per year (per sub-unit)', shareSoldCaption(invLower));
           em.emitRows(buildShareSoldRows(units, denomPerSU, preSU, postSU, denom, N));
           em.tableTitle(`1b. ${invLabel} Sold (per sub-unit, pre-sales and sales during operation)`, soldCaption(invLower));
@@ -2737,7 +2766,7 @@ function addRevenue(ctx: EmitCtx): { revLinks: RevLinks; cosLinks: CosLinks } {
           em.emitRows(buildPrePostRows(units, r.presalesRevenuePerPeriodPerSubUnit, r.postSalesRevenuePerPeriodPerSubUnit, r.presalesRevenuePerPeriod, r.postSalesRevenuePerPeriod, N, { preLabel: 'Total pre-sales revenue', postLabel: 'Total sales during operation revenue', grandLabel: 'Asset Total Revenue' }));
           {
             const m = r.recognitionVintageMatrix;
-            const active = range(0, N - 1).filter((i) => (m[i] ?? []).reduce((s, v) => s + (v ?? 0), 0) > 0.5);
+            const active = isLiveLayout() ? range(0, N - 1) : range(0, N - 1).filter((i) => (m[i] ?? []).reduce((s, v) => s + (v ?? 0), 0) > 0.5);
             em.tableTitle('3a. Pre-Sales Recognition Vintage Matrix', recognitionMatrixCaption(yl[w.handoverIdx] ?? '?'));
             for (const i of active) em.moneyRow(`Sold in ${yl[i]}`, (m[i] ?? []).slice(0, N), { indent: 1 });
             const totals = new Array<number>(N).fill(0);
@@ -2754,12 +2783,23 @@ function addRevenue(ctx: EmitCtx): { revLinks: RevLinks; cosLinks: CosLinks } {
           // PDFs render; the plain cash vintage matrix only where it has nothing.
           const grid = buildSaleCohortGrid(a, p, psy, yl, state.project.saleCohortDefaults?.downpayment, r);
           if (grid && grid.rows.length) {
+            // The live layout lists every sale year (a phase that moves sells in years the
+            // export did not), each with the instalment years its cohort pays over.
+            if (isLiveLayout()) {
+              const have = new Set(grid.rows.map((cr) => cr.saleYear));
+              const zero = new Array<number>(N).fill(0);
+              // A year with no sales of its own: at or after handover it pays in full; before, it
+              // shows the downpayment the card states for that year (none outside construction).
+              const dpOf = (si: number): number => (w.construction.includes(si) ? resolveCohortDownpayment(a.revenue?.sell?.downpaymentByPhase, state.project.saleCohortDefaults?.downpayment, si - w.phaseOffset).value : 0);
+              const extra = range(0, N - 1).filter((i) => !have.has(yl[i])).map((i) => ({ ...grid.rows[grid.rows.length - 1], saleYear: yl[i], paysInFull: i >= w.handoverIdx, downpayment: i >= w.handoverIdx ? 1 : dpOf(i), cells: zero, gdv: 0, rowTotal: 0, checkResidue: 0, ok: true }));
+              grid.rows = [...grid.rows, ...extra].sort((x, y) => x.saleYear - y.saleYear);
+            }
             em.tableTitle('4a. Sale Cohort Grid (pre-sales cash)', saleCohortGridCaption(grid));
             for (const cr of grid.rows) {
               em.moneyRow(cr.paysInFull ? `${cr.saleYear} sale, paid in full` : `${cr.saleYear} sale, ${(cr.downpayment * 100).toFixed(2)}% down`, cr.cells.slice(0, N), { indent: 1 });
             }
             em.moneyRow('Total collected', grid.columnTotals.slice(0, N), { style: 'total' });
-            em.colHeaders([[1, 'Sale year', 'left'], [2, 'Down %', 'right'], [3, 'In force from', 'left'], [4, 'Sale value', 'right'], [5, 'Collected', 'right'], [6, 'Check', 'right']]);
+            em.colHeaders([[1, 'Sale year', 'left'], [2, 'Down %', 'right'], [3, 'In force from', 'left'], [4, 'Sale value', 'right'], [5, 'Collected', 'right'], [6, 'Check', 'right'], ...(isLiveLayout() ? [[7, 'Instalment years', 'right'] as [number, string, 'right']] : [])]);
             for (const cr of grid.rows) {
               const row = em.cursor();
               setLabel(ws.getCell(row, 1), String(cr.saleYear));
@@ -2770,6 +2810,11 @@ function addRevenue(ctx: EmitCtx): { revLinks: RevLinks; cosLinks: CosLinks } {
               const cv = ws.getCell(row, 5); cv.value = cr.rowTotal; cv.numFmt = NUMFMT.money;
               const ck = ws.getCell(row, 6); ck.value = cr.checkResidue; ck.numFmt = NUMFMT.money;
               ck.font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: cr.ok ? ARGB.good : ARGB.bad } };
+              if (isLiveLayout()) {
+                const si = cr.saleYear - psy;
+                const inst = Math.max(0, Math.floor(buildSaleCohortTermsBlock(a, p, psy)?.instalmentYears ?? 0));
+                const nc = ws.getCell(row, 7); nc.value = si >= w.handoverIdx ? 0 : Math.min(inst, w.handoverIdx - si); nc.numFmt = NUMFMT.int;
+              }
               em.gap();
             }
           } else {
@@ -2819,8 +2864,10 @@ function addRevenue(ctx: EmitCtx): { revLinks: RevLinks; cosLinks: CosLinks } {
           const occAvg = occNZ.length ? occNZ.reduce((s, v) => s + v, 0) / occNZ.length : 0;
           const keyed = line.subUnits.filter((u) => (r.perSubUnit?.[u.id]?.keys ?? 0) > 0);
           const perSu = keyed.length > 1;
+          const inOpsRow = (): Array<M4Row & { fmt?: string }> => (isLiveLayout() ? [{ label: 'In operations (1 = yes)', values: range(0, N - 1).map((t) => (w.operations.includes(t) ? 1 : 0)), valueKind: 'count', indent: 1 }] : []);
           const rows: Array<M4Row & { fmt?: string }> = [
             { label: 'Drivers', values: [], isSection: true },
+            ...inOpsRow(),
             { label: 'Total Rooms (Keys)', values: broadcast(keys), valueKind: 'count', totalValue: keys, indent: 1 },
             { label: 'Days per Year', values: broadcast(days), valueKind: 'count', totalValue: days, indent: 1 },
             ...((a.isCompanion === true && opCfg?.keysParticipationProfile && opCfg.keysParticipationProfile.length > 0) ? [
@@ -2870,6 +2917,7 @@ function addRevenue(ctx: EmitCtx): { revLinks: RevLinks; cosLinks: CosLinks } {
         em.tableTitle('1. Drivers + Calculations', REVENUE_CAPTIONS.leaseDrivers);
         em.emitRows([
           { label: 'Drivers', values: [], isSection: true },
+          ...(isLiveLayout() ? [{ label: 'In operations (1 = yes)', values: range(0, N - 1).map((t) => (w.operations.includes(t) ? 1 : 0)), valueKind: 'count' as const, indent: 1 }] : []),
           { label: 'Total Gross Lease Area (sqm)', values: r.occupiedAreaPerPeriod.slice(0, N).map((v) => (v > 0 ? gla : 0)), valueKind: 'count', totalValue: gla, indent: 1 },
           { label: 'Occupancy %', values: r.occupancyPerPeriod, isPercent: true, totalValue: occNZ.length ? occNZ.reduce((s, v) => s + v, 0) / occNZ.length : 0, indent: 1 },
           { label: 'Rent Indexation Factor', values: r.rentIndexationFactorPerPeriod, fmt: FACTOR_FMT, totalValue: lastPos(r.rentIndexationFactorPerPeriod), indent: 1 },
@@ -2937,7 +2985,7 @@ function addRevenue(ctx: EmitCtx): { revLinks: RevLinks; cosLinks: CosLinks } {
   // ── 4. Schedules (the three feeds) ───────────────────────────────────────────
   em.section('4. Schedules (income statement, balance sheet and cash flow feeds, per line)');
   em.setRegScope('sched');
-  for (const feed of buildRevenueScheduleFeeds(snap.revenue, lines, snap.byAssetCostOfSales, state.project.operatingAr)) {
+  for (const feed of buildRevenueScheduleFeeds(snap.revenue, lines, snap.byAssetCostOfSales, state.project.operatingAr, { allLines: isLiveLayout() })) {
     em.setRegLine(feed.group);
     em.groupBand(feed.group);
     setBasis(ws.getCell(em.cursor() - 1, META_B), feed.meta);

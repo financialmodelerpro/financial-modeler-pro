@@ -103,7 +103,7 @@ export const stage6bFinancingSheet: LiveLayer = {
     // The waterfall's own cash after funding (opening next year).
     const afterFee: F = (t) => (t + 1 < N ? calc('fnc:main:open', t + 1) : `(${calc('fnc:main:avail', t)}+${netReq(t)}${feeByEquity ? `-(${feeTotal(t)})+${feeDraw(t)}` : ''})`);
     const sellEarners = visible.filter((a) => (a.strategy === 'Sell' || a.strategy === 'Sell + Manage') && has(`rvc:${a.id}:cash`));
-    const presalesGross: F = (t) => sellEarners.map((a) => { const l = lineForAsset(lines, a.id); return l && has(`rvc:${l.key}:cashPre`) ? w.refA({ sheet: 'Revenue Calc', row: w.addr(`rvc:${l.key}:cashPre`).row, col: 4 + t }) : '0'; }).join('+') || '0';
+    const presalesGross: F = (t) => sellEarners.map((a) => { const l = lineForAsset(lines, a.id); return l && has(`rvc:${l.key}:cashPre`) ? w.per(`rvc:${l.key}:cashPre`, t) : '0'; }).join('+') || '0';
     const escB = (label: string): string => `esc||B. Escrow Balance Roll-Forward|${label}`;
     const revCell = (key: string, t: number): string => w.refA({ sheet: 'Revenue', row: w.addr(key).row, col: pc(t) });
     const escHeld: F = (t) => (has(escB('Total Additions')) ? revCell(escB('Total Additions'), t) : '0');
@@ -112,7 +112,7 @@ export const stage6bFinancingSheet: LiveLayer = {
     const capexCash = S('capex');
     const methodA: F = (t) => `MAX(0,${capexCash(t)}-${t === 0 ? '0' : `(${presalesNet(t - 1)})`})`;
     // Per-asset cash flow classes (the Method 3 table's operating inflows).
-    const rv = (key: string, t: number): string => w.refA({ sheet: 'Revenue Calc', row: w.addr(key).row, col: 4 + t });
+    const rv = (key: string, t: number): string => w.per(key, t);
     const assetRev = (a: Asset): F => {
       const l = lineForAsset(lines, a.id);
       if (!l || !state.subUnits.some((u) => u.assetId === a.id)) return () => '0';

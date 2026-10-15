@@ -297,7 +297,7 @@ export const stage6Financing: LiveLayer = {
     const capexAll = row('fnc:capexall', 'capex incl. all land', (t) => `${at(capexCash, t)}+${at(inKind, t)}`);
 
     // The exit: the NOI of the basis year over the cap rate.
-    const rv = (key: string, t: number): string => sheetAt('Revenue Calc', key, t);
+    const rv = (key: string, t: number): string => w.per(key, t);
     const earner = (a: Asset): boolean => state.subUnits.some((u) => u.assetId === a.id && isRevenueSubUnit(u));
     const assetRev = (a: Asset): F => {
       const l = lineForAsset(lines, a.id);
@@ -327,7 +327,7 @@ export const stage6Financing: LiveLayer = {
     const cashPreOf = (): F => {
       const ks = visible.filter((a) => (a.strategy === 'Sell' || a.strategy === 'Sell + Manage')).map((a) => lineForAsset(lines, a.id)).filter((l): l is NonNullable<typeof l> => !!l && has(`rvc:${l.key}:cashPre`)).map((l) => `rvc:${l.key}:cashPre`);
       const uniq = [...new Set(ks)];
-      return (t) => uniq.map((kk) => sheetAt('Revenue Calc', kk, t)).join('+') || '0';
+      return (t) => uniq.map((kk) => w.per(kk, t)).join('+') || '0';
     };
     const presalesGross = cashPreOf();
     const escHeldF: F = (t) => (has('esc||B. Escrow Balance Roll-Forward|Total Additions') ? visCell('Revenue', 'esc||B. Escrow Balance Roll-Forward|Total Additions', t) : '0');

@@ -412,7 +412,7 @@ function perturbations(input: LiveExportInputs, reg: CellRegistry): Perturbation
     out.push({ movesRevenue: true, label: 'instalment years after sale 3 to 2', cell: `revin|${sellL.key}|Sale cohort terms|Max instalment years after sale`, col: RC.TOTAL, value: 2,
       edit: (s) => { (s.assets as any[]).find((q) => q.id === a.id).revenue.sell.maxInstalmentYears = 2; } });
     const ir = (a.revenue.sell.indexation?.rate ?? 0) + 0.01;
-    out.push({ movesRevenue: true, label: 'the sale price indexation rate +1 point', cell: `revfoot|${sellL.key}|idx`, col: RC.TOTAL, value: ir,
+    out.push({ movesRevenue: true, label: 'the sale price indexation rate +1 point', cell: `rxin|${sellL.key}|rate`, col: 2, value: ir,
       edit: (s) => { (s.assets as any[]).find((q) => q.id === a.id).revenue.sell.indexation.rate = ir; } });
   } else out.push({ label: 'sell revenue inputs', skip: 'no sell line' });
   const hotL = lines.find((l) => l.form === 'operate' && earner(l)?.revenue?.operate);
@@ -424,7 +424,7 @@ function perturbations(input: LiveExportInputs, reg: CellRegistry): Perturbation
       edit: (s) => { const o = (s.assets as any[]).find((q) => q.id === a.id).revenue.operate; o.occupancyPerPeriodByPhase[k] = v; if (o.occupancyPerPeriod) o.occupancyPerPeriod[off + k] = v; } });
     out.push({ movesRevenue: true, label: 'hotel F&B share of rooms +5 points', cell: `revin|${hotL.key}|ADR Indexation|F&B Revenue, F&B %`, col: RC.TOTAL, value: (op.fb.percentOfRooms ?? 0) + 0.05,
       edit: (s) => { (s.assets as any[]).find((q) => q.id === a.id).revenue.operate.fb.percentOfRooms = (op.fb.percentOfRooms ?? 0) + 0.05; } });
-    out.push({ movesRevenue: true, label: 'hotel days per year 365 to 360', cell: `revfoot|${hotL.key}|days`, col: RC.TOTAL, value: 360,
+    out.push({ movesRevenue: true, label: 'hotel days per year 365 to 360', cell: `rxin|${hotL.key}|days`, col: 2, value: 360,
       edit: (s) => { (s.assets as any[]).find((q) => q.id === a.id).revenue.operate.daysPerYear = 360; } });
     const tk = a.assetTypeId; const size = st.project.assetTypeValues?.[tk]?.avgUnitSizeSqm;
     if (typeof size === 'number' && reg.get(`type:${tk}:unit`)) {
@@ -443,7 +443,8 @@ function perturbations(input: LiveExportInputs, reg: CellRegistry): Perturbation
     out.push({ movesRevenue: true, label: `lease occupancy (${leaseL.label}, phase year ${k + 1}) +5 points`, cell: `revin|${leaseL.key}|Rent Indexation|Occupancy ramp`, col: pcol(off + k), value: v,
       edit: (s) => { const o = (s.assets as any[]).find((q) => q.id === a.id).revenue.lease; o.occupancyPerPeriodByPhase[k] = v; if (o.occupancyPerPeriod) o.occupancyPerPeriod[off + k] = v; } });
     const sy = (le.rentIndexation?.startYear ?? 0) + 1;
-    out.push({ movesRevenue: true, label: 'the rent indexation starts a year later', cell: `revfoot|${leaseL.key}|idx`, col: RC.OPEN, value: sy,
+    // Inputs states the start as a calendar year.
+    out.push({ movesRevenue: true, label: 'the rent indexation starts a year later', cell: `rxin|${leaseL.key}|from`, col: 2, value: psy + sy,
       edit: (s) => { (s.assets as any[]).find((q) => q.id === a.id).revenue.lease.rentIndexation.startYear = sy; } });
     // The operations start one year later: typed into the override on Inputs (blank means the year after handover).
     const cp = ph.find((q) => q.id === leaseL.phaseId).constructionPeriods;
@@ -813,8 +814,9 @@ function formulaCells(wb: ExcelJS.Workbook): Map<string, { formula: string; resu
     copy.getWorksheet('Revenue')!.getColumn(9).hidden = true;
     copy.getWorksheet('Scenarios')!.state = 'hidden';
     copy.getWorksheet('Checks')!.getCell(2, 9).value = { formula: "'No Such Tab'!A1+1", result: 0 } as unknown as ExcelJS.CellValue;
+    copy.getWorksheet('Checks')!.getCell(2, 10).value = { formula: 'SUMPRODUCT(--(()>0))', result: 0 } as unknown as ExcelJS.CellValue;
     const p = exportShapeProblems(copy);
-    check('A12c the shape check fires: a hidden row, a hidden column, a hidden tab and a read of a missing tab are each caught', p.length === 4 && p.some((x) => x.includes('row 10')) && p.some((x) => x.includes('column 9')) && p.some((x) => x.includes('"Scenarios" is hidden')) && p.some((x) => x.includes('No Such Tab')), p.join('; '));
+    check('A12c the shape check fires: a hidden row, a hidden column, a hidden tab, a read of a missing tab and an empty bracket are each caught', p.length === 5 && p.some((x) => x.includes('empty bracket')) && p.some((x) => x.includes('row 10')) && p.some((x) => x.includes('column 9')) && p.some((x) => x.includes('"Scenarios" is hidden')) && p.some((x) => x.includes('No Such Tab')), p.join('; '));
     const order = wb.worksheets.map((x) => x.name).filter((n) => TAB_ORDER.includes(n));
     check('A12d the tabs run in the order the model flows', order.join('|') === TAB_ORDER.filter((n) => wb.getWorksheet(n)).join('|'), order.join(', '));
     // ONE PERIOD, ONE COLUMN: every live period tab's year and index header reads the Timeline's same column.
@@ -1034,6 +1036,14 @@ function formulaCells(wb: ExcelJS.Workbook): Map<string, { formula: string; resu
       pt.edit(snap);
       const pOpts = { ...opts, state: platformAfterEdit(snap as never) as typeof input.state };
       const pPlain = buildModelWorkbook({ ...pOpts, liveLayout: true });
+      // "MOVED SINCE EXPORT" IS RELATIVE TO THE EXPORT (Timeline, per phase): a fresh export
+      // reads 0 by definition, so the platform's figure for the workbook under test is the
+      // start year the edit gives less the start year this workbook was exported with.
+      for (const k of base.registry.keys().filter((x) => /^tl:phase:.+:mv$/.test(x))) {
+        const m = base.registry.need(k), sx = base.registry.need(k.replace(/:mv$/, ':sx'));
+        const yr = (wbk: ExcelJS.Workbook): number => Number(wbk.getWorksheet(sx.sheet)!.getCell(sx.row, sx.col).value);
+        pPlain.getWorksheet(m.sheet)!.getCell(m.row, m.col).value = yr(pPlain) - yr(base.plain);
+      }
       const a0 = base.registry.need(pt.cell);
       const aMod = { ...a0, col: pt.col ?? a0.col };
       // INPUTS IS THE ONE PLACE A USER TYPES (stage9InputLinks, 2026-09-28): where the

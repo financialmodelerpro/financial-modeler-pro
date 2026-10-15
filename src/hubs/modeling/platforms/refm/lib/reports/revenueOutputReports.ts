@@ -352,6 +352,9 @@ export function buildRevenueScheduleFeeds(
   lines: readonly RevenueLine[],
   byAssetCostOfSales: ReadonlyMap<string, AssetCostOfSales> | undefined,
   operatingAr: { dsoDays?: number; daysPerYear?: number } | undefined,
+  // The live workbook (2026-10-15) lists every line in the per-line tables any line can feed
+  // (revenue, receivables, cash), zeros included, so each total sums the rows above it.
+  opts: { allLines?: boolean } = {},
 ): Array<{ group: string; meta: string; tables: TitledTable[] }> {
   const N = revenue.axisLength;
   const feeds = buildRevenueLineFeeds(revenue, lines, byAssetCostOfSales, operatingAr);
@@ -369,14 +372,14 @@ export function buildRevenueScheduleFeeds(
   const grouped = (f: Field, grandLabel: string): M4Row[] => {
     const rows: M4Row[] = [];
     for (const g of bySection) {
-      const active = g.lines.filter((x) => has(x[f]));
+      const active = g.lines.filter((x) => opts.allLines || has(x[f]));
       if (active.length === 0) continue;
       rows.push({ label: g.section, values: [], isSection: true });
       for (const x of active) rows.push(row(x.name, x[f], f, { indent: 1 }));
       rows.push(row(`Total ${g.section}`, sumArrays(active.map((x) => x[f]), N), f, { isSubtotal: true }));
     }
     const grand = total(f);
-    if (has(grand)) rows.push(row(grandLabel, grand, f, { isTotal: true }));
+    if (opts.allLines || has(grand)) rows.push(row(grandLabel, grand, f, { isTotal: true }));
     return rows;
   };
   const sectioned = (f: Field, labelOf: (x: LineFeed) => string, totalLabel: string): M4Row[] => {

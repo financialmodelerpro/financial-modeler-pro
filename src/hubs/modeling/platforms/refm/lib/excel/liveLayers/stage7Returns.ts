@@ -489,7 +489,7 @@ export const stage7Returns: LiveLayer = {
       const lines = planRevenueLines(state.assets, state.subUnits, state.phases, project);
       const sells = state.assets.filter((a) => a.visible !== false && (a.strategy === 'Sell' || a.strategy === 'Sell + Manage'));
       const preKeys = [...new Set(sells.map((a) => lineForAsset(lines, a.id)?.key).filter((k): k is string => !!k && has(`rvc:${k}:cashPre`)))];
-      const rvSum = (k: string): string => `SUM(${w.rangeA('Revenue Calc', w.addr(k).row, 4, 4 + N - 1)})`;
+      const rvSum = (k: string): string => `SUM(${w.perRange(k, N)})`;
       const escB = (label: string): string => `esc||B. Escrow Balance Roll-Forward|${label}`;
       const revSum = (key: string): string => (has(key) ? `SUM(${w.rangeA('Revenue', w.addr(key).row, pc(0), pc(N - 1))})` : '0');
       const collections = (): string => `MAX(0,${preKeys.map((k) => rvSum(`rvc:${k}:cashPre`)).join('+') || '0'}-(${revSum(escB('Total Additions'))})-(${revSum(escB('Less: Release of Locked Funds'))}))`;

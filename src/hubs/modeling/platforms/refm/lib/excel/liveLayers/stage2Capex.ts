@@ -270,14 +270,13 @@ export const stage2Capex: LiveLayer = {
         // LIVE once Revenue is (stage 3): the asset's cash collected, placed phase-local
         // (projectAxisToPhaseLocal: local 0 is nothing, local i is axis year off + i - 1,
         // and only the phase's own cp + op + 2 slots).
-        const cashRow = w.addr(`rvc:${a.id}:cash`).row;
         const phRow = w.addr(`cxc:ph:${phase.id}`).row;
         for (let i = 0; i < L; i++) {
           if (i === 0) { w.valueA({ sheet: CALC, row: cr, col: wCol(i) }, 0); continue; }
           const off = w.refA({ sheet: CALC, row: phRow, col: 3 });
           const k = `(${off}+${i}-1)`;
           const slots = `(MAX(0,${w.ref(`phase:${phase.id}:cp`)})+MAX(0,${w.ref(`phase:${phase.id}:op`)})+2)`;
-          w.fA({ sheet: CALC, row: cr, col: wCol(i) }, `IF(AND(${i}<${slots},${k}>=0,${k}<=${N - 1}),INDEX(${w.rangeA('Revenue Calc', cashRow, 4, 4 + N - 1)},1,${k}+1),0)`, { cached: series[i] ?? 0 });
+          w.fA({ sheet: CALC, row: cr, col: wCol(i) }, `IF(AND(${i}<${slots},${k}>=0,${k}<=${N - 1}),INDEX(${w.perRange(`rvc:${a.id}:cash`, N)},1,${k}+1),0)`, { cached: series[i] ?? 0 });
         }
       } else {
         // A plot with no revenue rows collects nothing by structure; anything else waits for Revenue.
@@ -321,7 +320,7 @@ export const stage2Capex: LiveLayer = {
         w.fA(A(row, cE), parts.length ? parts.join('+') : '0');
       } else if (b.kind === 'revenue') {
         // LIVE once Revenue is (stage 3): the asset's sale revenue over the hold.
-        if (w.has(`rvc:${c.asset.id}:saleRev`)) w.fA(A(row, cE), w.ref(`rvc:${c.asset.id}:saleRev`, 3), { cached: b.value });
+        if (w.has(`rvc:${c.asset.id}:saleRev`)) w.fA(A(row, cE), w.one(`rvc:${c.asset.id}:saleRev`), { cached: b.value });
         // A plot with no revenue rows sells nothing: its base is zero by structure, not waiting on anything.
         else if (noRevenueRows(c.asset)) w.valueA(A(row, cE), 0);
         else w.valueA(A(row, cE), b.value, { pending: true });

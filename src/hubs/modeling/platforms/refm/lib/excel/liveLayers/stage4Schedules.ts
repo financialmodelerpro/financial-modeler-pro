@@ -47,7 +47,6 @@ import type { Asset, CostLine, Phase } from '../../state/module1-types';
 const CALC = 'Schedules Calc';
 const SCH = 'Schedules';
 const CXCALC = 'Capex Calc';
-const RCALC = 'Revenue Calc';
 
 export const stage4Schedules: LiveLayer = {
   name: 'stage 4: schedules',
@@ -84,8 +83,8 @@ export const stage4Schedules: LiveLayer = {
       if (lives.size > 1) refuse.push(`${l.assetIds.join(', ')}: plots of one line depreciate over different lives`);
     }
     // A hotel or lease line's own receivable days are live (2026-10-11): the receivable is
-    // the Revenue working sheet's per-line rows (rvc:<line>:opar), at each line's days.
-    if (!has('rvc:opar:total')) refuse.push('the operating receivable rows are not on the Revenue working sheet');
+    // each hotel or lease line's row in the Revenue receivables feed (rvc:<line>:opar), at its own days.
+    const oparKeys = planRevenueLines(state.assets, state.subUnits, state.phases, state.project).filter((l) => l.form !== 'sell').map((l) => `rvc:${l.key}:opar`).filter(has);
     const arDays = state.project.operatingAr?.daysPerYear;
     if (arDays !== undefined && arDays !== 365) refuse.push('the operating receivables use a year that is not 365 days, which the sheet does not show');
     if (refuse.length) return values(`Schedules could not be made live for this model: ${[...new Set(refuse)].join('; ')}.`);
@@ -265,7 +264,7 @@ export const stage4Schedules: LiveLayer = {
     writeTable('__project__', 'total', report.project.total, pg);
 
     // ── BS Schedules ─────────────────────────────────────────────────────────
-    const rv = (key: string, t: number): string => w.refA({ sheet: RCALC, row: w.addr(key).row, col: 4 + t });
+    const rv = (key: string, t: number): string => w.per(key, t);
     const feeders = buildBsFeederTables({ snap, state, fmt: (v: number) => String(v) });
     const F = (tbl: string, label: string): string => `sch|${tbl}||${label}`;
     const sellMap = new Map([...snap.byAssetSchedules.entries()].filter(([id]) => snap.revenue.bySellAsset.has(id)));
@@ -307,7 +306,7 @@ export const stage4Schedules: LiveLayer = {
       } else if (tbl.key === 'A2') {
         const opKeys = lines.filter((l) => l.form !== 'sell').map((l) => `rvc:${l.key}:${l.form === 'operate' ? 'total' : 'rev'}`).filter(has);
         const rev = newRow('schc:A2:rev', 'operating revenue', (t) => sumRv(opKeys, t));
-        const close = newRow('schc:A2:close', 'operating receivables, closing', (t) => sumRv(['rvc:opar:total'], t));
+        const close = newRow('schc:A2:close', 'operating receivables, closing', (t) => sumRv(oparKeys, t));
         row(F('A2', 'Opening AR'), (t) => prev(close, t), 'first');
         row(F('A2', '(+) Operating revenue billed'), (t) => at(rev, t), 'sumPrior');
         row(F('A2', '(−) Cash collected'), (t) => `-(${at(rev, t)}-(${at(close, t)}-${prev(close, t)}))`, 'sumPrior');

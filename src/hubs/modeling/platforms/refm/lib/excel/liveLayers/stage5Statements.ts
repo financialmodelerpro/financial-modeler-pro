@@ -100,7 +100,7 @@ export const stage5Statements: LiveLayer = {
 
     // ── The pieces, per asset and per project ────────────────────────────────
     const sheetAt = (sheet: string, key: string, t: number): string => w.refA({ sheet, row: w.addr(key).row, col: 4 + t });
-    const rv = (key: string, t: number): string => sheetAt('Revenue Calc', key, t);
+    const rv = (key: string, t: number): string => w.per(key, t);
     const earner = (a: Asset): boolean => state.subUnits.some((u) => u.assetId === a.id && isRevenueSubUnit(u));
     const assetRev = (a: Asset): F => {
       const l = lineForAsset(lines, a.id);
@@ -505,7 +505,7 @@ export const stage5Statements: LiveLayer = {
     const sumB = (labs: string[]): F => (t) => labs.filter(hasB).map((l) => bsCell(l, t)).join('+') || '0';
     const sc = (key: string): F => (t) => sheetAt('Schedules Calc', key, t);
     const cfCell = (label: string, t: number): string => w.refA({ sheet: CF, row: w.addr(`cf|direct||${label}`).row, col: pc(t) });
-    const opArProject: F = (t) => rv('rvc:opar:total', t);
+    const opArProject: F = (t) => lines.filter((l) => l.form !== 'sell').map((l) => `rvc:${l.key}:opar`).filter(has).map((k) => rv(k, t)).join('+') || '0';
     const debtRow = pendingRow('stc:bs:debt', 'debt outstanding (financing, pending)', snap.bs.debtOutstandingPerPeriod);
     const shareRow = pendingRow('stc:bs:share', 'share capital (financing, pending)', snap.bs.shareCapitalPerPeriod);
     const reserveCapPct = Math.max(0, state.project.statutoryReserve?.capOfShareCapital ?? 0);

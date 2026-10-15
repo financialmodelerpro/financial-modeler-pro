@@ -268,7 +268,7 @@ export const stage7bMetrics: LiveLayer = {
     // Operating KPIs, from the Revenue working sheet's own rows, per line.
     {
       const lines = planRevenueLines(state.assets, state.subUnits, state.phases, project);
-      const rv = (k: string): string => `SUM(${w.rangeA('Revenue Calc', w.addr(k).row, 4, 4 + N - 1)})`;
+      const rv = (k: string): string => `SUM(${w.perRange(k, N)})`;
       const lineKeys = (suffix: string): string[] => [...new Set(lines.map((l) => l.key))].filter((k) => has(`rvc:${k}:${suffix}`));
       const sumOf = (suffix: string): string => lineKeys(suffix).map((k) => rv(`rvc:${k}:${suffix}`)).join('+') || '0';
       const intT = (e: string): string => `TEXT(ROUND(${e},0),"#,##0")`;
@@ -297,8 +297,9 @@ export const stage7bMetrics: LiveLayer = {
         const units = (): string => `(${pick('', 'units')})`;
         const pre = (): string => `(${sumOf('preRev')})`, sale = (): string => `(${sumOf('preRev')}+${sumOf('postRev')})`;
         // The years any unit sold, across every row: velocity is units over those years.
-        const unitRows = sellKeys.filter((k) => k.endsWith(':units')).map((k) => w.rangeA('Revenue Calc', w.addr(k).row, 4, 4 + N - 1));
-        const active = (): string => `SUMPRODUCT(--((${unitRows.join('+')})>0))`;
+        const unitRows = sellKeys.filter((k) => k.endsWith(':units')).map((k) => w.perRange(k, N));
+        // No unit rows (every line sells by sqm) means no year sold a unit.
+        const active = (): string => (unitRows.length ? `SUMPRODUCT(--((${unitRows.join('+')})>0))` : '0');
         kpi(RS, 'Residential GDV', () => moneyT(sale()));
         kpi(RS, 'Units Sold', () => intT(units()));
         kpi(RS, 'Avg Sale Price / Unit', () => rateT(sale(), units()));
@@ -323,8 +324,8 @@ export const stage7bMetrics: LiveLayer = {
       const lk = lineKeys('rev').filter((k) => has(`rvc:${k}:gla`) && has(`rvc:${k}:occupied`));
       if (lk.length && w.reg.keys().some((k) => k.startsWith(`retk|${OK}|Total GLA`))) {
         const LS = OK;
-        const glaCell = (k: string): string => w.refA({ sheet: 'Revenue Calc', row: w.addr(`rvc:${k}:gla`).row, col: 3 });
-        const occRng = (k: string): string => w.rangeA('Revenue Calc', w.addr(`rvc:${k}:occupied`).row, 4, 4 + N - 1);
+        const glaCell = (k: string): string => w.one(`rvc:${k}:gla`);
+        const occRng = (k: string): string => w.perRange(`rvc:${k}:occupied`, N);
         const glaYears = (): string => lk.map((k) => `${glaCell(k)}*COUNTIF(${occRng(k)},">0")`).join('+');
         const occ = (): string => `(${lk.map((k) => `SUM(${occRng(k)})`).join('+')})`;
         const revL = (): string => `(${lk.map((k) => rv(`rvc:${k}:rev`)).join('+')})`;

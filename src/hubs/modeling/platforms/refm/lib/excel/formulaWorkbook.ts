@@ -188,7 +188,7 @@ function orderTabs(wb: ExcelJS.Workbook): void {
  * working sheet is the one kind of hidden sheet allowed. Each commit removes
  * its sheet from this list, and the list ends empty.
  */
-export const HIDDEN_SHEETS_PENDING_REBUILD: readonly string[] = ['Revenue Calc', 'Capex Calc', 'Cost of Sales Calc', 'Schedules Calc', 'Statements Calc', 'Financing Calc', 'Returns Calc'];
+export const HIDDEN_SHEETS_PENDING_REBUILD: readonly string[] = ['Capex Calc', 'Cost of Sales Calc', 'Schedules Calc', 'Statements Calc', 'Financing Calc', 'Returns Calc'];
 
 /**
  * THE SHAPE CHECK (2026-10-14, founder): the export fails rather than ship a
@@ -209,6 +209,9 @@ export function exportShapeProblems(wb: ExcelJS.Workbook): string[] {
       if (!v || typeof v !== 'object' || typeof v.formula !== 'string') return;
       // Text in quotes is not a reference: strip string literals first.
       const f = v.formula.replace(/"(?:[^"]|"")*"/g, '""');
+      // An empty bracket that is not a function call (`(()>0)`) is a formula Excel will not
+      // open the file over (2026-10-15: an empty list of rows joined into a SUMPRODUCT).
+      if (/(^|[^A-Za-z0-9_.])\(\s*\)/.test(f)) out.push(`${ws.name}!R${r}C${c} has an empty bracket, which Excel cannot read`);
       for (const m of f.matchAll(re)) {
         const sh = (m[1] ?? m[2]).replace(/''/g, "'");
         if (!names.has(sh)) out.push(`${ws.name}!R${r}C${c} reads the tab "${sh}", which does not exist`);

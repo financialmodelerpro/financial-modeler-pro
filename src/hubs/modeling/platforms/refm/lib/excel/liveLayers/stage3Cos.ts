@@ -30,6 +30,7 @@
  */
 import type { LayerContext, LiveLayer } from '../formulaWorkbook';
 import { LiveWriter } from './writer';
+import { statedLineReceivableDays } from '../../receivableDays';
 import { PERIOD_COLS } from '../buildModelWorkbook';
 import { withResolvedAssetNames } from '@/src/core/calculations/assetName';
 import { computeFinancialsSnapshot } from '../../financials-resolvers';
@@ -63,7 +64,7 @@ export const stage3Cos: LiveLayer = {
     }
     const P0 = w.addr('cxc:P0').col;
     const cxP = (row: number, t: number): string => w.refA({ sheet: CXCALC, row, col: P0 + t });
-    const rv = (key: string, t: number): string => w.ref(key, 4 + t); // Revenue Calc column of year t
+    const rv = (key: string, t: number): string => w.per(key, t); // year t of a Revenue row, wherever it lives
     const has = (k: string): boolean => w.has(k);
     const cell = (key: string, t: number): string => w.refA({ sheet: REV, row: w.addr(key).row, col: pc(t) });
     /** A period row on the Revenue sheet and its Total column, as the platform writes it. */
@@ -214,7 +215,7 @@ export const stage3Cos: LiveLayer = {
     }
 
     // ── Schedules: the three feeds ───────────────────────────────────────────
-    type Feed = { name: string; section: string; revenue: (t: number) => string; cash: (t: number) => string; cosC: (t: number) => string; cosO: (t: number) => string; cosT: (t: number) => string; inv: (t: number) => string; ar: (t: number) => string; ur: (t: number) => string; capex: (t: number) => string };
+    type Feed = { key?: string; name: string; section: string; revenue: (t: number) => string; cash: (t: number) => string; cosC: (t: number) => string; cosO: (t: number) => string; cosT: (t: number) => string; inv: (t: number) => string; ar: (t: number) => string; ur: (t: number) => string; capex: (t: number) => string };
     const feeds: Feed[] = [];
     const Z = (): string => '0';
     for (const l of lines) {
@@ -233,13 +234,18 @@ export const stage3Cos: LiveLayer = {
       } else if (l.form !== 'sell') {
         const revKey = l.form === 'operate' ? `rvc:${l.key}:total` : `rvc:${l.key}:rev`;
         if (!has(revKey)) continue;
-        // The line's receivable at the close, at its own days or the project DSO (Revenue Calc).
-        const close = (t: number): string => rv(`rvc:${l.key}:opar`, t);
+        // THE LINE'S RECEIVABLE AT THE CLOSE IS ITS ROW IN THE RECEIVABLES FEED (2026-10-15): its
+        // revenue at its own days where the line card states them, else the project DSO
+        // (receivableDays.ts). Later tabs read that row as rvc:<line>:opar.
+        const own = statedLineReceivableDays(l.host);
+        const daysKey = own !== undefined ? w.reg.keys().find((k) => k.startsWith(`revin|${l.key}|`) && k.endsWith('|Accounts Receivable Days')) : undefined;
+        const days = (): string => (daysKey ? w.ref(daysKey, TOTAL_COL) : w.ref('project:dso'));
+        const close = (t: number): string => w.per(`rvc:${l.key}:opar`, t);
         feeds.push({
-          name, section: l.section,
+          key: l.key, name, section: l.section,
           revenue: (t) => rv(revKey, t),
-          cash: (t) => `MAX(0,${rv(revKey, t)})-(${close(t)}-${t === 0 ? '0' : close(t - 1)})`,
-          cosC: Z, cosO: Z, cosT: Z, inv: Z, ar: close, ur: Z, capex: Z,
+          cash: (t) => `${rv(revKey, t)}-(${close(t)}-${t === 0 ? '0' : close(t - 1)})`,
+          cosC: Z, cosO: Z, cosT: Z, inv: Z, ar: (t) => `${rv(revKey, t)}*${days()}/365`, ur: Z, capex: Z,
         });
       }
     }
@@ -251,7 +257,12 @@ export const stage3Cos: LiveLayer = {
       for (const section of REVENUE_SECTIONS) {
         const items = feeds.filter((x) => x.section === section);
         const keys: string[] = [];
-        for (const x of items) { const k = keyOf(`${tableKey}|${labelOf(x)}`); if (!has(k)) continue; row(k, f(x), tot); keys.push(k); }
+        for (const x of items) {
+          const k = keyOf(`${tableKey}|${labelOf(x)}`); if (!has(k)) continue;
+          // A hotel or lease line's receivable row is the line's operating receivable.
+          if (x.key && tableKey.endsWith('Accounts Receivable (closing balances)')) w.claim(`rvc:${x.key}:opar`, REV, w.addr(k).row, 1);
+          row(k, f(x), tot); keys.push(k);
+        }
         if (!keys.length) continue;
         all.push(...keys);
         if (sectionTotals) row(keyOf(`${tableKey}|Total ${section}`), (t) => keys.map((k) => cell(k, t)).join('+'), tot);

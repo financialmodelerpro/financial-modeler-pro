@@ -100,14 +100,14 @@ export const stage8Capex7: LiveLayer = {
         // (stage3Revenue: rvc:<asset>:saleRev), and Table 7 is per line too.
         const revIds = l.memberIds.filter((id) => has(`rvc:${id}:saleRev`));
         if (!revIds.length) { problems.push(`${l.label}: its sale revenue is not on the Revenue working sheet`); continue; }
-        for (const id of revIds) gdv.push(`N(${w.ref(`rvc:${id}:saleRev`, 3)})`);
+        for (const id of revIds) gdv.push(w.one(`rvc:${id}:saleRev`));
         for (const id of l.memberIds) {
           const sell = snap.revenue.bySellAsset.get(id);
           const asset = state.assets.find((a) => a.id === id);
           if (!sell || !asset) continue;
           for (const u of subUnits.filter((s) => s.assetId === id)) {
             const rowsOf = (nm: 'area' | 'units'): string[] => reg.keys().filter((k) => k.startsWith('rvc:') && k.includes(`:${u.id}:`) && new RegExp(`:(pre|post):${nm}$`).test(k))
-              .map((k) => `SUM(${w.rangeA('Revenue Calc', w.addr(k).row, 4, 4 + N - 1)})`);
+              .map((k) => `SUM(${w.perRange(k, N)})`);
             const area = rowsOf('area');
             sold.push(...area);
             const qty = resolveSubUnitMetric(u, asset) === 'units' ? rowsOf('units') : area;

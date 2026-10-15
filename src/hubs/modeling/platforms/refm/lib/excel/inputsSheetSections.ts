@@ -533,9 +533,11 @@ function indexationRows(c: SheetCursor, title: string, ix: { method?: string; ra
   kv(c, `${title}: method`, INDEX_METHOD_LABELS[method] ?? method, '@', true);
   if (method === 'yoy_compound' || method === 'single_rate') {
     // The Revenue foot carries the rate and the start as a MODEL-YEAR INDEX; Inputs states the calendar year.
-    kv(c, `${title}: rate %`, ix?.rate ?? 0, NUMFMT.pct2, true, undefined, undefined, revfootLine ? `inp=revfoot|${revfootLine}|idx@4` : undefined);
-    kv(c, `${title}: start year`, snap.projectStartYear + (ix?.startYear ?? 0), NUMFMT.year, ix?.startYear !== undefined, undefined, undefined,
-      revfootLine && ix?.startYear !== undefined ? `inp=revfoot|${revfootLine}|idx@5#yearidx` : undefined);
+    // The live workbook reads these two cells directly (rxin keys, 2026-10-15); the hardcoded one links its foot.
+    const live = isLiveLayout() && !!revfootLine;
+    kv(c, `${title}: rate %`, ix?.rate ?? 0, NUMFMT.pct2, true, undefined, undefined, live ? `rxin|${revfootLine}|rate` : revfootLine ? `inp=revfoot|${revfootLine}|idx@4` : undefined);
+    kv(c, `${title}: start year`, snap.projectStartYear + (ix?.startYear ?? 0), NUMFMT.year, ix?.startYear !== undefined || live, undefined, undefined,
+      live ? `rxin|${revfootLine}|from` : revfootLine && ix?.startYear !== undefined ? `inp=revfoot|${revfootLine}|idx@5#yearidx` : undefined);
   }
   if (method === 'step') {
     for (const s of ix?.steps ?? []) kv(c, `${title}: step from ${s.year}`, s.factor, NUMFMT.rate, true);
@@ -665,6 +667,7 @@ function emitOperateLine(c: SheetCursor, line: RevenueLine, w: LineWindow, snap:
   indexationRows(c, 'ADR indexation', op?.adrIndexation, snap, line.key);
   opsStartRow(c, line, w, snap, op?.operationsStartYearOverride, L('Operations start year'));
   yearStrip(c, 'Occupancy', w.operations, (idx) => op?.occupancyPerPeriod?.[idx], NUMFMT.pct, true, snap, 'Occupancy ramp', (idx) => `revin|${line.key}|*|Occupancy ramp@${axisCol(idx)}`);
+  if (isLiveLayout()) kv(c, 'Days per year', op?.daysPerYear ?? 365, NUMFMT.int, true, undefined, 'Available room nights = keys x days per year.', `rxin|${line.key}|days`);
   kv(c, 'Average guests per occupied room night', op?.guestsPerOccupiedRoom ?? 1.5, NUMFMT.rate, op?.guestsPerOccupiedRoom !== undefined, undefined, undefined, L('Average guests per occupied room night'));
   ancillaryRows(c, 'F&B Revenue', op?.fb, L('F&B Revenue, F&B %'));
   ancillaryRows(c, 'Other Revenue', op?.otherRevenue, L('Other Revenue, Other %'));
