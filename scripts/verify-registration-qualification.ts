@@ -414,9 +414,12 @@ section('H. Success replaces the form, and the default theme is light');
   const dash = stripComments(read('app/modeling/dashboard/page.tsx'));
   check('H: no stored theme falls back to prefers-color-scheme nowhere',
     !dash.includes('prefers-color-scheme'));
+  // RE-AIMED 2026-10-15 to the rule, not the implementation: the dashboard now derives the theme
+  // from a choice made this session, else the stored one once hydrated, else light.
   check('H: a stored choice is still honoured',
-    dash.includes("localStorage.getItem('modelingDarkMode')") && dash.includes("setDarkMode(stored === 'true')"));
-  check('H: the state itself defaults to light', /const \[darkMode, setDarkMode\] = useState\(false\)/.test(dash));
+    /['"]modelingDarkMode['"]\)\s*===\s*['"]true['"]/.test(dash) && /localStorage\.setItem\(\s*['"]modelingDarkMode['"]/.test(dash));
+  check('H: the state itself defaults to light',
+    /useState\((false|null)\)/.test(dash) && /darkMode\s*=\s*darkChoice\s*\?\?\s*\(hydrated\s*&&/.test(dash) || /const \[darkMode, setDarkMode\] = useState\(false\)/.test(dash));
   // The platform workspace already defaulted to light; pinned so it stays.
   const shell = stripComments(read('src/hubs/modeling/platforms/refm/components/RealEstatePlatform.tsx'));
   check('H: the workspace defaults to light too',

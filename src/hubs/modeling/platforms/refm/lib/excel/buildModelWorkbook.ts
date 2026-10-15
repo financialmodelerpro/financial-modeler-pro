@@ -100,9 +100,8 @@ import { applyIndexation, buildAccountsReceivable, buildUnearnedRevenue } from '
 import { hqOpexLinesInForce, normalizeOpexIndexation, type OpexLine } from '@/src/core/calculations/opex';
 import type { IndexationConfig } from '@/src/core/calculations/revenue/types';
 import { assetPlotLabel } from '@/src/core/calculations/assetName';
-import { deriveCostStage, isLandValueLine, computeAssetCost } from '@/src/core/calculations';
-import { collectionsForAsset, phaseLocalToProjectIndex } from '@/src/core/calculations/capexPhasing';
-import { isExpensedAsIncurred } from '@/src/core/calculations/sellingExpense';
+import { deriveCostStage, isLandValueLine } from '@/src/core/calculations';
+import { expensedRowsOf } from './expensedRows';
 import { CAPEX_PHASING_SOURCE_LABELS, FUNDING_METHOD_DESCRIPTIONS, REPAYMENT_METHOD_LABELS, DEFAULT_PROJECT_FINANCING_CONFIG } from '../state/module1-types';
 import { landSplitCellText, buildIdcAllocationTables, buildFinancingSummary, FINANCING_SUMMARY_CAPTIONS, operatingInflowClasses, phaseLandSplit, landFundingNote } from '../reports/financingReports';
 import { CAPITALISED_INTEREST_RULE } from '@/src/core/calculations/capitalisedInterest';
@@ -1961,28 +1960,8 @@ function addCapex(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancial
   if (live) {
     // SELLING AND MARKETING EXPENSED AS INCURRED (sellingExpense.ts): priced like a cost line but
     // never capex, so it sits outside Table 1; the P&L and the Revenue selling costs read these rows.
-    const rowsE: Array<{ a: Asset; line: FinancialsResolverState['costLines'][number]; per: number[]; amount: number }> = [];
-    for (const m of lines) {
-      for (const id of members(m.hostId)) {
-        const a = state.assets.find((x) => x.id === id);
-        const ph = a && state.phases.find((p) => p.id === a.phaseId);
-        if (!a || !ph) continue;
-        const exp = state.costLines.filter((c) => c.phaseId === ph.id && isExpensedAsIncurred(c));
-        if (!exp.length) continue;
-        const bd = computeAssetCost({
-          asset: a, project: state.project, phase: ph, parcels: state.parcels, assets: state.assets, subUnits: state.subUnits, costLines: state.costLines, costOverrides: state.costOverrides,
-          landAllocationMode: state.landAllocationMode, parcelFunding: state.project.financing?.parcelFunding,
-          collectionsPerPeriod: collectionsForAsset(snap.revenue as never, a.id, ph, snap.projectStartYear), revenue: snap.revenue as never,
-        });
-        const off = Math.max(0, new Date(ph.startDate as string).getUTCFullYear() - snap.projectStartYear);
-        for (const line of exp) {
-          if (!(line.id in bd.expensed.byLineId) && !plan?.plotLine.has(`${a.id}|${line.id}`)) continue;
-          const per = zeros();
-          (bd.expensed.perLinePerPeriod[line.id] ?? []).forEach((v, i) => { const t = phaseLocalToProjectIndex(i, off); if (t >= 0 && t < N) per[t] += v ?? 0; });
-          rowsE.push({ a, line, per, amount: bd.expensed.byLineId[line.id] ?? 0 });
-        }
-      }
-    }
+    // Valued as the engine values them (expensedRows.ts, the one call site).
+    const rowsE = expensedRowsOf(state, snap, lines.flatMap((m) => members(m.hostId)), (assetId, lineId, valued) => valued || !!plan?.plotLine.has(`${assetId}|${lineId}`));
     if (rowsE.length) {
       setSectionHeader(ws.getRow(r), 'Selling and marketing, expensed as incurred (not capex; the P&L charges it in the year it is spent)', cLast); r += 1;
       subHeader(r, [[C_LBL, 'Plot / Cost line', 'left'], [C_UOM, 'Method', 'left'], [C_RATE, 'Rate', 'right'], [C_QTY, 'Quantity', 'right'], [C_TOT, 'Total', 'right']]);
