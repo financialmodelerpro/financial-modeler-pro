@@ -18,6 +18,7 @@
  * No em dashes in this file.
  */
 import type { LayerContext, LiveLayer } from '../formulaWorkbook';
+import { capexMethodOf } from './stage2Capex';
 import { LiveWriter } from './writer';
 import { PERIOD_COLS } from '../buildModelWorkbook';
 import { withResolvedAssetNames } from '@/src/core/calculations/assetName';
@@ -67,11 +68,10 @@ export const stage6bFinancingSheet: LiveLayer = {
     const add = (...fs: F[]): F => (t) => fs.map((f) => f(t)).join('+') || '0';
     const prevOf = (f: F, t: number, first = '0'): string => (t === 0 ? first : f(t - 1));
     const MIN = (): string => sc3('fnc:min');
-    const P0 = w.addr('cxc:P0').col;
-    const cx = (k: string, t: number): string => w.refA({ sheet: 'Capex Calc', row: w.addr(k).row, col: P0 + t });
+    const cx = (k: string, t: number): string => w.per(k, t);
     const costLineOf = (id: string): Pick<CostLine, 'id' | 'catalogId'> => (state.costLines as CostLine[]).find((x) => x.id === id) ?? { id };
     const capexKeys = (a: Asset): string[] => w.reg.keys().filter((k) => k.startsWith(`cxc:${a.id}:`) && k.split(':').length === 3);
-    const isInKind = (k: string): boolean => w.platformValue({ sheet: 'Capex Calc', row: w.addr(k).row, col: 3 }) === 'percent_of_inkind_land';
+    const isInKind = (k: string): boolean => capexMethodOf(state as never, k) === 'percent_of_inkind_land';
     const landCashOf = (list: Asset[]): F => { const ks = list.flatMap(capexKeys).filter((k) => isLandValueLine(costLineOf(k.split(':')[2])) && !isInKind(k)); return (t) => ks.map((k) => cx(k, t)).join('+') || '0'; };
     const landInKindOf = (list: Asset[]): F => { const ks = list.flatMap(capexKeys).filter((k) => isLandValueLine(costLineOf(k.split(':')[2])) && isInKind(k)); return (t) => ks.map((k) => cx(k, t)).join('+') || '0'; };
     const inPhase = (p: Phase): Asset[] => visible.filter((a) => a.phaseId === p.id);

@@ -42,7 +42,6 @@ import type { Asset, Phase } from '../../state/module1-types';
 
 const CALC = 'Cost of Sales Calc';
 const REV = 'Revenue';
-const CXCALC = 'Capex Calc';
 
 export const stage3Cos: LiveLayer = {
   name: 'stage 3b: selling costs, cost of sales, schedules, escrow',
@@ -59,11 +58,10 @@ export const stage3Cos: LiveLayer = {
     const phases = state.phases as Phase[];
 
     // Both working sheets must be live, or this stays values.
-    if (!w.has('cxc:P0') || !w.reg.keys().some((k) => k.startsWith('rvc:'))) {
+    if (!w.reg.keys().some((k) => k.startsWith('cxc:')) || !w.reg.keys().some((k) => k.startsWith('rvc:'))) {
       return [{ sheet: REV, status: 'partial' as const, formulas: 0, note: 'Selling costs, Cost of Sales, Schedules and Escrow stay the platform\'s values: Capex or Revenue is not live for this model.' }];
     }
-    const P0 = w.addr('cxc:P0').col;
-    const cxP = (row: number, t: number): string => w.refA({ sheet: CXCALC, row, col: P0 + t });
+    const cxP = (key: string, t: number): string => w.per(key, t); // year t of a plot's cost line on Capex
     const rv = (key: string, t: number): string => w.per(key, t); // year t of a Revenue row, wherever it lives
     const has = (k: string): boolean => w.has(k);
     const cell = (key: string, t: number): string => w.refA({ sheet: REV, row: w.addr(key).row, col: pc(t) });
@@ -99,10 +97,11 @@ export const stage3Cos: LiveLayer = {
         const members = (l?.members ?? []).map((m) => workingRowOf(m.id, d.lineId)).filter(has);
         if (!members.length) continue;
         const r = w.addr(key).row;
-        const at = (k: string, col: number): string => w.refA({ sheet: CXCALC, row: w.addr(k).row, col });
-        w.fA({ sheet: REV, row: r, col: 5 }, at(members[0], 4));
-        w.fA({ sheet: REV, row: r, col: 7 }, members.map((k) => at(k, 5)).join('+'));
-        w.fA({ sheet: REV, row: r, col: 8 }, members.map((k) => at(k, 6)).join('+'));
+        // A plot's row on Capex: its rate (C), its base (D) and its total.
+        const at = (k: string, col: number): string => w.refA({ sheet: w.addr(k).sheet, row: w.addr(k).row, col });
+        w.fA({ sheet: REV, row: r, col: 5 }, at(members[0], 3));
+        w.fA({ sheet: REV, row: r, col: 7 }, members.map((k) => at(k, 4)).join('+'));
+        w.fA({ sheet: REV, row: r, col: 8 }, members.map((k) => w.one(k)).join('+'));
         costRows.push(key);
       }
       if (has('rev|__sell__||Total selling costs')) w.fA({ sheet: REV, row: w.addr('rev|__sell__||Total selling costs').row, col: 8 }, costRows.map((k) => w.refA({ sheet: REV, row: w.addr(k).row, col: 8 })).join('+') || '0');
@@ -113,7 +112,7 @@ export const stage3Cos: LiveLayer = {
         const [lineKey, lineId] = s.key.split('::');
         const l = lines.find((x) => x.key === lineKey) ?? lineOfAsset(lineKey);
         const members = (l?.members ?? []).map((m) => workingRowOf(m.id, lineId)).filter(has);
-        row(key, (t) => members.map((k) => cxP(w.addr(k).row, t)).join('+') || '0');
+        row(key, (t) => members.map((k) => cxP(k, t)).join('+') || '0');
         if (has(key)) yoyRows.push(key);
       }
       row('rev|__sell__|Selling Costs|Total selling costs', (t) => yoyRows.map((k) => cell(k, t)).join('+') || '0');
@@ -145,7 +144,7 @@ export const stage3Cos: LiveLayer = {
       const partRows: Array<{ capex: number; idc: number; base: number; cos: number; pre: number; post: number; inv: number; vint: number[] }> = [];
       for (const m of parts) {
         const calcRows = w.reg.keys().filter((k) => k.startsWith(`cxc:${m.id}:`) && k.split(':').length === 3);
-        const capex = newRow(`cosc:${m.id}:capex`, `${m.name}: capex on the axis`, (t) => calcRows.map((k) => cxP(w.addr(k).row, t)).join('+') || '0');
+        const capex = newRow(`cosc:${m.id}:capex`, `${m.name}: capex on the axis`, (t) => calcRows.map((k) => cxP(k, t)).join('+') || '0');
         const idcArr = snap.idc.byAsset.get(m.id)?.idcPerPeriod ?? [];
         const idc = newRow(`cosc:${m.id}:idc`, `${m.name}: capitalised interest (financing, pending)`);
         for (let t = 0; t < N; t++) w.valueA(C(idc, cT(t)), Math.max(0, idcArr[t] ?? 0), { pending: true });

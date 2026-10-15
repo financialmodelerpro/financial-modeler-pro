@@ -109,11 +109,10 @@ export const stage7bMetrics: LiveLayer = {
     const ev = rtc3('rtc:ev'), tvEq = rtc3('rtc:tveq');
     const ltvExit = cellS('rtm:ltvexit', 'LTV at the exit (debt over the exit value)', () => `IF(${ev}>0,MAX(0,${at(debt, X)})/${ev},"-")`);
     // The held assets' cost (Operate and Lease, the per-asset rows' test), full cost incl. land.
-    const P0 = w.addr('cxc:P0').col;
     const heldIds = [...snap.perAssetPL.values()].filter((p) => p.strategy === 'Operate' || p.strategy === 'Lease').map((p) => p.assetId);
     const heldCost = cellS('rtm:heldcost', 'held assets\' cost (Operate and Lease)', () => heldIds.map((id) => {
       const ks = w.reg.keys().filter((k) => k.startsWith(`cxc:${id}:`) && k.split(':').length === 3);
-      return ks.length ? `MAX(0,${ks.map((k) => `SUM(${w.rangeA('Capex Calc', w.addr(k).row, P0, P0 + N - 1)})`).join('+')})` : '0';
+      return ks.length ? `MAX(0,${ks.map((k) => `SUM(${w.perRange(k, N)})`).join('+')})` : '0';
     }).join('+') || '0');
     const stab = (): string => at(noi, M);
     // THE STABILISATION YEAR, the engine's rule (stabilizationMetrics, 2026-10-05):

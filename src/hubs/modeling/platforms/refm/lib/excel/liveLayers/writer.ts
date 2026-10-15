@@ -104,7 +104,9 @@ export class LiveWriter {
   /** The row's years 0..n-1 as one range. */
   perRange(key: string, n: number): string { const a = this.addr(key); return this.rangeA(a.sheet, a.row, this.yearCol(a.sheet, 0), this.yearCol(a.sheet, n - 1)); }
   /** The row's one figure: a working sheet's column C, a visible tab's Total column. */
-  one(key: string): string { const a = this.addr(key); return this.refA({ sheet: a.sheet, row: a.row, col: LiveWriter.isWorking(a.sheet) ? 3 : 4 }); }
+  one(key: string): string { const a = this.addr(key); return this.refA({ sheet: a.sheet, row: a.row, col: LiveWriter.isWorking(a.sheet) ? 3 : (LiveWriter.totalCols.get(a.sheet) ?? 4) }); }
+  /** A visible tab whose Total is not column D (Capex keeps its Total right of the years). Set by the tab's layer. */
+  static readonly totalCols = new Map<string, number>();
   /** An absolute range on one row, from column c0 to c1. */
   rangeA(sheet: string, row: number, c0: number, c1: number): string {
     for (let c = c0; c <= c1; c++) this.deps.push(addrId({ sheet, row, col: c }));

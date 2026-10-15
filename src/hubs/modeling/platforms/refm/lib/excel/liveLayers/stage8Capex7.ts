@@ -26,6 +26,7 @@
  */
 import type { LayerContext, LiveLayer } from '../formulaWorkbook';
 import { LiveWriter } from './writer';
+import { capexCols } from '../buildModelWorkbook';
 import { figureTools, liveAssetAreas, type X } from './liveAreas';
 import { withResolvedAssetNames } from '@/src/core/calculations/assetName';
 import { deriveCostStage, resolveSubUnitMetric } from '@/src/core/calculations';
@@ -34,8 +35,6 @@ import { buildCostPerSqmReport, COST_BASES } from '../../reports/costPerSqmRepor
 import type { CostLine, SubUnit } from '../../state/module1-types';
 
 const CAPEX = 'Capex';
-const CALC = 'Capex Calc';
-const AMOUNT_COL = 6; // the line amount on the Capex working sheet (stage2Capex cF)
 
 export const stage8Capex7: LiveLayer = {
   name: 'stage 8: capex table 7',
@@ -71,7 +70,7 @@ export const stage8Capex7: LiveLayer = {
           for (const k of reg.keys().filter((x) => x.startsWith(`cxc:${id}:`))) {
             const line = costLines.find((c) => c.id === k.slice(`cxc:${id}:`.length));
             if (!line) return null;
-            if (want(String(deriveCostStage(line)))) { const c = cellX(k, AMOUNT_COL); if (!c) return null; parts.push(c); }
+            if (want(String(deriveCostStage(line)))) { const c = cellX(k, capexCols(N).C_TOT); if (!c) return null; parts.push(c); }
           }
         }
         return add(parts);
@@ -160,7 +159,7 @@ export const stage8Capex7: LiveLayer = {
     }
     // Table 7 was the last part of the sheet that was values. The sheet is live unless
     // stage 2 left a cell waiting (its revenue-based lines, where Revenue is not live).
-    const waiting = [...ctx.pending].some((a) => a.startsWith(`${CAPEX}!`) || a.startsWith(`${CALC}!`));
+    const waiting = [...ctx.pending].some((a) => a.startsWith(`${CAPEX}!`));
     return [{
       sheet: CAPEX, status: waiting ? 'partial' as const : 'live' as const, formulas: w.formulas.get(CAPEX) ?? 0,
       note: 'Also live: Table 7 (construction, capitalised interest and land per line over its NSA, GFA and BUA, and for a Sell line the base and realised price per sqm against each), from the line amounts on the working sheet, the financing solve, the live areas and the Revenue working sheet.',

@@ -44,6 +44,7 @@
  * No em dashes in this file.
  */
 import type { LayerContext, LiveLayer } from '../formulaWorkbook';
+import { capexMethodOf } from './stage2Capex';
 import { LiveWriter } from './writer';
 import { PERIOD_COLS } from '../buildModelWorkbook';
 import { terminalRefusal, terminalValueFormula } from './terminal';
@@ -621,13 +622,12 @@ export const stage6Financing: LiveLayer = {
       const debtBs = row(k('debtbs'), L('debt outstanding (balance sheet)'), (t) => (booked && t >= X ? '0' : at(rBal, t)), cachedFrom(tag, snap.bs.debtOutstandingPerPeriod));
       return { idc, idcDepProj, idcAddHeld, idcNbvProj, idcDisp, intExp, interest: rInterest, draw: rDraw, idcDraw: rIdcDraw, repay, equityDev, debtReq: debtRow, feeDraw, netReq, divTotal: rDiv, bal: rBal, debtBs, cos, tax, idcDepByAsset, idcNbvByAsset, byOrigin };
     };
-    // Land cash per period (the fallback split's land): the land value lines, cash half, from the Capex working sheet.
-    const P0 = w.addr('cxc:P0').col;
+    // Land cash per period (the fallback split's land): the land value lines, cash half, from the plots' rows on Capex.
     const landKeys = w.reg.keys().filter((kk) => kk.startsWith('cxc:') && kk.split(':').length === 3 && !kk.startsWith('cxc:ph:')
       && isLandValueLine((state.costLines as CostLine[]).find((x) => x.id === kk.split(':')[2]) ?? { id: kk.split(':')[2] })
-      && w.platformValue({ sheet: 'Capex Calc', row: w.addr(kk).row, col: 3 }) !== 'percent_of_inkind_land'
+      && capexMethodOf(state as never, kk) !== 'percent_of_inkind_land'
       && visible.some((a) => kk.startsWith(`cxc:${a.id}:`)));
-    const landCashRow = row('fnc:landcash', 'land cash', (t) => landKeys.map((kk) => w.refA({ sheet: 'Capex Calc', row: w.addr(kk).row, col: P0 + t })).join('+') || '0');
+    const landCashRow = row('fnc:landcash', 'land cash', (t) => landKeys.map((kk) => w.per(kk, t)).join('+') || '0');
     const landCashF: F = (t) => at(landCashRow, t);
     // THE LAND CASH SPLIT (computeDebtEquitySplit): each plot's debt share weighted by
     // its cash land value. It applies where the funding is sized on capex; where a

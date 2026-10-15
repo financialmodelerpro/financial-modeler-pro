@@ -46,6 +46,8 @@ import { buildFcffBuildup, buildFcfeBuildup, buildDividendBuildup, m4StreamRow, 
 import { buildEmptyInputAdvisories, emptyInputAdvisoryText, buildIntegrityChecks, checkDetail, buildRevenueBasisAdvisoriesFor, revenueBasisAdvisoryText, buildSaleCohortAdvisories, saleCohortAdvisoryText } from '../reports/checksReport';
 import { buildCostOfSalesReport } from '../reports/cosReports';
 import { buildOpexReport, OPEX_AP_BASIS, OPEX_AP_TOTAL_BASIS } from '../reports/opexReports';
+import { planCapexSpread } from './liveLayers/capexSpread';
+import { isParcelDrivenLandLine, resolvePhasingSource } from '@/src/core/calculations/capexPhasing';
 import { buildPLRows, taxBasisNote, buildDirectCFRows, buildIndirectCFRows, buildBSRows, buildBsReconciliationRows, buildBsFeederTables, BS_FEEDER_SECTIONS, BS_RECONCILIATION_CAPTION, buildFundFeeBasisRows, buildFundCapitalRows, fundFeeBasisBaseCell, totalColumnHeading, totalColumnNote, TOTAL_COLUMN_HEADINGS, TOTAL_COLUMN_NOTES, FUND_CAPITAL_BASES_TITLE, FUND_CAPITAL_BASES_NOTE, FUND_CAPITAL_BASE_TAG, type M4ReportCtx, type FundFeeBasisRow } from '../reports/m4Reports';
 import { buildFixedAssetReport, type FixedAssetTable } from '../reports/fixedAssetReports';
 import { buildCaseComparisonReport, caseOverridesNote, type CaseComparisonInput, type CaseComparisonReport, type CaseKpiKind } from '../reports/caseComparisonReport';
@@ -98,7 +100,9 @@ import { applyIndexation, buildAccountsReceivable, buildUnearnedRevenue } from '
 import { hqOpexLinesInForce, normalizeOpexIndexation, type OpexLine } from '@/src/core/calculations/opex';
 import type { IndexationConfig } from '@/src/core/calculations/revenue/types';
 import { assetPlotLabel } from '@/src/core/calculations/assetName';
-import { deriveCostStage, isLandValueLine } from '@/src/core/calculations';
+import { deriveCostStage, isLandValueLine, computeAssetCost } from '@/src/core/calculations';
+import { collectionsForAsset, phaseLocalToProjectIndex } from '@/src/core/calculations/capexPhasing';
+import { isExpensedAsIncurred } from '@/src/core/calculations/sellingExpense';
 import { CAPEX_PHASING_SOURCE_LABELS, FUNDING_METHOD_DESCRIPTIONS, REPAYMENT_METHOD_LABELS, DEFAULT_PROJECT_FINANCING_CONFIG } from '../state/module1-types';
 import { landSplitCellText, buildIdcAllocationTables, buildFinancingSummary, FINANCING_SUMMARY_CAPTIONS, operatingInflowClasses, phaseLandSplit, landFundingNote } from '../reports/financingReports';
 import { CAPITALISED_INTEREST_RULE } from '@/src/core/calculations/capitalisedInterest';
@@ -857,17 +861,32 @@ function addAssumptions(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFin
       registerCell(`inpcx:${ia.assetId}:${ln.id}`, ws, ws.getCell(`A${r}`));
       setLabel(ws.getCell(`A${r}`), ln.name, { indent: 1 });
       setLabel(ws.getCell(`B${r}`), methodLabel(ln.method, ln.basis));
-      if (ln.isPercent) setInput(ws.getCell(`C${r}`), ln.rate / 100, NUMFMT.pct2);
+      // THE LIVE LAYOUT (2026-10-15) shows each input once and nothing derived: a rate the
+      // cost standards set is typed on Types and Standards, a window that follows the
+      // construction years is worked out from them, and the quantity and amount are Capex's.
+      const cl = state.costLines.find((x) => x.id === ln.id);
+      const liveRow = isLiveLayout();
+      const fromStd = liveRow && ln.rateFromStandards === true;
+      const locked = liveRow && !!cl && cl.isLocked === true && isLandValueLine(cl);
+      if (fromStd) setLabel(ws.getCell(`C${r}`), 'Types and Standards');
+      else if (locked) { const lc = ws.getCell(`C${r}`); lc.value = ln.rate / 100; lc.numFmt = NUMFMT.pct2; lc.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } }; }
+      else if (ln.isPercent) setInput(ws.getCell(`C${r}`), ln.rate / 100, NUMFMT.pct2);
       else setInput(ws.getCell(`C${r}`), ln.rate, NUMFMT.rate);
       setInput(ws.getCell(`E${r}`), ln.stage, '@');
-      setInput(ws.getCell(`F${r}`), ln.startPeriod, NUMFMT.int);
-      setInput(ws.getCell(`G${r}`), ln.endPeriod, NUMFMT.int);
+      const ovr = state.costOverrides.find((o) => o.assetId === ia.assetId && o.lineId === ln.id);
+      const followsLand = liveRow && !!cl && !isParcelDrivenLandLine(cl) && resolvePhasingSource(cl, ovr) === 'land_cash';
+      if (liveRow && cl?.windowFollowsConstruction === true && !(ovr && ovr.overridden !== false && (ovr.startPeriod !== undefined || ovr.endPeriod !== undefined))) setLabel(ws.getCell(`F${r}`), 'Construction years');
+      else if (followsLand) setLabel(ws.getCell(`F${r}`), 'Land cash timing');
+      else {
+        setInput(ws.getCell(`F${r}`), ln.startPeriod, NUMFMT.int);
+        setInput(ws.getCell(`G${r}`), ln.endPeriod, NUMFMT.int);
+      }
       setInput(ws.getCell(`H${r}`), ln.phasing, '@');
       const hasQty = !ln.isFixed && ln.metricValue !== null && (ln.metricKind === 'area' || ln.method === 'rate_per_parking_bay');
       // The EFFECTIVE driver quantity (amount / rate), which is this line's share
       // where the engine allocates a line across assets.
-      if (hasQty) setFormula(ws.getCell(`D${r}`), fcell('0', ln.rate ? ln.amount / ln.rate : (ln.metricValue as number)), NUMFMT.int);
-      setFormula(ws.getCell(`I${r}`), fcell('0', ln.amount), NUMFMT.money);
+      if (hasQty && !liveRow) setFormula(ws.getCell(`D${r}`), fcell('0', ln.rate ? ln.amount / ln.rate : (ln.metricValue as number)), NUMFMT.int);
+      if (!liveRow) setFormula(ws.getCell(`I${r}`), fcell('0', ln.amount), NUMFMT.money);
       lineRefs.push({
         id: ln.id,
         method: ln.method,
@@ -899,12 +918,12 @@ function addAssumptions(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFin
       ['Marketing', ia.subtotals.marketing],
       ['Land', ia.subtotals.land],
     ] as Array<[string, number]>)) {
-      if (amount === 0) continue;
+      if (amount === 0 || isLiveLayout()) continue;
       setLabel(ws.getCell(`A${r}`), label, { indent: 1, bold: true });
       setFormula(ws.getCell(`I${r}`), fcell('0', amount), NUMFMT.money);
       r += 1;
     }
-    if (ia.subtotals.exclLand !== 0 && (ia.subtotals.land !== 0 || ia.subtotals.marketing !== 0)) {
+    if (!isLiveLayout() && ia.subtotals.exclLand !== 0 && (ia.subtotals.land !== 0 || ia.subtotals.marketing !== 0)) {
       setLabel(ws.getCell(`A${r}`), ia.subtotals.marketing !== 0
         ? 'Construction cost (excl. land and marketing)'
         : 'Construction cost (excl. land)', { indent: 1, bold: true });
@@ -914,6 +933,24 @@ function addAssumptions(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFin
     capexRefs.push({ assetId: ia.assetId, name: ia.assetName, phaseName: ia.phaseName, total: ia.total, lines: lineRefs });
   }
   r += 1;
+  // THE PLOT SPEND CURVES (live layout): typed by phase period P0, P1, ...; a line that
+  // inherits its plot's curve spreads on the curve sliced to its own window.
+  const curved = isLiveLayout() ? state.assets.filter((a) => a.visible !== false && a.capexPhasing?.phasing === 'manual' && (a.capexPhasing.distribution ?? []).some((v) => (v ?? 0) !== 0)) : [];
+  if (curved.length) {
+    const L = Math.max(...curved.map((a) => (a.capexPhasing?.distribution ?? []).length));
+    setSectionHeader(ws.getRow(r), 'Plot spend curves (typed by phase period; period 0 is the year before the phase starts)', Math.max(9, L + 1)); r += 1;
+    setColHeader(ws.getCell(`A${r}`), 'Plot', 'left');
+    for (let i = 0; i < L; i++) setColHeader(ws.getCell(r, 2 + i), `P${i}`, 'right');
+    r += 1;
+    for (const a of curved) {
+      setLabel(ws.getCell(`A${r}`), assetLabel(a, { parcels: state.parcels, phases: state.phases }), { indent: 1 });
+      registerCell(`inpcurve:${a.id}`, ws, ws.getCell(`A${r}`));
+      const dist = a.capexPhasing?.distribution ?? [];
+      for (let i = 0; i < L; i++) setInput(ws.getCell(r, 2 + i), Math.max(0, dist[i] ?? 0), NUMFMT.rate);
+      r += 1;
+    }
+    r += 1;
+  }
 
   // ── Module 1, tab 7: Financing ─────────────────────────────────────────────
   inputDivider('FINANCING INPUTS');
@@ -1518,6 +1555,14 @@ interface CapexAddrs {
 
 /** The Capex sheet's own column geometry (period t sits at C_OPEN + 1 + t), for the live layer. */
 export const CAPEX_COLS = { C_LBL: 1, C_UOM: 2, C_RATE: 3, C_QTY: 4, C_TOT: 5, C_OPEN: 6 } as const;
+/**
+ * THE CAPEX COLUMNS IN THE LIVE LAYOUT (2026-10-15): the years sit where every other
+ * period tab has them (the opening year in E, year 1 in F), so the Total moves to the
+ * right of the years and the check and phasing source after it.
+ */
+export function capexCols(n: number): { C_LBL: number; C_UOM: number; C_RATE: number; C_QTY: number; C_OPEN: number; C_TOT: number; C_CHK: number; C_SRC: number } {
+  return { C_LBL: 1, C_UOM: 2, C_RATE: 3, C_QTY: 4, C_OPEN: 5, C_TOT: 5 + n + 1, C_CHK: 5 + n + 2, C_SRC: 5 + n + 3 };
+}
 
 function addCapex(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancialsSnapshot>, capex: CapexReport, refs: AssumptionRefs, landAddrs: Map<string, LandAreaAssetAddrs>, state: FinancialsResolverState, displayScale: DisplayScale = 'full'): CapexAddrs {
   void landAddrs;
@@ -1526,11 +1571,16 @@ function addCapex(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancial
   // Capex-LOCAL geometry (the other period sheets keep the shared geometry): one
   // extra metadata column, so A = Cost line / Line, B = Method / Phase, C = Rate,
   // D = Quantity / Rate source, E = Total, F = Prior (opening), G.. = active years.
-  const C_LBL = 1, C_UOM = 2, C_RATE = 3, C_QTY = 4, C_TOT = 5, C_OPEN = 6;
-  const cP = (t: number): number => C_OPEN + 1 + t;   // G.. active period t
+  // The live layout puts the years where every other tab has them (capexCols).
+  const live = isLiveLayout();
+  const C_LBL = 1, C_UOM = 2, C_RATE = 3, C_QTY = 4;
+  const C_OPEN = live ? capexCols(N).C_OPEN : 6;
+  const C_TOT = live ? capexCols(N).C_TOT : 5;
+  const cP = (t: number): number => C_OPEN + 1 + t;   // G.. active period t (F.. in the live layout)
   const cLast = C_OPEN + N;                            // last active column
-  const cChk = cLast + 1;
-  const cSrc = cLast + 2;                              // phasing source (inputs only)
+  const cChk = live ? capexCols(N).C_CHK : cLast + 1;
+  const cSrc = live ? capexCols(N).C_SRC : cLast + 2;  // phasing source (inputs only)
+  const cEnd = Math.max(cLast, C_TOT);
   const TOL = 0.0001;
   const TITLE = 'Capex';
   const SUB = 'Development cost by line, as on the platform Capex tab. Inputs: each line\'s method, rate, rate source and phasing source, with the allocation profile the engine resolved. Results: the consolidated preview by type, Table 1 the schedule by cost line, Tables 2 to 4 the line summaries by phase (incl. all land, excl. land in-kind, excl. total land), Table 5 land cash and in-kind per phase, Table 6 capex by category, Table 7 cost per sqm by line and each Sell line\'s price against its cost. Platform values, hardcoded.';
@@ -1552,10 +1602,11 @@ function addCapex(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancial
   setColHeader(ws.getCell(4, cChk), 'Check', 'center');
   for (let c = C_OPEN; c <= cLast; c++) {
     // The Capex opening column is F, one column right of the shared geometry
-    // (the extra Quantity column), so its year is read one column to the left.
-    const cl = colLetter(c - 1);
+    // (the extra Quantity column), so its year is read one column to the left;
+    // in the live layout it is E, the shared column.
+    const cl = colLetter(live ? c : c - 1);
     const d = ws.getCell(3, c);
-    setFormula(d, fcell(sheetRef(SHEETS.timeline, `${cl}3`), colYear(snap, c - 1)), NUMFMT.date, true);
+    setFormula(d, fcell(sheetRef(SHEETS.timeline, `${cl}3`), colYear(snap, live ? c : c - 1)), NUMFMT.date, true);
     d.font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.navyDark } };
     d.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: ARGB.grey } };
     d.alignment = { horizontal: 'right' };
@@ -1565,7 +1616,7 @@ function addCapex(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancial
     ix.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: ARGB.grey } };
     ix.alignment = { horizontal: 'right' };
   }
-  ws.views = [{ state: 'frozen', xSplit: C_TOT, ySplit: 4, showGridLines: false }];
+  ws.views = [{ state: 'frozen', xSplit: live ? C_QTY : C_TOT, ySplit: 4, showGridLines: false }];
   registerCell('cx:hdr', ws, ws.getCell(3, C_OPEN));
 
   // ── Helpers ────────────────────────────────────────────────────────────────
@@ -1585,13 +1636,13 @@ function addCapex(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancial
     put(rr, C_TOT, opts.total ?? sumN([...series]));
     if (style !== 'plain') {
       const fill = style === 'navy' ? ARGB.navy : ARGB.subtotal; const fg = style === 'navy' ? ARGB.white : ARGB.navyDark;
-      fillRange(ws, rr, 1, rr, cLast, fill);
-      for (let c = 1; c <= cLast; c++) ws.getCell(rr, c).font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: fg } };
+      fillRange(ws, rr, 1, rr, cEnd, fill);
+      for (let c = 1; c <= cEnd; c++) ws.getCell(rr, c).font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: fg } };
     }
   };
   const band = (rr: number, text: string): void => {
-    setLabel(ws.getCell(rr, C_LBL), text, { bold: true }); fillRange(ws, rr, 1, rr, cLast, ARGB.subtotal);
-    for (let c = 1; c <= cLast; c++) ws.getCell(rr, c).font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.navyDark } };
+    setLabel(ws.getCell(rr, C_LBL), text, { bold: true }); fillRange(ws, rr, 1, rr, cEnd, ARGB.subtotal);
+    for (let c = 1; c <= cEnd; c++) ws.getCell(rr, c).font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.navyDark } };
   };
   const subHeader = (rr: number, heads: Array<[number, string, 'left' | 'right' | 'center']>): void => {
     for (const [c, text, align] of heads) setColHeader(ws.getCell(rr, c), text, align);
@@ -1654,6 +1705,14 @@ function addCapex(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancial
     ? 'Escalation is off, so every total is rate x quantity at base-year money.'
     : 'Every rate is base-year money and escalates into the years its line spends; a lump sum, the land value lines and anything charged on land or revenue do not escalate. A percentage line charges on the escalated base, so Quantity below reads the escalated base.');
   r += 2;
+  if (live) {
+    // THE ESCALATION FACTOR, BY THE YEAR SPENT (live layout): money spent in a model
+    // year costs (1 + rate) to the power of the years since the first model year.
+    setLabel(ws.getCell(r, C_LBL), 'Cost escalation factor, by the year the money is spent', { bold: true });
+    registerCell('cx:escf', ws, ws.getCell(r, C_LBL));
+    for (let t = 0; t < N; t++) put(r, cP(t), Math.pow(1 + escPct / 100, t), FACTOR_FMT);
+    r += 2;
+  }
   subHeader(r, [[C_LBL, 'Cost line', 'left'], [C_UOM, 'Method', 'left'], [C_RATE, 'Rate', 'right'], [C_QTY, 'Rate source', 'left'], [C_TOT, 'Total %', 'right'], [cChk, 'Check', 'center'], [cSrc, 'Phasing source (engine-resolved window)', 'left']]);
   r += 1;
   for (const m of lines) {
@@ -1701,7 +1760,9 @@ function addCapex(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancial
     const treatIds = new Set(capex.treatment.map((t) => t.id));
     const previewAssets = state.assets.filter((a) => treatIds.has(a.id));
     const cons = buildConsolidatedReport(previewAssets, state.phases, perAssetCostsFromTreatment(capex.treatment));
-    const [cPhase, cType, cStrat, cCount, cLand, cHard, cSoft, cMkt, cOp, cTotal] = [C_LBL, C_UOM, C_RATE, C_QTY, C_TOT, C_OPEN, C_OPEN + 1, C_OPEN + 2, C_OPEN + 3, C_OPEN + 4];
+    const [cPhase, cType, cStrat, cCount, cLand, cHard, cSoft, cMkt, cOp, cTotal] = live
+      ? [C_LBL, C_UOM, C_RATE, C_QTY, C_OPEN, C_OPEN + 1, C_OPEN + 2, C_OPEN + 3, C_OPEN + 4, C_OPEN + 5]
+      : [C_LBL, C_UOM, C_RATE, C_QTY, C_TOT, C_OPEN, C_OPEN + 1, C_OPEN + 2, C_OPEN + 3, C_OPEN + 4];
     setSectionHeader(ws.getRow(r), 'Consolidated by type, what a grouped schedule would show', cLast); r += 1;
     note(r, consolidatedCaption(cons));
     r += 2;
@@ -1739,6 +1800,57 @@ function addCapex(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancial
     r += 2;
   }
 
+  // ── The spread rows (live layout): how each line spreads its base-year amount ─
+  const plan = live ? planCapexSpread(state, refs.capexMembers ?? new Map(), snap.revenue as never, snap.projectStartYear, N) : null;
+  if (plan) {
+    setSectionHeader(ws.getRow(r), 'Spend shares by year (how each line spreads its base-year amount; the schedule below reads these)', cLast); r += 1;
+    note(r, 'A window is counted in phase periods: period 0 is the year before the phase starts (never before the first model year), period 1 its first year. A curve is the plot\'s typed curve inside the window; collections are the plot\'s sales collections. Each row sums to 100%.');
+    r += 2;
+    subHeader(r, [[C_LBL, 'Spread', 'left'], [C_UOM, 'Phase first year', 'right'], [C_RATE, 'From period', 'right'], [C_QTY, 'To period', 'right'], [C_TOT, 'Total', 'right']]);
+    r += 1;
+    const yearOfLocal = (i: number, off: number): number => (i === 0 ? Math.max(0, off - 1) : off + i - 1);
+    for (const sp of plan.rows.values()) {
+      const ph = state.phases.find((p) => p.id === sp.phaseId);
+      const off = ph ? Math.max(0, new Date(ph.startDate as string).getUTCFullYear() - snap.projectStartYear) : 0;
+      const firstYear = (rr: number): void => put(rr, C_UOM, snap.projectStartYear + off, NUMFMT.year);
+      if (sp.kind === 'collections' && ph) {
+        // The plot's sales collections inside the phase's years (projectAxisToPhaseLocal: local
+        // period i is model year off + i - 1, for i from 1 to construction + operations + 1).
+        const cash = (snap.revenue as { bySellAsset?: Map<string, { cashCollectedPerPeriod?: number[] } | undefined> }).bySellAsset?.get(sp.assetId ?? '')?.cashCollectedPerPeriod ?? [];
+        const slots = (ph.constructionPeriods ?? 0) + (ph.operationsPeriods ?? 0) + 2;
+        const inside = zeros();
+        for (let t = 0; t < N; t++) { const i = t - off + 1; if (i >= 1 && i < slots) inside[t] = Math.max(0, cash[t] ?? 0); }
+        setLabel(ws.getCell(r, C_LBL), `${sp.label}, inside the phase's years`, { indent: 1 });
+        registerCell(`cxwc:${sp.key}`, ws, ws.getCell(r, C_LBL));
+        for (let t = 0; t < N; t++) put(r, cP(t), inside[t]);
+        put(r, C_TOT, sumN(inside));
+        r += 1;
+      }
+      if (sp.kind === 'curve') {
+        const a = state.assets.find((x) => x.id === sp.assetId);
+        const dist = a?.capexPhasing?.distribution ?? [];
+        const typed = zeros();
+        for (let i = sp.start; i <= sp.end; i++) { const t = yearOfLocal(i, off); if (t >= 0 && t < N) typed[t] += Math.max(0, dist[i] ?? 0); }
+        setLabel(ws.getCell(r, C_LBL), `Typed curve in the window: ${sp.label}`, { indent: 1 });
+        registerCell(`cxwc:${sp.key}`, ws, ws.getCell(r, C_LBL));
+        for (let t = 0; t < N; t++) put(r, cP(t), typed[t], NUMFMT.rate);
+        put(r, C_TOT, sumN(typed), NUMFMT.rate);
+        r += 1;
+      }
+      setLabel(ws.getCell(r, C_LBL), sp.label, { indent: 1 });
+      registerCell(`cxw:${sp.key}`, ws, ws.getCell(r, C_LBL));
+      firstYear(r);
+      put(r, C_RATE, sp.start, NUMFMT.int); put(r, C_QTY, sp.end, NUMFMT.int);
+      for (let t = 0; t < N; t++) put(r, cP(t), sp.shares[t] ?? 0, NUMFMT.pct2);
+      put(r, C_TOT, sumN(sp.shares), NUMFMT.pct2);
+      r += 1;
+    }
+    r += 1;
+  }
+
+  let plotReportCache: CapexReport | null = null;
+  const plotReportOf = (): CapexReport => (plotReportCache ??= buildCapexReport(snap, state));
+
   // ── Table 1: the schedule by cost line, one block per line ─────────────────
   setSectionHeader(ws.getRow(r), 'Table 1 - Construction Cost Schedule by Period (per cost line, by line)', cLast); r += 1;
   subHeader(r, [[C_LBL, 'Line / Cost line', 'left'], [C_UOM, 'Method', 'left'], [C_RATE, 'Rate', 'right'], [C_QTY, 'Quantity', 'right'], [C_TOT, 'Total', 'right']]);
@@ -1749,20 +1861,51 @@ function addCapex(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancial
   const perAssetCapex = new Map<string, { inclRow: number; exclInKindRow: number; exclAllRow: number }>();
   for (const m of lines) {
     band(r, m.heading); r += 1;
+    // A LINE WITH SEVERAL PLOTS SHOWS EACH PLOT (live layout, 2026-10-15): the later tabs read a
+    // plot's own capex (cost of sales, depreciation, land in kind), so each is a row, and the
+    // line row below them is their total.
+    const plotIds = live ? members(m.hostId) : [m.hostId];
+    const multiPlot = plotIds.length > 1;
+    const plotReport = multiPlot ? plotReportOf() : null;
     for (const ln of m.ref.lines) {
       const src = inputLine(m.hostId, ln.id);
+      if (multiPlot) {
+        for (const id of plotIds) {
+          const pl = plotReport?.inputAssets.find((ia) => ia.assetId === id)?.lines.find((x) => x.id === ln.id);
+          const a = state.assets.find((x) => x.id === id);
+          if (!pl || !a) continue;
+          registerCell(`cx1p:${m.hostId}:${ln.id}:${id}`, ws, ws.getCell(r, C_LBL));
+          setLabel(ws.getCell(r, C_LBL), `${ln.name}, ${assetPlotLabel(a, ctxNames) || a.name}`, { indent: 2 });
+          setLabel(ws.getCell(r, C_UOM), methodLabel(pl.method, pl.basis));
+          const prd = pl.isPercent ? pl.rate / 100 : pl.rate;
+          put(r, C_RATE, prd, pl.isPercent ? NUMFMT.pct2 : NUMFMT.rate);
+          const per = pl.perPeriod ?? zeros();
+          const esc = plan?.plotLine.get(`${id}|${ln.id}`)?.escalates;
+          put(r, C_QTY, pl.method === 'fixed' ? 1 : (prd !== 0 ? (esc ? per.reduce((s2, v, t) => s2 + (v ?? 0) / Math.pow(1 + escPct / 100, t), 0) : pl.amount) / prd : 0), moneyBasis.has(pl.method) ? NUMFMT.money : NUMFMT.int);
+          put(r, C_OPEN, 0);
+          for (let t = 0; t < N; t++) put(r, cP(t), per[t] ?? 0);
+          put(r, C_TOT, pl.amount);
+          r += 1;
+        }
+      }
       registerCell(`cx1:${m.hostId}:${ln.id}`, ws, ws.getCell(r, C_LBL));
       setLabel(ws.getCell(r, C_LBL), ln.name, { indent: 1 });
       setLabel(ws.getCell(r, C_UOM), methodLabel(ln.method, ln.basis));
       const rateDec = ln.isPercent ? ln.rate / 100 : ln.rate;
-      put(r, C_RATE, rateDec, ln.isPercent ? NUMFMT.pct2 : NUMFMT.rate);
+      if (!multiPlot) put(r, C_RATE, rateDec, ln.isPercent ? NUMFMT.pct2 : NUMFMT.rate);
       // Quantity = the base the rate multiplies, read back from the engine's own
       // amount (a lump sum is 1), so Rate x Quantity = Total always reads true.
-      put(r, C_QTY, ln.method === 'fixed' ? 1 : (rateDec !== 0 ? ln.amount / rateDec : 0), moneyBasis.has(ln.method) ? NUMFMT.money : NUMFMT.int);
       const pp = src?.perPeriod ?? zeros();
+      // The live layout's Quantity is the base the rate multiplies, before escalation
+      // (the money spent in each year, back in base-year money); the hardcoded one
+      // reads the amount over the rate.
+      const baseOf = (per: readonly number[], amount: number): number => (plan && plan.plotLine.get(`${m.hostId}|${ln.id}`)?.escalates
+        ? per.reduce((s2, v, t) => s2 + (v ?? 0) / Math.pow(1 + escPct / 100, t), 0) : amount);
+      if (!multiPlot) put(r, C_QTY, ln.method === 'fixed' ? 1 : (rateDec !== 0 ? baseOf(pp, ln.amount) / rateDec : 0), moneyBasis.has(ln.method) ? NUMFMT.money : NUMFMT.int);
       put(r, C_OPEN, 0);
       for (let t = 0; t < N; t++) put(r, cP(t), pp[t] ?? 0);
       put(r, C_TOT, ln.amount);
+      if (multiPlot) setLabel(ws.getCell(r, C_UOM), 'Total of its plots');
       allLineTotals.push(ln.amount);
       r += 1;
     }
@@ -1777,6 +1920,55 @@ function addCapex(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancial
   registerCell('cx1:total', ws, ws.getCell(r, C_LBL));
   moneyRow(r, 'Project Total', grandIncl, { style: 'navy', total: sumN(grandIncl) });
   r += 2;
+  if (live) {
+    // SELLING AND MARKETING EXPENSED AS INCURRED (sellingExpense.ts): priced like a cost line but
+    // never capex, so it sits outside Table 1; the P&L and the Revenue selling costs read these rows.
+    const rowsE: Array<{ a: Asset; line: FinancialsResolverState['costLines'][number]; per: number[]; amount: number }> = [];
+    for (const m of lines) {
+      for (const id of members(m.hostId)) {
+        const a = state.assets.find((x) => x.id === id);
+        const ph = a && state.phases.find((p) => p.id === a.phaseId);
+        if (!a || !ph) continue;
+        const exp = state.costLines.filter((c) => c.phaseId === ph.id && isExpensedAsIncurred(c));
+        if (!exp.length) continue;
+        const bd = computeAssetCost({
+          asset: a, project: state.project, phase: ph, parcels: state.parcels, assets: state.assets, subUnits: state.subUnits, costLines: state.costLines, costOverrides: state.costOverrides,
+          landAllocationMode: state.landAllocationMode, parcelFunding: state.project.financing?.parcelFunding,
+          collectionsPerPeriod: collectionsForAsset(snap.revenue as never, a.id, ph, snap.projectStartYear), revenue: snap.revenue as never,
+        });
+        const off = Math.max(0, new Date(ph.startDate as string).getUTCFullYear() - snap.projectStartYear);
+        for (const line of exp) {
+          if (!(line.id in bd.expensed.byLineId) && !plan?.plotLine.has(`${a.id}|${line.id}`)) continue;
+          const per = zeros();
+          (bd.expensed.perLinePerPeriod[line.id] ?? []).forEach((v, i) => { const t = phaseLocalToProjectIndex(i, off); if (t >= 0 && t < N) per[t] += v ?? 0; });
+          rowsE.push({ a, line, per, amount: bd.expensed.byLineId[line.id] ?? 0 });
+        }
+      }
+    }
+    if (rowsE.length) {
+      setSectionHeader(ws.getRow(r), 'Selling and marketing, expensed as incurred (not capex; the P&L charges it in the year it is spent)', cLast); r += 1;
+      subHeader(r, [[C_LBL, 'Plot / Cost line', 'left'], [C_UOM, 'Method', 'left'], [C_RATE, 'Rate', 'right'], [C_QTY, 'Quantity', 'right'], [C_TOT, 'Total', 'right']]);
+      r += 1;
+      const tot = zeros();
+      for (const e of rowsE) {
+        registerCell(`cx1e:${e.a.id}:${e.line.id}`, ws, ws.getCell(r, C_LBL));
+        setLabel(ws.getCell(r, C_LBL), `${e.line.name}, ${assetPlotLabel(e.a, ctxNames) || e.a.name}`, { indent: 1 });
+        setLabel(ws.getCell(r, C_UOM), methodLabel(e.line.method, ''));
+        const ov = state.costOverrides.find((o) => o.assetId === e.a.id && o.lineId === e.line.id);
+        const rate = (ov && ov.overridden !== false ? ov.value ?? e.line.value : e.line.value) / 100;
+        put(r, C_RATE, rate, NUMFMT.pct2);
+        put(r, C_QTY, rate !== 0 ? e.amount / rate : 0, NUMFMT.money);
+        put(r, C_OPEN, 0);
+        for (let t = 0; t < N; t++) put(r, cP(t), e.per[t]);
+        put(r, C_TOT, e.amount);
+        addInto(tot, e.per);
+        r += 1;
+      }
+      registerCell('cx1e:total', ws, ws.getCell(r, C_LBL));
+      moneyRow(r, 'Total selling and marketing expensed', tot, { style: 'subtotal' });
+      r += 2;
+    }
+  }
 
   // ── Tables 2 to 4: one row per line, the phase in its own column ──────────
   // Screen order and labels: Line | Phase | Total | Prior | periods, a subtotal
@@ -1901,8 +2093,8 @@ function addCapex(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancial
   setLabel(ws.getCell(r, C_LBL), 'Check: every cost line total summed (ties to Table 1 Project Total)', { bold: true });
   put(r, C_TOT, allLineTotals.reduce((s, v) => s + v, 0));
   registerCell('cx:check', ws, ws.getCell(r, C_TOT));
-  const buildupTotalAddr = sheetRef(SHEETS.capex, `$E$${r}`);
-  const scheduleTotalAddr = sheetRef(SHEETS.capex, `$E$${projTotalRow}`);
+  const buildupTotalAddr = sheetRef(SHEETS.capex, `$${colLetter(C_TOT)}$${r}`);
+  const scheduleTotalAddr = sheetRef(SHEETS.capex, `$${colLetter(C_TOT)}$${projTotalRow}`);
   void subtotalRows;
 
   // ── Table 7: cost per sqm by line, and a Sell line's price against cost ────
@@ -1914,7 +2106,7 @@ function addCapex(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancial
   {
     const cur7 = state.project.currency ?? 'SAR';
     const tables7 = costPerSqmTables(buildCostPerSqmReport(snap, state).lines, { currency: cur7, scaleTag: amountUnit(cur7, displayScale), multiPhase: state.phases.length > 1 });
-    const cols = [C_LBL, C_TOT, C_TOT + 1, C_TOT + 2, C_TOT + 3];
+    const cols = live ? [C_LBL, C_OPEN, C_OPEN + 1, C_OPEN + 2, C_OPEN + 3] : [C_LBL, C_TOT, C_TOT + 1, C_TOT + 2, C_TOT + 3];
     for (const t of tables7) {
       r += 2;
       setSectionHeader(ws.getRow(r), t.title, cLast); r += 1;

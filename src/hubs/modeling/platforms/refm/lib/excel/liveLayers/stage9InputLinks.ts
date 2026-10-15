@@ -131,7 +131,18 @@ export const stage9InputLinks: LiveLayer = {
     //    so ECHO; a fixed window is one per cost line (cxwin), typed on the FIRST
     //    plot's row, which the Capex foot and every other plot's row echo.
     const declaredCapex = new Map<string, string>();
-    {
+    // THE VISIBLE CAPEX (2026-10-15) reads Inputs itself (stage 2: each plot's rate and window,
+    // a cost line's own typed once on its first plot's row), so only a plot that prices no line
+    // is left to declare here.
+    if (!wb.getWorksheet('Capex Calc')) {
+      for (const k of reg.keys()) {
+        if (!k.startsWith('inpcx:')) continue;
+        const [, plot, line] = k.split(':');
+        if (w.has(`cxc:${plot}:${line}`) || w.has(`cxe:${plot}:${line}`)) continue;
+        const row = reg.get(k)!.row;
+        for (const col of [3, 6, 7]) declaredCapex.set(cellId(INPUTS, row, col), 'This plot does not price the line in the live workbook.');
+      }
+    } else {
       const CALC = 'Capex Calc';
       const firstWin = new Map<string, { F: string; G: string }>();
       for (const k of reg.keys()) {

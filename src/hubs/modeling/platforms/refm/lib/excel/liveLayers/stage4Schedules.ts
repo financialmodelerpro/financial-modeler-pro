@@ -46,7 +46,6 @@ import type { Asset, CostLine, Phase } from '../../state/module1-types';
 
 const CALC = 'Schedules Calc';
 const SCH = 'Schedules';
-const CXCALC = 'Capex Calc';
 
 export const stage4Schedules: LiveLayer = {
   name: 'stage 4: schedules',
@@ -67,7 +66,7 @@ export const stage4Schedules: LiveLayer = {
 
     // ── Refusals ─────────────────────────────────────────────────────────────
     const refuse: string[] = [];
-    if (!has('cxc:P0')) refuse.push('Capex is not live for this model');
+    if (!w.reg.keys().some((k) => k.startsWith('cxc:'))) refuse.push('Capex is not live for this model');
     const dCtx = disposalContextOf(snap);
     if (dCtx.booked && dCtx.exitIdx < N - 1) refuse.push('the exit falls before the last year');
     const faAssets = state.assets.filter((a) => snap.fixedAssets.byAsset.has(a.id));
@@ -90,7 +89,6 @@ export const stage4Schedules: LiveLayer = {
     if (refuse.length) return values(`Schedules could not be made live for this model: ${[...new Set(refuse)].join('; ')}.`);
 
     // ── The working sheet ────────────────────────────────────────────────────
-    const P0 = w.addr('cxc:P0').col;
     const cs = wb.addWorksheet(CALC, { state: 'hidden' });
     cs.getCell(1, 1).value = 'Schedules working sheet: per held plot, land and depreciable additions, straight-line vintages and the exit write-off. Capitalised interest waits for the financing stages (pending).';
     const cT = (t: number): number => 4 + t;
@@ -142,7 +140,7 @@ export const stage4Schedules: LiveLayer = {
       const L = lifeOf.get(a.id);
       if (!L) return values(`Schedules could not be made live for this model: ${a.name} has no life on the inputs table.`);
       const keys = w.reg.keys().filter((k) => k.startsWith(`cxc:${a.id}:`) && k.split(':').length === 3);
-      const cx = (k: string, t: number): string => w.refA({ sheet: CXCALC, row: w.addr(k).row, col: P0 + t });
+      const cx = (k: string, t: number): string => w.per(k, t);
       const landKeys = keys.filter((k) => isLandValueLine(costLineOf(k.split(':')[2])));
       const all = newRow(`schc:${a.id}:capex`, `${a.name}: capex on the axis`, (t) => keys.map((k) => cx(k, t)).join('+') || '0');
       const landAdd = newRow(`schc:${a.id}:landAdd`, 'land additions', (t) => landKeys.map((k) => cx(k, t)).join('+') || '0');

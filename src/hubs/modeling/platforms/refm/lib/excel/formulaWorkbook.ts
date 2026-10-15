@@ -188,7 +188,7 @@ function orderTabs(wb: ExcelJS.Workbook): void {
  * working sheet is the one kind of hidden sheet allowed. Each commit removes
  * its sheet from this list, and the list ends empty.
  */
-export const HIDDEN_SHEETS_PENDING_REBUILD: readonly string[] = ['Capex Calc', 'Cost of Sales Calc', 'Schedules Calc', 'Statements Calc', 'Financing Calc', 'Returns Calc'];
+export const HIDDEN_SHEETS_PENDING_REBUILD: readonly string[] = ['Cost of Sales Calc', 'Schedules Calc', 'Statements Calc', 'Financing Calc', 'Returns Calc'];
 
 /**
  * THE SHAPE CHECK (2026-10-14, founder): the export fails rather than ship a

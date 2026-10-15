@@ -370,21 +370,40 @@ function perturbations(input: LiveExportInputs, reg: CellRegistry): Perturbation
     out.push({ movesRevenue: false, label: `cash share of a plot (${plot.name}) -10 points`, cell: `parcel:${plot.id}:cash`, value: cash / 100, edit: (s) => { (s.parcels as any[]).find((x) => x.id === plot.id).cashPct = cash; } });
   } else out.push({ label: 'land rate of a plot', skip: 'no plot with a rate' });
   // A plot's spend curve, and a line's own window.
-  const curved = (st.assets as any[]).find((a) => a.capexPhasing?.phasing === 'manual' && (a.capexPhasing.distribution ?? []).length > 2 && reg.get(`cxcurve:${a.id}`));
+  // THE CURVES AND WINDOWS ARE TYPED ON INPUTS (2026-10-15): a curve's period i is column B + i on its row;
+  // a cost line's own window is typed once, on its first row (the other rows echo it).
+  const curved = (st.assets as any[]).find((a) => a.capexPhasing?.phasing === 'manual' && (a.capexPhasing.distribution ?? []).length > 2 && reg.get(`inpcurve:${a.id}`));
   if (curved) {
     const d = curved.capexPhasing.distribution as number[];
     const i = d.findIndex((x, k) => k > 0 && x > 0);
     const v = d[i] + 10;
-    const at = reg.get(`cxcurve:${curved.id}`)!;
-    // The curve cell for period i is column C_OPEN + i on the curve row (registered at column 1).
-    out.push({ movesRevenue: false, label: `a plot spend curve, period ${i} +10 (${curved.name})`, cell: `cxcurve:${curved.id}`, value: v, col: 6 + i,
+    const at = reg.get(`inpcurve:${curved.id}`)!;
+    out.push({ movesRevenue: false, label: `a plot spend curve, period ${i} +10 (${curved.name})`, cell: `inpcurve:${curved.id}`, value: v, col: 2 + i,
       edit: (s) => { (s.assets as any[]).find((x) => x.id === curved.id).capexPhasing.distribution[i] = v; } } as Perturbation);
     void at;
   } else out.push({ label: 'a plot spend curve', skip: 'no curve shown' });
-  const fixed = (st.costLines as any[]).find((l) => l.windowFollowsConstruction === false && l.endPeriod >= l.startPeriod && reg.get(`cxwin:${l.id}`) && l.startPeriod >= 1);
+  // THE PLOT-ROW RULE ON A SECOND COPY (founder, 2026-10-14): a line whose plots differ shows each
+  // plot, read from its own inputs. No other open project pools plots on a line, so the copy is
+  // built here: a line's second plot types its own curve, unlike the first, and the test moves it.
+  {
+    // The plots of each pooled line, from Capex's plot rows (cx1p:<line>:<cost line>:<plot>), the platform's own line planner.
+    const byLine = new Map<string, Set<string>>();
+    for (const k of reg.keys()) if (k.startsWith('cx1p:')) { const [, host, , plot] = k.split(':'); byLine.set(host, (byLine.get(host) ?? new Set()).add(plot)); }
+    const pair = [...byLine.values()].map((ids) => [...ids].map((id) => (st.assets as any[]).find((x) => x.id === id)).filter(Boolean)).find((g) => g.length >= 2);
+    const target = pair && (pair.find((a) => a.capexPhasing?.phasing !== 'manual') ?? pair[1]);
+    if (target) {
+      const curve = [0, 40, 30, 20, 10];
+      const v = curve[2] + 10;
+      out.push({ movesRevenue: false, label: `a second copy whose line's plots differ: ${target.name} types its own curve, period 2 +10`, cell: `inpcurve:${target.id}`, value: v, col: 4,
+        variant: (s) => { (s.assets as any[]).find((x) => x.id === target.id).capexPhasing = { phasing: 'manual', distribution: [...curve] }; },
+        edit: (s) => { (s.assets as any[]).find((x) => x.id === target.id).capexPhasing.distribution[2] = v; } } as Perturbation);
+    } else out.push({ label: 'a line whose plots differ', skip: 'no line pools two plots' });
+  }
+  const firstInp = (id: string): string | undefined => reg.keys().find((k) => k.startsWith('inpcx:') && k.endsWith(`:${id}`));
+  const fixed = (st.costLines as any[]).find((l) => l.windowFollowsConstruction === false && l.endPeriod >= l.startPeriod && firstInp(l.id) && l.startPeriod >= 1);
   if (fixed) {
     const v = fixed.endPeriod + 1;
-    out.push({ movesRevenue: false, label: `a line's own window (${fixed.name}, ${fixed.phaseId}) one period longer`, cell: `cxwin:${fixed.id}`, value: v, col: 4,
+    out.push({ movesRevenue: false, label: `a line's own window (${fixed.name}, ${fixed.phaseId}) one period longer`, cell: firstInp(fixed.id)!, value: v, col: 7,
       edit: (s) => { (s.costLines as any[]).find((x) => x.id === fixed.id).endPeriod = v; } } as Perturbation);
   } else out.push({ label: "a line's own window", skip: 'no fixed window shown' });
 

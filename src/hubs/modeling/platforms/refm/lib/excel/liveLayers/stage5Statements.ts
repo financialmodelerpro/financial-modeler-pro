@@ -27,6 +27,7 @@
  * No em dashes in this file.
  */
 import type { LayerContext, LiveLayer, SheetWait } from '../formulaWorkbook';
+import { capexMethodOf } from './stage2Capex';
 import { LiveWriter } from './writer';
 import { citReliefF, citPoolF, taxF } from './taxRule';
 import { PERIOD_COLS } from '../buildModelWorkbook';
@@ -118,7 +119,7 @@ export const stage5Statements: LiveLayer = {
     const neg = (f: F): F => (t) => `-(${f(t)})`;
     const hq: F = (t) => (has('oxo:hq:total') ? opexAt('oxo:hq:total', t) : '0');
     const expensedKeys = w.reg.keys().filter((k) => k.startsWith('cxe:') && k.split(':').length === 3);
-    const sellingExp: F = (t) => (expensedKeys.length ? expensedKeys.map((k) => w.refA({ sheet: 'Capex Calc', row: w.addr(k).row, col: w.addr('cxc:P0').col + t })).join('+') : '0');
+    const sellingExp: F = (t) => (expensedKeys.length ? expensedKeys.map((k) => w.per(k, t)).join('+') : '0');
     const projDep: F = (t) => `${sheetAt('Schedules Calc', 'schg:__project__:dep', t)}${has('schg:__project__:idcDep') ? `+${sheetAt('Schedules Calc', 'schg:__project__:idcDep', t)}` : ''}`;
     const disposed: F = (t) => ['schg:__project__:land:disp', 'schg:__project__:cap:disp', 'schg:__project__:idc:disp'].filter(has).map((k) => sheetAt('Schedules Calc', k, t)).join('+') || '0';
 
@@ -305,12 +306,11 @@ export const stage5Statements: LiveLayer = {
       taxPay = (t) => at(rPay, t);
     }
     const taxPayChange: F = (t) => (t === 0 ? taxPay(t) : `(${taxPay(t)}-${taxPay(t - 1)})`);
-    const P0 = w.addr('cxc:P0').col;
-    const cx = (k: string, t: number): string => w.refA({ sheet: 'Capex Calc', row: w.addr(k).row, col: P0 + t });
+    const cx = (k: string, t: number): string => w.per(k, t);
     const costLineOf = (id: string): Pick<CostLine, 'id' | 'catalogId'> => (state.costLines as CostLine[]).find((x) => x.id === id) ?? { id };
     const capexRowsOf = (a: Asset): { cash: string[]; inKind: string[] } => {
       const keys = w.reg.keys().filter((k) => k.startsWith(`cxc:${a.id}:`) && k.split(':').length === 3);
-      const inKind = keys.filter((k) => isLandValueLine(costLineOf(k.split(':')[2])) && w.platformValue({ sheet: 'Capex Calc', row: w.addr(k).row, col: 3 }) === 'percent_of_inkind_land');
+      const inKind = keys.filter((k) => isLandValueLine(costLineOf(k.split(':')[2])) && capexMethodOf(state as never, k) === 'percent_of_inkind_land');
       return { cash: keys.filter((k) => !inKind.includes(k)), inKind };
     };
     const capexCash = (a: Asset): F => { const k = capexRowsOf(a).cash; return (t) => k.map((x) => cx(x, t)).join('+') || '0'; };

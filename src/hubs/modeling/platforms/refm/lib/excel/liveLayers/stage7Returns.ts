@@ -493,11 +493,10 @@ export const stage7Returns: LiveLayer = {
       const escB = (label: string): string => `esc||B. Escrow Balance Roll-Forward|${label}`;
       const revSum = (key: string): string => (has(key) ? `SUM(${w.rangeA('Revenue', w.addr(key).row, pc(0), pc(N - 1))})` : '0');
       const collections = (): string => `MAX(0,${preKeys.map((k) => rvSum(`rvc:${k}:cashPre`)).join('+') || '0'}-(${revSum(escB('Total Additions'))})-(${revSum(escB('Less: Release of Locked Funds'))}))`;
-      const P0 = w.addr('cxc:P0').col;
       const costLineOf = (id: string): Pick<CostLine, 'id' | 'catalogId'> => (state.costLines as CostLine[]).find((x) => x.id === id) ?? { id };
       const visibleIds = new Set(state.assets.filter((a) => a.visible !== false).map((a) => a.id));
       const landKeys = retKeys.filter((k) => k.startsWith('cxc:') && k.split(':').length === 3 && !k.startsWith('cxc:ph:') && visibleIds.has(k.split(':')[1]) && isLandValueLine(costLineOf(k.split(':')[2])));
-      const land = (): string => landKeys.map((k) => `SUM(${w.rangeA('Capex Calc', w.addr(k).row, P0, P0 + N - 1)})`).join('+') || '0';
+      const land = (): string => landKeys.map((k) => `SUM(${w.perRange(k, N)})`).join('+') || '0';
       const cashEq = (): string => `SUM(${sumA(eqCash)})`, kindEq = (): string => `SUM(${sumA(inKind)})`;
       const newDebt = (): string => `SUM(${sumA(draw)})+SUM(${sumA(idcDraw)})`;
       const idc = (): string => `SUM(${w.rangeA('Financing Calc', w.addr('fnc:main:basis').row, 4, 4 + N - 1)})`;
