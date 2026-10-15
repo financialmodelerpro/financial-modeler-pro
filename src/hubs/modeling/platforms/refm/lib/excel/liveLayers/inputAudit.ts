@@ -32,15 +32,21 @@ export const cellId = (sheet: string, row: number, col: number): string => `${sh
 export function readCells(wb: ExcelJS.Workbook): Set<string> {
   const read = new Set<string>();
   const re = /(?:'((?:[^']|'')+)'|([A-Za-z0-9_&]+))!\$?([A-Z]+)\$?(\d+)(?::\$?([A-Z]+)\$?(\d+))?/g;
+  // A reference with no sheet name is to the formula's own sheet (2026-10-14: the
+  // live tabs write `F$107`, not `Opex!$F$107`). Text in quotes and function
+  // names (a letter run followed by a bracket) are not references.
+  const local = /(?<![A-Za-z0-9_.$!'])\$?([A-Z]{1,3})\$?(\d+)(?::\$?([A-Z]{1,3})\$?(\d+))?(?![A-Za-z0-9_(])/g;
+  const add = (sh: string, m: RegExpMatchArray, i: number): void => {
+    const c1 = colNum(m[i]), r1 = Number(m[i + 1]);
+    const c2 = m[i + 2] ? colNum(m[i + 2]) : c1, r2 = m[i + 3] ? Number(m[i + 3]) : r1;
+    for (let r = r1; r <= r2; r++) for (let c = c1; c <= c2; c++) read.add(cellId(sh, r, c));
+  };
   for (const ws of wb.worksheets) ws.eachRow((row) => row.eachCell((cell) => {
     const v = cell.value as unknown as { formula?: string } | null;
     if (!v || typeof v !== 'object' || typeof v.formula !== 'string') return;
-    for (const m of v.formula.matchAll(re)) {
-      const sh = (m[1] ?? m[2]).replace(/''/g, "'");
-      const c1 = colNum(m[3]), r1 = Number(m[4]);
-      const c2 = m[5] ? colNum(m[5]) : c1, r2 = m[6] ? Number(m[6]) : r1;
-      for (let r = r1; r <= r2; r++) for (let c = c1; c <= c2; c++) read.add(cellId(sh, r, c));
-    }
+    const f = v.formula.replace(/"(?:[^"]|"")*"/g, '""');
+    for (const m of f.matchAll(re)) add((m[1] ?? m[2]).replace(/''/g, "'"), m, 3);
+    for (const m of f.replace(re, ' ').matchAll(local)) add(ws.name, m, 1);
   }));
   return read;
 }

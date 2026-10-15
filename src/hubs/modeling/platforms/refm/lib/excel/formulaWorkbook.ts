@@ -50,6 +50,7 @@ import { stage8Schedules, stage8FundFees } from './liveLayers/stage8Schedules';
 import { stage8Capex7 } from './liveLayers/stage8Capex7';
 import { stage9InputLinks } from './liveLayers/stage9InputLinks';
 import { simplifyWorkbook } from './liveLayers/simplify';
+import { linkPeriodHeaders } from './liveLayers/foundations';
 
 export type SheetStatus = 'live' | 'partial' | 'values' | 'values-by-design' | 'front';
 
@@ -108,6 +109,11 @@ export interface FormulaWorkbookResult {
 }
 
 export function buildFormulaWorkbook(opts: BuildModelOptions): FormulaWorkbookResult {
+  // EVERY TAB VISIBLE, IN THE LIVE LAYOUT (2026-10-14). A formula workbook links
+  // across its tabs, so the Inputs / Schedules / Outputs filter (which hides
+  // tabs) does not apply to it, and the builder lays out every row a formula
+  // reads, zero lines included.
+  opts = { ...opts, parts: undefined, liveLayout: true };
   const registry = new CellRegistry();
   setCellSink(registry.sink, registry.shift);
   let wb: ExcelJS.Workbook;
@@ -143,6 +149,10 @@ export function buildFormulaWorkbook(opts: BuildModelOptions): FormulaWorkbookRe
     const lifted = !open.length && list.every((x) => x.afterStatus === 'live') && st.status === 'partial';
     status.set(sheet, { ...st, status: lifted ? 'live' : st.status, note: [st.note, text].filter(Boolean).join(' ') });
   }
+  // ONE PERIOD, ONE COLUMN, NAMED BY TIMELINE: every live period tab's year and index rows link there.
+  for (const [sheet, n] of linkPeriodHeaders(wb, registry, pending, [...status].filter(([, s]) => s.status === 'live' || s.status === 'partial').map(([k]) => k))) {
+    const st = status.get(sheet); if (st) status.set(sheet, { ...st, formulas: st.formulas + n });
+  }
   // Pending settles to a fixed point: a formula written before a pending cell it reads is pending too.
   settlePending(pending);
   // SIMPLE FORMULAS (founder, 2026-10-11): sum chains become SUM over ranges and terms
@@ -151,7 +161,61 @@ export function buildFormulaWorkbook(opts: BuildModelOptions): FormulaWorkbookRe
   // A layer's hidden working sheet is not a tab the reader sees, so it gets no status line.
   for (const ws of wb.worksheets) if (ws.state !== 'visible' && ws.state !== undefined) status.delete(ws.name);
   relabel(wb, status);
+  orderTabs(wb);
+  const problems = exportShapeProblems(wb);
+  if (problems.length) throw new Error(`The live workbook failed its shape check: ${problems.slice(0, 6).join('; ')}${problems.length > 6 ? ` and ${problems.length - 6} more` : ''}.`);
   return { wb, registry, status, pending };
+}
+
+/**
+ * THE TAB ORDER IS THE ORDER THE MODEL FLOWS (2026-10-14, founder): inputs, the
+ * timeline, the modules, the statements, then returns. Revenue comes before
+ * Capex (selling costs charge on it) and Financing after Schedules (the solve's
+ * tax reads depreciation). The front tabs, Scenarios and Checks keep their places.
+ */
+export const TAB_ORDER = ['Cover', 'Guide', 'Summary', 'Inputs', 'Timeline', 'Land & Area', 'Revenue', 'Capex', 'Opex', 'Schedules', 'Financing', 'P&L', 'Cash Flow', 'Balance Sheet', 'Returns', 'Scenarios', 'Checks'];
+function orderTabs(wb: ExcelJS.Workbook): void {
+  const rest = wb.worksheets.filter((ws) => !TAB_ORDER.includes(ws.name));
+  let n = 0;
+  const at = (ws: ExcelJS.Worksheet): { orderNo: number } => ws as unknown as { orderNo: number };
+  for (const name of TAB_ORDER) { const ws = wb.getWorksheet(name); if (ws) at(ws).orderNo = n++; }
+  for (const ws of rest) at(ws).orderNo = n++;
+}
+
+/**
+ * THE WORKING SHEETS STILL TO GO (2026-10-14). The rebuild moves every figure
+ * onto the visible tabs one tab at a time; until a tab's turn comes its hidden
+ * working sheet is the one kind of hidden sheet allowed. Each commit removes
+ * its sheet from this list, and the list ends empty.
+ */
+export const HIDDEN_SHEETS_PENDING_REBUILD: readonly string[] = ['Revenue Calc', 'Capex Calc', 'Cost of Sales Calc', 'Opex Calc', 'Schedules Calc', 'Statements Calc', 'Financing Calc', 'Returns Calc'];
+
+/**
+ * THE SHAPE CHECK (2026-10-14, founder): the export fails rather than ship a
+ * hidden tab, a hidden row or column, or a formula that reads a tab the
+ * workbook does not have. Grouping is allowed, expanded (a collapsed group
+ * hides its rows, which this reads as hidden).
+ */
+export function exportShapeProblems(wb: ExcelJS.Workbook): string[] {
+  const out: string[] = [];
+  const names = new Set(wb.worksheets.map((ws) => ws.name));
+  const re = /(?:'((?:[^']|'')+)'|([A-Za-z0-9_&.]+))!/g;
+  for (const ws of wb.worksheets) {
+    if (ws.state !== 'visible' && ws.state !== undefined && !HIDDEN_SHEETS_PENDING_REBUILD.includes(ws.name)) out.push(`the tab "${ws.name}" is hidden`);
+    for (let r = 1; r <= ws.rowCount; r++) if (ws.getRow(r).hidden) out.push(`${ws.name} row ${r} is hidden`);
+    (ws.columns ?? []).forEach((col, i) => { if (col?.hidden) out.push(`${ws.name} column ${i + 1} is hidden`); });
+    ws.eachRow((row, r) => row.eachCell((cell, c) => {
+      const v = cell.value as unknown as { formula?: string } | null;
+      if (!v || typeof v !== 'object' || typeof v.formula !== 'string') return;
+      // Text in quotes is not a reference: strip string literals first.
+      const f = v.formula.replace(/"(?:[^"]|"")*"/g, '""');
+      for (const m of f.matchAll(re)) {
+        const sh = (m[1] ?? m[2]).replace(/''/g, "'");
+        if (!names.has(sh)) out.push(`${ws.name}!R${r}C${c} reads the tab "${sh}", which does not exist`);
+      }
+    }));
+  }
+  return out;
 }
 
 /**

@@ -71,6 +71,16 @@ class Writer {
     const sheet = this.reg.need(key).sheet;
     this.formulas.set(sheet, (this.formulas.get(sheet) ?? 0) + 1);
   }
+  /** A cell by sheet and position, for a row the registry names by its label only. */
+  sheetCell(sheet: string, row: number, col: number): ExcelJS.Cell { return this.wb.getWorksheet(sheet)!.getCell(row, col); }
+  /** Write a formula at a cell, caching what the platform wrote there (or `cached`). */
+  fAt(c: ExcelJS.Cell, formula: string, cached?: number): void {
+    const v = c.value as unknown;
+    const was = (v && typeof v === 'object' && 'result' in (v as object)) ? (v as { result: unknown }).result : v;
+    c.value = { formula, result: cached ?? ((typeof was === 'number' || typeof was === 'string') ? was : undefined) } as unknown as ExcelJS.CellValue;
+    const sheet = c.worksheet.name;
+    this.formulas.set(sheet, (this.formulas.get(sheet) ?? 0) + 1);
+  }
   /** Re-type an input's value (a stored text date becomes a real date the formulas can read). */
   input(key: string, value: number, numFmt: string): void { const c = this.cell(key); c.value = value; c.numFmt = numFmt; }
 }
@@ -128,7 +138,8 @@ export const stage1LandArea: LiveLayer = {
 
     // ── Timeline ──────────────────────────────────────────────────────────────
     const yearCols = reg.keys().filter((key) => key.startsWith('tl:year:')).map((key) => Number(key.split(':')[2])).sort((a, b) => a - b);
-    yearCols.forEach((c, i) => w.f(`tl:year:${c}`, i === 0 ? `${R('project:axisYear')}-1` : `${R(`tl:year:${yearCols[i - 1]}`)}+1`));
+    // One formula across the row: each year is the year before it plus one.
+    yearCols.forEach((c, i) => w.f(`tl:year:${c}`, i === 0 ? `${R('project:axisYear')}-1` : `${colLetter(yearCols[i - 1])}$${reg.need(`tl:year:${c}`).row}+1`));
     for (const ph of state.phases) {
       const t = (x: string): string => `tl:phase:${ph.id}:${x}`, p = (x: string): string => R(`phase:${ph.id}:${x}`);
       w.f(t('cs'), p('start'), 'mmm yyyy'); w.f(t('ce'), p('cEnd'), 'mmm yyyy');
@@ -139,6 +150,7 @@ export const stage1LandArea: LiveLayer = {
     w.f('tl:project:end', `MAX(${state.phases.map((ph) => R(`phase:${ph.id}:oEnd`)).join(',')})`, 'mmm yyyy');
     for (const c of yearCols) if (w.has(`tl:ganttYear:${c}`)) w.f(`tl:ganttYear:${c}`, R(`tl:year:${c}`));
     liveGantt(wb, reg, state.phases.map((ph) => ph.id), yearCols);
+    livePeriodFlags(w, reg, state.phases.map((ph) => ph.id), yearCols);
 
     // ── Inputs: plots (value = area x rate, cash / in-kind at the plot's split) ──
     for (const pa of state.parcels as Parcel[]) {
@@ -393,6 +405,45 @@ export const stage1LandArea: LiveLayer = {
     ];
   },
 };
+
+/**
+ * THE PERIOD INDEX AND THE PERIOD FLAGS (2026-10-14). The index row counts the
+ * years from the opening column. Each flag compares the column's year with the
+ * phase inputs on Inputs, one formula across the row: construction runs from
+ * the start year for the construction years, the handover is the last of them
+ * (never before the first model year), and a year operates once the handover is
+ * behind it and fewer than the operations years have run. The horizon is the
+ * engine's axis length: the latest phase end, or the dated project span.
+ */
+function livePeriodFlags(w: Writer, reg: CellRegistry, phaseIds: string[], yearCols: number[]): void {
+  if (yearCols.length === 0) return;
+  const yearRow = reg.need(`tl:year:${yearCols[0]}`).row;
+  const yr = (c: number): string => `${colLetter(c)}$${yearRow}`;
+  const first = `$${colLetter(yearCols[0])}$${yearRow}`;
+  const indexCell = (c: number): ExcelJS.Cell => w.sheetCell('Timeline', yearRow + 1, c);
+  for (const c of yearCols) w.fAt(indexCell(c), `${yr(c)}-${first}`, c - yearCols[0]);
+  const active = yearCols.slice(1);
+  const R = (k: string): string => w.ref(k);
+  const rowOf = (k: string): number => reg.need(k).row;
+  const prevRange = (k: string, c: number): string => `SUM($${colLetter(yearCols[0])}$${rowOf(k)}:${colLetter(c - 1)}$${rowOf(k)})`;
+  for (const id of phaseIds) {
+    const con = `tl:flag:${id}:con`, hand = `tl:flag:${id}:hand`, ops = `tl:flag:${id}:ops`;
+    if (!w.has(con) || !w.has(hand) || !w.has(ops)) continue;
+    const s = `YEAR(${R(`phase:${id}:start`)})`, cp = R(`phase:${id}:cp`), op = R(`phase:${id}:op`);
+    for (const c of active) {
+      w.fAt(w.sheetCell('Timeline', rowOf(con), c), `(${yr(c)}>=${s})*(${yr(c)}<${s}+${cp})`);
+      w.fAt(w.sheetCell('Timeline', rowOf(hand), c), `(${yr(c)}=MAX(${R('project:axisYear')},${s}+${cp}-1))*1`);
+      w.fAt(w.sheetCell('Timeline', rowOf(ops), c), `(${prevRange(hand, c)}=1)*(${prevRange(ops, c)}<${op})`);
+    }
+  }
+  if (w.has('tl:flag:exit') && w.has('inp=ret|Exit Year@4')) {
+    for (const c of active) w.fAt(w.sheetCell('Timeline', rowOf('tl:flag:exit'), c), `(${yr(c)}=${R('inp=ret|Exit Year@4')})*1`);
+  }
+  if (w.has('tl:horizon')) {
+    const spans = phaseIds.map((id) => `MAX(0,YEAR(${R(`phase:${id}:start`)})-${R('project:axisYear')})+${R(`phase:${id}:cp`)}+${R(`phase:${id}:op`)}`);
+    w.f('tl:horizon', `MAX(1,YEAR(${R('tl:project:end')})-${R('project:axisYear')},${spans.join(',')})`);
+  }
+}
 
 /** The Gantt: bars painted by conditional formatting from the dated schedule, not by fixed fills. */
 function liveGantt(wb: ExcelJS.Workbook, reg: CellRegistry, phaseIds: string[], yearCols: number[]): void {

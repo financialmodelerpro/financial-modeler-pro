@@ -52,7 +52,7 @@ import { buildCaseComparisonReport, caseOverridesNote, type CaseComparisonInput,
 import { buildCaseYoYReport, YOY_DRIVER_NOTE, YOY_RECONCILIATION_TITLE, YOY_RECONCILIATION_NOTE, yoyAloneLabel, yoyReconLabels, type CaseYoYReport } from '../reports/caseYoYReport';
 import { formatAssumptionValue, assumptionUnitSuffix, curatedDefaultFields, inactiveLeverReason, nonEconomicLeverReason, isPerPeriodLever, isAppliedValue, assumptionFor, buildGridContext, groupAssumptionRows, leverNote, type GridRowLite } from '../cases/assumptionGrid';
 import { getFinancialLabels, defaultTerminologyForCountry } from '@/src/core/calculations/financials';
-import { computeReturnsSnapshot, computeReturnsSensitivity, type ReturnsSnapshot } from '../returns-resolvers';
+import { computeReturnsSnapshot, computeReturnsSensitivity, resolveReturnsConfig, type ReturnsSnapshot } from '../returns-resolvers';
 import type { M4Row } from '../../components/modules/_shared/m4Table';
 import { resolveAssetAreaMetrics, computePhaseTimeline, computeProjectTimeline, resolveSubUnitAdr, type AssetAreaMetrics } from '@/src/core/calculations';
 import { FUNDING_METHOD_LABELS, COST_METHOD_LABELS, type FundingMethodId } from '../state/module1-types';
@@ -79,7 +79,7 @@ import { formatAccounting } from '@/src/core/formatters';
 import { computeLiveModel, type LiveAssetInput, type LiveModel, type LiveGroup } from './liveModel';
 import {
   ARGB, NUMFMT, BODY_SIZE, fcell, setInput, markInput, setFormula, setLabel, setTitle, setSectionHeader, setColHeader, colLetter,
-  fillCell, fillRange, boxBorder, sheetRef, scaleMoneyFormats, scaleNote, defaultDecimals, setStaticMode, setNote, setBasis, setSectionSink, insertRowsAt, type DisplayScale, type DisplayDecimals,
+  fillCell, fillRange, boxBorder, sheetRef, scaleMoneyFormats, scaleNote, defaultDecimals, setStaticMode, setLiveLayout, isLiveLayout, setNote, setBasis, setSectionSink, insertRowsAt, type DisplayScale, type DisplayDecimals,
 } from './styles';
 import { withResolvedAssetNames, assetLabel } from '@/src/core/calculations/assetName';
 // Module 2 and Module 3 mirror (addRevenue / addOpex).
@@ -139,6 +139,10 @@ export interface BuildModelOptions {
    *  or omitted prints nothing for it, not a placeholder. Defaults to false, the
    *  same as the PDF, so a caller that forgets the gate cannot leak the grid. */
   includeSensitivity?: boolean;
+  /** The formula-linked export's layout (styles.ts `setLiveLayout`): every row a
+   *  live formula reads is built on a visible tab, zero lines included. Set only
+   *  by `buildFormulaWorkbook`; the hardcoded export never sets it. */
+  liveLayout?: boolean;
 }
 
 export interface ExcelPartSelection { inputs?: boolean; outputs?: boolean; schedules?: boolean }
@@ -196,6 +200,11 @@ export function buildModelWorkbook(opts: BuildModelOptions): ExcelJS.Workbook {
   // read all results and run their own scenarios manually; editing a cell does
   // NOT recalculate, the user re-exports from the platform after changing inputs.
   setStaticMode(true);
+  setLiveLayout(opts.liveLayout === true);
+  try { return buildModelWorkbookInner(opts); } finally { setLiveLayout(false); }
+}
+
+function buildModelWorkbookInner(opts: BuildModelOptions): ExcelJS.Workbook {
   // ASSET NAMES ARE RESOLVED AT THE FRONT DOOR. This file reads an asset name
   // in 26 places and several are MAP KEYS, not labels, so resolving the labels
   // only would file a row under one name and look it up under another. Doing it
@@ -1293,6 +1302,46 @@ function addPhaseTimeline(ws: ExcelJS.Worksheet, snap: ReturnType<typeof compute
   const note = ws.getCell(r, 1);
   note.value = 'Dates are the model\'s own phase timeline (phase start date, construction periods and operations periods). Operations start the period after construction ends; a legacy overlap on an older project pulls them forward, and operations then shade over construction in that year.';
   note.font = { name: 'Calibri', size: 8.5, italic: true, color: { argb: ARGB.navyDark } };
+  if (isLiveLayout()) addPeriodFlags(ws, snap, state, N, r + 2);
+}
+
+/**
+ * THE PERIOD FLAGS (live layout only, 2026-10-14). One row per phase for its
+ * construction years, its handover year and its operating years, then the exit
+ * year and the number of model years. Every later tab reads its timing from
+ * these rows instead of working it out again. The rules are the engine's: the
+ * handover is the last construction year (never before the first model year),
+ * and operations run the op years after it (opex-resolvers `resolveOpsWindow`).
+ */
+function addPeriodFlags(ws: ExcelJS.Worksheet, snap: ReturnType<typeof computeFinancialsSnapshot>, state: FinancialsResolverState, N: number, r0: number): void {
+  let r = r0;
+  const last = lastActiveCol(N);
+  setSectionHeader(ws.getRow(r), 'Period flags (1 in the years named; the formulas on every later tab read these)', last, ARGB.sectionDark); r += 1;
+  const axis = snap.projectStartYear;
+  const flagRow = (key: string, label: string, on: (t: number) => boolean): void => {
+    setLabel(ws.getCell(r, LBL_COL), label);
+    registerCell(key, ws, ws.getCell(r, LBL_COL));
+    for (let t = 0; t < N; t++) {
+      const cell = ws.getCell(r, pcol(t));
+      cell.value = on(t) ? 1 : 0; cell.numFmt = NUMFMT.int;
+      cell.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } };
+    }
+    r += 1;
+  };
+  for (const p of state.phases) {
+    const offset = utcYear(p.startDate, axis) - axis;
+    const cp = Math.max(0, p.constructionPeriods ?? 0), op = Math.max(0, p.operationsPeriods ?? 0);
+    const hand = Math.max(0, offset + cp - 1);
+    flagRow(`tl:flag:${p.id}:con`, `${p.name}: construction year (1 = yes)`, (t) => t >= offset && t <= offset + cp - 1);
+    flagRow(`tl:flag:${p.id}:hand`, `${p.name}: handover year (1 = yes)`, (t) => t === hand);
+    flagRow(`tl:flag:${p.id}:ops`, `${p.name}: operating year (1 = yes)`, (t) => t > hand && t <= hand + op);
+  }
+  const exitIdx = resolveReturnsConfig(state.project, N).exitYearOffset;
+  flagRow('tl:flag:exit', 'Exit year (1 = yes)', (t) => t === exitIdx);
+  setLabel(ws.getCell(r, LBL_COL), 'Model years (the horizon)');
+  registerCell('tl:horizon', ws, ws.getCell(r, TOTAL_COL));
+  const h = ws.getCell(r, TOTAL_COL);
+  h.value = N; h.numFmt = NUMFMT.int; h.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } };
 }
 
 // Strategy -> display group, shared by the Land & Area and Capex groupings.

@@ -76,9 +76,19 @@ export class LiveWriter {
 
   /** An absolute reference to a registered cell (optionally another column of its row). */
   ref(key: string, col?: number): string { return this.refA(this.addr(key, col)); }
-  refA(a: CellAddr): string {
+  /** An absolute reference; the sheet name is left off when the cell is on `here`. */
+  refA(a: CellAddr, here?: string): string {
     this.deps.push(addrId(a));
-    return `${quoteSheet(a.sheet)}!$${colLetter(a.col)}$${a.row}`;
+    return `${a.sheet === here ? '' : `${quoteSheet(a.sheet)}!`}$${colLetter(a.col)}$${a.row}`;
+  }
+  /**
+   * A reference whose COLUMN is relative and row absolute (`F$107`), so a row of
+   * period formulas is one formula copied across (founder, 2026-10-14). The
+   * sheet name is left off when the cell is on `here`, the sheet being written.
+   */
+  refP(a: CellAddr, here?: string): string {
+    this.deps.push(addrId(a));
+    return `${a.sheet === here ? '' : `${quoteSheet(a.sheet)}!`}${colLetter(a.col)}$${a.row}`;
   }
   /** An absolute range on one row, from column c0 to c1. */
   rangeA(sheet: string, row: number, c0: number, c1: number): string {

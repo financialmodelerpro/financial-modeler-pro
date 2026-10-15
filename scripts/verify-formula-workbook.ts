@@ -27,7 +27,7 @@
 import { writeFileSync, mkdirSync } from 'node:fs';
 import type ExcelJS from 'exceljs';
 import { buildModelWorkbook, PERIOD_COLS } from '../src/hubs/modeling/platforms/refm/lib/excel/buildModelWorkbook';
-import { buildFormulaWorkbook, enableFormulaIteration } from '../src/hubs/modeling/platforms/refm/lib/excel/formulaWorkbook';
+import { buildFormulaWorkbook, enableFormulaIteration, exportShapeProblems, HIDDEN_SHEETS_PENDING_REBUILD, TAB_ORDER } from '../src/hubs/modeling/platforms/refm/lib/excel/formulaWorkbook';
 import { readCells, shadedCells, isShaded, isLegendSwatch, cellId } from '../src/hubs/modeling/platforms/refm/lib/excel/liveLayers/inputAudit';
 import { loadLiveExportInputs } from './fixtures/liveExportInputs';
 import { excelAvailable, recalcInExcel, cellKey } from './excelRecalc';
@@ -780,16 +780,59 @@ function formulaCells(wb: ExcelJS.Workbook): Map<string, { formula: string; resu
   console.log(`Project: ${input.projectName}, version ${input.versionLabel ?? '(unlabelled)'}\n`);
 
   console.log('=== A. Offline ===');
-  const plain = buildModelWorkbook(opts);
+  // The platform twin in the LIVE LAYOUT (2026-10-14): the rows the formula export adds (zero lines,
+  // timing flags) carry their platform values there, at the addresses the live workbook uses.
+  const plain = buildModelWorkbook({ ...opts, liveLayout: true });
   const oracle = numbers(plain);
   const { wb, registry, status, pending: buildPending } = buildFormulaWorkbook(opts);
   const built = numbers(wb);
   const formulas = formulaCells(wb);
-  const plainAgain = numbers(buildModelWorkbook(opts));
+  const plainAgain = numbers(buildModelWorkbook({ ...opts, liveLayout: true }));
   let differs = 0;
   for (const [k, n] of oracle) if (plainAgain.get(k)?.v !== n.v) differs++;
   check('A1 the hardcoded export is unchanged and deterministic (built twice, every number equal)', differs === 0 && plainAgain.size === oracle.size, `${differs} differ`);
   check('A2 the hardcoded export contains no formula at all', formulaCells(plain).size === 0);
+  // THE HARDCODED EXPORT NEVER TAKES THE LIVE LAYOUT (2026-10-14): built as the Export dialog
+  // builds it, it is deterministic and carries none of the rows the formula export adds.
+  {
+    const h1 = buildModelWorkbook(opts), h2 = numbers(buildModelWorkbook(opts));
+    const n1 = numbers(h1); let d = 0;
+    for (const [k, n] of n1) if (h2.get(k)?.v !== n.v) d++;
+    const flags = h1.getWorksheet('Timeline')?.getColumn(1).values.some((v) => typeof v === 'string' && v.startsWith('Period flags')) ?? false;
+    check('A1b the hardcoded export (no live layout) is deterministic and has no live-layout rows', d === 0 && n1.size === h2.size && !flags, `${d} differ${flags ? ', it carries the period flags' : ''}`);
+  }
+  // THE SHAPE CHECK (2026-10-14): no hidden tab beyond the working sheets still to go, no hidden
+  // row or column, no formula reading a tab that does not exist. The build throws on any; here
+  // it must pass on the export AND fire on a copy with one of each planted.
+  {
+    check(`A12 the shape check passes (hidden working sheets still to go: ${HIDDEN_SHEETS_PENDING_REBUILD.join(', ') || 'none'})`, exportShapeProblems(wb).length === 0, exportShapeProblems(wb).slice(0, 4).join('; '));
+    const hiddenNow = wb.worksheets.filter((x) => x.state === 'hidden' || x.state === 'veryHidden').map((x) => x.name);
+    check('A12b every hidden tab is a working sheet still on the list (the list holds nothing already gone)', hiddenNow.every((n) => HIDDEN_SHEETS_PENDING_REBUILD.includes(n)) && HIDDEN_SHEETS_PENDING_REBUILD.every((n) => hiddenNow.includes(n)), `hidden ${hiddenNow.join(', ')}`);
+    const copy = buildModelWorkbook({ ...opts, liveLayout: true });
+    copy.getWorksheet('Opex')!.getRow(10).hidden = true;
+    copy.getWorksheet('Revenue')!.getColumn(9).hidden = true;
+    copy.getWorksheet('Scenarios')!.state = 'hidden';
+    copy.getWorksheet('Checks')!.getCell(2, 9).value = { formula: "'No Such Tab'!A1+1", result: 0 } as unknown as ExcelJS.CellValue;
+    const p = exportShapeProblems(copy);
+    check('A12c the shape check fires: a hidden row, a hidden column, a hidden tab and a read of a missing tab are each caught', p.length === 4 && p.some((x) => x.includes('row 10')) && p.some((x) => x.includes('column 9')) && p.some((x) => x.includes('"Scenarios" is hidden')) && p.some((x) => x.includes('No Such Tab')), p.join('; '));
+    const order = wb.worksheets.map((x) => x.name).filter((n) => TAB_ORDER.includes(n));
+    check('A12d the tabs run in the order the model flows', order.join('|') === TAB_ORDER.filter((n) => wb.getWorksheet(n)).join('|'), order.join(', '));
+    // ONE PERIOD, ONE COLUMN: every live period tab's year and index header reads the Timeline's same column.
+    const unlinked: string[] = [];
+    for (const [name, st] of status) {
+      if (!(st.status === 'live' || st.status === 'partial') || name === 'Timeline') continue;
+      const ws = wb.getWorksheet(name)!;
+      const yr = ws.getCell(3, PERIOD_COLS.OPEN_COL).value as unknown;
+      const plainYr = plain.getWorksheet(name)?.getCell(3, PERIOD_COLS.OPEN_COL).numFmt;
+      if (plainYr !== '"Dec "0' && !(yr && typeof yr === 'object')) continue;
+      for (let c = PERIOD_COLS.OPEN_COL; c <= PERIOD_COLS.OPEN_COL + 60; c++) for (const r of [3, 4]) {
+        const v = ws.getCell(r, c).value as unknown as { formula?: string } | null;
+        if (plainAt(plain, name, r, c) === undefined) continue;
+        if (!v || typeof v !== 'object' || !new RegExp(`^Timeline!${colLetterOf(c)}\\$${r}$`).test(String(v.formula))) unlinked.push(`${name}!${colLetterOf(c)}${r}`);
+      }
+    }
+    check('A12e every live period tab\'s year and index headers link to the Timeline\'s same column (Capex waits for its rebuild)', unlinked.filter((x) => !x.startsWith('Capex!')).length === 0, unlinked.filter((x) => !x.startsWith('Capex!')).slice(0, 6).join(', '));
+  }
   const longLive = overLong(wb);
   check(`A2b no formula exceeds Excel's ${EXCEL_FORMULA_LIMIT}-character limit`, longLive.length === 0, longLive.slice(0, 5).join(', '));
   let untouchedDiff = 0, cacheDiff = 0; const cacheBad: string[] = [];
@@ -982,7 +1025,7 @@ function formulaCells(wb: ExcelJS.Workbook): Map<string, { formula: string; resu
         const longV = overLong(built.wb);
         if (longV.length) { check(`C ${pt.label}: the test copy has no formula over Excel's limit`, false, longV.slice(0, 5).join(', ')); continue; }
         writeFileSync(vPath, Buffer.from(await enableFormulaIteration((await built.wb.xlsx.writeBuffer()) as ArrayBuffer)));
-        base = { wb: built.wb, registry: built.registry, plain: buildModelWorkbook(vOpts), path: vPath, opts: vOpts, pending: built.pending };
+        base = { wb: built.wb, registry: built.registry, plain: buildModelWorkbook({ ...vOpts, liveLayout: true }), path: vPath, opts: vOpts, pending: built.pending };
         const untouched = compareLive(base.plain, base.plain, base.wb, recalcInExcel(vPath));
         check(`C ${pt.label}: the test copy recalculates to the platform before the change`, untouched.bad.length === 0 && untouched.layout.length === 0, untouched.bad.slice(0, 6).map((x) => x.msg).join('\n        '));
       }
@@ -990,7 +1033,7 @@ function formulaCells(wb: ExcelJS.Workbook): Map<string, { formula: string; resu
       pt.variant?.(snap);
       pt.edit(snap);
       const pOpts = { ...opts, state: platformAfterEdit(snap as never) as typeof input.state };
-      const pPlain = buildModelWorkbook(pOpts);
+      const pPlain = buildModelWorkbook({ ...pOpts, liveLayout: true });
       const a0 = base.registry.need(pt.cell);
       const aMod = { ...a0, col: pt.col ?? a0.col };
       // INPUTS IS THE ONE PLACE A USER TYPES (stage9InputLinks, 2026-09-28): where the

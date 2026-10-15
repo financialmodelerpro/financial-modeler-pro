@@ -176,6 +176,17 @@ let STATIC = false;
 export function setStaticMode(on: boolean): void { STATIC = on; }
 export function isStaticMode(): boolean { return STATIC; }
 
+/**
+ * THE LIVE LAYOUT (2026-10-14). The formula-linked export builds every row its
+ * formulas read on a visible tab: each line that feeds a total, zeros included,
+ * and the timing flags and factors a formula needs. The hardcoded export never
+ * turns this on, so it stays exactly as it was. Set per build by
+ * `buildModelWorkbook` from `BuildModelOptions.liveLayout`.
+ */
+let LIVE_LAYOUT = false;
+export function setLiveLayout(on: boolean): void { LIVE_LAYOUT = on; }
+export function isLiveLayout(): boolean { return LIVE_LAYOUT; }
+
 /** Live formula with the platform value cached as the result (reconcilable). */
 export function fcell(formula: string, result: number | string | boolean): { formula: string; result: number | string | boolean } {
   return { formula, result };
