@@ -45,6 +45,9 @@
  */
 import type { LayerContext, LiveLayer } from '../formulaWorkbook';
 import { capexMethodOf } from './stage2Capex';
+import { lifeInForce } from './stage4Schedules';
+import { buildFixedAssetReport } from '../../reports/fixedAssetReports';
+import { disposalContextOf } from '../../reports/disposalSchedules';
 import { LiveWriter } from './writer';
 import { PERIOD_COLS } from '../buildModelWorkbook';
 import { terminalRefusal, terminalValueFormula } from './terminal';
@@ -181,7 +184,7 @@ export const stage6Financing: LiveLayer = {
     // The Cash Flow always prints "Dividends paid" (at zero with dividends off, 2026-09-29), so switching
     // dividends on in the workbook has a row to fill; without it the switch could show nothing.
     if (!has('cf|direct||Dividends paid')) refuse.push('a Cash Flow with no dividends row');
-    for (const k of ['stc:interest', 'stc:proceeds', 'schg:__project__:dep', `cf|direct||Total Revenue Received`, `pl|__all__||Total Revenue`]) if (!has(k)) refuse.push(`the ${k} cell is not live`);
+    for (const k of ['stc:interest', 'stc:proceeds', 'schv:__project__:capDep', `cf|direct||Total Revenue Received`, `pl|__all__||Total Revenue`]) if (!has(k)) refuse.push(`the ${k} cell is not live`);
     if (refuse.length) return values(`The circular financing could not be made live for this model: ${[...new Set(refuse)].join('; ')}.`);
 
     // ── The working sheet ────────────────────────────────────────────────────
@@ -357,14 +360,12 @@ export const stage6Financing: LiveLayer = {
     const activeDenom = row('fnc:idcden', 'land sqm of the assets under construction', (t) => winAssets.map((a) => `IF(${inWin(a, t)},${sqmCell(a)},0)`).join('+') || '0');
     const totalDenom = cell('fnc:idctot', 'land sqm of every asset that shares capitalised interest', () => winAssets.map(sqmCell).join('+') || '0');
 
-    // The cost of sales each Sell plot releases, on its line's recognition.
-    const sellParts = visible.filter((a) => has(`cosc:${a.id}:capex`));
-    const lineRec = (a: Asset): number | undefined => { const l = lineForAsset(lines, a.id); return l && has(`cosc:${l.key}:rec`) ? w.addr(`cosc:${l.key}:rec`).row : undefined; };
-    const CSC = 'Cost of Sales Calc';
-    // The held assets' depreciation: start and life.
+    // The cost of sales each Sell line releases, on its recognition (its rows on Schedules).
+    const sellLines = lines.filter((l) => has(`cosc:${l.key}:capex`) && has(`cosc:${l.key}:rec`));
+    // The held assets' depreciation: start and life (the life in force on the Schedules inputs table).
     const faLines = planReportLines({ assets: state.assets, phases: state.phases, parcels: state.parcels }, (a) => snap.fixedAssets.byAsset.has(a.id));
-    const lifeKeyOf = new Map<string, string>();
-    for (const l of faLines) for (const id of l.assetIds) if (has(`schc:${l.assetIds[0]}:life`)) lifeKeyOf.set(id, `schc:${l.assetIds[0]}:life`);
+    const lifeHost = new Map<string, Asset>();
+    for (const l of faLines) { const host = state.assets.find((a) => a.id === l.assetIds[0]); if (host && has(`fain:${host.id}`)) for (const id of l.assetIds) lifeHost.set(id, host); }
     const heldIdc = held.filter(sharesCapitalisedInterest);
 
     // ── ONE SOLVE ────────────────────────────────────────────────────────────
@@ -401,16 +402,15 @@ export const stage6Financing: LiveLayer = {
         idc.set(a.id, row(k(`idc:${a.id}`), L(`${a.name}: capitalised interest`), (t) => `IF(${at(rBasis, t)}=0,0,IF(${at(activeDenom, t)}>0,IF(${inWin(a, t)},${at(rBasis, t)}*${sqmCell(a)}/${at(activeDenom, t)},0),IF(${sc3(totalDenom)}>0,${at(rBasis, t)}*${sqmCell(a)}/${sc3(totalDenom)},0)))`,
           cachedFrom(tag, snap.idc.byAsset.get(a.id)?.idcPerPeriod)));
       }
-      // Cost of sales per Sell plot: (capex + interest) released on the line's recognition.
+      // Cost of sales per Sell line: (capex + its plots' interest) released on the line's recognition.
       const cos = new Map<string, number>();
-      for (const a of sellParts) {
-        const rr = lineRec(a);
-        const capR = w.addr(`cosc:${a.id}:capex`).row;
-        const idcR = idc.get(a.id);
-        const B = (): string => `(SUM(${w.rangeA(CSC, capR, 4, 4 + N - 1)})${idcR ? `+SUM(${rng(idcR)})` : ''})`;
-        cos.set(a.id, row(k(`cos:${a.id}`), L(`${a.name}: cost of sales`), (t) => (rr === undefined ? '0'
-          : `IF(AND(SUM(${w.rangeA(CSC, rr, 4, 4 + N - 1)})>0,${B()}>0),${B()}*(MAX(0,${w.refA({ sheet: CSC, row: rr, col: 4 + t })})/SUM(${w.rangeA(CSC, rr, 4, 4 + N - 1)})),0)`),
-          cachedFrom(tag, snap.byAssetCostOfSales.get(a.id)?.cos.perPeriod)));
+      for (const l of sellLines) {
+        const idcRs = l.members.map((m) => idc.get(m.id)).filter((x): x is number => x !== undefined);
+        const REC = (): string => `SUM(${w.perRange(`cosc:${l.key}:rec`, N)})`;
+        const B = (): string => `(SUM(${w.perRange(`cosc:${l.key}:capex`, N)})${idcRs.map((r) => `+SUM(${rng(r)})`).join('')})`;
+        const cached = Array.from({ length: N }, (_, t) => l.members.reduce((s2, m) => s2 + (snap.byAssetCostOfSales.get(m.id)?.cos.perPeriod[t] ?? 0), 0));
+        cos.set(l.key, row(k(`cos:${l.key}`), L(`${l.host.name}: cost of sales`), (t) => `IF(AND(${REC()}>0,${B()}>0),${B()}*(MAX(0,${w.per(`cosc:${l.key}:rec`, t)})/${REC()}),0)`,
+          cachedFrom(tag, cached)));
       }
       const cosTotal = row(k('cos'), L('cost of sales'), (t) => [...cos.values()].map((r) => at(r, t)).join('+') || '0');
       // Depreciation of the interest capitalised into the held assets.
@@ -419,7 +419,7 @@ export const stage6Financing: LiveLayer = {
         const p = phases.find((x) => x.id === a.phaseId)!;
         const add = idc.get(a.id);
         if (!add) continue;
-        const life = (): string => (lifeKeyOf.has(a.id) ? sheetAt('Schedules Calc', lifeKeyOf.get(a.id)!, -1) : String(resolveUsefulLifeYears(a)));
+        const life = (): string => (lifeHost.has(a.id) ? lifeInForce(w, lifeHost.get(a.id)!) : String(resolveUsefulLifeYears(a)));
         const vs = row(k(`vs:${a.id}`), L(`${a.name}: vintage start`), (t) => `MAX(${t},MAX(0,YEAR(${w.ref(`phase:${p.id}:start`)})-${AXIS()})+MAX(0,${w.ref(`phase:${p.id}:cp`)}))`);
         const dep = row(k(`idcdep:${a.id}`), L(`${a.name}: interest depreciation`), (t) => `IF(${life()}>0,SUMPRODUCT((${rng(add)}>0)*${rng(add)}/MAX(1,${life()})*(${rng(vs)}<=${t})*(${rng(vs)}+MAX(1,INT(${life()}))>${t})),0)`,
           cachedFrom(tag, snap.idc.byAsset.get(a.id)?.depreciationPerPeriod));
@@ -432,8 +432,11 @@ export const stage6Financing: LiveLayer = {
       const idcNbvProj = row(k('idcnbv'), L('interest NBV, held assets'), (t) => [...idcNbvByAsset.values()].map((r) => at(r, t)).join('+') || '0');
       const idcDisp = row(k('idcdisp'), L('interest NBV disposed at the exit'), (t) => (booked && t === X ? at(idcNbvProj, t) : '0'));
       // The P&L down to tax.
-      const capexDep: F = (t) => sheetAt('Schedules Calc', 'schg:__project__:dep', t);
-      const disposedFixed: F = (t) => ['schg:__project__:land:disp', 'schg:__project__:cap:disp'].filter(has).map((kk) => sheetAt('Schedules Calc', kk, t)).join('+') || '0';
+      const capexDep: F = (t) => w.per('schv:__project__:capDep', t);
+      // Land and capex written off at the exit (the project's rows on Schedules; the interest NBV is the solve's own).
+      const disposedFixed: F = (t) => (booked && t === X
+        ? `${has('schv:__project__:landDisp') ? `-${w.per('schv:__project__:landDisp', t)}` : '0'}+MAX(0,${t === 0 ? '0' : w.per('schv:__project__:capNbv', t - 1)}+${w.per('schv:__project__:capAdd', t)}-${w.per('schv:__project__:capDep', t)})`
+        : '0');
       const intExp = row(k('intexp'), L('interest expensed'), (t) => `${at(rInterest, t)}-${at(rBasis, t)}`, cachedFrom(tag, snap.pl.interestExpensePerPeriod));
       const gain = row(k('gain'), L('gain on disposal'), (t) => (booked && t === X ? `${at(proceeds, t)}-(${disposedFixed(t)})-${at(idcDisp, t)}` : '0'));
       const pbt = row(k('pbt'), L('profit before tax'), (t) => `${at(ebitdaBase, t)}-${at(cosTotal, t)}-(${fee(t)})-${capexDep(t)}-${at(idcDepProj, t)}-${at(intExp, t)}+${at(gain, t)}`);
@@ -603,7 +606,7 @@ export const stage6Financing: LiveLayer = {
       const phaseDiv: number[] = [];
       for (const p of phases) {
         const pa = visible.filter((a) => a.phaseId === p.id);
-        const eb = row(k(`ebitda:${p.id}`), L(`${p.name}: EBITDA`), (t) => `${sumF(pa.map(assetRev))(t)}-(${pa.map((a) => (cos.has(a.id) ? at(cos.get(a.id)!, t) : '0')).join('+') || '0'})-(${sumF(pa.map(assetOpex))(t)})`);
+        const eb = row(k(`ebitda:${p.id}`), L(`${p.name}: EBITDA`), (t) => `${sumF(pa.map(assetRev))(t)}-(${sellLines.filter((l) => l.phaseId === p.id && cos.has(l.key)).map((l) => at(cos.get(l.key)!, t)).join('+') || '0'})-(${sumF(pa.map(assetOpex))(t)})`);
         const d = claimRow(k(`div:${p.id}`), L(`${p.name}: dividend`));
         const before = [...phaseDiv];
         for (let t = 0; t < N; t++) {
@@ -695,18 +698,38 @@ export const stage6Financing: LiveLayer = {
     }));
 
     // ── The pending cells of stages 3 to 5 become formulas over the real solve ─
-    const live = (key: string, f: F, col0 = 4): void => {
+    // A working sheet keeps its years from column D, a visible tab from F.
+    const live = (key: string, f: F): void => {
       if (!has(key)) return;
       const a = w.addr(key);
-      for (let t = 0; t < N; t++) w.fA({ sheet: a.sheet, row: a.row, col: col0 + t }, f(t));
+      const c0 = LiveWriter.isWorking(a.sheet) ? 4 : PERIOD_COLS.OPEN_COL + 1;
+      for (let t = 0; t < N; t++) w.fA({ sheet: a.sheet, row: a.row, col: c0 + t }, f(t));
     };
-    for (const [id, r] of main.idc) live(`cosc:${id}:idc`, (t) => `MAX(0,${at(r, t)})`);
-    for (const [id, r] of main.idc) live(`schc:${id}:idcAdd`, (t) => at(r, t));
-    for (const [id, r] of main.idcDepByAsset) live(`schc:${id}:idcDep`, (t) => at(r, t));
-    for (const [id, r] of main.idcNbvByAsset) live(`schc:${id}:idcClose`, (t) => at(r, t));
-    live('schg:__project__:idcAdd', (t) => at(main.idcAddHeld, t));
-    live('schg:__project__:idcDep', (t) => at(main.idcDepProj, t));
-    live('schg:__project__:idcClose', (t) => at(main.idcNbvProj, t));
+    // Cost of sales: each Sell line's capitalised interest, its plots' together.
+    for (const l of sellLines) {
+      const rs = l.members.map((m) => main.idc.get(m.id)).filter((x): x is number => x !== undefined);
+      live(`cosc:${l.key}:idc`, (t) => rs.map((r) => `MAX(0,${at(r, t)})`).join('+') || '0');
+    }
+    // THE HELD LINES' INTEREST ON SCHEDULES (the loop's output, read back by Schedules): additions,
+    // depreciation on capex plus interest, the write-off at the exit, and the interest NBV.
+    {
+      const exitF = (t: number): string => (booked && has('tl:flag:exit') ? w.per('tl:flag:exit', t) : '0');
+      const S = (k2: string, t: number): string => w.per(k2, t);
+      const writeHeld = (base: string, add: F, dep: F, nbv: F): void => {
+        const capPre = (t: number): string => `MAX(0,${t === 0 ? '0' : S(`schv:${base}:capNbv`, t - 1)}+${S(`schv:${base}:capAdd`, t)}-${S(`schv:${base}:capDep`, t)})`;
+        live(`schv:${base}:idcAdd`, add);
+        live(`schv:${base}:dep`, (t) => `-(${S(`schv:${base}:capDep`, t)}+${dep(t)})`);
+        live(`schv:${base}:disp`, (t) => `-(${exitF(t)}*(${capPre(t)}+${nbv(t)}))`);
+        live(`schv:${base}:idcNbv`, (t) => `(1-${exitF(t)})*${nbv(t)}`);
+      };
+      const report = buildFixedAssetReport({ fa: snap.fixedAssets, idc: snap.idc, state, dCtx: disposalContextOf(snap) });
+      for (const gr of report.groups) for (const l of gr.lines) {
+        if (!has(`schv:${l.hostId}:idcAdd`)) continue;
+        const of = (m: Map<string, number>): F => (t) => l.memberIds.map((id) => m.get(id)).filter((x): x is number => x !== undefined).map((r) => at(r, t)).join('+') || '0';
+        writeHeld(l.hostId, of(main.idc), of(main.idcDepByAsset), of(main.idcNbvByAsset));
+      }
+      if (has('schv:__project__:idcAdd')) writeHeld('__project__', (t) => at(main.idcAddHeld, t), (t) => at(main.idcDepProj, t), (t) => at(main.idcNbvProj, t));
+    }
     live('stc:interest', (t) => at(main.intExp, t));
     live('stc:proceeds', (t) => at(proceeds, t));
     feeRows.forEach((r, i) => live(`stc:fee:${i}`, (t) => at(r, t)));

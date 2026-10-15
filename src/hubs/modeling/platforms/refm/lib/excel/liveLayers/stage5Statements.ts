@@ -67,7 +67,7 @@ export const stage5Statements: LiveLayer = {
 
     // ── Preconditions ────────────────────────────────────────────────────────
     const refuse: string[] = [];
-    if (!has('schg:__project__:dep')) refuse.push('the Schedules working sheet is not live');
+    if (!has('schv:__project__:capDep')) refuse.push('the Schedules fixed asset tables are not live');
     if (!w.reg.keys().some((k) => k.startsWith('oxo:'))) refuse.push('Opex is not live');
     if (!w.reg.keys().some((k) => k.startsWith('rvc:'))) refuse.push('Revenue is not live');
     if (!has('project:taxRate')) refuse.push('the tax rate is not on the Inputs sheet');
@@ -111,7 +111,8 @@ export const stage5Statements: LiveLayer = {
       if (a.strategy === 'Lease') return has(`rvc:${l.key}:rev`) ? (t) => rv(`rvc:${l.key}:rev`, t) : () => '0';
       return () => '0';
     };
-    const assetCos = (a: Asset): F => (has(`cosc:${a.id}:cos`) ? (t) => sheetAt('Cost of Sales Calc', `cosc:${a.id}:cos`, t) : () => '0');
+    // Cost of sales is a LINE's (its rows on Schedules): it reads on the line's first plot, 0 on the others.
+    const assetCos = (a: Asset): F => { const l = lineForAsset(lines, a.id); return l && l.host.id === a.id && has(`cosc:${l.key}:cos`) ? (t) => w.per(`cosc:${l.key}:cos`, t) : () => '0'; };
     // Opex reads the Opex tab's own rows (2026-10-14): the period columns are the visible ones.
     const opexAt = (key: string, t: number): string => w.refA({ sheet: 'Opex', row: w.addr(key).row, col: pc(t) });
     const assetOpex = (a: Asset): F => (has(`oxo:${a.id}:total`) ? (t) => opexAt(`oxo:${a.id}:total`, t) : () => '0');
@@ -120,8 +121,9 @@ export const stage5Statements: LiveLayer = {
     const hq: F = (t) => (has('oxo:hq:total') ? opexAt('oxo:hq:total', t) : '0');
     const expensedKeys = w.reg.keys().filter((k) => k.startsWith('cxe:') && k.split(':').length === 3);
     const sellingExp: F = (t) => (expensedKeys.length ? expensedKeys.map((k) => w.per(k, t)).join('+') : '0');
-    const projDep: F = (t) => `${sheetAt('Schedules Calc', 'schg:__project__:dep', t)}${has('schg:__project__:idcDep') ? `+${sheetAt('Schedules Calc', 'schg:__project__:idcDep', t)}` : ''}`;
-    const disposed: F = (t) => ['schg:__project__:land:disp', 'schg:__project__:cap:disp', 'schg:__project__:idc:disp'].filter(has).map((k) => sheetAt('Schedules Calc', k, t)).join('+') || '0';
+    // The project's rows on Schedules: depreciation (capex and capitalised interest) and the write-off at the exit.
+    const projDep: F = (t) => `-${w.per('schv:__project__:dep', t)}`;
+    const disposed: F = (t) => `-(${['schv:__project__:landDisp', 'schv:__project__:disp'].filter(has).map((k) => w.per(k, t)).join('+') || '0'})`;
 
     // ── Match the builder's rows to formulas ─────────────────────────────────
     const cell = (key: string, t: number): string => w.refA({ sheet: PL, row: w.addr(key).row, col: pc(t) });
@@ -382,8 +384,13 @@ export const stage5Statements: LiveLayer = {
       const C2 = (label: string, t: number): string => (has(K(label)) ? w.refA({ sheet: CF, row: w.addr(K(label)).row, col: pc(t) }) : '0');
       const sumRows = (labs: string[]): F => (t) => labs.filter((l) => has(K(l))).map((l) => C2(l, t)).join('+') || '0';
       /** A phase's escrow: its revenue lines' held or released cash (the escrow working rows). */
-      const phaseEscrow = (kind: 'held' | 'release'): F => (t) => lines.filter((l) => l.phaseId === phaseId && has(`escc:${l.key}:${kind}`))
-        .map((l) => w.refA({ sheet: 'Cost of Sales Calc', row: w.addr(`escc:${l.key}:${kind}`).row, col: 4 + t })).join('+') || '0';
+      // A line holds its row on Revenue's escrow table, and releases all it has held so far in its release year.
+      const phaseEscrow = (kind: 'held' | 'release'): F => (t) => lines.filter((l) => l.phaseId === phaseId && has(`escc:${l.key}:held`)).map((l) => {
+        if (kind === 'held') return w.per(`escc:${l.key}:held`, t);
+        const relY = w.refA({ sheet: 'Revenue', row: w.addr(`escc:${l.key}:in`).row, col: PERIOD_COLS.OPEN_COL + 3 });
+        const yr = (c: number): string => w.refA({ sheet: 'Revenue', row: 3, col: c });
+        return `(${yr(pc(t))}=MAX(${yr(pc(0))},MIN(${yr(pc(N - 1))},${relY})))*SUM(${w.rangeA('Revenue', w.addr(`escc:${l.key}:held`).row, pc(0), pc(t))})`;
+      }).join('+') || '0';
       const cursor = new Map<string, number>();
       const financing: string[] = [];
       const operating: string[] = [];
@@ -503,7 +510,7 @@ export const stage5Statements: LiveLayer = {
     const bsCell = (label: string, t: number): string => w.refA({ sheet: BS, row: w.addr(BK(label)).row, col: pc(t) });
     const hasB = (label: string): boolean => has(BK(label));
     const sumB = (labs: string[]): F => (t) => labs.filter(hasB).map((l) => bsCell(l, t)).join('+') || '0';
-    const sc = (key: string): F => (t) => sheetAt('Schedules Calc', key, t);
+    const sc = (key: string): F => (t) => w.per(key, t);
     const cfCell = (label: string, t: number): string => w.refA({ sheet: CF, row: w.addr(`cf|direct||${label}`).row, col: pc(t) });
     const opArProject: F = (t) => lines.filter((l) => l.form !== 'sell').map((l) => `rvc:${l.key}:opar`).filter(has).map((k) => rv(k, t)).join('+') || '0';
     const debtRow = pendingRow('stc:bs:debt', 'debt outstanding (financing, pending)', snap.bs.debtOutstandingPerPeriod);
@@ -533,13 +540,13 @@ export const stage5Statements: LiveLayer = {
       if (!has(key)) { bsRefused = `the row "${r.label}" is not where the Balance Sheet put it`; break; }
       const L = r.label;
       let f: F | undefined;
-      if (L === 'Land') f = sc('schg:__project__:land:adj');
-      else if (L.startsWith('Fixed Assets (NBV')) f = (t) => `${sc('schg:__project__:cap:adj')(t)}${has('schg:__project__:idc:adj') ? `+${sc('schg:__project__:idc:adj')(t)}` : ''}`;
+      if (L === 'Land') f = sc('schv:__project__:landClose');
+      else if (L.startsWith('Fixed Assets (NBV')) f = sc('schv:__project__:close');
       else if (L === 'Total Fixed Assets') f = sumB(['Land', bsRows.find((x) => x.label.startsWith('Fixed Assets (NBV'))?.label ?? '']);
       else if (L === 'Cash') f = (t) => cfCell('Closing cash', t);
       else if (L === 'Accounts Receivable (Operating)') f = opArProject;
       else if (L === 'Residential Sales Receivables') f = resAr;
-      else if (L === 'Inventory (Residential WIP)') f = has('schc:A3:close') ? sc('schc:A3:close') : undefined;
+      else if (L === 'Inventory (Residential WIP)') f = has('schv:A3:close') ? sc('schv:A3:close') : undefined;
       else if (L === 'Restricted Cash (Escrow)') f = escClose;
       // A TOTAL CARRIES EVERY COMPONENT, SHOWN OR NOT: the operating receivable and
       // escrow rows appear only while non-zero, so an absent one is added by its rule.
@@ -594,10 +601,10 @@ export const stage5Statements: LiveLayer = {
         ['Δ Restricted cash (escrow)', delta(escClose)],
         ['Δ AR (operating)', delta(opArProject)],
         ['Δ Receivables (residential)', delta(resAr)],
-        ['Δ Inventory', delta(has('schc:A3:close') ? sc('schc:A3:close') : () => '0')],
-        ['Δ Fixed assets NBV', delta(sc('schg:__project__:cap:adj'))],
-        ['Δ Land', delta(sc('schg:__project__:land:adj'))],
-        ['Δ Capitalised IDC NBV', delta(has('schg:__project__:idc:adj') ? sc('schg:__project__:idc:adj') : () => '0')],
+        ['Δ Inventory', delta(has('schv:A3:close') ? sc('schv:A3:close') : () => '0')],
+        ['Δ Fixed assets NBV', delta(sc('schv:__project__:capNbv'))],
+        ['Δ Land', delta(sc('schv:__project__:landClose'))],
+        ['Δ Capitalised IDC NBV', delta(has('schv:__project__:idcNbv') ? sc('schv:__project__:idcNbv') : () => '0')],
       ];
       const bridgeKeys = [...bridge.map(([l]) => RK(l)), RK('= Δ BS difference (this period)'), RK('Unexplained (must be 0)'), RK('BS difference (cumulative)')];
       const bridgeMissing = bridgeKeys.filter((k) => !has(k));

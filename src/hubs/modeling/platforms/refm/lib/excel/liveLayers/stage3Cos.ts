@@ -1,30 +1,31 @@
 /**
- * stage3Cos.ts (2026-09-27), FORMULA-LINKED EXPORT, STAGE 3b: the rest of Revenue.
+ * stage3Cos.ts (2026-09-27; on the visible tabs 2026-10-15), FORMULA-LINKED EXPORT,
+ * STAGE 3b: selling costs, cost of sales, the schedule feeds and escrow.
  *
- * Runs AFTER Capex and Revenue, since it reads both working sheets.
+ * Runs AFTER Capex and Revenue, since it reads both. In the live layout the first
+ * three sit on Schedules (they read Capex, which comes after Revenue in the flow);
+ * escrow reads only Revenue and stays there. Every figure is a row on a visible tab:
  *
- *   SELLING COSTS (Revenue section 2, top): each line's marketing and
- *     commission, the rate, the sale revenue it charges on and the cost, and the
- *     year-on-year schedule, read from the Capex working sheet (the one
- *     calculation both tabs show).
- *   COST OF SALES (section 3), per Sell plot as `buildAssetCostOfSales` builds
- *     it: the plot's capex on the project axis plus its capitalised interest is
- *     the base; it is released on the LINE's recognition share (a plot with no
- *     revenue rows releases as its line sells); inventory is cumulative base less
- *     cumulative charge; the vintage matrix spreads each year's base on the same
- *     share. A line is the sum of its plots, its recognition taken once.
- *   SCHEDULES (section 4): the income statement, balance sheet and cash flow
- *     feeds per line; an operating line's receivable is revenue x receivable days
- *     over the days in its year, and its cash is revenue less the movement.
- *   ESCROW (section 5): pre-sales cash held at the effective held % through the
- *     held-until year and released in one sum in the release year.
+ *   SELLING COSTS: each line's marketing and commission, the rate, the sale revenue
+ *     it charges on and the cost, read from the plots' rows on Capex, and the
+ *     year-on-year schedule, the same rows by year.
+ *   COST OF SALES, per Sell line as `buildAssetCostOfSales` builds it: the line's
+ *     capex (Capex's subtotal for the line, else its plots' rows) plus its
+ *     capitalised interest is the base; the recognition share is each year's
+ *     revenue recognised over the lifetime's; cost of sales is the base times the
+ *     share; the vintage matrix is each year's base times the share (one formula per
+ *     row); inventory rolls forward from its own previous column. A plot of a merged
+ *     line with capex and no rows releases on the line's sales, so the line is the unit.
+ *   THE FEEDS: the income statement, balance sheet and cash flow feeds per line; an
+ *     operating line's receivable is revenue x its days over 365, its cash revenue
+ *     less the movement.
+ *   ESCROW: pre-sales cash held at the effective held % through the held-until year
+ *     and released, all held so far, in the release year; both years clamped to the
+ *     workbook's years by its own header row.
  *
- * WAITS FOR STAGE 6: capitalised interest comes out of the circular financing.
- * It sits on the working sheet as the platform's value, marked pending, so Cost
- * of Sales and everything built on it (inventory, gross margin, the capex feed)
- * is pending too, and the proof lets those cells lag an input change while
- * every other cell must follow it. The basis sentence heading each Cost of
- * Sales build still states the platform's lifetime figures in words.
+ * WAITS FOR THE FINANCING: capitalised interest comes out of the circular solve.
+ * Its row holds the platform's values, marked pending, until the financing layer
+ * writes its formula into the same cells (`cosc:<line>:idc`).
  *
  * No em dashes in this file.
  */
@@ -37,14 +38,14 @@ import { computeFinancialsSnapshot } from '../../financials-resolvers';
 import { planRevenueLines, REVENUE_SECTIONS, type RevenueLine } from '../../revenueLines';
 import { revenueLineName } from '../../reports/revenueOutputReports';
 import { buildSellingCostReport } from '../../reports/sellingCostReports';
-import { planReportLines } from '../../reports/lineRows';
-import type { Asset, Phase } from '../../state/module1-types';
+import { buildCapexReport } from '../../reports/capexReports';
+import { planReportLines, poolCapexByLine } from '../../reports/lineRows';
+import type { Asset } from '../../state/module1-types';
 
-const CALC = 'Cost of Sales Calc';
 const REV = 'Revenue';
 
 export const stage3Cos: LiveLayer = {
-  name: 'stage 3b: selling costs, cost of sales, schedules, escrow',
+  name: 'stage 3b: selling costs, cost of sales, schedule feeds, escrow',
   apply(ctx: LayerContext) {
     const { wb, reg } = ctx;
     const raw = ctx.opts.state;
@@ -55,25 +56,41 @@ export const stage3Cos: LiveLayer = {
     const pc = (t: number): number => OPEN_COL + 1 + t;
     const w = new LiveWriter(wb, reg, ctx.pending);
     const lines = planRevenueLines(state.assets, state.subUnits, state.phases, state.project);
-    const phases = state.phases as Phase[];
-
-    // Both working sheets must be live, or this stays values.
-    if (!w.reg.keys().some((k) => k.startsWith('cxc:')) || !w.reg.keys().some((k) => k.startsWith('rvc:'))) {
-      return [{ sheet: REV, status: 'partial' as const, formulas: 0, note: 'Selling costs, Cost of Sales, Schedules and Escrow stay the platform\'s values: Capex or Revenue is not live for this model.' }];
-    }
-    const cxP = (key: string, t: number): string => w.per(key, t); // year t of a plot's cost line on Capex
-    const rv = (key: string, t: number): string => w.per(key, t); // year t of a Revenue row, wherever it lives
     const has = (k: string): boolean => w.has(k);
-    const cell = (key: string, t: number): string => w.refA({ sheet: REV, row: w.addr(key).row, col: pc(t) });
-    /** A period row on the Revenue sheet and its Total column, as the platform writes it. */
-    const row = (key: string, f: (t: number) => string, total: 'sum' | 'last' | 'none' | ((range: string) => string) = 'sum'): void => {
+
+    if (!w.reg.keys().some((k) => k.startsWith('cxc:')) || !w.reg.keys().some((k) => k.startsWith('rvc:'))) {
+      return [{ sheet: REV, status: 'partial' as const, formulas: 0, note: 'Selling costs, Cost of Sales, the Schedules feeds and Escrow stay the platform\'s values: Capex or Revenue is not live for this model.' }];
+    }
+
+    // ── Writing helpers: one formula per row, period references column relative ──
+    let here = REV;
+    const colOf = (c: number): string => { let s = ''; for (let n = c; n > 0; n = Math.floor((n - 1) / 26)) s = String.fromCharCode(65 + ((n - 1) % 26)) + s; return s; };
+    /** Year t of a registered row (dt = -1: the column before), column relative. */
+    const p = (key: string, t: number, dt = 0): string => { const a = w.addr(key); return w.refP({ sheet: a.sheet, row: a.row, col: pc(t) + dt }, here); };
+    /** A fixed cell of a registered row. */
+    const fx = (key: string, col: number): string => { const a = w.addr(key); return w.refA({ sheet: a.sheet, row: a.row, col }, here); };
+    const row = (key: string, f: (t: number) => string, total: 'sum' | 'last' | 'none' | (() => string) = 'sum'): void => {
       if (!has(key)) return;
-      const r = w.addr(key).row;
-      for (let t = 0; t < N; t++) w.fA({ sheet: REV, row: r, col: pc(t) }, f(t));
-      const range = (): string => w.rangeA(REV, r, pc(0), pc(N - 1));
-      if (total === 'sum') w.fA({ sheet: REV, row: r, col: TOTAL_COL }, `SUM(${range()})+N(${w.refA({ sheet: REV, row: r, col: OPEN_COL })})`);
-      else if (total === 'last') w.fA({ sheet: REV, row: r, col: TOTAL_COL }, w.refA({ sheet: REV, row: r, col: pc(N - 1) }));
-      else if (typeof total === 'function') w.fA({ sheet: REV, row: r, col: TOTAL_COL }, total(range()));
+      const a = w.addr(key);
+      here = a.sheet;
+      for (let t = 0; t < N; t++) w.fA({ sheet: a.sheet, row: a.row, col: pc(t) }, f(t));
+      const T = { sheet: a.sheet, row: a.row, col: TOTAL_COL };
+      if (total === 'sum') w.fA(T, `SUM(${w.rangeA(a.sheet, a.row, pc(0), pc(N - 1))})`);
+      else if (total === 'last') w.fA(T, w.refA({ sheet: a.sheet, row: a.row, col: pc(N - 1) }, here));
+      else if (typeof total === 'function') w.fA(T, total());
+    };
+    /** The sum of rows in one year: a SUM over a block where they are contiguous on one tab. */
+    const sumKeys = (keys: string[], t: number): string => {
+      const ks = keys.filter(has);
+      if (!ks.length) return '0';
+      const addrs = ks.map((k) => w.addr(k));
+      const sheet = addrs[0].sheet;
+      const rs = addrs.map((a) => a.row).sort((x, y) => x - y);
+      if (addrs.every((a) => a.sheet === sheet) && rs.length > 1 && rs.every((r, i) => i === 0 || r === rs[i - 1] + 1)) {
+        for (const r of rs) w.refP({ sheet, row: r, col: pc(t) }, here);
+        return `SUM(${sheet === here ? '' : `'${sheet}'!`}${colOf(pc(t))}$${rs[0]}:${colOf(pc(t))}$${rs[rs.length - 1]})`;
+      }
+      return ks.map((k) => p(k, t)).join('+');
     };
     const occ = new Map<string, number>();
     const keyOf = (base: string): string => { const n = occ.get(base) ?? 0; occ.set(base, n + 1); return n ? `${base}~${n}` : base; };
@@ -85,166 +102,147 @@ export const stage3Cos: LiveLayer = {
       costOverrides: state.costOverrides, parcels: state.parcels, landAllocationMode: state.landAllocationMode,
       project: state.project, subUnits: state.subUnits, yearLabels: snap.yearLabels, projectStartYear: snap.revenue.projectStartYear,
     });
-    // A selling line's working row: `cxc:` when capitalised (commission), `cxe:` when expensed as incurred
-    // (marketing, sellingExpense.ts), as stage 2 keys them (2026-10-08).
-    const workingRowOf = (plot: string, lineId: string): string => (has(`cxc:${plot}:${lineId}`) ? `cxc:${plot}:${lineId}` : `cxe:${plot}:${lineId}`);
+    // A selling line's row on Capex: `cxc:` when capitalised (commission), `cxe:` when expensed as incurred.
+    const capexRowOf = (plot: string, lineId: string): string => (has(`cxc:${plot}:${lineId}`) ? `cxc:${plot}:${lineId}` : `cxe:${plot}:${lineId}`);
     if (sc) {
       const costRows: string[] = [];
       for (const d of sc.display) {
         const key = keyOf(`rev|__sell__||${d.label}`);
         if (!has(key)) continue;
         const l = lines.find((x) => x.key === d.lineKey);
-        const members = (l?.members ?? []).map((m) => workingRowOf(m.id, d.lineId)).filter(has);
+        const members = (l?.members ?? []).map((m) => capexRowOf(m.id, d.lineId)).filter(has);
         if (!members.length) continue;
-        const r = w.addr(key).row;
-        // A plot's row on Capex: its rate (C), its base (D) and its total.
-        const at = (k: string, col: number): string => w.refA({ sheet: w.addr(k).sheet, row: w.addr(k).row, col });
-        w.fA({ sheet: REV, row: r, col: 5 }, at(members[0], 3));
-        w.fA({ sheet: REV, row: r, col: 7 }, members.map((k) => at(k, 4)).join('+'));
-        w.fA({ sheet: REV, row: r, col: 8 }, members.map((k) => w.one(k)).join('+'));
+        const a = w.addr(key);
+        here = a.sheet;
+        // The plot's row on Capex: its rate (C), the base it charges on (D) and its total.
+        w.fA({ sheet: a.sheet, row: a.row, col: 5 }, fx(members[0], 3));
+        w.fA({ sheet: a.sheet, row: a.row, col: 7 }, members.map((k) => fx(k, 4)).join('+'));
+        w.fA({ sheet: a.sheet, row: a.row, col: 8 }, members.map((k) => w.one(k)).join('+'));
         costRows.push(key);
       }
-      if (has('rev|__sell__||Total selling costs')) w.fA({ sheet: REV, row: w.addr('rev|__sell__||Total selling costs').row, col: 8 }, costRows.map((k) => w.refA({ sheet: REV, row: w.addr(k).row, col: 8 })).join('+') || '0');
+      if (has('rev|__sell__||Total selling costs')) {
+        const a = w.addr('rev|__sell__||Total selling costs');
+        here = a.sheet;
+        w.fA({ sheet: a.sheet, row: a.row, col: 8 }, costRows.map((k) => fx(k, 8)).join('+') || '0');
+      }
       occ.clear();
       const yoyRows: string[] = [];
       for (const s of sc.schedule?.rows ?? []) {
         const key = keyOf(`rev|__sell__|Selling Costs|${s.assetName}`);
         const [lineKey, lineId] = s.key.split('::');
         const l = lines.find((x) => x.key === lineKey) ?? lineOfAsset(lineKey);
-        const members = (l?.members ?? []).map((m) => workingRowOf(m.id, lineId)).filter(has);
-        row(key, (t) => members.map((k) => cxP(k, t)).join('+') || '0');
+        const members = (l?.members ?? []).map((m) => capexRowOf(m.id, lineId)).filter(has);
+        row(key, (t) => members.map((k) => p(k, t)).join('+') || '0');
         if (has(key)) yoyRows.push(key);
       }
-      row('rev|__sell__|Selling Costs|Total selling costs', (t) => yoyRows.map((k) => cell(k, t)).join('+') || '0');
+      row('rev|__sell__|Selling Costs|Total selling costs', (t) => sumKeys(yoyRows, t));
     }
 
-    // ── Cost of Sales, per Sell plot, on its line's recognition ─────────────
-    const cs = wb.addWorksheet(CALC, { state: 'hidden' });
-    cs.getCell(1, 1).value = 'Cost of Sales working sheet: per Sell plot, the base (capex plus capitalised interest) released on the line\'s recognition share. Capitalised interest waits for the financing stages (pending).';
-    const cT = (t: number): number => 4 + t;
-    let cr = 3;
-    const C = (r: number, c: number) => ({ sheet: CALC, row: r, col: c });
-    const at = (r: number, t: number): string => w.refA(C(r, cT(t)));
-    const range = (r: number): string => w.rangeA(CALC, r, cT(0), cT(N - 1));
-    const newRow = (key: string, label: string, f?: (t: number) => string): number => {
-      const r = cr++; cs.getCell(r, 1).value = label; w.claim(key, CALC, r, 1);
-      if (f) for (let t = 0; t < N; t++) w.fA(C(r, cT(t)), f(t));
-      return r;
-    };
-    // Which plots have a cost of sales, and which lines they sum into.
+    // ── Cost of Sales, per Sell line, on the line's recognition ─────────────
     const cosById = snap.byAssetCostOfSales;
     const anyNZ = (a: number[] | undefined): boolean => !!a && a.some((v) => (v ?? 0) !== 0);
-    interface LineCos { line: RevenueLine; capex: number; idc: number; base: number; rec: number; share: number; cos: number; pre: number; post: number; inv: number; vint: number[]; totRec: () => string; baseTot: () => string }
-    const lineCos = new Map<string, LineCos>();
+    const capexLines = poolCapexByLine(buildCapexReport(snap, state), state).members;
+    const lineCos = new Map<string, RevenueLine>();
     for (const l of lines.filter((x) => x.form === 'sell')) {
       const parts = l.members.filter((m) => anyNZ(cosById.get(m.id)?.cos.perPeriod));
       if (!parts.length || !has(`rvc:${l.key}:recPre`)) continue;
-      // The line's recognition (total, pre, post): the revenue working sheet's.
-      const recRow = newRow(`cosc:${l.key}:rec`, `${revenueLineName(l)}: line recognition`, (t) => `${rv(`rvc:${l.key}:recPre`, t)}+${rv(`rvc:${l.key}:postRev`, t)}`);
-      const partRows: Array<{ capex: number; idc: number; base: number; cos: number; pre: number; post: number; inv: number; vint: number[] }> = [];
-      for (const m of parts) {
-        const calcRows = w.reg.keys().filter((k) => k.startsWith(`cxc:${m.id}:`) && k.split(':').length === 3);
-        const capex = newRow(`cosc:${m.id}:capex`, `${m.name}: capex on the axis`, (t) => calcRows.map((k) => cxP(k, t)).join('+') || '0');
-        const idcArr = snap.idc.byAsset.get(m.id)?.idcPerPeriod ?? [];
-        const idc = newRow(`cosc:${m.id}:idc`, `${m.name}: capitalised interest (financing, pending)`);
-        for (let t = 0; t < N; t++) w.valueA(C(idc, cT(t)), Math.max(0, idcArr[t] ?? 0), { pending: true });
-        const base = newRow(`cosc:${m.id}:base`, 'base', (t) => `${at(capex, t)}+${at(idc, t)}`);
-        const tot = (): string => `SUM(${range(recRow)})`;
-        const B = (): string => `SUM(${range(base)})`;
-        const cos = newRow(`cosc:${m.id}:cos`, 'cost of sales', (t) => `IF(AND(${tot()}>0,${B()}>0),${B()}*(MAX(0,${at(recRow, t)})/${tot()}),0)`);
-        const pre = newRow(`cosc:${m.id}:pre`, 'on pre-sales', (t) => `IF(${tot()}>0,${B()}*(MAX(0,${rv(`rvc:${l.key}:recPre`, t)})/${tot()}),0)`);
-        const post = newRow(`cosc:${m.id}:post`, 'on post-handover', (t) => `IF(${tot()}>0,${B()}*(MAX(0,${rv(`rvc:${l.key}:postRev`, t)})/${tot()}),0)`);
-        const inv = newRow(`cosc:${m.id}:inv`, 'inventory', (t) => `SUM(${w.rangeA(CALC, base, cT(0), cT(t))})-SUM(${w.rangeA(CALC, cos, cT(0), cT(t))})`);
-        const vint: number[] = [];
-        for (let i = 0; i < N; i++) vint.push(newRow(`cosc:${m.id}:v${i}`, `spent in year ${i + 1}`, (t) => `IF(${tot()}>0,${at(base, i)}*(MAX(0,${at(recRow, t)})/${tot()}),0)`));
-        partRows.push({ capex, idc, base, cos, pre, post, inv, vint });
+      const K = (table: string, label: string): string => `cos|${l.key}|${table}|${label}`;
+      const B = (label: string): string => K('Cost of Sales Build', label);
+      const kCapex = B('Capex, from Module 1'), kIdc = B('Capitalised IDC'), kBase = B('Total base charged through cost of sales');
+      const kRec = B('Revenue recognised'), kShare = B('Recognition share of lifetime revenue'), kCos = B('Cost of Sales, total base x recognition share');
+      const kChk = B('Check, base x share less cost of sales; Total = total base less total cost of sales');
+      const S = (label: string): string => K('Cost of Sales Summary', label);
+      const I = (label: string): string => K('Inventory Roll-Forward', label);
+      const kOpen = I('Opening balance'), kAdd = I('(+) Capex (incl. capitalised IDC)'), kRel = I('(-) Cost of Sales'), kInv = I('Inventory balance (as carried on the balance sheet)');
+      if (![kCapex, kIdc, kBase, kRec, kShare, kCos, S('On pre-sales recognition'), S('On post-handover sales'), kInv].every(has)) continue;
+      lineCos.set(l.key, l);
+      // The line's capex: Capex's subtotal for the line where its plots are exactly these, else the plots' rows.
+      const ids = new Set(parts.map((m) => m.id));
+      const host = [...capexLines].find(([, xs]) => xs.length === ids.size && xs.every((x) => ids.has(x)))?.[0];
+      const plotRows = parts.flatMap((m) => w.reg.keys().filter((k) => k.startsWith(`cxc:${m.id}:`) && k.split(':').length === 3));
+      row(kCapex, (t) => (host && has(`cx1sub:${host}`) ? p(`cx1sub:${host}`, t) : plotRows.map((k) => p(k, t)).join('+') || '0'));
+      // Capitalised interest: the platform's values until the financing writes its formula here.
+      {
+        const a = w.addr(kIdc);
+        for (let t = 0; t < N; t++) {
+          const v = parts.reduce((s, m) => s + Math.max(0, snap.idc.byAsset.get(m.id)?.idcPerPeriod[t] ?? 0), 0);
+          w.valueA({ sheet: a.sheet, row: a.row, col: pc(t) }, v, { pending: true });
+        }
+        here = a.sheet;
+        w.fA({ sheet: a.sheet, row: a.row, col: TOTAL_COL }, `SUM(${w.rangeA(a.sheet, a.row, pc(0), pc(N - 1))})`);
       }
-      const S = (key: string, label: string, pick: (p: typeof partRows[number]) => number): number => newRow(`cosc:${l.key}:${key}`, label, (t) => partRows.map((p) => at(pick(p), t)).join('+'));
-      const capex = S('capex', 'line capex', (p) => p.capex), idc = S('idc', 'line capitalised interest', (p) => p.idc), base = S('base', 'line base', (p) => p.base);
-      const cos = S('cos', 'line cost of sales', (p) => p.cos), pre = S('pre', 'line on pre-sales', (p) => p.pre), post = S('post', 'line on post-handover', (p) => p.post), inv = S('inv', 'line inventory', (p) => p.inv);
-      const vint: number[] = [];
-      for (let i = 0; i < N; i++) vint.push(newRow(`cosc:${l.key}:v${i}`, `line spent in year ${i + 1}`, (t) => partRows.map((p) => at(p.vint[i], t)).join('+')));
-      const totRec = (): string => `SUM(${range(recRow)})`;
-      const share = newRow(`cosc:${l.key}:share`, 'line recognition share', (t) => `IF(${totRec()}>0,MAX(0,${at(recRow, t)})/${totRec()},0)`);
-      lineCos.set(l.key, { line: l, capex, idc, base, rec: recRow, share, cos, pre, post, inv, vint, totRec, baseTot: () => `SUM(${range(base)})` });
-    }
-    for (let col = 1; col <= cT(N - 1); col++) cs.getColumn(col).width = col <= 3 ? 26 : 14;
-
-    // The visible Cost of Sales tables.
-    const K = (l: RevenueLine, table: string, label: string): string => `cos|${l.key}|${table}|${label}`;
-    for (const [, lc] of lineCos) {
-      const l = lc.line;
-      row(K(l, 'Cost of Sales Build', 'Capex, from Module 1'), (t) => at(lc.capex, t));
-      row(K(l, 'Cost of Sales Build', 'Capitalised IDC'), (t) => at(lc.idc, t));
-      row(K(l, 'Cost of Sales Build', 'Total base charged through cost of sales'), (t) => at(lc.base, t));
-      row(K(l, 'Cost of Sales Build', 'Revenue recognised'), (t) => at(lc.rec, t));
-      row(K(l, 'Cost of Sales Build', 'Recognition share of lifetime revenue'), (t) => at(lc.share, t));
-      row(K(l, 'Cost of Sales Build', 'Cost of Sales, total base x recognition share'), (t) => at(lc.cos, t));
-      row(K(l, 'Cost of Sales Build', 'Check, base x share less cost of sales; Total = total base less total cost of sales'),
-        (t) => `${lc.baseTot()}*${at(lc.share, t)}-${at(lc.cos, t)}`, () => `${lc.baseTot()}-SUM(${range(lc.cos)})`);
-      for (let i = 0; i < N; i++) row(K(l, 'Cost of Sales Vintage Matrix', `Spent in ${snap.yearLabels[i]}`), (t) => at(lc.vint[i], t));
-      row(K(l, 'Cost of Sales Vintage Matrix', 'Total'), (t) => lc.vint.map((r) => at(r, t)).join('+'));
-      row(K(l, 'Cost of Sales Summary', 'On pre-sales recognition'), (t) => at(lc.pre, t));
-      row(K(l, 'Cost of Sales Summary', 'On post-handover sales'), (t) => at(lc.post, t));
-      row(K(l, 'Cost of Sales Summary', 'Total Cost of Sales'), (t) => at(lc.cos, t));
-      row(K(l, 'Inventory Roll-Forward', 'Opening balance'), (t) => (t === 0 ? '0' : at(lc.inv, t - 1)), 'none');
-      row(K(l, 'Inventory Roll-Forward', '(+) Capex (incl. capitalised IDC)'), (t) => at(lc.base, t));
-      row(K(l, 'Inventory Roll-Forward', '(-) Cost of Sales'), (t) => `-${at(lc.cos, t)}`);
-      row(K(l, 'Inventory Roll-Forward', 'Inventory balance (as carried on the balance sheet)'), (t) => at(lc.inv, t), 'last');
+      row(kBase, (t) => `${p(kCapex, t)}+${p(kIdc, t)}`);
+      row(kRec, (t) => `${p(`rvc:${l.key}:recPre`, t)}+${p(`rvc:${l.key}:postRev`, t)}`);
+      const TR = (): string => fx(kRec, TOTAL_COL), TB = (): string => fx(kBase, TOTAL_COL);
+      row(kShare, (t) => `IF(${TR()}>0,MAX(0,${p(kRec, t)})/${TR()},0)`);
+      row(kCos, (t) => `IF(${TB()}>0,${TB()}*${p(kShare, t)},0)`);
+      row(kChk, (t) => `${TB()}*${p(kShare, t)}-${p(kCos, t)}`, () => `${TB()}-${fx(kCos, TOTAL_COL)}`);
+      // The vintage matrix: each year's base, released on the same share.
+      const vk = Array.from({ length: N }, (_, i) => K('Cost of Sales Vintage Matrix', `Spent in ${snap.yearLabels[i]}`));
+      vk.forEach((k, i) => row(k, (t) => `${fx(kBase, pc(i))}*${p(kShare, t)}`));
+      row(K('Cost of Sales Vintage Matrix', 'Total'), (t) => sumKeys(vk, t));
+      row(S('On pre-sales recognition'), (t) => `IF(${TR()}>0,${TB()}*MAX(0,${p(`rvc:${l.key}:recPre`, t)})/${TR()},0)`);
+      row(S('On post-handover sales'), (t) => `IF(${TR()}>0,${TB()}*MAX(0,${p(`rvc:${l.key}:postRev`, t)})/${TR()},0)`);
+      row(S('Total Cost of Sales'), (t) => p(kCos, t));
+      row(kOpen, (t) => p(kInv, t, -1), 'none');
+      row(kAdd, (t) => p(kBase, t));
+      row(kRel, (t) => `-${p(kCos, t)}`);
+      row(kInv, (t) => `${p(kOpen, t)}+${p(kAdd, t)}+${p(kRel, t)}`, 'last');
+      // The line's rows, for the tabs that read them.
+      const claim = (name: string, key: string): void => { const a = w.addr(key); w.claim(`cosc:${l.key}:${name}`, a.sheet, a.row, 1); };
+      claim('capex', kCapex); claim('idc', kIdc); claim('base', kBase); claim('rec', kRec); claim('share', kShare); claim('cos', kCos);
+      claim('pre', S('On pre-sales recognition')); claim('post', S('On post-handover sales')); claim('inv', kInv);
     }
     // The project roll-ups, by section.
-    const projTables: Array<[string, (lc: LineCos) => number, string]> = [
-      ['Project Cost of Sales', (lc) => lc.pre, 'Total on pre-sales recognition'],
-      ['Project Cost of Sales', (lc) => lc.post, 'Total on post-handover sales'],
-      ['Project Total Cost of Sales', (lc) => lc.cos, 'Total Cost of Sales'],
+    const projTables: Array<[string, string, string]> = [
+      ['Project Cost of Sales', 'pre', 'Total on pre-sales recognition'],
+      ['Project Cost of Sales', 'post', 'Total on post-handover sales'],
+      ['Project Total Cost of Sales', 'cos', 'Total Cost of Sales'],
     ];
     occ.clear();
     for (const [table, pick, totalLabel] of projTables) {
       const sectionKeys: string[] = [];
       for (const section of REVENUE_SECTIONS) {
-        const items = [...lineCos.values()].filter((x) => x.line.section === section);
+        const items = [...lineCos.values()].filter((x) => x.section === section);
         if (!items.length) continue;
         const keys: string[] = [];
-        for (const lc of items) { const k = keyOf(`cos|__project__|${table}|${revenueLineName(lc.line)}`); row(k, (t) => at(pick(lc), t)); keys.push(k); }
+        for (const l of items) { const k = keyOf(`cos|__project__|${table}|${revenueLineName(l)}`); row(k, (t) => p(`cosc:${l.key}:${pick}`, t)); keys.push(k); }
         const tk = keyOf(`cos|__project__|${table}|Total ${section}`);
-        row(tk, (t) => keys.filter(has).map((k) => cell(k, t)).join('+') || '0');
+        row(tk, (t) => sumKeys(keys, t));
         sectionKeys.push(tk);
       }
-      row(keyOf(`cos|__project__|${table}|${totalLabel}`), (t) => sectionKeys.filter(has).map((k) => cell(k, t)).join('+') || '0');
+      row(keyOf(`cos|__project__|${table}|${totalLabel}`), (t) => sumKeys(sectionKeys, t));
     }
 
-    // ── Schedules: the three feeds ───────────────────────────────────────────
+    // ── The schedule feeds ───────────────────────────────────────────────────
     type Feed = { key?: string; name: string; section: string; revenue: (t: number) => string; cash: (t: number) => string; cosC: (t: number) => string; cosO: (t: number) => string; cosT: (t: number) => string; inv: (t: number) => string; ar: (t: number) => string; ur: (t: number) => string; capex: (t: number) => string };
     const feeds: Feed[] = [];
     const Z = (): string => '0';
     for (const l of lines) {
       const name = revenueLineName(l);
       if (l.form === 'sell' && has(`rvc:${l.key}:recPre`)) {
-        const lc = lineCos.get(l.key);
+        const c = (k: string): ((t: number) => string) => (lineCos.has(l.key) ? (t) => p(`cosc:${l.key}:${k}`, t) : Z);
         feeds.push({
           name, section: l.section,
-          revenue: (t) => `${rv(`rvc:${l.key}:recPre`, t)}+${rv(`rvc:${l.key}:postRev`, t)}`,
-          cash: (t) => `${rv(`rvc:${l.key}:cashPre`, t)}+${rv(`rvc:${l.key}:postRev`, t)}`,
-          cosC: lc ? (t) => at(lc.pre, t) : Z, cosO: lc ? (t) => at(lc.post, t) : Z, cosT: lc ? (t) => at(lc.cos, t) : Z,
-          inv: lc ? (t) => at(lc.inv, t) : Z,
-          ar: (t) => rv(`rvc:${l.key}:ar`, t), ur: (t) => rv(`rvc:${l.key}:ur`, t),
-          capex: lc ? (t) => at(lc.base, t) : Z,
+          revenue: (t) => `${p(`rvc:${l.key}:recPre`, t)}+${p(`rvc:${l.key}:postRev`, t)}`,
+          cash: (t) => `${p(`rvc:${l.key}:cashPre`, t)}+${p(`rvc:${l.key}:postRev`, t)}`,
+          cosC: c('pre'), cosO: c('post'), cosT: c('cos'), inv: c('inv'),
+          ar: (t) => p(`rvc:${l.key}:ar`, t), ur: (t) => p(`rvc:${l.key}:ur`, t),
+          capex: c('base'),
         });
       } else if (l.form !== 'sell') {
         const revKey = l.form === 'operate' ? `rvc:${l.key}:total` : `rvc:${l.key}:rev`;
         if (!has(revKey)) continue;
-        // THE LINE'S RECEIVABLE AT THE CLOSE IS ITS ROW IN THE RECEIVABLES FEED (2026-10-15): its
-        // revenue at its own days where the line card states them, else the project DSO
-        // (receivableDays.ts). Later tabs read that row as rvc:<line>:opar.
+        // THE LINE'S RECEIVABLE AT THE CLOSE IS ITS ROW IN THE RECEIVABLES FEED: its revenue at
+        // its own days where the line card states them, else the project DSO (receivableDays.ts).
         const own = statedLineReceivableDays(l.host);
         const daysKey = own !== undefined ? w.reg.keys().find((k) => k.startsWith(`revin|${l.key}|`) && k.endsWith('|Accounts Receivable Days')) : undefined;
-        const days = (): string => (daysKey ? w.ref(daysKey, TOTAL_COL) : w.ref('project:dso'));
-        const close = (t: number): string => w.per(`rvc:${l.key}:opar`, t);
+        const days = (): string => (daysKey ? fx(daysKey, TOTAL_COL) : w.refA(w.addr('project:dso'), here));
         feeds.push({
           key: l.key, name, section: l.section,
-          revenue: (t) => rv(revKey, t),
-          cash: (t) => `${rv(revKey, t)}-(${close(t)}-${t === 0 ? '0' : close(t - 1)})`,
-          cosC: Z, cosO: Z, cosT: Z, inv: Z, ar: (t) => `${rv(revKey, t)}*${days()}/365`, ur: Z, capex: Z,
+          revenue: (t) => p(revKey, t),
+          cash: (t) => `${p(revKey, t)}-(${p(`rvc:${l.key}:opar`, t)}-${p(`rvc:${l.key}:opar`, t, -1)})`,
+          cosC: Z, cosO: Z, cosT: Z, inv: Z, ar: (t) => `${p(revKey, t)}*${days()}/365`, ur: Z, capex: Z,
         });
       }
     }
@@ -252,21 +250,21 @@ export const stage3Cos: LiveLayer = {
     const grouped = (tableKey: string, f: (x: Feed) => (t: number) => string, grandLabel: string, stock: boolean, labelOf: (x: Feed) => string = (x) => x.name, sectionTotals = true): void => {
       occ.clear();
       const tot = stock ? 'last' as const : 'sum' as const;
-      const all: string[] = [];
+      const all: string[] = [], totals: string[] = [];
       for (const section of REVENUE_SECTIONS) {
         const items = feeds.filter((x) => x.section === section);
         const keys: string[] = [];
         for (const x of items) {
           const k = keyOf(`${tableKey}|${labelOf(x)}`); if (!has(k)) continue;
           // A hotel or lease line's receivable row is the line's operating receivable.
-          if (x.key && tableKey.endsWith('Accounts Receivable (closing balances)')) w.claim(`rvc:${x.key}:opar`, REV, w.addr(k).row, 1);
+          if (x.key && tableKey.endsWith('Accounts Receivable (closing balances)')) { const a = w.addr(k); w.claim(`rvc:${x.key}:opar`, a.sheet, a.row, 1); }
           row(k, f(x), tot); keys.push(k);
         }
         if (!keys.length) continue;
         all.push(...keys);
-        if (sectionTotals) row(keyOf(`${tableKey}|Total ${section}`), (t) => keys.map((k) => cell(k, t)).join('+'), tot);
+        if (sectionTotals) { const tk = keyOf(`${tableKey}|Total ${section}`); row(tk, (t) => sumKeys(keys, t), tot); if (has(tk)) totals.push(tk); }
       }
-      row(`${tableKey}|${grandLabel}`, (t) => feeds.map((x) => f(x)(t)).join('+') || '0', tot);
+      row(`${tableKey}|${grandLabel}`, (t) => sumKeys(sectionTotals ? totals : all, t), tot);
     };
     grouped(`${S1}|Revenue (P&L)`, (x) => x.revenue, 'Total Revenue', false);
     for (const x of feeds) {
@@ -274,67 +272,77 @@ export const stage3Cos: LiveLayer = {
       row(`${S1}|Cost of Sales (P&L)|${x.name}, CoS during operations`, x.cosO);
       row(`${S1}|Cost of Sales (P&L)|${x.name}, Total Cost of Sales`, x.cosT);
     }
-    row(`${S1}|Cost of Sales (P&L)|Total Cost of Sales`, (t) => feeds.map((x) => x.cosT(t)).join('+'));
-    row(`${S1}|Gross Margin (P&L)|Revenue`, (t) => feeds.map((x) => x.revenue(t)).join('+'));
-    row(`${S1}|Gross Margin (P&L)|(-) Cost of Sales`, (t) => `-(${feeds.map((x) => x.cosT(t)).join('+')})`);
-    row(`${S1}|Gross Margin (P&L)|Gross Margin`, (t) => `${cell(`${S1}|Gross Margin (P&L)|Revenue`, t)}+${cell(`${S1}|Gross Margin (P&L)|(-) Cost of Sales`, t)}`);
+    row(`${S1}|Cost of Sales (P&L)|Total Cost of Sales`, (t) => feeds.map((x) => `${S1}|Cost of Sales (P&L)|${x.name}, Total Cost of Sales`).filter(has).map((k) => p(k, t)).join('+') || '0');
+    row(`${S1}|Gross Margin (P&L)|Revenue`, (t) => p(`${S1}|Revenue (P&L)|Total Revenue`, t));
+    row(`${S1}|Gross Margin (P&L)|(-) Cost of Sales`, (t) => `-${p(`${S1}|Cost of Sales (P&L)|Total Cost of Sales`, t)}`);
+    row(`${S1}|Gross Margin (P&L)|Gross Margin`, (t) => `${p(`${S1}|Gross Margin (P&L)|Revenue`, t)}+${p(`${S1}|Gross Margin (P&L)|(-) Cost of Sales`, t)}`);
     grouped(`${S2}|Inventory (closing balances)`, (x) => x.inv, 'Total Inventory', true, (x) => x.name, false);
     grouped(`${S2}|Accounts Receivable (closing balances)`, (x) => x.ar, 'Total Accounts Receivable', true);
     grouped(`${S2}|Unearned Revenue (closing balances)`, (x) => x.ur, 'Total Unearned Revenue', true, (x) => x.name, false);
     grouped(`${S3}|Cash Collected from Customers (per line)`, (x) => x.cash, 'Total Cash from Customers', false);
     grouped(`${S3}|Capex (per Sell line)`, (x) => x.capex, 'Total Capex', false, (x) => `${x.name}, Capex`, false);
 
-    // ── Escrow ───────────────────────────────────────────────────────────────
+    // ── Escrow (Revenue) ─────────────────────────────────────────────────────
     const escLines = planReportLines({ assets: state.assets, phases: state.phases, parcels: state.parcels }, (a) => snap.escrow.byAsset.has(a.id));
     if (escLines.length && has('esc|||Project Held % (regulator-locked)')) {
-      const pct = (): string => w.ref('esc|||Project Held % (regulator-locked)', TOTAL_COL);
-      const dUntil = (): string => w.ref('esc|||Default Held Until Year (optional)', TOTAL_COL);
-      const dRelease = (): string => w.ref('esc|||Default Release Year (optional)', TOTAL_COL);
-      const AXIS = (): string => w.ref('project:axisYear');
-      const heldKeys: Array<{ key: string; held: number; rel: number; cash: number }> = [];
+      here = REV;
+      const pct = (): string => fx('esc|||Project Held % (regulator-locked)', TOTAL_COL);
+      const dUntil = (): string => fx('esc|||Default Held Until Year (optional)', TOTAL_COL);
+      const dRelease = (): string => fx('esc|||Default Release Year (optional)', TOTAL_COL);
+      // The workbook's first and last years, from its own header row (the Timeline's).
+      const Y = (t: number): string => w.refP({ sheet: REV, row: 3, col: pc(t) }, REV);
+      const Y0 = (): string => w.refA({ sheet: REV, row: 3, col: pc(0) }, REV), YN = (): string => w.refA({ sheet: REV, row: 3, col: pc(N - 1) }, REV);
+      const A = (label: string): string => `esc||A. Pre-Sales Cash by Asset (subject to escrow)|${label}`;
+      const Bk = (label: string): string => `esc||B. Escrow Balance Roll-Forward|${label}`;
+      const Cc = (label: string): string => `esc||C. Cash Flow Impact (project totals)|${label}`;
+      const cashKeys: string[] = [], heldKeys: string[] = [];
+      const releases: Array<{ held: string; rel: () => string }> = [];
       for (const el of escLines) {
         const host = state.assets.find((a) => a.id === el.assetIds[0]) as Asset;
         const rl = lineOfAsset(host.id);
         if (!rl || !has(`rvc:${rl.key}:cashPre`)) continue;
         const name = revenueLineName(rl);
         const inKey = `esc|||${name}`;
-        if (!has(inKey)) continue;
+        if (!has(inKey) || !has(A(name)) || !has(Bk(name))) continue;
         const r = w.addr(inKey).row;
-        const ov = (c: number): string => w.refA({ sheet: REV, row: r, col: c });
-        const p = phases.find((x) => x.id === host.phaseId)!;
-        const handover = (): string => `YEAR(${w.ref(`phase:${p.id}:start`)})+MAX(0,${w.ref(`phase:${p.id}:cp`)}-1)`;
+        const ov = (c: number): string => w.refA({ sheet: REV, row: r, col: c }, REV);
+        const p0 = state.phases.find((x) => x.id === host.phaseId)!;
+        const handover = (): string => `YEAR(${w.ref(`phase:${p0.id}:start`)})+MAX(0,${w.ref(`phase:${p0.id}:cp`)}-1)`;
+        here = REV;
         w.fA({ sheet: REV, row: r, col: TOTAL_COL }, `IF(AND(ISNUMBER(${ov(OPEN_COL)}),N(${ov(OPEN_COL)})>=0),${ov(OPEN_COL)},MAX(0,N(${pct()})))`);
         w.fA({ sheet: REV, row: r, col: OPEN_COL + 1 }, `IF(ISNUMBER(${ov(OPEN_COL + 2)}),${ov(OPEN_COL + 2)},IF(ISNUMBER(${dUntil()}),${dUntil()},${handover()}))`);
         w.fA({ sheet: REV, row: r, col: OPEN_COL + 3 }, `IF(ISNUMBER(${ov(OPEN_COL + 4)}),${ov(OPEN_COL + 4)},IF(ISNUMBER(${dRelease()}),${dRelease()},${handover()}+1))`);
-        const effPct = (): string => w.refA({ sheet: REV, row: r, col: TOTAL_COL });
-        const untilIdx = (): string => `MAX(0,MIN(${N - 1},${w.refA({ sheet: REV, row: r, col: OPEN_COL + 1 })}-${AXIS()}))`;
-        const relIdx = (): string => `MAX(0,MIN(${N - 1},${w.refA({ sheet: REV, row: r, col: OPEN_COL + 3 })}-${AXIS()}))`;
-        const cash = newRow(`escc:${rl.key}:cash`, `${name}: pre-sales cash`, (t) => rv(`rvc:${rl.key}:cashPre`, t));
-        const held = newRow(`escc:${rl.key}:held`, `${name}: held`, (t) => `IF(${t}<=${untilIdx()},MAX(0,${at(cash, t)})*MAX(0,${effPct()}),0)`);
-        const rel = newRow(`escc:${rl.key}:release`, `${name}: released`, (t) => `IF(${t}=${relIdx()},SUMPRODUCT((COLUMN(${range(held)})-${cT(0)}<=${relIdx()})*${range(held)}),0)`);
-        heldKeys.push({ key: name, held, rel, cash });
+        const eff = (): string => ov(TOTAL_COL), until = (): string => ov(OPEN_COL + 1), relY = (): string => ov(OPEN_COL + 3);
+        row(A(name), (t) => p(`rvc:${rl.key}:cashPre`, t));
+        row(Bk(name), (t) => `IF(${Y(t)}<=MAX(${Y0()},MIN(${YN()},${until()})),MAX(0,${p(A(name), t)})*MAX(0,${eff()}),0)`);
+        cashKeys.push(A(name)); heldKeys.push(Bk(name));
+        releases.push({ held: Bk(name), rel: relY });
+        w.claim(`escc:${rl.key}:held`, REV, w.addr(Bk(name)).row, 1);
+        w.claim(`escc:${rl.key}:in`, REV, r, 1);
       }
-      const A = (label: string): string => `esc||A. Pre-Sales Cash by Asset (subject to escrow)|${label}`;
-      const B = (label: string): string => `esc||B. Escrow Balance Roll-Forward|${label}`;
-      const Cc = (label: string): string => `esc||C. Cash Flow Impact (project totals)|${label}`;
-      for (const h of heldKeys) { row(A(h.key), (t) => at(h.cash, t)); row(B(h.key), (t) => at(h.held, t)); }
-      row(A('Total Pre-Sales Cash (all assets)'), (t) => heldKeys.map((h) => at(h.cash, t)).join('+') || '0');
-      row(B('Total Additions'), (t) => heldKeys.map((h) => at(h.held, t)).join('+') || '0');
-      row(B('Less: Release of Locked Funds'), (t) => `-(${heldKeys.map((h) => at(h.rel, t)).join('+') || '0'})`);
-      const bal = newRow('escc:balance', 'escrow balance (floored at zero)', (t) => `MAX(0,${t === 0 ? '0' : `${at(cr - 1, t - 1)}`}+${cell(B('Total Additions'), t)}+${cell(B('Less: Release of Locked Funds'), t)})`);
-      row(B('Closing Balance'), (t) => at(bal, t), 'last');
-      row(B('Opening Balance'), (t) => (t === 0 ? '0' : at(bal, t - 1)), 'none');
-      row(Cc('Less: Inaccessible Funds Locked'), (t) => `-${cell(B('Total Additions'), t)}`);
-      row(Cc('Add: Release of Inaccessible Funds'), (t) => `-${cell(B('Less: Release of Locked Funds'), t)}`);
-      row(Cc('Net Cash Flow Adjustment (to M4)'), (t) => `${cell(Cc('Less: Inaccessible Funds Locked'), t)}+${cell(Cc('Add: Release of Inaccessible Funds'), t)}`);
+      row(A('Total Pre-Sales Cash (all assets)'), (t) => sumKeys(cashKeys, t));
+      row(Bk('Total Additions'), (t) => sumKeys(heldKeys, t));
+      // A line releases everything it has held so far, in its release year (clamped to the workbook's years).
+      row(Bk('Less: Release of Locked Funds'), (t) => `-(${releases.map((x) => {
+        const hr = w.addr(x.held).row;
+        w.refP({ sheet: REV, row: hr, col: pc(t) }, REV);
+        return `(${Y(t)}=MAX(${Y0()},MIN(${YN()},${x.rel()})))*SUM($${colOf(pc(0))}$${hr}:${colOf(pc(t))}$${hr})`;
+      }).join('+') || '0'})`);
+      row(Bk('Closing Balance'), (t) => `MAX(0,${p(Bk('Closing Balance'), t, -1)}+${p(Bk('Total Additions'), t)}+${p(Bk('Less: Release of Locked Funds'), t)})`, 'last');
+      row(Bk('Opening Balance'), (t) => p(Bk('Closing Balance'), t, -1), 'none');
+      row(Cc('Less: Inaccessible Funds Locked'), (t) => `-${p(Bk('Total Additions'), t)}`);
+      row(Cc('Add: Release of Inaccessible Funds'), (t) => `-${p(Bk('Less: Release of Locked Funds'), t)}`);
+      row(Cc('Net Cash Flow Adjustment (to M4)'), (t) => `${p(Cc('Less: Inaccessible Funds Locked'), t)}+${p(Cc('Add: Release of Inaccessible Funds'), t)}`);
     }
 
-    return [{ sheet: REV, status: 'partial' as const, formulas: w.formulas.get(REV) ?? 0,
-      note: 'Also live: selling costs (read from the Capex working sheet), Cost of Sales (each Sell plot\'s capex plus capitalised interest, released on its line\'s recognition share, on a hidden working sheet), the Schedules feeds and Escrow.',
+    const sheets = [...new Set([...lineCos.keys()].map((k) => w.addr(`cosc:${k}:cos`).sheet))];
+    const where = sheets[0] ?? 'Schedules';
+    return [{ sheet: where, status: 'partial' as const, formulas: w.formulas.get(where) ?? 0,
+      note: 'Also live: selling costs (the plots\' rows on Capex), Cost of Sales (each Sell line\'s capex plus capitalised interest, released on its recognition share, with its vintage matrix and inventory), the Schedules feeds and Escrow, every figure a row on the tab.',
       waits: {
         on: 'financing',
-        text: 'Capitalised interest comes out of the financing and waits for that stage, so Cost of Sales, inventory, gross margin and the capex feed do not yet follow an input that moves it; the basis sentence over each Cost of Sales build states the platform\'s lifetime figures in words.',
-        after: 'Capitalised interest reads the live financing solve. The basis sentence over each Cost of Sales build states the platform\'s lifetime figures in words, as of export, and the rows at the foot of the Revenue Output are the platform\'s values.',
+        text: 'Capitalised interest comes out of the financing and waits for that stage, so Cost of Sales, inventory, gross margin and the capex feed do not yet follow an input that moves it.',
+        after: 'Capitalised interest reads the live financing solve.',
       } }];
   },
 };

@@ -91,7 +91,11 @@ function buildRows(cos: AssetCostOfSales, fmt: (v: number) => string, N: number)
  * its line so a screen can group them; the roll-ups at the end file every
  * line under its section in the one reading order.
  */
-export function buildCostOfSalesReport(snap: ProjectFinancialsSnapshot, state: FinancialsResolverState, fmt: (v: number) => string): ReportTable[] {
+/**
+ * `opts.allVintages`: every year's vintage row, zeros included (the live workbook, whose
+ * rows must exist for a year an input moves spend into). The screens show the years with spend.
+ */
+export function buildCostOfSalesReport(snap: ProjectFinancialsSnapshot, state: FinancialsResolverState, fmt: (v: number) => string, opts: { allVintages?: boolean } = {}): ReportTable[] {
   const N = snap.axisLength;
   const yl = snap.yearLabels;
   const tables: ReportTable[] = [];
@@ -117,7 +121,7 @@ export function buildCostOfSalesReport(snap: ProjectFinancialsSnapshot, state: F
     // Vintage matrix (capex period x recognition period), with a Total row.
     const vmRows: M4Row[] = cos.vintageMatrix
       .map((m, i) => ({ label: `Spent in ${yl[i] ?? i}`, values: m.slice(0, N) }))
-      .filter((rr) => anyNonZero(rr.values));
+      .filter((rr) => opts.allVintages || anyNonZero(rr.values));
     if (vmRows.length) {
       const totals = new Array<number>(N).fill(0);
       for (const m of cos.vintageMatrix) for (let i = 0; i < N; i++) totals[i] += m[i] ?? 0;

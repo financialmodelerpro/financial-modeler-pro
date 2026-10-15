@@ -532,8 +532,14 @@ export const stage7Returns: LiveLayer = {
       exitCell('Exit multiple', () => w.ref('ret|Exit Multiple (x stabilised NOI)', TOTAL_COL));
       exitCell('Income grown by (1 + g) before capitalising', () => w.ref('ret|Growth g (%)', TOTAL_COL));
       exitCell('Terminal value, booked as proceeds from disposal', () => sc3(ev));
-      const sg = (k: string): string => (has(k) ? w.refA({ sheet: 'Schedules Calc', row: w.addr(k).row, col: 4 + X }) : '0');
-      const bld = (): string => sg('schg:__project__:cap:disp'), lnd = (): string => sg('schg:__project__:land:disp');
+      // What the exit writes off, from the fixed asset tables on Schedules (base: a line, or the project):
+      // the capex NBV before the exit, the land, and the rest of the depreciable write-off (the interest).
+      const sx = (k: string, t: number): string => (has(k) ? w.per(k, t) : '0');
+      const exitX = (): string => (has('tl:flag:exit') ? w.per('tl:flag:exit', X) : '0');
+      const capDisp = (base: string): string => `${exitX()}*MAX(0,${X > 0 ? sx(`schv:${base}:capNbv`, X - 1) : '0'}+${sx(`schv:${base}:capAdd`, X)}-${sx(`schv:${base}:capDep`, X)})`;
+      const landDisp = (base: string): string => (has(`schv:${base}:landDisp`) ? `-${sx(`schv:${base}:landDisp`, X)}` : '0');
+      const idcDisp = (base: string): string => (has(`schv:${base}:idcAdd`) && has(`schv:${base}:disp`) ? `-${sx(`schv:${base}:disp`, X)}-${capDisp(base)}` : '0');
+      const bld = (): string => capDisp('__project__'), lnd = (): string => landDisp('__project__');
       const cint = (): string => fnc('fnc:main:idcdisp', X);
       const nbv = (): string => `(${bld()}+${lnd()}+${cint()})`;
       exitCell('Building', bld);
@@ -562,13 +568,13 @@ export const stage7Returns: LiveLayer = {
         const rk = `${G}${lineTitle(l, lineState)}`;
         if (!has(`${rk}|0`)) continue;
         // The line's fixed asset schedule is keyed by its first member that has one (stage 4).
-        const host = l.assetIds.find((id) => has(`schg:${id}:cap:disp`));
+        const host = l.assetIds.find((id) => has(`schv:${id}:capNbv`));
         if (!host) { missing.push(`the fixed asset schedule of ${lineTitle(l, lineState)}`); continue; }
         const rr = w.addr(`${rk}|0`).row;
         soldRows.push(rr);
-        gridCell(rk, 0, () => sg(`schg:${host}:cap:disp`));
-        gridCell(rk, 1, () => sg(`schg:${host}:land:disp`));
-        gridCell(rk, 2, () => (has(`schg:${host}:idc:disp`) ? sg(`schg:${host}:idc:disp`) : '0'));
+        gridCell(rk, 0, () => capDisp(host));
+        gridCell(rk, 1, () => landDisp(host));
+        gridCell(rk, 2, () => idcDisp(host));
         gridCell(rk, 3, () => `SUM(${w.rangeA(RET, rr, OPEN_COL, OPEN_COL + 2)})`);
       }
       if (has(`${G}Total|0`)) for (let i = 0; i < 4; i++) gridCell(`${G}Total`, i, () => soldRows.map((rr) => cellR(rr, OPEN_COL + i)).join('+') || '0');

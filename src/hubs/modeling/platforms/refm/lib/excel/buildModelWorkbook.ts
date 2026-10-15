@@ -394,6 +394,12 @@ interface EmitCtx {
   caseComparison?: CaseComparisonInput;
   /** The sensitivity entitlement (BuildModelOptions.includeSensitivity). */
   includeSensitivity: boolean;
+  /**
+   * THE REVENUE BLOCKS THAT READ CAPEX (live layout, 2026-10-15): selling costs, cost of sales
+   * and the schedule feeds read rows that come after Revenue in the flow, so the live layout
+   * writes them on Schedules, which comes after Capex. Filled by addRevenue, emptied by addSchedules.
+   */
+  toSchedules?: Array<[string, (em: ReturnType<typeof makeRevOpexEmitters>, ws: ExcelJS.Worksheet) => void]>;
 }
 
 // ── Pure live-model inputs (cached values + scalars) from the snapshot ─────────
@@ -2336,7 +2342,7 @@ function makeEmitters(ws: ExcelJS.Worksheet, N: number, start = 5): {
   moneyRow: (label: string, series: number[] | undefined, opts?: { style?: RowStyle; indent?: number; basis?: string; prior?: number; totalLast?: boolean; totalValue?: number; noTotal?: boolean; noPeriods?: boolean; numFmt?: string }) => number;
   statRow: (label: string, series: number[] | undefined, numFmt: string, indent?: number) => void;
   emitM4: (row: M4Row) => number; emitTable: (rows: M4Row[]) => void; note: (text: string) => void;
-  gap: () => void; cursor: () => number;
+  gap: () => void; cursor: () => number; jump: (row: number) => void;
   setRegScope: (scope: string | null) => void; setRegLine: (key: string) => void; setRegTable: (id: string) => void; reg: (label: string, row: number) => void;
 } {
   let r = start;
@@ -2436,7 +2442,8 @@ function makeEmitters(ws: ExcelJS.Worksheet, N: number, start = 5): {
   };
   const gap = (): void => { r += 1; };
   const cursor = (): number => r;
-  return { section, groupBand, subTitle, moneyRow, statRow, emitM4, emitTable, note, gap, cursor, setRegScope, setRegLine, setRegTable, reg };
+  const jump = (row: number): void => { r = row; };
+  return { section, groupBand, subTitle, moneyRow, statRow, emitM4, emitTable, note, gap, cursor, jump, setRegScope, setRegLine, setRegTable, reg };
 }
 
 interface RevLinks { byAssetRow: Map<string, number>; residentialRow: number; hospitalityRow: number; retailRow: number; totalRow: number }
@@ -2472,7 +2479,7 @@ const DEC2_FMT = '0.00';
 /** The Module 2 / Module 3 emitters every card and table on the two tabs uses:
  *  the shared makeEmitters plus the table title, scalar, period-input and
  *  small column-table rows those screens need. */
-function makeRevOpexEmitters(ws: ExcelJS.Worksheet, N: number): ReturnType<typeof makeEmitters> & {
+function makeRevOpexEmitters(ws: ExcelJS.Worksheet, N: number, start = 5): ReturnType<typeof makeEmitters> & {
   tableTitle: (text: string, caption?: string) => void;
   headNote: (text: string) => void;
   scalarRow: (label: string, value: number | string | undefined, fmt: string, opts?: { basis?: string; input?: boolean; indent?: number }) => number;
@@ -2482,7 +2489,7 @@ function makeRevOpexEmitters(ws: ExcelJS.Worksheet, N: number): ReturnType<typeo
   emitRows: (rows: readonly (M4Row & { fmt?: string })[]) => void;
   emitRoll: (rows: readonly M4Row[], numFmt?: string) => void;
 } {
-  const em = makeEmitters(ws, N);
+  const em = makeEmitters(ws, N, start);
   const font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } };
   const put = (r: number, c: number, v: number | string, fmt: string, input: boolean): void => {
     const cell = ws.getCell(r, c);
@@ -2843,10 +2850,12 @@ function addRevenue(ctx: EmitCtx): { revLinks: RevLinks; cosLinks: CosLinks } {
   em.section('2. Revenue Output (per line, filed by section and phase, then the project total)');
   em.setRegScope('rev');
   em.setRegLine('__sell__');
+  const toSchedules: NonNullable<EmitCtx['toSchedules']> | null = isLiveLayout() ? (ctx.toSchedules = []) : null;
   // SELLING COSTS FIRST, as the Output screen leads with them: the rows are the
   // shared builder's (`buildSellingCostReport`), the same per-line rows, notes,
   // counts and year-on-year schedule the screen renders.
-  {
+  const emitSellingCosts = (em: ReturnType<typeof makeRevOpexEmitters>, ws: ExcelJS.Worksheet): void => {
+    em.setRegScope('rev'); em.setRegLine('__sell__');
     const sc = buildSellingCostReport({
       revenue: snap.revenue, assets: state.assets, phases: state.phases, costLines: state.costLines,
       costOverrides: state.costOverrides, parcels: state.parcels, landAllocationMode: state.landAllocationMode,
@@ -2883,7 +2892,9 @@ function addRevenue(ctx: EmitCtx): { revLinks: RevLinks; cosLinks: CosLinks } {
       }
       em.gap();
     }
-  }
+  };
+  if (toSchedules) toSchedules.push(['Selling Costs (the selling and marketing lines on Capex, by line)', emitSellingCosts]); else emitSellingCosts(em, ws);
+  em.setRegScope('rev');
   const lineResults = new Map(lines.map((l) => [l.key, lineRevenueResults(l.members.map((m) => m.id), snap.revenue, l.key)] as const));
   const lineMeta = (l: RevenueLine): string => l.isStrip ? 'ground-floor retail strip carved from its hosts'
     : l.isOperateCompanion ? 'Operate companion' : plotsOf(l);
@@ -3142,15 +3153,16 @@ function addRevenue(ctx: EmitCtx): { revLinks: RevLinks; cosLinks: CosLinks } {
   }
 
   // ── 3. Cost of Sales ─────────────────────────────────────────────────────────
-  em.section('3. Cost of Sales (per line: the build of the base, vintage matrix, summary, inventory; then the project totals)');
-  em.setRegScope('cos');
   let cosTotalRow = em.cursor();
+  const emitCostOfSales = (em: ReturnType<typeof makeRevOpexEmitters>, title: boolean): void => {
+  if (title) em.section('3. Cost of Sales (per line: the build of the base, vintage matrix, summary, inventory; then the project totals)');
+  em.setRegScope('cos');
   {
     // Built twice on purpose: once with String so every Total override parses
     // back to its exact number, once with the label formatter so the basis
     // sentence reads as money ("567,903,574") rather than a raw float.
-    const tables = buildCostOfSalesReport(snap, state, (v) => String(v));
-    const labelled = buildCostOfSalesReport(snap, state, ctx.labelMoney);
+    const tables = buildCostOfSalesReport(snap, state, (v) => String(v), { allVintages: isLiveLayout() });
+    const labelled = buildCostOfSalesReport(snap, state, ctx.labelMoney, { allVintages: isLiveLayout() });
     const emitTable = (t: typeof tables[number], i: number): void => {
       em.setRegLine(t.lineKey ?? '__project__');
       em.tableTitle(t.title);
@@ -3173,9 +3185,13 @@ function addRevenue(ctx: EmitCtx): { revLinks: RevLinks; cosLinks: CosLinks } {
       for (const [t, i] of project) emitTable(t, i);
     }
   }
+  };
+  if (toSchedules) toSchedules.unshift(['Cost of Sales (per line: the build of the base, vintage matrix, summary, inventory; then the project totals)', (e) => emitCostOfSales(e, false)]);
+  else emitCostOfSales(em, true);
 
   // ── 4. Schedules (the three feeds) ───────────────────────────────────────────
-  em.section('4. Schedules (income statement, balance sheet and cash flow feeds, per line)');
+  const emitFeeds = (em: ReturnType<typeof makeRevOpexEmitters>, ws: ExcelJS.Worksheet, title: boolean): void => {
+  if (title) em.section('4. Schedules (income statement, balance sheet and cash flow feeds, per line)');
   em.setRegScope('sched');
   for (const feed of buildRevenueScheduleFeeds(snap.revenue, lines, snap.byAssetCostOfSales, state.project.operatingAr, { allLines: isLiveLayout() })) {
     em.setRegLine(feed.group);
@@ -3187,6 +3203,9 @@ function addRevenue(ctx: EmitCtx): { revLinks: RevLinks; cosLinks: CosLinks } {
       em.gap();
     }
   }
+  };
+  if (toSchedules) toSchedules.push(['Revenue feeds (income statement, balance sheet and cash flow, per line)', (e, w) => emitFeeds(e, w, false)]);
+  else emitFeeds(em, ws, true);
 
   // ── 5. Escrow (whenever a Sell line has pre-sales cash) ──────────────────────
   const escrowLines = planReportLines({ assets: state.assets, phases: state.phases, parcels: state.parcels }, (a) => snap.escrow.byAsset.has(a.id));
@@ -3979,7 +3998,7 @@ function addSchedules(ctx: EmitCtx): void {
 
   // A fixed asset table from the shared builder: a balance row's Total column
   // holds its last period, a flow row's the sum, exactly as the screen prints.
-  const emitFaTable = (t: FixedAssetTable, regTable = ''): void => {
+  const emitFaTable = (t: FixedAssetTable, regTable = '', capexDep?: readonly number[]): void => {
     E.subTitle(t.title);
     E.setRegTable(regTable);
     for (const row of t.rows) {
@@ -3991,8 +4010,20 @@ function addSchedules(ctx: EmitCtx): void {
         // The screen's Total ignores the prior-year cell; a summed row here must too.
         totalValue: row.aggregation === 'last' ? undefined : row.values.slice(0, N).reduce((s, v) => s + (v ?? 0), 0),
       });
+      // DEPRECIATION SPLIT (live layout): where interest was capitalised the depreciation row
+      // carries both, so the part on capex has its own row, the one the funding solve reads.
+      if (capexDep && row.label.startsWith('(−) Depreciation (on Capex + IDC)')) {
+        E.moneyRow('   of which: on capex', capexDep.slice(0, N).map((v) => v ?? 0), { indent: 2, prior: 0 });
+      }
     }
     E.note(t.caption);
+  };
+  const live = isLiveLayout();
+  const capexDepOf = (ids: readonly string[]): number[] | undefined => {
+    if (!live) return undefined;
+    const out = new Array<number>(N).fill(0);
+    for (const id of ids) (snap.fixedAssets.byAsset.get(id)?.depreciable.depreciationPerPeriod ?? []).forEach((v, t) => { if (t < N) out[t] += v ?? 0; });
+    return out;
   };
 
   // ── 1. Fixed Assets & D&A ────────────────────────────────────────────────────
@@ -4043,24 +4074,38 @@ function addSchedules(ctx: EmitCtx): void {
     for (const l of g.lines) {
       E.setRegLine(l.hostId);
       emitFaTable(l.land, 'land');
-      emitFaTable(l.depreciable, 'dep');
+      emitFaTable(l.depreciable, 'dep', capexDepOf(l.memberIds));
       emitFaTable(l.total, 'total');
     }
   }
   E.groupBand('Project Total');
   E.setRegLine('__project__');
   emitFaTable(report.project.land, 'land');
-  emitFaTable(report.project.depreciable, 'dep');
+  emitFaTable(report.project.depreciable, 'dep', live ? snap.fixedAssets.projectTotals.depreciable.depreciationPerPeriod.slice(0, N) : undefined);
   emitFaTable(report.project.total, 'total');
   if (report.project.idcPool) emitFaTable(report.project.idcPool, 'idc');
+  E.setRegScope(null);
+
+  // ── The Revenue blocks that read Capex (live layout): cost of sales, selling costs, the feeds ──
+  let sectionNo = 1;
+  for (const [title, emit] of ctx.toSchedules ?? []) {
+    sectionNo += 1;
+    E.section(`${sectionNo}. ${title}`);
+    const em2 = makeRevOpexEmitters(ws, N, E.cursor());
+    emit(em2, ws);
+    E.jump(em2.cursor());
+  }
+  ctx.toSchedules = [];
+  E.setRegScope('sch');
 
   // ── 2. BS Schedules ──────────────────────────────────────────────────────────
   // The shared feeder tables, with their captions, grouped by section as the
   // screen groups them. This was a hand copy of the builder until 2026-09-17.
-  E.section('2. BS Schedules (balance-sheet feeder roll-forwards, ordered ASSETS / LIABILITIES / EQUITY)');
+  E.section(`${sectionNo + 1}. BS Schedules (balance-sheet feeder roll-forwards, ordered ASSETS / LIABILITIES / EQUITY)`);
   const feeders = buildBsFeederTables({ snap, state, fmt: (v: number) => String(v) });
   for (const sec of BS_FEEDER_SECTIONS) {
-    const tables = feeders.filter((t) => t.section === sec.section);
+    // Debt, equity and retained earnings close on the statements, so the live layout shows them on the Balance Sheet.
+    const tables = feeders.filter((t) => t.section === sec.section && !(live && BS_ROLLFORWARDS_ON_BS.has(t.key)));
     if (tables.length === 0) continue;
     E.groupBand(sec.section);
     for (const tbl of tables) { E.setRegLine(tbl.key); E.subTitle(tbl.title); E.emitTable(tbl.rows); E.note(tbl.caption); }
@@ -4208,6 +4253,9 @@ function addCashFlow(ctx: EmitCtx): void {
 }
 
 // ── Balance Sheet (full detailed mirror; balances by construction) ────────────
+/** The BS Schedules tables the live layout shows on the Balance Sheet: they close on the statements. */
+const BS_ROLLFORWARDS_ON_BS = new Set(['L3', 'E1', 'E2']);
+
 function addBalanceSheet(ctx: EmitCtx): void {
   const { wb, snap, state } = ctx;
   const N = snap.axisLength;
@@ -4239,6 +4287,17 @@ function addBalanceSheet(ctx: EmitCtx): void {
   }
   E.setRegScope(null);
   E.note(BS_RECONCILIATION_CAPTION);
+  if (isLiveLayout()) {
+    // THE DEBT, EQUITY AND RETAINED EARNINGS ROLL-FORWARDS (live layout): each closes on the
+    // balance sheet above and reads the P&L and the Cash Flow, so it sits here, after them.
+    E.gap();
+    E.section('Debt, equity and retained earnings roll-forwards');
+    E.setRegScope('sch');
+    for (const tbl of buildBsFeederTables({ snap, state, fmt: (v: number) => String(v) }).filter((t) => BS_ROLLFORWARDS_ON_BS.has(t.key))) {
+      E.setRegLine(tbl.key); E.subTitle(tbl.title); E.emitTable(tbl.rows); E.note(tbl.caption);
+    }
+    E.setRegScope(null);
+  }
 }
 
 // ── Case reports, built once per export ───────────────────────────────────────
