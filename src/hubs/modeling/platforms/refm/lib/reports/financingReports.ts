@@ -152,7 +152,8 @@ function openingSeries(closing: number[], initial: number): number[] {
   return out;
 }
 
-export function buildFinancingScheduleTables(snap: ProjectFinancialsSnapshot, state: FinancialsResolverState, fmt: (v: number) => string): ReportTable[] {
+/** `allRows`: the split rows a total reads, zeros included (the live workbook). */
+export function buildFinancingScheduleTables(snap: ProjectFinancialsSnapshot, state: FinancialsResolverState, fmt: (v: number) => string, allRows = false): ReportTable[] {
   const N = snap.yearLabels.length;
   const fin = snap.financing;
   const tables: ReportTable[] = [];
@@ -221,7 +222,7 @@ export function buildFinancingScheduleTables(snap: ProjectFinancialsSnapshot, st
   // reader can see both what left the bank and what the covenant was measured
   // on. Only where a sweep actually runs, so a scheduled-only project gains no
   // empty rows.
-  if (hasAnySweep) {
+  if (hasAnySweep || allRows) {
     cds.push({ label: '  of which repaid by cash sweep', values: neg(sliceN(c.totalSweepRepaid, N)) });
     cds.push({ label: '  of which scheduled amortisation', values: neg(sliceN(
       c.totalPrincipalRepaid.map((v, i) => Math.max(0, (v ?? 0) - (c.totalSweepRepaid[i] ?? 0))), N)) });
@@ -364,7 +365,8 @@ export function buildIdcAllocationTables(snap: ProjectFinancialsSnapshot, state:
   return tables;
 }
 
-export function buildCashSweepTables(snap: ProjectFinancialsSnapshot, state: FinancialsResolverState, fmt: (v: number) => string): ReportTable[] {
+/** `allRows`: every row a total reads, zeros included (the live workbook). */
+export function buildCashSweepTables(snap: ProjectFinancialsSnapshot, state: FinancialsResolverState, fmt: (v: number) => string, allRows = false): ReportTable[] {
   const N = snap.yearLabels.length;
   const fin = snap.financing;
   const dcf = snap.directCF;
@@ -397,7 +399,7 @@ export function buildCashSweepTables(snap: ProjectFinancialsSnapshot, state: Fin
   // Per-tranche Debt Paid, ordered existing-first then sweep priority then list.
   const trMeta = (id: string) => state.financingTranches.find((t) => t.id === id);
   const debtPaidRows: M4Row[] = [...fin.facilities.entries()]
-    .filter(([, f]) => anyNonZero(f.principalRepaid))
+    .filter(([, f]) => allRows || anyNonZero(f.principalRepaid))
     .map(([id, f], listIdx) => ({ id, f, isExisting: trMeta(id)?.origin === 'existing', priority: trMeta(id)?.cashSweepConfig?.priority ?? 100, listIdx }))
     .sort((a, b) => (a.isExisting !== b.isExisting ? (a.isExisting ? -1 : 1) : a.priority !== b.priority ? a.priority - b.priority : a.listIdx - b.listIdx))
     .map(({ id, f, isExisting }) => ({ label: `(-) Debt Paid: ${trName(id)}${isExisting ? ' (existing)' : ''}`, values: neg(sliceN(f.principalRepaid, N)), indent: 1 }));
@@ -413,7 +415,7 @@ export function buildCashSweepTables(snap: ProjectFinancialsSnapshot, state: Fin
     { label: '(-) Cash from Investing (capex)', values: cfi },
     { label: '(+) Equity Drawdown (Cash)', values: equityCash, priorValue: fin.existing.equityTotal },
   ];
-  if (anyNonZero(inKind)) waterfall.push({ label: '(+) Equity In-Kind (memo, non-cash)', values: inKind, indent: 1 });
+  if (allRows || anyNonZero(inKind)) waterfall.push({ label: '(+) Equity In-Kind (memo, non-cash)', values: inKind, indent: 1 });
   // The minimum cash reserve is a RESERVATION, not a payment: it is never spent,
   // so it does not belong in the running chain (deducting it and then silently
   // ignoring it two rows later is what stopped the column reaching closing cash).
@@ -433,7 +435,7 @@ export function buildCashSweepTables(snap: ProjectFinancialsSnapshot, state: Fin
     { label: '(-) Debt Paid (total principal incl. sweep)', values: debtPaidTotal, isSubtotal: true },
     { label: '= Cash Available for Dividend', values: cashForDividend, isSubtotal: true, totalOverride: fmt(cashForDividend[N - 1] ?? 0) },
   );
-  if (div.enabled || anyNonZero(dividends)) waterfall.push({ label: '(-) Dividend Paid (per policy, EBITDA-capped)', values: dividends });
+  if (allRows || div.enabled || anyNonZero(dividends)) waterfall.push({ label: '(-) Dividend Paid (per policy, EBITDA-capped)', values: dividends });
   waterfall.push({ label: '= Closing Cash (ties to Cash Flow tab + Balance Sheet)', values: closing, isTotal: true, totalOverride: fmt(closing[N - 1] ?? 0), priorValue: snap.bs.historicalOpeningCashTotal });
   tables.push({ title: 'Cash Waterfall (Operations -> Debt -> Dividend -> Closing)', rows: waterfall });
 

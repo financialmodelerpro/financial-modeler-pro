@@ -27,7 +27,7 @@
 import { writeFileSync, mkdirSync } from 'node:fs';
 import type ExcelJS from 'exceljs';
 import { buildModelWorkbook, PERIOD_COLS } from '../src/hubs/modeling/platforms/refm/lib/excel/buildModelWorkbook';
-import { buildFormulaWorkbook, enableFormulaIteration, exportShapeProblems, HIDDEN_SHEETS_PENDING_REBUILD, TAB_ORDER } from '../src/hubs/modeling/platforms/refm/lib/excel/formulaWorkbook';
+import { buildFormulaWorkbook, enableFormulaIteration, exportShapeProblems, TAB_ORDER } from '../src/hubs/modeling/platforms/refm/lib/excel/formulaWorkbook';
 import { readCells, shadedCells, isShaded, isLegendSwatch, cellId } from '../src/hubs/modeling/platforms/refm/lib/excel/liveLayers/inputAudit';
 import { loadLiveExportInputs } from './fixtures/liveExportInputs';
 import { excelAvailable, recalcInExcel, cellKey } from './excelRecalc';
@@ -155,7 +155,11 @@ function compareLive(basePlain: ExcelJS.Workbook, pertPlain: ExcelJS.Workbook, w
         // is "OK" on both sides, so the residual is noise below the check's tolerance. A billion
         // scale subtraction leaves about 1e-6 of it either side of zero (2026-09-28).
         if (ws.name === 'Checks' && plainAt(pertPlain, ws.name, m, c - 1) === 'OK' && rec.cells.get(cellKey(ws.name, r, c - 1)) === 'OK') return;
-        if (typeof e !== 'number' || Math.abs(e - o) > tolFor(ws.name, o, rowPeak(pertPlain, ws.name, m))) bad.push({ addr, kind: 'number', msg: `${addr}${m !== r ? ` (platform row ${m})` : ''}: Excel ${JSON.stringify(e)} vs platform ${o}` });
+        // INSIDE THE LOOP'S REACH the platform is itself exact only to its solve's stop rule
+        // (a pass that moves less than 1 currency unit ends it, financials-resolvers.ts), while
+        // Excel iterates to a millionth: such a cell is held to that 1 unit, every other exactly.
+        const tol = Math.max(tolFor(ws.name, o, rowPeak(pertPlain, ws.name, m)), basePlain !== pertPlain && loopReach(wb).has(addr) ? ENGINE_LOOP_TOL : 0);
+        if (typeof e !== 'number' || Math.abs(e - o) > tol) bad.push({ addr, kind: 'number', msg: `${addr}${m !== r ? ` (platform row ${m})` : ''}: Excel ${JSON.stringify(e)} vs platform ${o}` });
       } else if (typeof o === 'string') {
         const ok = typeof e === 'string' ? e.trim() === o.trim()
           : typeof e === 'number' && /^[A-Z][a-z]{2} \d{4}$/.test(o) && monthYear(e) === o;
@@ -200,15 +204,18 @@ type Snap = LiveExportInputs['snapshot'] & Record<string, any>;
 /** A module-sheet formula that only restates an Inputs cell (through a link conversion). */
 function isInputsEcho(sheet: string, f: string): boolean {
   if (sheet === 'Inputs') return false;
-  return /^N\((?:'Inputs'|Inputs)!\$[A-Z]+\$\d+\)(-N\((?:'Inputs'|Inputs)!\$[A-Z]+\$\d+\))?$/.test(f)
-    || /^(?:'Inputs'|Inputs)!\$[A-Z]+\$\d+$/.test(f)
-    || /^IF\(N\((?:'Inputs'|Inputs)!\$[A-Z]+\$\d+\)=[01],/.test(f);
+  // An Inputs reference, column absolute or column relative (a strip of year inputs echoes as one formula across its row).
+  return /^N\((?:'Inputs'|Inputs)!\$?[A-Z]+\$\d+\)(-N\((?:'Inputs'|Inputs)!\$?[A-Z]+\$\d+\))?$/.test(f)
+    || /^(?:'Inputs'|Inputs)!\$?[A-Z]+\$\d+$/.test(f)
+    || /^IF\(N\((?:'Inputs'|Inputs)!\$?[A-Z]+\$\d+\)=[01],/.test(f)
+    // A door that may be blank: the number when there is one, else the module's own word for none.
+    || /^IF\(ISNUMBER\(((?:'Inputs'|Inputs)!\$?[A-Z]+\$\d+)\),\1,"[^"]*"\)$/.test(f);
 }
 function inputsDoor(wb: ExcelJS.Workbook, a: { sheet: string; row: number; col: number }, value: number): { at: { sheet: string; row: number; col: number }; value: number } {
   const v = wb.getWorksheet(a.sheet)?.getCell(a.row, a.col).value as unknown as { formula?: string } | null;
   const f = v && typeof v === 'object' ? v.formula : undefined;
   if (!f || a.sheet === 'Inputs') return { at: a, value };
-  const refs = [...f.matchAll(/(?:'Inputs'|Inputs)!\$([A-Z]+)\$(\d+)/g)];
+  const refs = [...f.matchAll(/(?:'Inputs'|Inputs)!\$?([A-Z]+)\$(\d+)/g)];
   if (!isInputsEcho(a.sheet, f) || !refs.length) return { at: a, value };
   const col = (s: string): number => s.split('').reduce((n, ch) => n * 26 + ch.charCodeAt(0) - 64, 0);
   const at = { sheet: 'Inputs', row: Number(refs[0][2]), col: col(refs[0][1]) };
@@ -648,7 +655,7 @@ function perturbations(input: LiveExportInputs, reg: CellRegistry): Perturbation
     // its Inputs door (the schedule re-normalises to 100), and the start moved a year, which
     // shifts the whole schedule with it, as the engine reads it (normaliseYoY from the start).
     const yoy = (s: Snap): void => { Object.assign(trs(s)[0], { repaymentMethod: 'year_on_year_pct', repaymentStartYear: 2032, yearOnYearPctSchedule: [10, 20, 30, 40] }); };
-    out.push({ movesRevenue: false, label: 'Year-on-year repayment (10 / 20 / 30 / 40% from 2032): the 2033 share to 30%', cell: `fin|${tr0.name} (new facility)|Year-on-Year % Schedule`, col: pcol(2033 - psy), value: 0.3,
+    out.push({ movesRevenue: false, label: 'Year-on-year repayment (10 / 20 / 30 / 40% from 2032): the 2033 share to 30%', cell: `yoy:${tr0.id}`, col: 3, value: 0.3,
       variant: yoy, edit: (s) => { trs(s)[0].yearOnYearPctSchedule = [10, 30, 30, 40]; } });
     out.push({ movesRevenue: false, label: 'Year-on-year repayment: the start to 2033, the schedule moving with it', cell: `fin|${tr0.name} (new facility)|Repayment Start Year`, col: RC.TOTAL, value: 2033,
       variant: yoy, edit: (s) => { trs(s)[0].repaymentStartYear = 2033; } });
@@ -740,6 +747,47 @@ function check(label: string, ok: boolean, detail = ''): void {
  * to the cell alone that residue failed; scaled to the row it is a billionth of the
  * money being netted, and the cap still holds every cell to half a cent.
  */
+/** The platform's financing solve stops once a pass moves every loop quantity by less than this (TOL in computeFinancialsSnapshot). */
+const ENGINE_LOOP_TOL = 1;
+/**
+ * THE LOOP'S REACH: every formula cell that reads the Financing tab, directly or through
+ * other cells (a forward trace over the formulas' references). Only these inherit the
+ * platform's convergence residue after an input changes; the base case is exact (B).
+ */
+const REACH = new WeakMap<ExcelJS.Workbook, Set<string>>();
+function loopReach(wb: ExcelJS.Workbook): Set<string> {
+  const hit = REACH.get(wb);
+  if (hit) return hit;
+  const colNum = (L: string): number => [...L].reduce((n, ch) => n * 26 + ch.charCodeAt(0) - 64, 0);
+  const readers = new Map<string, string[]>();
+  const REF = /(?:(?:'((?:[^']|'')+)'|([A-Za-z_][\w.]*))!)?\$?([A-Z]{1,3})\$?(\d+)(?::\$?([A-Z]{1,3})\$?(\d+))?/g;
+  const starts: string[] = [];
+  for (const ws of wb.worksheets) {
+    ws.eachRow((row, r) => row.eachCell((cell, c) => {
+      const v = cell.value as unknown;
+      if (!(v && typeof v === 'object' && 'formula' in (v as object))) return;
+      const me = cellKey(ws.name, r, c);
+      if (ws.name === 'Financing') starts.push(me);
+      const text = String((v as { formula: string }).formula).replace(/"(?:[^"]|"")*"/g, '');
+      for (const m of text.matchAll(REF)) {
+        const sheet = m[1] ? m[1].replace(/''/g, "'") : m[2] ?? ws.name;
+        if (!sheet) continue;
+        const c1 = colNum(m[3]), r1 = Number(m[4]);
+        const c2 = m[5] ? colNum(m[5]) : c1, r2 = m[6] ? Number(m[6]) : r1;
+        if ((r2 - r1 + 1) * (c2 - c1 + 1) > 20000) continue;
+        for (let rr = Math.min(r1, r2); rr <= Math.max(r1, r2); rr++) for (let cc = Math.min(c1, c2); cc <= Math.max(c1, c2); cc++) {
+          const k = cellKey(sheet, rr, cc);
+          const list = readers.get(k); if (list) list.push(me); else readers.set(k, [me]);
+        }
+      }
+    }));
+  }
+  const seen = new Set<string>(starts);
+  const queue = [...starts];
+  while (queue.length) for (const n of readers.get(queue.pop()!) ?? []) if (!seen.has(n)) { seen.add(n); queue.push(n); }
+  REACH.set(wb, seen);
+  return seen;
+}
 const tolFor = (_sheet: string, v: number, rowPeak = 0): number =>
   Math.max(1e-6, Math.min(0.005, 1e-9 * Math.max(1, Math.abs(v), Math.abs(rowPeak))));
 /** The largest absolute figure on a sheet row of a workbook (cached per workbook). */
@@ -825,17 +873,18 @@ function formulaCells(wb: ExcelJS.Workbook): Map<string, { formula: string; resu
   // row or column, no formula reading a tab that does not exist. The build throws on any; here
   // it must pass on the export AND fire on a copy with one of each planted.
   {
-    check(`A12 the shape check passes (hidden working sheets still to go: ${HIDDEN_SHEETS_PENDING_REBUILD.join(', ') || 'none'})`, exportShapeProblems(wb).length === 0, exportShapeProblems(wb).slice(0, 4).join('; '));
+    check('A12 the shape check passes, with no allowance: no hidden tab, row or column, and no read of a later tab but the loop\'s capitalised interest', exportShapeProblems(wb).length === 0, exportShapeProblems(wb).slice(0, 4).join('; '));
     const hiddenNow = wb.worksheets.filter((x) => x.state === 'hidden' || x.state === 'veryHidden').map((x) => x.name);
-    check('A12b every hidden tab is a working sheet still on the list (the list holds nothing already gone)', hiddenNow.every((n) => HIDDEN_SHEETS_PENDING_REBUILD.includes(n)) && HIDDEN_SHEETS_PENDING_REBUILD.every((n) => hiddenNow.includes(n)), `hidden ${hiddenNow.join(', ')}`);
+    check('A12b no tab is hidden (every working sheet is gone)', hiddenNow.length === 0, `hidden ${hiddenNow.join(', ')}`);
     const copy = buildModelWorkbook({ ...opts, liveLayout: true });
     copy.getWorksheet('Opex')!.getRow(10).hidden = true;
     copy.getWorksheet('Revenue')!.getColumn(9).hidden = true;
     copy.getWorksheet('Scenarios')!.state = 'hidden';
     copy.getWorksheet('Checks')!.getCell(2, 9).value = { formula: "'No Such Tab'!A1+1", result: 0 } as unknown as ExcelJS.CellValue;
     copy.getWorksheet('Checks')!.getCell(2, 10).value = { formula: 'SUMPRODUCT(--(()>0))', result: 0 } as unknown as ExcelJS.CellValue;
+    copy.getWorksheet('Inputs')!.getCell(2, 9).value = { formula: 'Returns!F20+1', result: 0 } as unknown as ExcelJS.CellValue;
     const p = exportShapeProblems(copy);
-    check('A12c the shape check fires: a hidden row, a hidden column, a hidden tab, a read of a missing tab and an empty bracket are each caught', p.length === 5 && p.some((x) => x.includes('empty bracket')) && p.some((x) => x.includes('row 10')) && p.some((x) => x.includes('column 9')) && p.some((x) => x.includes('"Scenarios" is hidden')) && p.some((x) => x.includes('No Such Tab')), p.join('; '));
+    check('A12c the shape check fires: a hidden row, a hidden column, a hidden tab, a read of a missing tab, an empty bracket and a read of a later tab are each caught', p.length === 6 && p.some((x) => x.includes('empty bracket')) && p.some((x) => x.includes('row 10')) && p.some((x) => x.includes('column 9')) && p.some((x) => x.includes('"Scenarios" is hidden')) && p.some((x) => x.includes('No Such Tab')) && p.some((x) => x.includes('Inputs row 2 reads Returns')), p.join('; '));
     const order = wb.worksheets.map((x) => x.name).filter((n) => TAB_ORDER.includes(n));
     check('A12d the tabs run in the order the model flows', order.join('|') === TAB_ORDER.filter((n) => wb.getWorksheet(n)).join('|'), order.join(', '));
     // ONE PERIOD, ONE COLUMN: every live period tab's year and index header reads the Timeline's same column.
@@ -1084,7 +1133,7 @@ function formulaCells(wb: ExcelJS.Workbook): Map<string, { formula: string; resu
       // Every other live cell must follow the change exactly.
       check(`C ${pt.label}: ${moved} live cells move on the platform, and Excel agrees on every live cell${lagging.length ? ` (${lagging.length} pending cells lag: they read what the financing solve or Returns still owns, stages 6 and 7)` : ''}${cmp.layout.length ? `; ${cmp.layout.length} cells the platform lays out differently after the change (the live workbook keeps its exported layout: ${cmp.layout.slice(0, 4).join(', ')}${cmp.layout.length > 4 ? ', ...' : ''})` : ''}`,
         moved > 0 && hard.length === 0,
-        hard.slice(0, 8).map((x) => x.msg).join('\n        '));
+        hard.slice(0, Number(process.env.SHOWN ?? 8)).map((x) => x.msg).join('\n        '));
       if (pt.variant) { const { unlinkSync } = await import('node:fs'); unlinkSync(base.path); }
     }
 

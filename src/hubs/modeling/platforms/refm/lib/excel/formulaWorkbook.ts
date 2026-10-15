@@ -91,7 +91,7 @@ export interface LiveLayer {
 
 /** The layers, in dependency order. */
 // Revenue before Capex: Capex's selling costs read the revenue a line earns.
-export const LIVE_LAYERS: LiveLayer[] = [stage1LandArea, stage3Revenue, stage2Capex, stage3Cos, stage3Opex, stage4Schedules, stage5Statements, stage6Loop, stage8Schedules, stage8FundFees, stage8Capex7, stage7Returns, stage7bMetrics, stage7cChecks, stage7dSummary, stage9InputLinks];
+export const LIVE_LAYERS: LiveLayer[] = [stage1LandArea, stage3Revenue, stage2Capex, stage3Cos, stage3Opex, stage4Schedules, stage6Loop, stage5Statements, stage8Schedules, stage8FundFees, stage8Capex7, stage7Returns, stage7bMetrics, stage7cChecks, stage7dSummary, stage9InputLinks];
 
 /** Sheets that are values by the founder's decision (2026-09-27), never live. */
 const BY_DESIGN: Record<string, string> = {
@@ -190,12 +190,14 @@ function orderTabs(wb: ExcelJS.Workbook): void {
 }
 
 /**
- * THE WORKING SHEETS STILL TO GO (2026-10-14). The rebuild moves every figure
- * onto the visible tabs one tab at a time; until a tab's turn comes its hidden
- * working sheet is the one kind of hidden sheet allowed. Each commit removes
- * its sheet from this list, and the list ends empty.
+ * THE ONE KIND OF READ BACK ALLOWED (2026-10-15): the financing loop's output, the capitalised
+ * interest each line takes, read by the tabs before Financing that carry it (Schedules: cost of
+ * sales and the held lines' additions; Capex: Table 7). Every other formula reads only the tabs
+ * before it. The working sheets the rebuild moved onto the visible tabs are all gone, so no tab
+ * may be hidden.
  */
-export const HIDDEN_SHEETS_PENDING_REBUILD: readonly string[] = ['Statements Calc', 'Returns Calc'];
+export const LOOP_LINKS: ReadonlyArray<{ from: string; to: string }> = [{ from: 'Schedules', to: 'Financing' }, { from: 'Capex', to: 'Financing' }];
+const isLoopLink = (from: string, to: string): boolean => LOOP_LINKS.some((x) => x.from === from && x.to === to);
 
 /**
  * THE SHAPE CHECK (2026-10-14, founder): the export fails rather than ship a
@@ -208,7 +210,7 @@ export function exportShapeProblems(wb: ExcelJS.Workbook): string[] {
   const names = new Set(wb.worksheets.map((ws) => ws.name));
   const re = /(?:'((?:[^']|'')+)'|([A-Za-z0-9_&.]+))!/g;
   for (const ws of wb.worksheets) {
-    if (ws.state !== 'visible' && ws.state !== undefined && !HIDDEN_SHEETS_PENDING_REBUILD.includes(ws.name)) out.push(`the tab "${ws.name}" is hidden`);
+    if (ws.state !== 'visible' && ws.state !== undefined) out.push(`the tab "${ws.name}" is hidden`);
     for (let r = 1; r <= ws.rowCount; r++) if (ws.getRow(r).hidden) out.push(`${ws.name} row ${r} is hidden`);
     (ws.columns ?? []).forEach((col, i) => { if (col?.hidden) out.push(`${ws.name} column ${i + 1} is hidden`); });
     ws.eachRow((row, r) => row.eachCell((cell, c) => {
@@ -225,6 +227,8 @@ export function exportShapeProblems(wb: ExcelJS.Workbook): string[] {
       }
     }));
   }
+  // A read of a later tab is a problem unless it is the loop's own link.
+  for (const b of backwardReads(wb)) if (!isLoopLink(b.from, b.to)) out.push(`${b.from} row ${b.row} reads ${b.to}, a later tab`);
   return out;
 }
 
@@ -339,7 +343,7 @@ function writeLoopLinks(wb: ExcelJS.Workbook): void {
   const guide = wb.getWorksheet('Guide');
   if (!guide) return;
   const label = (sheet: string, row: number): string => String(wb.getWorksheet(sheet)?.getCell(row, 1).value ?? '').trim();
-  const links = backwardReads(wb).filter((x) => x.to === 'Financing' && (x.from === 'Schedules' || x.from === 'Capex'));
+  const links = backwardReads(wb).filter((x) => isLoopLink(x.from, x.to));
   if (!links.length) return;
   const uniq = new Map<string, [string, string]>();
   for (const x of links) {

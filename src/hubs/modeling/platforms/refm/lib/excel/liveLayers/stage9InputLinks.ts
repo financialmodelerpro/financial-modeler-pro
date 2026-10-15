@@ -40,6 +40,8 @@ const CONVERSIONS: Record<string, { formula: (inp: string, mod: number | string 
   dpo: { formula: (inp) => `IF(N(${inp})=0,"0 (cash basis)",N(${inp}))`, value: (v) => (Number(v) === 0 ? '0 (cash basis)' : v) },
   // 1 / 0 on Inputs; On / Off on the module.
   onoff: { formula: (inp) => `IF(N(${inp})=1,"On","Off")`, value: (v) => (Number(v) === 1 ? 'On' : 'Off') },
+  // A blank on Inputs states none: the module shows its own word for that ("auto", "inherit", blank).
+  blank: { formula: (inp, mod) => `IF(ISNUMBER(${inp}),${inp},"${typeof mod === 'number' || mod === undefined ? '' : String(mod).replace(/"/g, '""')}")`, value: (v, mod) => (typeof v === 'number' ? v : typeof mod === 'number' ? '' : mod) },
 };
 
 export const stage9InputLinks: LiveLayer = {
@@ -88,7 +90,8 @@ export const stage9InputLinks: LiveLayer = {
       if (!found) { mismatched.push(`${spec.key} (no single such cell)`); continue; }
       spec.key = found;
       const target = w.addr(spec.key, spec.col);
-      const inRef = w.refA(src);
+      // Column relative (row absolute): a strip of year inputs echoes as one formula across its row.
+      const inRef = w.refP(src, target.sheet);
       const inVal = w.platformValue(src);
       if (k.startsWith('echo=')) {
         w.reset();

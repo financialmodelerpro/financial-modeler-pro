@@ -21,7 +21,7 @@
  * No em dashes in this file.
  */
 import type { LayerContext, LiveLayer } from '../formulaWorkbook';
-import { loopAt } from './stage6Loop';
+import { LOOP_NEGATIVE } from './stage6Loop';
 import { LiveWriter } from './writer';
 import { irrOf, pctT, irrT, multT, moicOf, moneyT as moneyWords, ratioT, seriesT } from './excelText';
 import { PERIOD_COLS } from '../buildModelWorkbook';
@@ -35,7 +35,6 @@ import { DEFAULT_COVENANTS, type Phase } from '../../state/module1-types';
 import { STABILISATION_GROWTH_TOLERANCE } from '@/src/core/calculations/returns/analytics';
 
 const RET = 'Returns';
-const CALC = 'Returns Calc';
 
 export const stage7bMetrics: LiveLayer = {
   name: 'stage 7b: RE metrics',
@@ -43,7 +42,7 @@ export const stage7bMetrics: LiveLayer = {
     const { wb, reg } = ctx;
     const w = new LiveWriter(wb, reg, ctx.pending);
     const has = (k: string): boolean => w.has(k);
-    const cs = wb.getWorksheet(CALC);
+    const cs = wb.getWorksheet(RET);
     if (!cs || !has('rtc:noi')) return []; // stage 7a did not make the returns live: nothing to build on
     const raw = ctx.opts.state;
     const state = { ...raw, assets: withResolvedAssetNames(raw.assets, { parcels: raw.parcels, phases: raw.phases }) };
@@ -60,27 +59,31 @@ export const stage7bMetrics: LiveLayer = {
     const moneyT = moneyWords(cur);
     const phases = state.phases as Phase[];
 
-    // ── Working rows (appended to the Returns working sheet) ─────────────────
+    // ── Working rows: below 7a's workings on the Returns sheet, one formula across each row ──
     let cr = cs.rowCount + 2;
-    const cT = (t: number): number => 4 + t;
-    const C = (r: number, c: number) => ({ sheet: CALC, row: r, col: c });
-    const rtc = (key: string, t: number): string => w.refA(C(w.addr(key).row, cT(t)));
-    const rtc3 = (key: string): string => w.refA(C(w.addr(key).row, 3));
-    const at = (r: number, t: number): string => w.refA(C(r, cT(t)));
-    const sc3 = (r: number): string => w.refA(C(r, 3));
-    const rngA = (r: number): string => w.rangeA(CALC, r, cT(0), cT(N - 1));
+    const C = (r: number, c: number) => ({ sheet: RET, row: r, col: c });
+    const at = (r: number, t: number): string => w.refP(C(r, pc(t)), RET);
+    const atA = (r: number, t: number): string => w.refA(C(r, pc(t)), RET);
+    const sc3 = (r: number): string => w.refA(C(r, TOTAL_COL), RET);
+    const rtc3 = (key: string): string => sc3(w.addr(key).row);
+    const rngA = (r: number): string => w.rangeA(RET, r, pc(0), pc(N - 1));
+    /** This year's Timeline year (column relative), and a fixed year's. */
+    const TY = (c: number): string => w.refP({ sheet: 'Timeline', row: 3, col: c }, RET);
+    const TYA = (t: number): string => w.refA({ sheet: 'Timeline', row: 3, col: pc(t) }, RET);
+    /** Year 0 to year t of a row on this sheet: $F$r:F$r. */
+    const toNow = (r: number, t: number): string => { w.refP(C(r, pc(t)), RET); return `$${colL(pc(0))}$${r}:${colL(pc(t))}$${r}`; };
     const rowA = (key: string, label: string, f: (t: number) => string): number => {
-      const r = cr++; cs.getCell(r, 1).value = label; w.claim(key, CALC, r, 1);
-      for (let t = 0; t < N; t++) w.fA(C(r, cT(t)), f(t), { cached: 0 });
+      const r = cr++; cs.getCell(r, 1).value = label; w.claim(key, RET, r, 1);
+      for (let t = 0; t < N; t++) w.fA(C(r, pc(t)), f(t), { cached: 0 });
       return r;
     };
     const cellS = (key: string, label: string, f: () => string): number => {
-      const r = cr++; cs.getCell(r, 1).value = label; w.claim(key, CALC, r, 1);
-      w.fA(C(r, 3), f(), { cached: 0 });
+      const r = cr++; cs.getCell(r, 1).value = label; w.claim(key, RET, r, 1);
+      w.fA(C(r, TOTAL_COL), f(), { cached: 0 });
       return r;
     };
-    const vis = (sheet: string, key: string, t: number): string => w.refA({ sheet, row: w.addr(key).row, col: pc(t) });
-    const fnc = (key: string, t: number): string => loopAt(w, key, t);
+    const vis = (sheet: string, key: string, t: number): string => w.refP({ sheet, row: w.addr(key).row, col: pc(t) }, RET);
+    const fnc = (key: string, t: number): string => { const a = w.addr(key); const r = w.refP({ sheet: a.sheet, row: a.row, col: pc(t) }, RET); return LOOP_NEGATIVE.has(key) ? `(-${r})` : r; };
     const plKey = (re: RegExp): string | undefined => w.reg.keys().find((k) => k.startsWith('pl|__all__||') && re.test(k.slice('pl|__all__||'.length)));
     const patKey = plKey(/^Profit after /), ebitdaKey = plKey(/^EBITDA$/);
     const missing: string[] = [];
@@ -91,7 +94,7 @@ export const stage7bMetrics: LiveLayer = {
     const noi = w.addr('rtc:noi').row, debt = w.addr('rtc:debt').row, div = w.addr('rtc:div').row;
     const AX = (): string => w.ref('project:axisYear');
     const op = rowA('rtm:op', 'operating year (any phase in its operations window)', (t) =>
-      `IF(OR(${phases.map((p) => `AND(${AX()}+${t}>=YEAR(${w.ref(`phase:${p.id}:oStart`)}),${AX()}+${t}<=YEAR(${w.ref(`phase:${p.id}:oEnd`)}))`).join(',')}),1,0)`);
+      `IF(OR(${phases.map((p) => `AND(${TY(pc(t))}>=YEAR(${w.ref(`phase:${p.id}:oStart`)}),${TY(pc(t))}<=YEAR(${w.ref(`phase:${p.id}:oEnd`)}))`).join(',')}),1,0)`);
     const ebitda = rowA('rtm:ebitda', 'EBITDA (P&L)', (t) => vis('P&L', ebitdaKey!, t));
     const rev = rowA('rtm:rev', 'revenue (P&L)', (t) => vis('P&L', 'pl|__all__||Total Revenue', t));
     const pat = rowA('rtm:pat', 'profit after tax (P&L)', (t) => vis('P&L', patKey!, t));
@@ -104,40 +107,39 @@ export const stage7bMetrics: LiveLayer = {
     const icr = rowA('rtm:icr', 'interest cover', (t) => `IF(${at(intExp, t)}>0.000001,${measured(`${at(ebitda, t)}/${at(intExp, t)}`)},"-")`);
     const dy = rowA('rtm:dy', 'debt yield', (t) => `IF(AND(${at(debt, t)}>0.000000001,${at(noi, t)}>0.000000001),${at(noi, t)}/${at(debt, t)},"-")`);
     const ltv = rowA('rtm:ltv', 'LTV on GDV', (t) => `IF(AND(${sc3(gdv)}>0.000000001,${at(debt, t)}>0.000000001),${at(debt, t)}/${sc3(gdv)},"-")`);
-    const cumEq = rowA('rtm:cumeq', 'cumulative equity invested', (t) => `SUM(${w.rangeA(CALC, w.addr('rtc:eqcash').row, cT(0), cT(t))})+SUM(${w.rangeA(CALC, w.addr('rtc:inkind').row, cT(0), cT(t))})`);
+    const cumEq = rowA('rtm:cumeq', 'cumulative equity invested', (t) => `SUM(${toNow(w.addr('rtc:eqcash').row, t)})+SUM(${toNow(w.addr('rtc:inkind').row, t)})`);
     // Averaged over the years that paid a distribution (cashOnCashSeries), so a year with none is left out.
     const coc = rowA('rtm:coc', 'cash on cash (years with a distribution)', (t) => `IF(AND(${at(cumEq, t)}>0.000001,${at(div, t)}>0),${at(div, t)}/${at(cumEq, t)},"")`);
     const ev = rtc3('rtc:ev'), tvEq = rtc3('rtc:tveq');
-    const ltvExit = cellS('rtm:ltvexit', 'LTV at the exit (debt over the exit value)', () => `IF(${ev}>0,MAX(0,${at(debt, X)})/${ev},"-")`);
+    const ltvExit = cellS('rtm:ltvexit', 'LTV at the exit (debt over the exit value)', () => `IF(${ev}>0,MAX(0,${atA(debt, X)})/${ev},"-")`);
     // The held assets' cost (Operate and Lease, the per-asset rows' test), full cost incl. land.
     const heldIds = [...snap.perAssetPL.values()].filter((p) => p.strategy === 'Operate' || p.strategy === 'Lease').map((p) => p.assetId);
     const heldCost = cellS('rtm:heldcost', 'held assets\' cost (Operate and Lease)', () => heldIds.map((id) => {
       const ks = w.reg.keys().filter((k) => k.startsWith(`cxc:${id}:`) && k.split(':').length === 3);
       return ks.length ? `MAX(0,${ks.map((k) => `SUM(${w.perRange(k, N)})`).join('+')})` : '0';
     }).join('+') || '0');
-    const stab = (): string => at(noi, M);
+    const stab = (): string => atA(noi, M);
     // THE STABILISATION YEAR, the engine's rule (stabilizationMetrics, 2026-10-05):
     // walking back from the capitalised year M while the year before has NOI and
     // the year's growth is at most the growth into M plus the tolerance. A pass
     // row, a run of consecutive passes, and M less the run ending at M. Where M
     // has no year with NOI before it there is no growth to read, and the first
     // year at 95% of the capitalised NOI is the fallback, as in the engine.
-    const steadyG = (): string => `${at(noi, M)}/${at(noi, M - 1)}-1+${STABILISATION_GROWTH_TOLERANCE}`;
-    const stabPass = M > 0 ? rowA('rtm:stabpass', 'stabilisation: growth at most the steady growth', (t) => (t === 0 || t > M ? '0'
-      : `IF(AND(${at(noi, t - 1)}>0,${at(noi, M - 1)}>0),IF(${at(noi, t)}/${at(noi, t - 1)}-1<=${steadyG()},1,0),0)`)) : -1;
+    const steadyG = (): string => `${atA(noi, M)}/${atA(noi, M - 1)}-1+${STABILISATION_GROWTH_TOLERANCE}`;
+    const stabPass = M > 0 ? rowA('rtm:stabpass', 'stabilisation: growth at most the steady growth', (t) => `IF(AND(${TY(pc(t))}<=${TYA(M)},N(${at(noi, t - 1)})>0,${atA(noi, M - 1)}>0),IF(${at(noi, t)}/${at(noi, t - 1)}-1<=${steadyG()},1,0),0)`) : -1;
     const runRow = cr;
-    const stabRun = M > 0 ? rowA('rtm:stabrun', 'stabilisation: consecutive years at the steady growth', (t) => (t === 0 ? at(stabPass, 0) : `IF(${at(stabPass, t)}=1,${at(runRow, t - 1)}+1,0)`)) : -1;
+    const stabRun = M > 0 ? rowA('rtm:stabrun', 'stabilisation: consecutive years at the steady growth', (t) => `IF(${at(stabPass, t)}=1,N(${at(runRow, t - 1)})+1,0)`) : -1;
     const stab95 = (): string => `IFERROR(TEXT(${AX()}+MATCH(TRUE,INDEX(${rngA(noi)}>=${stab()}*0.95,0),0)-1,"0"),"n/a")`;
     const stabYear = (): string => (M > 0
-      ? `IF(${at(noi, M - 1)}>0,TEXT(${AX()}+${M}-${at(stabRun, M)},"0"),${stab95()})`
+      ? `IF(${atA(noi, M - 1)}>0,TEXT(${TYA(M)}-${atA(stabRun, M)},"0"),${stab95()})`
       : stab95());
     const yoc = (): string => `${stab()}/${sc3(heldCost)}`;
     const tdc = (): string => `SUM(${w.perRange('fnc:capexall', N)})`;
     // The operating expenses over the same years as the GDV (2026-10-08): the P&L row is printed negative.
     const opx = (): string => `(-SUM(${w.rangeA('P&L', w.addr('pl|__all__||Total Operating Expenses').row, pc(0), pc(X))}))`;
     const tfc = (): string => `SUM(${w.perRange('fnc:main:interest', N)})`;
-    const revX = (): string => `SUM(${w.rangeA(CALC, rev, cT(0), cT(X))})`;
-    const patX = (): string => `SUM(${w.rangeA(CALC, pat, cT(0), cT(X))})`;
+    const revX = (): string => `SUM(${w.rangeA(RET, rev, pc(0), pc(X))})`;
+    const patX = (): string => `SUM(${w.rangeA(RET, pat, pc(0), pc(X))})`;
 
     // ── Visible cells ────────────────────────────────────────────────────────
     const writes: Array<() => void> = [];
@@ -202,16 +204,16 @@ export const stage7bMetrics: LiveLayer = {
       const rk = `${EY}${x.exitYearLabel}${x.isSelected ? '  ◀ selected' : ''}`;
       if (!has(`${rk}|0`)) { missing.push(rk); continue; }
       const m = cfg.terminalValueBasis === 'exit_year' ? e : Math.max(0, e - 1);
-      const evE = cellS(`rtm:x:${e}:ev`, `exit ${x.exitYearLabel}: enterprise value`, () => terminalValueFormula(w, cfg, at(noi, m)));
-      const eqE = cellS(`rtm:x:${e}:eq`, `exit ${x.exitYearLabel}: equity value`, () => `MAX(0,${sc3(evE)}-MAX(0,${at(debt, e)}))`);
+      const evE = cellS(`rtm:x:${e}:ev`, `exit ${x.exitYearLabel}: enterprise value`, () => terminalValueFormula(w, cfg, atA(noi, m)));
+      const eqE = cellS(`rtm:x:${e}:eq`, `exit ${x.exitYearLabel}: equity value`, () => `MAX(0,${sc3(evE)}-MAX(0,${atA(debt, e)}))`);
       const s = (key: string, label: string, base: number, add: () => string): number => {
-        const r = cr++; cs.getCell(r, 1).value = label; w.claim(key, CALC, r, 1);
-        for (let k = 0; k <= e + 1; k++) w.fA(C(r, 4 + k), `${w.refA(C(base, 4 + k))}${k === e + 1 ? `+${add()}` : ''}`, { cached: 0 });
+        const r = cr++; cs.getCell(r, 1).value = label; w.claim(key, RET, r, 1);
+        for (let k = 0; k <= e + 1; k++) w.fA(C(r, OPEN_COL + k), `${w.refP(C(base, OPEN_COL + k), RET)}+(${TY(OPEN_COL + k)}=${TYA(e)})*(${add()})`, { cached: 0 });
         return r;
       };
       const ff = s(`rtm:x:${e}:ff`, `exit ${x.exitYearLabel}: FCFF`, sbFf, () => sc3(evE));
-      const fe = s(`rtm:x:${e}:fe`, `exit ${x.exitYearLabel}: FCFE`, sbFe, () => `${sc3(eqE)}+${at(level, e)}`);
-      const rngF = (): string => w.rangeA(CALC, ff, 4, 4 + e + 1), rngE = (): string => w.rangeA(CALC, fe, 4, 4 + e + 1);
+      const fe = s(`rtm:x:${e}:fe`, `exit ${x.exitYearLabel}: FCFE`, sbFe, () => `${sc3(eqE)}+${atA(level, e)}`);
+      const rngF = (): string => w.rangeA(RET, ff, OPEN_COL, OPEN_COL + e + 1), rngE = (): string => w.rangeA(RET, fe, OPEN_COL, OPEN_COL + e + 1);
       gridCell(rk, 0, () => sc3(evE));
       gridCell(rk, 1, () => sc3(eqE));
       gridCell(rk, 2, () => irrT(rngF()));
@@ -250,7 +252,7 @@ export const stage7bMetrics: LiveLayer = {
     // Income and exit profile.
     const IE = 'Income and exit profile';
     kpi(IE, 'Stabilised NOI', () => moneyT(stab()));
-    kpi(IE, 'Exit NOI', () => moneyT(at(noi, X)));
+    kpi(IE, 'Exit NOI', () => moneyT(atA(noi, X)));
     kpi(IE, 'Stabilisation Year', () => `IF(AND(COUNTIF(${rngA(noi)},">0")>0,${stab()}>0),${stabYear()},"n/a")`);
     kpi(IE, 'Stabilised Yield on Cost', () => ratioT(stab(), sc3(heldCost)));
     kpi(IE, 'Exit Cap Rate', () => ratioT(stab(), ev));
@@ -345,3 +347,5 @@ export const stage7bMetrics: LiveLayer = {
     }];
   },
 };
+
+function colL(c: number): string { let s = ''; for (let n = c; n > 0; n = Math.floor((n - 1) / 26)) s = String.fromCharCode(65 + ((n - 1) % 26)) + s; return s; }

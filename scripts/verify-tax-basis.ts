@@ -72,8 +72,12 @@ const S = (a: readonly number[]): number => a.reduce((s, v) => s + (v ?? 0), 0);
   // The financing loop is liveLayers/stage6Loop.ts since 2026-10-15 (the solve on the visible Financing tab).
   const L6 = readFileSync(R + 'lib/excel/liveLayers/stage6Loop.ts', 'utf8');
   const twin = readFileSync(R + 'lib/excel/liveLayers/taxRule.ts', 'utf8');
-  check('the live formula layer mirrors the cit basis: the P&L and the financing solve both build the loss relief from the one formula twin, on the core 25% cap',
-    [L5, L6].every((s) => /basis === 'cit'/.test(s) && /citReliefF\(/.test(s) && /citPoolF\(/.test(s)) && /CIT_LOSS_RELIEF_CAP/.test(twin)
+  // RE-AIMED 2026-10-15: the P&L no longer builds its own relief; its tax IS the financing loop's
+  // (one builder, Checks proving the loop's profit before tax equals the P&L's), so the rule is
+  // that the loop mirrors the cit basis through the twin and the P&L builds no second relief.
+  check('the live formula layer mirrors the cit basis: the financing loop builds the loss relief from the one formula twin, on the core 25% cap, and the P&L reads the loop\'s tax rather than building its own',
+    /basis === 'cit'/.test(L6) && /citReliefF\(/.test(L6) && /citPoolF\(/.test(L6) && /CIT_LOSS_RELIEF_CAP/.test(twin)
+      && !/citReliefF\(|citPoolF\(/.test(L5) && /'fnc:tax'/.test(L5)
       && !/basis === 'cit'\) refuse\.push/.test(L5));
 
   // Marina Gate: zakat, unchanged, and the sentence names its losses.

@@ -278,11 +278,17 @@ export const stage7dSummary: LiveLayer = {
       const areaOk = areasLive && near(sumOver(members, 'land').v, ph.landSqm) && near(sumOver(members, TOTAL_GFA).v, ph.gfaSqm);
       put(R(4), `${ph.name} land`, areaOk, () => areaW(sumOver(members, 'land').f));
       put(R(5), `${ph.name} GFA`, areaOk, () => areaW(sumOver(members, TOTAL_GFA).f));
-      const capex = cellX(`cx2sub:${ph.id}`, TOTAL_COL + 1);
+      // Capex keeps its Total right of its years (LiveWriter.totalCols).
+      const capex = cellX(`cx2sub:${ph.id}`, LiveWriter.totalCols.get('Capex') ?? TOTAL_COL + 1);
       put(R(6), `${ph.name} capex`, figure(capex, ph.capex), () => T(capex!.f));
       const rev = cellX(`pl|${ph.id}||Total Revenue`, TOTAL_COL), ebitda = cellX(`pl|${ph.id}||EBITDA`, TOTAL_COL);
       put(R(7), `${ph.name} revenue`, figure(rev, ph.revenue), () => T(rev!.f));
-      put(R(8), `${ph.name} EBITDA`, figure(ebitda, ph.ebitda), () => T(ebitda!.f));
+      // The overview's phase EBITDA is its lines' revenue less their cost of sales and opex (no HQ or
+      // selling costs, which the P&L files at project level): the phase view's rows that carry them.
+      const parts = [rev, ...['Residential cost of sales', 'Hospitality operating expenses', 'Retail operating expenses'].map((l) => cellX(`pl|${ph.id}||${l}`, TOTAL_COL))].filter((x): x is X => !!x);
+      const phEbitda = rev ? add(parts) : null;
+      void ebitda;
+      put(R(8), `${ph.name} EBITDA`, figure(phEbitda, ph.ebitda), () => T(phEbitda!.f));
     }
 
     // ── Exit and cash ────────────────────────────────────────────────────────

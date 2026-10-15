@@ -1,50 +1,60 @@
 /**
- * stage5Statements.ts (2026-09-27), FORMULA-LINKED EXPORT, STAGE 5: THE STATEMENTS.
+ * stage5Statements.ts (2026-09-27; on the visible tabs 2026-10-15), FORMULA-LINKED EXPORT,
+ * STAGE 5: THE STATEMENTS.
  *
- * Runs after every earlier layer, since the statements read all of them.
+ * Runs after the financing loop (stage 6), which it reads, and every layer before it.
+ * Every row is one formula copied across the years (column-relative references), reading
+ * the visible tabs; there is no working sheet.
  *
- * THE P&L, project and per phase, as `buildPLRows` builds it, every row a formula:
- *   revenue per line and by section from the Revenue working sheet (a Sell plot
- *   earns its recognition: pre-sales at handover plus sales after it; a hotel by
- *   department; a lease its rent); cost of sales from the Cost of Sales working
- *   sheet; operating expenses per line, by hotel expense group and HQ from the
- *   Opex working sheet; EBITDA; depreciation from the Schedules working sheet;
- *   EBIT; the gain on disposal as the exit proceeds less the book value the
- *   Schedules sheet disposes of; profit before tax; tax at the Inputs sheet's
- *   rate on the profit before tax less the gain (the gain is taxed only where the
- *   project says so); profit after tax.
+ * THE P&L, project and per phase, as `buildPLRows` builds it with every row a total reads
+ * (zeros included): revenue per line and by section from Revenue (a Sell line earns its
+ * recognition: pre-sales at handover plus sales after it; a hotel by department; a lease its
+ * rent); cost of sales from Schedules; operating expenses per line, by hotel expense group
+ * and HQ from Opex; selling and marketing expensed from Capex; EBITDA; depreciation from
+ * Schedules; EBIT; interest, the fund fees and tax from the financing loop (its tax is on
+ * the loop's own profit before tax, which Checks proves equals this one); the gain on
+ * disposal as the exit proceeds less what Schedules writes off; profit after tax. A label
+ * that carries a figure (a fee's rate and base, the tax rate) is a formula too.
  *
- * Each group's rows are regenerated in the builder's own order, dropped where the
- * builder drops them (a line with no figure in any year), and matched to the rows
- * the hardcoded build emitted BY LABEL. A label that does not match refuses the
- * layer rather than write a formula on the wrong row.
+ * THE CASH FLOW, direct (project and per phase) and indirect: revenue received, the
+ * operating receivables, opex paid through the payables, escrow, tax paid, capex per line
+ * and land in kind from Capex, the financing flows from the loop, net, opening and closing
+ * cash.
  *
- * WAITS FOR STAGE 6 (the circular financing), as the platform's values, pending:
- * the fund fees (their base is frozen from a solved pass), interest, the
- * depreciation on capitalised interest and cost of sales (which carries it).
- * WAITS FOR STAGE 7: the exit proceeds (the terminal value, from Returns).
+ * THE BALANCE SHEET and its roll-forwards: land and depreciable NBV from Schedules, cash
+ * from the Cash Flow, the receivables, inventory, escrow, payables and unearned revenue from
+ * the tabs that make them, debt from the loop, and the equity, statutory reserve and
+ * retained earnings roll-forwards beneath it, which close on its equity rows. The
+ * reconciliation bridge reads each balance through the rule its row uses.
+ *
+ * Each group's rows are regenerated in the builder's own order and matched to the rows the
+ * build emitted BY LABEL. A label that does not match refuses the layer rather than write a
+ * formula on the wrong row.
  *
  * No em dashes in this file.
  */
-import type { LayerContext, LiveLayer, SheetWait } from '../formulaWorkbook';
+import type { LayerContext, LiveLayer } from '../formulaWorkbook';
 import { capexMethodOf } from './stage2Capex';
 import { LiveWriter } from './writer';
-import { citReliefF, citPoolF, taxF } from './taxRule';
+import { accT } from './excelText';
 import { PERIOD_COLS } from '../buildModelWorkbook';
+import { defaultDecimals } from '../styles';
 import { withResolvedAssetNames } from '@/src/core/calculations/assetName';
 import { isRevenueSubUnit, isLandValueLine } from '@/src/core/calculations';
 import { getFinancialLabels, defaultTerminologyForCountry } from '@/src/core/calculations/financials';
 import { computeFinancialsSnapshot } from '../../financials-resolvers';
+import { FEE_BASE_LABELS, FUND_FEE_SPECS } from '../../fundTerms';
 import { planRevenueLines, lineForAsset } from '../../revenueLines';
 import { buildPLRows, buildDirectCFRows, buildIndirectCFRows, buildBSRows, SELLING_EXPENSE_LABEL } from '../../reports/m4Reports';
-import { planReportLines, lineRowLabel, sumLine } from '../../reports/lineRows';
+import { planReportLines, lineRowLabel } from '../../reports/lineRows';
 import { hospitalityStatementsByLine, hospitalityRevenueParts, hospitalityCostParts, HOSPITALITY_COST_GROUPS } from '../../reports/hospitalityStatement';
 import { revenueBySection } from '../../reports/revenueSections';
 import type { Asset, CostLine } from '../../state/module1-types';
 import type { M4Row } from '../../../components/modules/_shared/m4Table';
 
 const PL = 'P&L';
-const CALC = 'Statements Calc';
+const CF = 'Cash Flow';
+const BS = 'Balance Sheet';
 const ALL = '__all__';
 
 type F = (t: number) => string;
@@ -57,114 +67,107 @@ export const stage5Statements: LiveLayer = {
     const state = { ...raw, assets: withResolvedAssetNames(raw.assets, { parcels: raw.parcels, phases: raw.phases }) };
     const snap = computeFinancialsSnapshot(state);
     const N = snap.axisLength;
-    const { TOTAL_COL, OPEN_COL } = PERIOD_COLS;
+    const { TOTAL_COL, OPEN_COL, LBL_COL } = PERIOD_COLS;
     const pc = (t: number): number => OPEN_COL + 1 + t;
     const w = new LiveWriter(wb, reg, ctx.pending);
     const has = (k: string): boolean => w.has(k);
     const labels = getFinancialLabels(state.project.financialTerminology ?? defaultTerminologyForCountry(state.project.country));
     const lines = planRevenueLines(state.assets, state.subUnits, state.phases, state.project);
     const visible = state.assets.filter((a) => a.visible !== false);
+    const booked = has('tl:flag:exit') && snap.disposal.booked;
 
     // ── Preconditions ────────────────────────────────────────────────────────
     const refuse: string[] = [];
     if (!has('schv:__project__:capDep')) refuse.push('the Schedules fixed asset tables are not live');
     if (!w.reg.keys().some((k) => k.startsWith('oxo:'))) refuse.push('Opex is not live');
     if (!w.reg.keys().some((k) => k.startsWith('rvc:'))) refuse.push('Revenue is not live');
+    if (!has('fnc:tax') || !has('fnc:main:intexp')) refuse.push('the financing loop is not live');
     if (!has('project:taxRate')) refuse.push('the tax rate is not on the Inputs sheet');
-    // 2026-10-05: the formulas charge the rate on each year's profit and pay it
-    // in the year; a carried-forward loss or a later payment is not mirrored yet.
-    // TAX PAID AFTER THE YEAR END (2026-10-11): days / 365 of each year's charge is payable at
-    // the close and paid the next year. Its rows print only while non-zero, so the lag is live
-    // where it was stated at export.
     const taxLag = (state.project.tax?.paymentDays ?? 0) > 0;
-    if (taxLag && !has('project:taxDays')) refuse.push('the tax payment days are not on the Inputs sheet');
+    if (taxLag && !has('fnc:taxpay')) refuse.push('the tax payable is not on the Financing sheet');
     if (refuse.length) return [{ sheet: PL, status: 'values' as const, formulas: 0, note: `The P&L could not be made live for this model: ${refuse.join('; ')}.` }];
 
-    // ── The working sheet: what the loop and Returns still own, pending ─────
-    const cs = wb.addWorksheet(CALC, { state: 'hidden' });
-    cs.getCell(1, 1).value = 'Statements working sheet: the figures the financing solve (stage 6) and Returns (stage 7) still own, as the platform\'s values, pending. Hidden.';
-    const cT = (t: number): number => 4 + t;
-    let cr = 3;
-    for (let t = 0; t < N; t++) cs.getCell(cr, cT(t)).value = `Year ${t + 1}`;
-    cr += 1;
-    const C = (r: number, c: number) => ({ sheet: CALC, row: r, col: c });
-    const at = (r: number, t: number): string => w.refA(C(r, cT(t)));
-    const pendingRow = (key: string, label: string, vals: readonly number[]): number => {
-      const r = cr++; cs.getCell(r, 1).value = label; w.claim(key, CALC, r, 1);
-      for (let t = 0; t < N; t++) w.valueA(C(r, cT(t)), vals[t] ?? 0, { pending: true });
-      return r;
+    // ── References: column relative, so a row is one formula copied across ───
+    // `here` is the tab being written (its own references drop the sheet name). Inside
+    // `prevOf` every reference reads the year before (the prior column for the first year).
+    let here = PL;
+    let shift = 0;
+    const R = (key: string, t: number): string => {
+      const a = w.addr(key);
+      const ref = w.refP({ sheet: a.sheet, row: a.row, col: (LiveWriter.isWorking(a.sheet) ? 4 : pc(0)) + t + shift }, here);
+      return shift < 0 ? `N(${ref})` : ref;
     };
-    const interest = pendingRow('stc:interest', 'interest expensed (financing, pending)', snap.pl.interestExpensePerPeriod);
-    const proceeds = pendingRow('stc:proceeds', 'exit proceeds (Returns, pending)', Array.from({ length: N }, (_, t) => (snap.disposal.booked && t === snap.disposal.exitIdx ? snap.disposal.proceeds : 0)));
-    const feeRows = snap.fundFees.lines.map((l, i) => pendingRow(`stc:fee:${i}`, `${l.label} (fund fee, pending)`, l.amountPerPeriod));
-    for (let col = 1; col <= cT(N - 1); col++) cs.getColumn(col).width = col <= 3 ? 26 : 14;
+    const prevOf = (f: F, t: number): string => { shift = -1; try { return f(t); } finally { shift = 0; } };
+    const delta = (f: F): F => (t) => `(${f(t)})-(${prevOf(f, t)})`;
+    const sumF = (fs: F[]): F => (t) => fs.map((f) => f(t)).join('+') || '0';
+    const neg = (f: F): F => (t) => `-(${f(t)})`;
+    const keyF = (k: string): F => (has(k) ? (t) => R(k, t) : () => '0');
+    const exitF: F = (t) => (booked ? R('tl:flag:exit', t) : '0');
 
     // ── The pieces, per asset and per project ────────────────────────────────
-    const sheetAt = (sheet: string, key: string, t: number): string => w.refA({ sheet, row: w.addr(key).row, col: 4 + t });
-    const rv = (key: string, t: number): string => w.per(key, t);
     const earner = (a: Asset): boolean => state.subUnits.some((u) => u.assetId === a.id && isRevenueSubUnit(u));
     const assetRev = (a: Asset): F => {
       const l = lineForAsset(lines, a.id);
       if (!l || !earner(a)) return () => '0';
-      if (a.strategy === 'Sell' || a.strategy === 'Sell + Manage') return has(`rvc:${l.key}:recPre`) ? (t) => `${rv(`rvc:${l.key}:recPre`, t)}+${rv(`rvc:${l.key}:postRev`, t)}` : () => '0';
-      if (a.strategy === 'Operate') return has(`rvc:${l.key}:total`) ? (t) => rv(`rvc:${l.key}:total`, t) : () => '0';
-      if (a.strategy === 'Lease') return has(`rvc:${l.key}:rev`) ? (t) => rv(`rvc:${l.key}:rev`, t) : () => '0';
+      if (a.strategy === 'Sell' || a.strategy === 'Sell + Manage') return has(`rvc:${l.key}:recPre`) ? (t) => `${R(`rvc:${l.key}:recPre`, t)}+${R(`rvc:${l.key}:postRev`, t)}` : () => '0';
+      if (a.strategy === 'Operate') return keyF(`rvc:${l.key}:total`);
+      if (a.strategy === 'Lease') return keyF(`rvc:${l.key}:rev`);
       return () => '0';
     };
     // Cost of sales is a LINE's (its rows on Schedules): it reads on the line's first plot, 0 on the others.
-    const assetCos = (a: Asset): F => { const l = lineForAsset(lines, a.id); return l && l.host.id === a.id && has(`cosc:${l.key}:cos`) ? (t) => w.per(`cosc:${l.key}:cos`, t) : () => '0'; };
-    // Opex reads the Opex tab's own rows (2026-10-14): the period columns are the visible ones.
-    const opexAt = (key: string, t: number): string => w.refA({ sheet: 'Opex', row: w.addr(key).row, col: pc(t) });
-    const assetOpex = (a: Asset): F => (has(`oxo:${a.id}:total`) ? (t) => opexAt(`oxo:${a.id}:total`, t) : () => '0');
-    const sumF = (fs: F[]): F => (t) => fs.map((f) => f(t)).join('+') || '0';
-    const neg = (f: F): F => (t) => `-(${f(t)})`;
-    const hq: F = (t) => (has('oxo:hq:total') ? opexAt('oxo:hq:total', t) : '0');
+    const assetCos = (a: Asset): F => { const l = lineForAsset(lines, a.id); return l && l.host.id === a.id ? keyF(`cosc:${l.key}:cos`) : () => '0'; };
+    const assetOpex = (a: Asset): F => keyF(`oxo:${a.id}:total`);
+    const hq: F = keyF('oxo:hq:total');
     const expensedKeys = w.reg.keys().filter((k) => k.startsWith('cxe:') && k.split(':').length === 3);
-    const sellingExp: F = (t) => (expensedKeys.length ? expensedKeys.map((k) => w.per(k, t)).join('+') : '0');
-    // The project's rows on Schedules: depreciation (capex and capitalised interest) and the write-off at the exit.
-    const projDep: F = (t) => `-${w.per('schv:__project__:dep', t)}`;
-    const disposed: F = (t) => `-(${['schv:__project__:landDisp', 'schv:__project__:disp'].filter(has).map((k) => w.per(k, t)).join('+') || '0'})`;
+    const sellingExp: F = (t) => expensedKeys.map((k) => R(k, t)).join('+') || '0';
+    const projDep: F = (t) => `-${R('schv:__project__:dep', t)}`;
+    const disposed: F = (t) => `-(${['schv:__project__:landDisp', 'schv:__project__:disp'].filter(has).map((k) => R(k, t)).join('+') || '0'})`;
+    const feeIdx = FUND_FEE_SPECS.map((_, i) => i).filter((i) => has(`fnc:fee:${i}`));
+    const feesF: F = (t) => feeIdx.map((i) => R(`fnc:fee:${i}`, t)).join('+') || '0';
 
-    // ── Match the builder's rows to formulas ─────────────────────────────────
-    const cell = (key: string, t: number): string => w.refA({ sheet: PL, row: w.addr(key).row, col: pc(t) });
-    // Every formula is COLLECTED first and written only once the whole statement has
-    // matched, so a refusal leaves the sheet exactly as the platform printed it.
-    const writes: Array<[string, F]> = [];
-    const writeRow = (key: string, f: F): void => { writes.push([key, f]); };
-    const applyRow = (key: string, f: F): void => {
-      const r = w.addr(key).row;
-      for (let t = 0; t < N; t++) w.fA({ sheet: PL, row: r, col: pc(t) }, f(t));
-      w.fA({ sheet: PL, row: r, col: TOTAL_COL }, `SUM(${w.rangeA(PL, r, pc(0), pc(N - 1))})+N(${w.refA({ sheet: PL, row: r, col: OPEN_COL })})`);
+    // ── Labels that carry a figure ───────────────────────────────────────────
+    const scale = ctx.opts.displayScale ?? 'full';
+    const dp = scale === 'full' ? 0 : (ctx.opts.displayDecimals ?? defaultDecimals(scale));
+    const money = (e: string): string => accT(e, scale, dp);
+    const q = (s: string): string => s.replace(/"/g, '""');
+    const labelWrites: Array<{ sheet: string; key: string; formula: string }> = [];
+    /** fundFeeLineLabel, as a formula: the fee's rate and the base it is charged on. */
+    const feeLabelF = (i: number): string | null => {
+      const line = snap.fundFees.lines[i];
+      const spec = FUND_FEE_SPECS[i];
+      if (!line || !spec || line.base === 'flat_amount' || !has(`ft:${spec.label}`)) return null;
+      const capKey = line.base === 'fund_size' ? 'ftcap:Fund size' : line.base === 'total_equity' ? 'ftcap:Capex equity' : line.base === 'debt_facility' ? 'ftcap:Debt facility' : '';
+      // A typed fund size (the override) is not their sum, so the capital block is not printed: it is the Inputs figure.
+      const typedSize = line.base === 'fund_size' && !has(capKey) && has('ft:Fund size (typed target)');
+      if (!capKey || (!has(capKey) && !typedSize)) return null;
+      const base = typedSize ? `MAX(0,N(${w.ref('ft:Fund size (typed target)')}))` : w.refA(w.addr(capKey));
+      const pct = `TEXT(N(${w.ref(`ft:${spec.label}`)}),"0.00%")`;
+      const name = q(FEE_BASE_LABELS[line.base] ?? line.base);
+      const years = `COLUMNS(${w.rangeA(PL, 3, pc(0), pc(N - 1))})`;
+      const span = line.timing === 'annual' ? `&IF(${years}>1,", "&${years}&" periods","")` : '';
+      return `"${q(line.label)} ("&${pct}&" of ${name}"&IF(${base}<>0," "&${money(base)}${span},", "&${money('0')}&" over the life")&")"`;
     };
-    const nonZero = (v: readonly number[]): boolean => v.some((x) => x !== 0);
+
+    // ── THE P&L ──────────────────────────────────────────────────────────────
+    const writes: Array<[string, string, F, 'sum' | 'first' | 'last']> = [];
     let refused = '';
     /** The project's cost of sales (the whole-project view's), for the indirect cash flow. */
     let cosTotalF: F = () => '0';
-
     const doView = (phaseId: string): void => {
       const phaseFiltered = phaseId !== ALL;
       const matches = (a: { phaseId: string }): boolean => !phaseFiltered || a.phaseId === phaseId;
-      const rows: M4Row[] = buildPLRows({ snap, state, labels, filterPhaseId: phaseId, fmt: (v: number) => String(v), labelFmt: (v: number) => String(v) });
+      const rows: M4Row[] = buildPLRows({ snap, state, labels, filterPhaseId: phaseId, fmt: (v: number) => String(v), labelFmt: (v: number) => String(v), allRows: true });
       const residential = visible.filter((a) => (a.strategy === 'Sell' || a.strategy === 'Sell + Manage') && matches(a));
       const hosp = visible.filter((a) => a.strategy === 'Operate' && matches(a));
       const retail = visible.filter((a) => a.strategy === 'Lease' && matches(a));
       const hospLines = hospitalityStatementsByLine(snap, state, new Set(hosp.map((a) => a.id)));
       const byId = new Map(state.assets.map((a) => [a.id, a] as const));
-      const lineF = (ids: Set<string>, pick: (a: Asset) => F, key: 'revenuePerPeriod' | 'cosPerPeriod' | 'opexPerPeriod'): Array<{ label: string; f: F }> => {
-        const out: Array<{ label: string; f: F }> = [];
-        for (const line of planReportLines(state, (a) => ids.has(a.id))) {
-          if (!nonZero(sumLine(line, (id) => snap.perAssetPL.get(id)?.[key], N))) continue;
-          out.push({ label: lineRowLabel(line, state), f: sumF(line.assetIds.map((id) => pick(byId.get(id)!))) });
-        }
-        return out;
-      };
-      // The members each group carries, in the builder's order.
+      const lineF = (ids: Set<string>, pick: (a: Asset) => F): Array<{ label: string; f: F }> =>
+        planReportLines(state, (a) => ids.has(a.id)).map((line) => ({ label: lineRowLabel(line, state), f: sumF(line.assetIds.map((id) => pick(byId.get(id)!))) }));
       const groups = new Map<string, Array<{ label: string; f: F }>>();
       const heads = new Map<string, F>();
-      let totalRev: F = () => '0';
       const secFs: F[] = [];
       for (const sec of revenueBySection(snap, state, matches)) {
-        if (!nonZero(sec.values)) continue;
         const inSec = new Set(sec.assetIds);
         const g = `pl-rev-${sec.key}`;
         const f = sumF(sec.assetIds.map((id) => assetRev(byId.get(id)!)));
@@ -173,51 +176,44 @@ export const stage5Statements: LiveLayer = {
         for (const h of hospLines) {
           if (!h.line.members.some((m) => inSec.has(m.id))) continue;
           const earnerLine = lineForAsset(lines, h.line.members[0].id);
-          const parts = hospitalityRevenueParts(h.statement);
           const keyOf = ['rooms', 'fb', 'other'];
-          parts.forEach((p, i) => {
-            if (!nonZero(p.values)) return;
+          hospitalityRevenueParts(h.statement).forEach((p, i) => {
             const k = earnerLine ? `rvc:${earnerLine.key}:${keyOf[i]}` : '';
-            members.push({ label: `${h.line.label}: ${p.label}`, f: k && has(k) ? (t) => rv(k, t) : () => '0' });
+            members.push({ label: `${h.line.label}: ${p.label}`, f: k ? keyF(k) : () => '0' });
           });
         }
-        members.push(...lineF(new Set(visible.filter((a) => inSec.has(a.id) && a.strategy !== 'Operate').map((a) => a.id)), assetRev, 'revenuePerPeriod'));
+        members.push(...lineF(new Set(visible.filter((a) => inSec.has(a.id) && a.strategy !== 'Operate').map((a) => a.id)), assetRev));
         groups.set(g, members);
       }
-      totalRev = sumF(secFs);
+      const totalRev = sumF(secFs);
       const cosTotal = sumF(residential.map(assetCos));
       if (!phaseFiltered) cosTotalF = cosTotal;
       heads.set('pl-cos', neg(cosTotal));
-      groups.set('pl-cos', lineF(new Set(residential.map((a) => a.id)), assetCos, 'cosPerPeriod').map((m) => ({ label: m.label, f: neg(m.f) })));
+      groups.set('pl-cos', lineF(new Set(residential.map((a) => a.id)), assetCos).map((m) => ({ label: m.label, f: neg(m.f) })));
       const hospOpex = sumF(hosp.map(assetOpex));
       heads.set('pl-opex-hosp', neg(hospOpex));
       const hospMembers: Array<{ label: string; f: F }> = [];
       for (const h of hospLines) {
-        const parts = hospitalityCostParts(h.statement);
-        parts.forEach((p, i) => {
-          if (!nonZero(p.values)) return;
-          const k = `oxo:${h.line.key}:grp:${HOSPITALITY_COST_GROUPS[i]}`;
-          hospMembers.push({ label: `${h.line.label}: ${p.label}`, f: has(k) ? neg((t) => opexAt(k, t)) : () => '0' });
+        hospitalityCostParts(h.statement).forEach((p, i) => {
+          hospMembers.push({ label: `${h.line.label}: ${p.label}`, f: neg(keyF(`oxo:${h.line.key}:grp:${HOSPITALITY_COST_GROUPS[i]}`)) });
         });
       }
       groups.set('pl-opex-hosp', hospMembers);
       const retailOpex = sumF(retail.map(assetOpex));
       heads.set('pl-opex-ret', neg(retailOpex));
-      groups.set('pl-opex-ret', lineF(new Set(retail.map((a) => a.id)), assetOpex, 'opexPerPeriod').map((m) => ({ label: m.label, f: neg(m.f) })));
-      // Selling and marketing, expensed as incurred (2026-10-08): the plots' `cxe:` working rows on Capex
-      // Calc, summed on the project axis; project level, like HQ.
-      const totalOpex: F = (t) => `${hospOpex(t)}+${retailOpex(t)}+${hq(t)}+${sellingExp(t)}`;
+      groups.set('pl-opex-ret', lineF(new Set(retail.map((a) => a.id)), assetOpex).map((m) => ({ label: m.label, f: neg(m.f) })));
 
-      // Walk the emitted rows.
       const seen = new Map<string, number>();
-      const keyFor = (label: string): string => { const base = `pl|${phaseId}||${label}`; const n = seen.get(base) ?? 0; seen.set(base, n + 1); return n ? `${base}~${n}` : base; };
+      const keyFor = (label: string): string => { const b = `pl|${phaseId}||${label}`; const n = seen.get(b) ?? 0; seen.set(b, n + 1); return n ? `${b}~${n}` : b; };
       const cursor = new Map<string, number>();
       const K = (label: string): string => `pl|${phaseId}||${label}`;
-      const feeKeys: string[] = [];
-      // A fund fee's label carries its base at the workbook's display scale, so a fee
-      // row is found by the fee's own name, the rest of the label being the base.
-      const feeOf = (r: M4Row): number => (phaseFiltered || r.indent !== 1 ? -1 : snap.fundFees.lines.findIndex((l, i) => !feeKeys.includes(String(i)) && r.label.startsWith(`${l.label} (`)
-        && r.values.length === N && r.values.every((v, t) => Math.abs(v + (l.amountPerPeriod[t] ?? 0)) < 1e-6)));
+      const cell = (label: string): F => keyF(K(label));
+      const opexRows: string[] = [];
+      const feeRows: string[] = [];
+      const usedFees = new Set<number>();
+      // A fund fee's label carries its base, so a fee row is found by the fee's own name.
+      const feeOf = (r: M4Row): number => (phaseFiltered || r.indent !== 1 ? -1
+        : snap.fundFees.lines.findIndex((l, i) => !usedFees.has(i) && r.label.startsWith(`${l.label} (`)));
       for (const r of rows) {
         if (r.isSection && (r.collapseRole !== 'header' || r.values.length === 0)) continue;
         const fee = feeOf(r);
@@ -226,115 +222,88 @@ export const stage5Statements: LiveLayer = {
           : keyFor(r.label);
         if (!has(key)) { refused = `the row "${r.label}" is not where the P&L put it`; return; }
         const g = r.collapseGroup;
+        const L = r.label;
         let f: F | undefined;
-        if (g && r.collapseRole === 'header') f = heads.get(g);
+        if (g && r.collapseRole === 'header') { f = heads.get(g); if (g.startsWith('pl-opex')) opexRows.push(key); }
         else if (g && r.collapseRole === 'member') {
           const i = cursor.get(g) ?? 0; cursor.set(g, i + 1);
           const m = groups.get(g)?.[i];
-          if (!m || m.label !== r.label) { refused = `the ${g} rows do not match (${r.label} against ${m?.label ?? 'nothing'})`; return; }
+          if (!m || m.label !== L) { refused = `the ${g} rows do not match (${L} against ${m?.label ?? 'nothing'})`; return; }
           f = m.f;
-        } else if (r.label === 'Total Revenue') f = totalRev;
-        else if (r.label.startsWith('HQ Expenses')) f = neg(hq);
-        else if (r.label.startsWith(SELLING_EXPENSE_LABEL)) f = neg(sellingExp);
-        else if (r.label === 'Total Operating Expenses') f = neg(totalOpex);
-        else if (r.label === labels.ebitda && phaseFiltered) f = (t) => `${cell(K('Total Revenue'), t)}-(${cosTotal(t)})-(${totalOpex(t)})`;
+        } else if (L === 'Total Revenue') f = totalRev;
+        else if (L.startsWith('HQ Expenses')) { f = neg(hq); opexRows.push(key); }
+        else if (L.startsWith(SELLING_EXPENSE_LABEL)) { f = neg(sellingExp); opexRows.push(key); }
+        else if (L === 'Total Operating Expenses') { const rs = [...opexRows]; f = (t) => rs.map((k) => R(k, t)).join('+') || '0'; }
+        else if (L === labels.ebitda && phaseFiltered) f = (t) => `${cell('Total Revenue')(t)}+${has(K('Residential cost of sales')) ? cell('Residential cost of sales')(t) : `-(${cosTotal(t)})`}+${cell('Total Operating Expenses')(t)}`;
         else if (!phaseFiltered) {
-          if (fee >= 0) { feeKeys.push(String(fee)); f = (t) => `-${at(feeRows[fee], t)}`; }
-          else if (r.label === 'Total Fund Management Fee') f = (t) => `-(${feeRows.map((fr) => at(fr, t)).join('+') || '0'})`;
-          else if (r.label === labels.ebitda) f = (t) => `${cell(K('Total Revenue'), t)}-(${cosTotal(t)})-(${totalOpex(t)})${has(K('Total Fund Management Fee')) ? `+${cell(K('Total Fund Management Fee'), t)}` : ''}`;
-          else if (r.label === 'Depreciation & Amortization') f = neg(projDep);
-          else if (r.label === labels.ebit) f = (t) => `${cell(K(labels.ebitda), t)}+${cell(K('Depreciation & Amortization'), t)}`;
-          else if (r.label === 'Interest & financing cost') f = (t) => `-${at(interest, t)}`;
-          else if (r.label === 'Gain on Disposal of Operating Assets') f = (t) => `${at(proceeds, t)}-(${disposed(t)})`;
-          else if (r.label === labels.pbt) f = (t) => `${cell(K(labels.ebit), t)}+${cell(K('Interest & financing cost'), t)}${has(K('Gain on Disposal of Operating Assets')) ? `+${cell(K('Gain on Disposal of Operating Assets'), t)}` : ''}`;
-          else if (r.label.startsWith(`${labels.tax} (`)) {
-            const gain = (t: number): string => (has(K('Gain on Disposal of Operating Assets')) ? cell(K('Gain on Disposal of Operating Assets'), t) : '0');
-            const taxed = state.project.tax?.applyToDisposalGain === true;
-            // The taxable profit and, on the cit basis, the loss pool, on the working sheet (taxRule.ts).
-            const rate = (): string => `MAX(0,N(${w.ref('project:taxRate')}))`;
-            const base = cr++; cs.getCell(base, 1).value = 'taxable profit'; w.claim('stc:tax:base', CALC, base, 1);
-            for (let t = 0; t < N; t++) w.fA(C(base, cT(t)), `${cell(K(labels.pbt), t)}${taxed ? '' : `-${gain(t)}`}`, { cached: 0 });
-            let relief: number | undefined;
-            if (state.project.tax?.basis === 'cit') {
-              const pool = cr++; cs.getCell(pool, 1).value = 'tax losses carried forward'; w.claim('stc:tax:pool', CALC, pool, 1);
-              const rel = cr++; cs.getCell(rel, 1).value = 'tax loss relief'; w.claim('stc:tax:relief', CALC, rel, 1);
-              const before = (t: number): string => (t === 0 ? '0' : at(pool, t - 1));
-              for (let t = 0; t < N; t++) w.fA(C(rel, cT(t)), citReliefF(at(base, t), before(t)), { cached: snap.pl.taxLossReliefPerPeriod?.[t] ?? 0 });
-              for (let t = 0; t < N; t++) w.fA(C(pool, cT(t)), citPoolF(at(base, t), before(t), at(rel, t)), { cached: snap.pl.taxLossCarriedForwardPerPeriod?.[t] ?? 0 });
-              relief = rel;
-            }
-            f = (t) => `-${taxF(at(base, t), rate(), relief !== undefined ? at(relief, t) : undefined)}`;
-          } else if (r.label === labels.pat) {
+          if (fee >= 0) {
+            usedFees.add(fee); feeRows.push(key);
+            f = has(`fnc:fee:${fee}`) ? (t) => `-${R(`fnc:fee:${fee}`, t)}` : () => '0';
+            const lf = feeLabelF(fee);
+            if (lf) labelWrites.push({ sheet: PL, key, formula: lf });
+          } else if (L === 'Total Fund Management Fee') { const rs = [...feeRows]; f = (t) => rs.map((k) => R(k, t)).join('+') || '0'; }
+          else if (L === labels.ebitda) f = (t) => `${cell('Total Revenue')(t)}+${has(K('Residential cost of sales')) ? cell('Residential cost of sales')(t) : `-(${cosTotal(t)})`}+${cell('Total Operating Expenses')(t)}${has(K('Total Fund Management Fee')) ? `+${cell('Total Fund Management Fee')(t)}` : ''}`;
+          else if (L === 'Depreciation & Amortization') f = neg(projDep);
+          else if (L === labels.ebit) f = (t) => `${cell(labels.ebitda)(t)}+${cell('Depreciation & Amortization')(t)}`;
+          else if (L === 'Interest & financing cost') f = keyF('fnc:main:intexp');
+          else if (L === 'Gain on Disposal of Operating Assets') f = (t) => `${keyF('fnc:proceeds')(t)}-(${disposed(t)})`;
+          else if (L === labels.pbt) f = (t) => `${cell(labels.ebit)(t)}+${cell('Interest & financing cost')(t)}${has(K('Gain on Disposal of Operating Assets')) ? `+${cell('Gain on Disposal of Operating Assets')(t)}` : ''}`;
+          else if (L.startsWith(`${labels.tax} (`)) {
+            // The loop's tax, on the loop's own profit before tax (Checks: it equals this P&L's).
+            f = (t) => `-${R('fnc:tax', t)}`;
+            labelWrites.push({ sheet: PL, key, formula: `"${q(labels.tax)} ("&TEXT(N(${w.ref('project:taxRate')}),"0.00%")&")"` });
+          } else if (L === labels.pat) {
             const taxKey = w.reg.keys().find((k) => k.startsWith(`pl|${phaseId}||${labels.tax} (`)) as string;
-            f = (t) => `${cell(K(labels.pbt), t)}+${cell(taxKey, t)}`;
+            f = (t) => `${cell(labels.pbt)(t)}+${R(taxKey, t)}`;
           }
         }
-        if (!f) { refused = `no rule for the P&L row "${r.label}"`; return; }
-        writeRow(key, f);
+        if (!f) { refused = `no rule for the P&L row "${L}"`; return; }
+        writes.push([PL, key, f, 'sum']);
       }
     };
     doView(ALL);
     for (const ph of state.phases) if (!refused && w.reg.keys().some((k) => k.startsWith(`pl|${ph.id}||`))) doView(ph.id);
     if (refused) return [{ sheet: PL, status: 'values' as const, formulas: 0, note: `The P&L could not be made live for this model: ${refused}.` }];
-    for (const [key, f] of writes) applyRow(key, f);
-    const out: Array<{ sheet: string; status: 'live' | 'partial' | 'values'; note: string; formulas: number; waits?: SheetWait }> = [{
-      sheet: PL, status: 'partial' as const, formulas: w.formulas.get(PL) ?? 0,
-      note: 'Live: the income statement, project and per phase, every row a formula over the Revenue, Cost of Sales, Opex and Schedules working sheets, down to profit after tax at the Inputs sheet\'s rate.',
-      waits: {
-        on: 'financing',
-        text: 'The fund fees, interest, the depreciation on capitalised interest and cost of sales (which carries it) come out of the financing and wait for that stage, and so do the exit proceeds.',
-        after: 'The fund fees, interest, the depreciation on capitalised interest, cost of sales and the exit proceeds read the live financing solve.',
-        // With no Fund Fee Basis block the financing was all that kept the P&L partial;
-        // where there is one, stage 8 (stage8FundFees) says whether it is live.
-        afterStatus: w.reg.keys().some((k) => k.startsWith('plfee|')) ? 'partial' : 'live',
-      },
-    }];
+    const plWrites = writes.splice(0);
+    const out: Array<{ sheet: string; status: 'live' | 'partial' | 'values'; note: string; formulas: number }> = [];
 
     // ── THE CASH FLOW, direct (project and per phase) and indirect ───────────
-    const CF = 'Cash Flow';
-    // The P&L prints its cost of sales rows only while non-zero, so where it has none the
-    // add-back reads the same working-sheet rows the P&L header would have summed.
-    const cosAddBack: F = (t) => (has(`pl|${ALL}||Residential cost of sales`) ? `-${plCell('Residential cost of sales', t)}` : cosTotalF(t));
-    const cfWrites: Array<[string, F, 'sum' | 'first' | 'last']> = [];
-    let cfRefused = '';
-    const plCell = (label: string, t: number): string => w.refA({ sheet: PL, row: w.addr(`pl|${ALL}||${label}`).row, col: pc(t) });
-    const plKey = (prefix: string): string | undefined => w.reg.keys().find((k) => k.startsWith(`pl|${ALL}||${prefix}`));
-    // The tax payable at each close (taxPayable in the resolver), on the working sheet.
-    const taxPlKey = plKey(`${labels.tax} (`);
-    let taxPay: F = () => '0';
-    if (taxLag && taxPlKey) {
-      const rPay = cr++; cs.getCell(rPay, 1).value = 'tax payable at the year end'; w.claim('stc:tax:payable', CALC, rPay, 1);
-      for (let t = 0; t < N; t++) w.fA(C(rPay, cT(t)), `-${w.refA({ sheet: PL, row: w.addr(taxPlKey).row, col: pc(t) })}*MIN(365,MAX(0,N(${w.ref('project:taxDays')})))/365`, { cached: snap.bs.taxPayablePerPeriod?.[t] ?? 0 });
-      taxPay = (t) => at(rPay, t);
-    }
-    const taxPayChange: F = (t) => (t === 0 ? taxPay(t) : `(${taxPay(t)}-${taxPay(t - 1)})`);
-    const cx = (k: string, t: number): string => w.per(k, t);
+    const plF = (label: string): F => keyF(`pl|${ALL}||${label}`);
+    const cosAddBack: F = (t) => (has(`pl|${ALL}||Residential cost of sales`) ? `-${R(`pl|${ALL}||Residential cost of sales`, t)}` : cosTotalF(t));
+    const taxPay: F = taxLag ? keyF('fnc:taxpay') : () => '0';
     const costLineOf = (id: string): Pick<CostLine, 'id' | 'catalogId'> => (state.costLines as CostLine[]).find((x) => x.id === id) ?? { id };
     const capexRowsOf = (a: Asset): { cash: string[]; inKind: string[] } => {
       const keys = w.reg.keys().filter((k) => k.startsWith(`cxc:${a.id}:`) && k.split(':').length === 3);
       const inKind = keys.filter((k) => isLandValueLine(costLineOf(k.split(':')[2])) && capexMethodOf(state as never, k) === 'percent_of_inkind_land');
       return { cash: keys.filter((k) => !inKind.includes(k)), inKind };
     };
-    const capexCash = (a: Asset): F => { const k = capexRowsOf(a).cash; return (t) => k.map((x) => cx(x, t)).join('+') || '0'; };
-    const inKindOf = (a: Asset): F => { const k = capexRowsOf(a).inKind; return (t) => k.map((x) => cx(x, t)).join('+') || '0'; };
-    const revRcv = (a: Asset): F => ((a.strategy === 'Sell' || a.strategy === 'Sell + Manage')
-      ? (has(`rvc:${a.id}:cash`) ? (t) => rv(`rvc:${a.id}:cash`, t) : () => '0')
-      : assetRev(a));
+    const capexCash = (a: Asset): F => { const k = capexRowsOf(a).cash; return (t) => k.map((x) => R(x, t)).join('+') || '0'; };
+    const inKindOf = (a: Asset): F => { const k = capexRowsOf(a).inKind; return (t) => k.map((x) => R(x, t)).join('+') || '0'; };
+    const revRcv = (a: Asset): F => ((a.strategy === 'Sell' || a.strategy === 'Sell + Manage') ? keyF(`rvc:${a.id}:cash`) : assetRev(a));
     // The Opex tab shows cash paid as a negative row ("Less: Cash Paid").
-    const opexPaid = (a: Asset): F => (has(`oxo:ap:${a.id}:lessPaid`) ? (t) => `-${opexAt(`oxo:ap:${a.id}:lessPaid`, t)}` : () => '0');
-    const hqPaid: F = (t) => `-${opexAt('oxo:ap:hq:lessPaid', t)}`;
+    const opexPaid = (a: Asset): F => neg(keyF(`oxo:ap:${a.id}:lessPaid`));
+    const hqPaid: F = neg(keyF('oxo:ap:hq:lessPaid'));
     const sellEarners = visible.filter((a) => (a.strategy === 'Sell' || a.strategy === 'Sell + Manage') && has(`rvc:${a.id}:cash`));
-    const lineSeries = (k: string): F => (t) => sellEarners.map((a) => { const l = lineForAsset(lines, a.id); return l && has(`rvc:${l.key}:${k}`) ? rv(`rvc:${l.key}:${k}`, t) : '0'; }).join('+') || '0';
+    const lineSeries = (k: string): F => (t) => sellEarners.map((a) => { const l = lineForAsset(lines, a.id); return l && has(`rvc:${l.key}:${k}`) ? R(`rvc:${l.key}:${k}`, t) : '0'; }).join('+') || '0';
     const resAr = lineSeries('ar');
     const unearned = lineSeries('ur');
-    const prevOf = (f: F, t: number): string => (t === 0 ? '0' : f(t - 1));
     const escB = (label: string): string => `esc||B. Escrow Balance Roll-Forward|${label}`;
-    const revCell = (key: string, t: number): string => w.refA({ sheet: 'Revenue', row: w.addr(key).row, col: pc(t) });
-    const hasEscrow = has(escB('Closing Balance'));
-    const escClose: F = (t) => (hasEscrow ? revCell(escB('Closing Balance'), t) : '0');
-    const apClose: F = (t) => w.refA({ sheet: 'Opex', row: w.addr('opex|__project__|ap|Closing AP').row, col: pc(t) });
-    const pendCf = new Map<string, number>();
+    const escClose: F = keyF(escB('Closing Balance'));
+    const apClose: F = keyF('opex|__project__|ap|Closing AP');
+    const opArProject: F = (t) => lines.filter((l) => l.form !== 'sell').map((l) => `rvc:${l.key}:opar`).filter(has).map((k) => R(k, t)).join('+') || '0';
+    const facs = state.financingTranches ?? [];
+    const originF = (origin: 'new' | 'existing') => {
+      const fs = facs.filter((f) => (f.origin === 'existing' ? 'existing' : 'new') === origin);
+      return {
+        draw: (t: number): string => fs.map((f) => `${keyF(`fnc:tr:${f.id}:draw`)(t)}+${keyF(`fnc:tr:${f.id}:idc`)(t)}`).join('+') || '0',
+        repay: (t: number): string => `${fs.map((f) => keyF(`fnc:tr:${f.id}:repaid`)(t)).join('+') || '0'}${booked ? `-${exitF(t)}*MAX(0,${fs.map((f) => keyF(`fnc:main:tr:${f.id}:bal`)(t)).join('+') || '0'})` : ''}`,
+        int: (t: number): string => `-(${fs.map((f) => keyF(`fnc:tr:${f.id}:charge`)(t)).join('+') || '0'})`,
+      };
+    };
+    const debtBs: F = has('fnc:main:debtbs') ? keyF('fnc:main:debtbs')
+      : (t) => facs.map((f) => `(1-${exitF(t)})*${keyF(`fnc:main:tr:${f.id}:bal`)(t)}`).join('+') || '0';
 
+    let cfRefused = '';
     const cfView = (view: string, phaseId: string, rows: M4Row[]): void => {
       const phaseFiltered = phaseId !== ALL;
       const matches = (a: { phaseId: string }): boolean => !phaseFiltered || a.phaseId === phaseId;
@@ -343,57 +312,48 @@ export const stage5Statements: LiveLayer = {
       const ret = visible.filter((a) => a.strategy === 'Lease' && matches(a));
       const all = [...res, ...hosp, ...ret];
       const byId = new Map(state.assets.map((a) => [a.id, a] as const));
-      const cfSeries = (id: string, k: 'revenueReceivedPerPeriod' | 'opexPaidPerPeriod' | 'capex'): number[] | undefined => {
-        const cf = snap.perAssetCF.get(id);
-        if (!cf) return undefined;
-        return k === 'capex' ? cf.capexPerPeriod.map((v, t) => (v ?? 0) - (cf.landInKindPerPeriod[t] ?? 0)) : (cf[k] as number[]);
-      };
-      const members = (list: Asset[], pick: (a: Asset) => F, k: 'revenueReceivedPerPeriod' | 'opexPaidPerPeriod' | 'capex', sign: 1 | -1): Array<{ label: string; f: F }> => {
+      const members = (list: Asset[], pick: (a: Asset) => F, sign: 1 | -1): Array<{ label: string; f: F }> => {
         const ids = new Set(list.map((a) => a.id));
-        const outM: Array<{ label: string; f: F }> = [];
-        for (const line of planReportLines(state, (a) => ids.has(a.id))) {
-          if (!nonZero(sumLine(line, (id) => cfSeries(id, k), N))) continue;
+        return planReportLines(state, (a) => ids.has(a.id)).map((line) => {
           const f = sumF(line.assetIds.map((id) => pick(byId.get(id)!)));
-          outM.push({ label: lineRowLabel(line, state), f: sign === 1 ? f : neg(f) });
-        }
-        return outM;
+          return { label: lineRowLabel(line, state), f: sign === 1 ? f : neg(f) };
+        });
       };
       const groups = new Map<string, Array<{ label: string; f: F }>>([
-        ['cf-rev-res', members(res, revRcv, 'revenueReceivedPerPeriod', 1)], ['cf-rev-hosp', members(hosp, revRcv, 'revenueReceivedPerPeriod', 1)], ['cf-rev-ret', members(ret, revRcv, 'revenueReceivedPerPeriod', 1)],
-        ['cf-opex-hosp', members(hosp, opexPaid, 'opexPaidPerPeriod', -1)], ['cf-opex-ret', members(ret, opexPaid, 'opexPaidPerPeriod', -1)],
-        ['cf-capex-res', members(res, capexCash, 'capex', -1)], ['cf-capex-hosp', members(hosp, capexCash, 'capex', -1)], ['cf-capex-ret', members(ret, capexCash, 'capex', -1)],
+        ['cf-rev-res', members(res, revRcv, 1)], ['cf-rev-hosp', members(hosp, revRcv, 1)], ['cf-rev-ret', members(ret, revRcv, 1)],
+        ['cf-opex-hosp', members(hosp, opexPaid, -1)], ['cf-opex-ret', members(ret, opexPaid, -1)],
+        ['cf-capex-res', members(res, capexCash, -1)], ['cf-capex-hosp', members(hosp, capexCash, -1)], ['cf-capex-ret', members(ret, capexCash, -1)],
       ]);
       const heads = new Map<string, F>([
         ['cf-rev-res', sumF(res.map(revRcv))], ['cf-rev-hosp', sumF(hosp.map(revRcv))], ['cf-rev-ret', sumF(ret.map(revRcv))],
         ['cf-opex-hosp', neg(sumF(hosp.map(opexPaid)))], ['cf-opex-ret', neg(sumF(ret.map(opexPaid)))],
         ['cf-capex-res', neg(sumF(res.map(capexCash)))], ['cf-capex-hosp', neg(sumF(hosp.map(capexCash)))], ['cf-capex-ret', neg(sumF(ret.map(capexCash)))],
       ]);
-      // The operating receivable: on the project's (or this phase's) operating revenue, at the project DSO.
+      // The operating receivable of the lines in this view, each at its own days (Revenue).
       const opRev = sumF([...hosp, ...ret].map(assetRev));
-      // The receivable of the lines in this view, each at its own days (Revenue Calc).
       const viewIds = new Set([...hosp, ...ret].map((a) => a.id));
       const oparKeys = lines.filter((l) => l.form !== 'sell' && l.members.some((m) => viewIds.has(m.id))).map((l) => `rvc:${l.key}:opar`).filter(has);
-      const opAr: F = (t) => oparKeys.map((k) => rv(k, t)).join('+') || '0';
-      const opCash: F = (t) => `MAX(0,${opRev(t)})-(${opAr(t)}-(${prevOf(opAr, t)}))`;
+      const opAr: F = (t) => oparKeys.map((k) => R(k, t)).join('+') || '0';
+      const opCash: F = (t) => `MAX(0,${opRev(t)})-(${delta(opAr)(t)})`;
       const inKind = sumF(all.map(inKindOf));
-      const cash = sumF(all.map(capexCash));
-
       const seen = new Map<string, number>();
-      const keyFor = (label: string): string => { const base = `cf|${view}||${label}`; const n = seen.get(base) ?? 0; seen.set(base, n + 1); return n ? `${base}~${n}` : base; };
+      const keyFor = (label: string): string => { const b = `cf|${view}||${label}`; const n = seen.get(b) ?? 0; seen.set(b, n + 1); return n ? `${b}~${n}` : b; };
       const K = (label: string): string => `cf|${view}||${label}`;
-      const C2 = (label: string, t: number): string => (has(K(label)) ? w.refA({ sheet: CF, row: w.addr(K(label)).row, col: pc(t) }) : '0');
-      const sumRows = (labs: string[]): F => (t) => labs.filter((l) => has(K(l))).map((l) => C2(l, t)).join('+') || '0';
-      /** A phase's escrow: its revenue lines' held or released cash (the escrow working rows). */
-      // A line holds its row on Revenue's escrow table, and releases all it has held so far in its release year.
+      const sumRows = (labs: string[]): F => (t) => labs.filter((l) => has(K(l))).map((l) => R(K(l), t)).join('+') || '0';
+      /** A phase's escrow: its revenue lines' held cash, and all held so far released in the release year. */
       const phaseEscrow = (kind: 'held' | 'release'): F => (t) => lines.filter((l) => l.phaseId === phaseId && has(`escc:${l.key}:held`)).map((l) => {
-        if (kind === 'held') return w.per(`escc:${l.key}:held`, t);
-        const relY = w.refA({ sheet: 'Revenue', row: w.addr(`escc:${l.key}:in`).row, col: PERIOD_COLS.OPEN_COL + 3 });
-        const yr = (c: number): string => w.refA({ sheet: 'Revenue', row: 3, col: c });
-        return `(${yr(pc(t))}=MAX(${yr(pc(0))},MIN(${yr(pc(N - 1))},${relY})))*SUM(${w.rangeA('Revenue', w.addr(`escc:${l.key}:held`).row, pc(0), pc(t))})`;
+        if (kind === 'held') return R(`escc:${l.key}:held`, t);
+        const relY = w.refA({ sheet: 'Revenue', row: w.addr(`escc:${l.key}:in`).row, col: PERIOD_COLS.OPEN_COL + 3 }, here);
+        const yr = (c: number, rel = false): string => (rel ? w.refP({ sheet: 'Revenue', row: 3, col: c }, here) : w.refA({ sheet: 'Revenue', row: 3, col: c }, here));
+        const hr = w.addr(`escc:${l.key}:held`).row;
+        const toNow = `'Revenue'!$${colLetter(pc(0))}$${hr}:${colLetter(pc(t))}$${hr}`;
+        w.refP({ sheet: 'Revenue', row: hr, col: pc(t) }, here);
+        return `(${yr(pc(t), true)}=MAX(${yr(pc(0))},MIN(${yr(pc(N - 1))},${relY})))*SUM(${toNow})`;
       }).join('+') || '0';
       const cursor = new Map<string, number>();
       const financing: string[] = [];
       const operating: string[] = [];
+      const investing: string[] = [];
       let inFinancing = false;
       let inIndirectOps = view === 'indirect';
       for (const r of rows) {
@@ -408,129 +368,116 @@ export const stage5Statements: LiveLayer = {
         const L = r.label;
         let f: F | undefined;
         let tot: 'sum' | 'first' | 'last' = 'sum';
-        if (g && r.collapseRole === 'header') f = heads.get(g);
+        if (g && r.collapseRole === 'header') { f = heads.get(g); if (g.startsWith('cf-capex')) investing.push(L); }
         else if (g && r.collapseRole === 'member') {
           const i = cursor.get(g) ?? 0; cursor.set(g, i + 1);
           const m = groups.get(g)?.[i];
           if (!m || m.label !== L) { cfRefused = `the ${g} rows do not match (${L} against ${m?.label ?? 'nothing'})`; return; }
           f = m.f;
         } else if (inIndirectOps) {
-          if (L === 'Cash Flow from Operations') f = sumRows([...operating]);
+          if (L === 'Cash Flow from Operations') { const rs = [...operating]; f = sumRows(rs); }
           else {
             operating.push(L);
-            if (L === labels.pat) f = (t) => plCell(labels.pat, t);
-            else if (L === '(+) Depreciation & Amortization') f = (t) => `-${plCell('Depreciation & Amortization', t)}`;
-            else if (L === '(+) Interest expense (add back)') f = (t) => `-${plCell('Interest & financing cost', t)}`;
-            else if (L.startsWith('(−) Change in AR')) f = (t) => `-((${opAr(t)}+${resAr(t)})-(${prevOf(opAr, t)}+${prevOf(resAr, t)}))`;
+            if (L.startsWith(labels.pat)) f = plF(labels.pat);
+            else if (L.startsWith('(+) Depreciation & Amortization')) f = neg(plF('Depreciation & Amortization'));
+            else if (L.startsWith('(+) Interest expense (add back)')) f = neg(plF('Interest & financing cost'));
+            else if (L.startsWith('(−) Change in AR')) f = neg(delta((t) => `${opAr(t)}+${resAr(t)}`));
             else if (L === '(+) Cost of sales (add back; capex in investing)') f = cosAddBack;
-            else if (L.startsWith('(−) Gain on disposal')) f = (t) => `-${plCell('Gain on Disposal of Operating Assets', t)}`;
-            else if (L === '(+) Change in AP') f = (t) => `${apClose(t)}-${prevOf(apClose, t)}`;
-            else if (L === '(+) Change in Unearned Revenue') f = (t) => `(${unearned(t)})-(${prevOf(unearned, t)})`;
-            else if (L === `(+) Change in ${labels.tax} payable`) f = taxPayChange;
-            else if (L === '(+) Change in Escrow balance') f = (t) => `-((${escClose(t)})-(${prevOf(escClose, t)}))`;
+            else if (L.startsWith('(−) Gain on disposal')) f = neg(plF('Gain on Disposal of Operating Assets'));
+            else if (L === '(+) Change in AP') f = delta(apClose);
+            else if (L === '(+) Change in Unearned Revenue') f = delta(unearned);
+            else if (L === `(+) Change in ${labels.tax} payable`) f = delta(taxPay);
+            else if (L === '(+) Change in Escrow balance') f = neg(delta(escClose));
           }
         } else if (L === 'Total Revenue Received') f = (t) => `${sumF(res.map(revRcv))(t)}+${opCash(t)}`;
-        else if (L === 'Less: Inaccessible Funds Locked') f = phaseFiltered ? neg(phaseEscrow('held')) : (t) => `-${revCell(escB('Total Additions'), t)}`;
-        else if (L === 'Add: Release of Inaccessible Funds') f = phaseFiltered ? phaseEscrow('release') : (t) => `-${revCell(escB('Less: Release of Locked Funds'), t)}`;
+        else if (L === 'Less: Inaccessible Funds Locked') f = phaseFiltered ? neg(phaseEscrow('held')) : neg(keyF(escB('Total Additions')));
+        else if (L === 'Add: Release of Inaccessible Funds') f = phaseFiltered ? phaseEscrow('release') : neg(keyF(escB('Less: Release of Locked Funds')));
         else if (L.startsWith('HQ Expenses')) f = neg(hqPaid);
         else if (L.startsWith(SELLING_EXPENSE_LABEL)) f = neg(sellingExp);
         else if (L === '= Residential Cash Collection') f = (t) => `${sumF(res.map(revRcv))(t)}-(${sumF(res.map(opexPaid))(t)})`;
         else if (L === '= Hospitality EBITDA') f = (t) => `${sumF(hosp.map(revRcv))(t)}-(${sumF(hosp.map(opexPaid))(t)})`;
         else if (L === '= Retail NOI') f = (t) => `${sumF(ret.map(revRcv))(t)}-(${sumF(ret.map(opexPaid))(t)})`;
         else if (L === 'Total Operating Expenses Paid') f = (t) => `-(${sumF(all.map(opexPaid))(t)})-${hqPaid(t)}-(${sellingExp(t)})`;
-        else if (L === 'Fund Management and Other Expenses') f = (t) => `-(${feeRows.map((fr) => at(fr, t)).join('+') || '0'})`;
-        else if (L === labels.taxPaid) { const tk = plKey(`${labels.tax} (`); if (tk) f = (t) => `${w.refA({ sheet: PL, row: w.addr(tk).row, col: pc(t) })}${taxLag ? `+${taxPayChange(t)}` : ''}`; }
+        else if (L === 'Fund Management and Other Expenses') f = neg(feesF);
+        else if (L === labels.taxPaid) f = neg(keyF('fnc:taxpaid'));
         else if (L === 'Cash Flow from Operations') {
-          // A TOTAL CARRIES EVERY COMPONENT, SHOWN OR NOT (2026-09-27): the platform
-          // prints the escrow, fee and tax rows only while non-zero, so a row absent
-          // at export is added here by its own rule, or an input that makes it
-          // non-zero would reach the platform's total and never this one.
-          const escrowIn = (t: number): string => (has(K('Less: Inaccessible Funds Locked')) ? '0'
-            : phaseFiltered ? `-(${phaseEscrow('held')(t)})+(${phaseEscrow('release')(t)})`
-              : !hasEscrow ? '0' : `-${revCell(escB('Total Additions'), t)}-${revCell(escB('Less: Release of Locked Funds'), t)}`);
-          const feesIn = (t: number): string => (phaseFiltered || has(K('Fund Management and Other Expenses')) || !feeRows.length ? '0' : `-(${feeRows.map((fr) => at(fr, t)).join('+')})`);
-          const taxKey = plKey(`${labels.tax} (`);
-          const taxIn = (t: number): string => (phaseFiltered || has(K(labels.taxPaid)) || !taxKey ? '0' : w.refA({ sheet: PL, row: w.addr(taxKey).row, col: pc(t) }));
-          const shown = sumRows(['Total Revenue Received', 'Less: Inaccessible Funds Locked', 'Add: Release of Inaccessible Funds', 'Total Operating Expenses Paid', 'Fund Management and Other Expenses', labels.taxPaid]);
-          f = (t) => `${shown(t)}+${escrowIn(t)}+${feesIn(t)}+${taxIn(t)}`;
+          // Every component is a row (the builder prints them all): the totals add the rows.
+          f = sumRows(['Total Revenue Received', 'Less: Inaccessible Funds Locked', 'Add: Release of Inaccessible Funds', 'Total Operating Expenses Paid', 'Fund Management and Other Expenses', labels.taxPaid]);
         }
-        else if (L.startsWith('Land In-Kind')) f = neg(inKind);
-        else if (L === 'Total Capex') f = (t) => `-(${cash(t)})-(${inKind(t)})`;
-        else if (L === 'Proceeds from Disposal of Operating Assets') f = (t) => at(proceeds, t);
+        else if (L.startsWith('Land In-Kind')) { f = neg(inKind); investing.push(L); }
+        else if (L === 'Total Capex') { const rs = [...investing]; f = sumRows(rs); }
+        // The exit is project level: a phase's view shows the row at zero, as the platform does.
+        else if (L === 'Proceeds from Disposal of Operating Assets') f = phaseFiltered ? () => '0' : keyF('fnc:proceeds');
         else if (L === 'Cash Flow from Investment') f = sumRows(['Total Capex', 'Proceeds from Disposal of Operating Assets']);
-        else if (inFinancing && L.startsWith('In-Kind Equity')) { f = inKind; financing.push(L); }
-        else if (inFinancing && L === 'Cash Flow from Financing') f = sumRows([...financing]);
+        else if (inFinancing && L === 'Cash Flow from Financing') { const rs = [...financing]; f = sumRows(rs); }
         else if (inFinancing && !['Net Cash Flow', 'Opening cash', 'Closing cash'].includes(L)) {
-          // The financing solve owns these (equity, debt, interest paid, dividends): the platform's values, pending.
-          const pk = `stc:cf:${L}`;
-          if (!pendCf.has(pk)) pendCf.set(pk, pendingRow(pk, `${L} (financing, pending)`, r.values));
-          const pr = pendCf.get(pk)!;
-          f = (t) => at(pr, t);
+          // The financing flows, read from the loop's rows on Financing.
+          const nw = originF('new'), ex = originF('existing');
+          if (L.startsWith('In-Kind Equity')) f = inKind;
+          else if (L === 'Equity Drawdown, development') f = keyF('fnc:main:equity');
+          else if (L === 'Equity Drawdown (Cash)') f = sumF([keyF('fnc:main:equity'), keyF('fnc:main:feedraw')]);
+          else if (L === 'Equity Drawdown, management fee') f = keyF('fnc:main:feedraw');
+          else if (L === 'Debt Drawdown, New loans') f = nw.draw;
+          else if (L === 'Debt Repayment, New loans') f = nw.repay;
+          else if (L === 'Interest Paid, New loans') f = nw.int;
+          else if (L === 'Debt Drawdown, Existing loans') f = ex.draw;
+          else if (L === 'Debt Repayment, Existing loans') f = ex.repay;
+          else if (L === 'Interest Paid, Existing loans') f = ex.int;
+          else if (L === 'Dividends paid') f = keyF('fnc:main:div');
           financing.push(L);
         } else if (L === 'Net Cash Flow') f = sumRows(['Cash Flow from Operations', 'Cash Flow from Investment', 'Cash Flow from Financing']);
-        else if (L === 'Opening cash') { const o0 = snap.directCF.openingCashPerPeriod[0] ?? 0; f = (t) => (t === 0 ? String(o0) : C2('Closing cash', t - 1)); tot = 'first'; }
+        else if (L === 'Opening cash') { f = (t) => prevOf(keyF(K('Closing cash')), t); tot = 'first'; }
         else if (L === 'Closing cash') { f = sumRows(['Opening cash', 'Net Cash Flow']); tot = 'last'; }
         if (!f) { cfRefused = `no rule for the Cash Flow row "${L}"${phaseFiltered ? ` (${phaseId})` : ''}`; return; }
-        cfWrites.push([key, f, tot]);
+        writes.push([CF, key, f, tot]);
       }
     };
-    cfView('direct', ALL, buildDirectCFRows({ snap, state, labels, filterPhaseId: ALL, fmt: (v: number) => String(v) }));
-    if (!cfRefused) cfView('indirect', ALL, buildIndirectCFRows({ snap, state, labels, filterPhaseId: ALL, fmt: (v: number) => String(v) }));
-    for (const ph of state.phases) if (!cfRefused && w.reg.keys().some((k) => k.startsWith(`cf|${ph.id}||`))) cfView(ph.id, ph.id, buildDirectCFRows({ snap, state, labels, filterPhaseId: ph.id, fmt: (v: number) => String(v) }));
-    if (cfRefused) out.push({ sheet: CF, status: 'values' as const, formulas: 0, note: `The Cash Flow could not be made live for this model: ${cfRefused}.` });
-    else {
-      for (const [key, f, tot] of cfWrites) {
-        const r = w.addr(key).row;
-        for (let t = 0; t < N; t++) w.fA({ sheet: CF, row: r, col: pc(t) }, f(t));
-        const rng = (): string => w.rangeA(CF, r, pc(0), pc(N - 1));
-        w.fA({ sheet: CF, row: r, col: TOTAL_COL }, tot === 'first' ? w.refA({ sheet: CF, row: r, col: pc(0) }) : tot === 'last' ? w.refA({ sheet: CF, row: r, col: pc(N - 1) }) : `SUM(${rng()})+N(${w.refA({ sheet: CF, row: r, col: OPEN_COL })})`);
-      }
-      out.push({
-        sheet: CF, status: 'partial' as const, formulas: w.formulas.get(CF) ?? 0,
-        note: 'Live: the direct cash flow (revenue received, the operating receivable on the project DSO, opex paid through the payables, tax, capex per line from the Capex working sheet, land in kind), the indirect cash flow from profit after tax, and net, opening and closing cash.',
-        waits: {
-          on: 'financing',
-          text: 'The financing flows (equity and debt drawn, repayments, interest paid, dividends), the fund fees and the exit proceeds come out of the financing solve and wait for that stage.',
-          after: 'The financing flows (equity and debt drawn, repayments, interest paid, dividends), the fund fees and the exit proceeds read the live financing solve.',
-          afterStatus: 'live',
-        },
-      });
-    }
-    // ── THE BALANCE SHEET ────────────────────────────────────────────────────
-    // Land and depreciable NBV from the Schedules working sheet (after the exit
-    // write-off), cash from the Cash Flow, the receivables, inventory, escrow,
-    // payables and unearned revenue from the working sheets, retained earnings
-    // rolled forward from profit after tax less the statutory reserve transfer
-    // and the dividends. Debt and share capital come out of the financing solve.
-    const BS = 'Balance Sheet';
-    const bsWrites: Array<[string, F]> = [];
+    cfView('direct', ALL, buildDirectCFRows({ snap, state, labels, filterPhaseId: ALL, fmt: (v: number) => String(v), allRows: true }));
+    if (!cfRefused) cfView('indirect', ALL, buildIndirectCFRows({ snap, state, labels, filterPhaseId: ALL, fmt: (v: number) => String(v), allRows: true }));
+    for (const ph of state.phases) if (!cfRefused && w.reg.keys().some((k) => k.startsWith(`cf|${ph.id}||`))) cfView(ph.id, ph.id, buildDirectCFRows({ snap, state, labels, filterPhaseId: ph.id, fmt: (v: number) => String(v), allRows: true }));
+    const cfWrites = cfRefused ? [] : writes.splice(0);
+    if (cfRefused) writes.length = 0;
+
+    // ── THE BALANCE SHEET and its equity roll-forwards ───────────────────────
     let bsRefused = cfRefused ? 'the Cash Flow is not live' : '';
-    const bsRows = buildBSRows({ snap, state, labels, filterPhaseId: ALL, fmt: (v: number) => String(v) }).rows;
+    const bsRows = buildBSRows({ snap, state, labels, filterPhaseId: ALL, fmt: (v: number) => String(v), allRows: true }).rows;
     const BK = (label: string): string => `bs|${ALL}||${label}`;
-    const bsCell = (label: string, t: number): string => w.refA({ sheet: BS, row: w.addr(BK(label)).row, col: pc(t) });
-    const hasB = (label: string): boolean => has(BK(label));
-    const sumB = (labs: string[]): F => (t) => labs.filter(hasB).map((l) => bsCell(l, t)).join('+') || '0';
-    const sc = (key: string): F => (t) => w.per(key, t);
-    const cfCell = (label: string, t: number): string => w.refA({ sheet: CF, row: w.addr(`cf|direct||${label}`).row, col: pc(t) });
-    const opArProject: F = (t) => lines.filter((l) => l.form !== 'sell').map((l) => `rvc:${l.key}:opar`).filter(has).map((k) => rv(k, t)).join('+') || '0';
-    const debtRow = pendingRow('stc:bs:debt', 'debt outstanding (financing, pending)', snap.bs.debtOutstandingPerPeriod);
-    const shareRow = pendingRow('stc:bs:share', 'share capital (financing, pending)', snap.bs.shareCapitalPerPeriod);
-    const reserveCapPct = Math.max(0, state.project.statutoryReserve?.capOfShareCapital ?? 0);
-    // The reserve: the transfer in force each year and the running balance, on the working sheet.
-    const rTransfer = cr++; cs.getCell(rTransfer, 1).value = 'statutory reserve transfer'; w.claim('stc:bs:transfer', CALC, rTransfer, 1);
-    const rReserve = cr++; cs.getCell(rReserve, 1).value = 'statutory reserve balance'; w.claim('stc:bs:reserve', CALC, rReserve, 1);
-    const rRetained = cr++; cs.getCell(rRetained, 1).value = 'retained earnings'; w.claim('stc:bs:retained', CALC, rRetained, 1);
-    const divKey = w.reg.keys().find((k) => k === 'cf|direct||Dividends paid');
-    const pat: F = (t) => plCell(labels.pat, t);
-    for (let t = 0; t < N; t++) {
-      const prevRes = t === 0 ? '0' : at(rReserve, t - 1);
-      const transfer = `MAX(0,${pat(t)})*MAX(0,N(${w.ref('project:reserveRate')}))`;
-      const cap = reserveCapPct > 0 ? `${at(shareRow, t)}*MAX(0,N(${w.ref('project:reserveCap')}))` : '';
-      w.fA(C(rTransfer, cT(t)), cap ? `MAX(0,MIN(${transfer},${cap}-${prevRes}))` : `MAX(0,${transfer})`, { cached: snap.bs.statutoryReserveTransferPerPeriod?.[t] ?? 0 });
-      w.fA(C(rReserve, cT(t)), `${prevRes}+${at(rTransfer, t)}`, { cached: snap.bs.statutoryReservePerPeriod[t] ?? 0 });
-      w.fA(C(rRetained, cT(t)), `${t === 0 ? '0' : at(rRetained, t - 1)}+${pat(t)}-${at(rTransfer, t)}${divKey ? `+${w.refA({ sheet: CF, row: w.addr(divKey).row, col: pc(t) })}` : ''}`, { cached: snap.bs.retainedEarningsPerPeriod[t] ?? 0 });
+    const sumB = (labs: string[]): F => (t) => labs.filter((l) => has(BK(l))).map((l) => R(BK(l), t)).join('+') || '0';
+    const sc = (key: string): F => keyF(key);
+    const E1 = (l: string): string => `sch|E1||${l}`, SR = (l: string): string => `sch|SR||${l}`, E2 = (l: string): string => `sch|E2||${l}`;
+    const rollKeys = [E1('Opening equity'), E1('(+) Cash equity drawdown'), E1('(+) In-Kind equity (land in-kind, non-cash)'), E1('Closing equity (cumulative)'),
+      SR('Opening statutory reserve'), SR('(+) Transfer from profit after tax'), SR('Closing statutory reserve'),
+      E2('Opening retained earnings'), E2('(+) PAT for the period'), E2('(−) Transfer to statutory reserve'), E2('(−) Dividends declared'), E2('Closing retained earnings')];
+    const missingRoll = rollKeys.filter((k) => !has(k));
+    if (!bsRefused && missingRoll.length) bsRefused = `the roll-forward row ${missingRoll[0].split('||')[1]} is not on the Balance Sheet`;
+    if (!bsRefused && (!has('project:reserveRate') || !has('project:shareCapital') || ((state.project.statutoryReserve?.capOfShareCapital ?? 0) > 0 && !has('project:reserveCap')))) bsRefused = 'the share capital and statutory reserve inputs are not on the Inputs sheet';
+    const shareClose = sc(E1('Closing equity (cumulative)'));
+    if (!bsRefused) {
+      // Equity: the opening (the share capital typed on Inputs before the first year), the cash
+      // and in-kind equity drawn, the closing. Every opening is the closing of the year before.
+      const cashEq = sumF([keyF('fnc:main:equity'), keyF('fnc:main:feedraw')]);
+      writes.push([BS, E1('Opening equity'), (t) => prevOf(shareClose, t), 'first']);
+      writes.push([BS, E1('(+) Cash equity drawdown'), cashEq, 'sum']);
+      writes.push([BS, E1('(+) In-Kind equity (land in-kind, non-cash)'), keyF('fnc:inkind'), 'sum']);
+      if (has(E1('(+) Existing equity (pre-axis carry-forward)'))) writes.push([BS, E1('(+) Existing equity (pre-axis carry-forward)'), () => '0', 'sum']);
+      writes.push([BS, E1('Closing equity (cumulative)'), (t) => [E1('Opening equity'), E1('(+) Cash equity drawdown'), E1('(+) In-Kind equity (land in-kind, non-cash)'), E1('(+) Existing equity (pre-axis carry-forward)')].filter(has).map((k) => R(k, t)).join('+'), 'last']);
+      // The statutory reserve: the rate of a positive profit after tax, up to the cap on share capital.
+      const pat = plF(labels.pat);
+      const capPct = (state.project.statutoryReserve?.capOfShareCapital ?? 0) > 0;
+      const resOpen = sc(SR('Opening statutory reserve'));
+      writes.push([BS, SR('Opening statutory reserve'), (t) => prevOf(sc(SR('Closing statutory reserve')), t), 'first']);
+      writes.push([BS, SR('(+) Transfer from profit after tax'), (t) => {
+        const transfer = `MAX(0,${pat(t)})*MAX(0,N(${w.ref('project:reserveRate')}))`;
+        return capPct ? `MAX(0,MIN(${transfer},${shareClose(t)}*MAX(0,N(${w.ref('project:reserveCap')}))-${resOpen(t)}))` : transfer;
+      }, 'sum']);
+      writes.push([BS, SR('Closing statutory reserve'), (t) => `${R(SR('Opening statutory reserve'), t)}+${R(SR('(+) Transfer from profit after tax'), t)}`, 'last']);
+      // Retained earnings: profit after tax, less the reserve transfer and the dividends.
+      writes.push([BS, E2('Opening retained earnings'), (t) => prevOf(sc(E2('Closing retained earnings')), t), 'first']);
+      writes.push([BS, E2('(+) PAT for the period'), pat, 'sum']);
+      writes.push([BS, E2('(−) Transfer to statutory reserve'), neg(sc(SR('(+) Transfer from profit after tax'))), 'sum']);
+      writes.push([BS, E2('(−) Dividends declared'), keyF('fnc:main:div'), 'sum']);
+      writes.push([BS, E2('Closing retained earnings'), (t) => [E2('Opening retained earnings'), E2('(+) PAT for the period'), E2('(−) Transfer to statutory reserve'), E2('(−) Dividends declared')].map((k) => R(k, t)).join('+'), 'last']);
     }
-    if (!has('project:reserveRate') || (reserveCapPct > 0 && !has('project:reserveCap'))) bsRefused ||= 'the statutory reserve inputs are not on the Inputs sheet';
     const bsSeen = new Map<string, number>();
     for (const r of bsRows) {
       if (bsRefused) break;
@@ -543,96 +490,98 @@ export const stage5Statements: LiveLayer = {
       if (L === 'Land') f = sc('schv:__project__:landClose');
       else if (L.startsWith('Fixed Assets (NBV')) f = sc('schv:__project__:close');
       else if (L === 'Total Fixed Assets') f = sumB(['Land', bsRows.find((x) => x.label.startsWith('Fixed Assets (NBV'))?.label ?? '']);
-      else if (L === 'Cash') f = (t) => cfCell('Closing cash', t);
+      else if (L === 'Cash') f = keyF('cf|direct||Closing cash');
       else if (L === 'Accounts Receivable (Operating)') f = opArProject;
       else if (L === 'Residential Sales Receivables') f = resAr;
       else if (L === 'Inventory (Residential WIP)') f = has('schv:A3:close') ? sc('schv:A3:close') : undefined;
       else if (L === 'Restricted Cash (Escrow)') f = escClose;
-      // A TOTAL CARRIES EVERY COMPONENT, SHOWN OR NOT: the operating receivable and
-      // escrow rows appear only while non-zero, so an absent one is added by its rule.
-      else if (L === 'Total Current Assets') f = (t) => `${sumB(['Cash', 'Accounts Receivable (Operating)', 'Residential Sales Receivables', 'Inventory (Residential WIP)', 'Restricted Cash (Escrow)'])(t)}${hasB('Accounts Receivable (Operating)') ? '' : `+${opArProject(t)}`}${hasB('Restricted Cash (Escrow)') ? '' : `+(${escClose(t)})`}`;
+      else if (L === 'Total Current Assets') f = sumB(['Cash', 'Accounts Receivable (Operating)', 'Residential Sales Receivables', 'Inventory (Residential WIP)', 'Restricted Cash (Escrow)']);
       else if (L === 'TOTAL ASSETS') f = sumB(['Total Fixed Assets', 'Total Current Assets']);
       else if (L === 'Accounts Payable') f = apClose;
       else if (L === 'Unearned Revenue (Off-plan advances)') f = unearned;
       else if (L === `${labels.tax} payable`) f = taxPay;
-      else if (L === 'Total Current Liabilities') f = (t) => `${sumB(['Accounts Payable', 'Unearned Revenue (Off-plan advances)'])(t)}${taxLag ? `+${taxPay(t)}` : ''}`;
-      else if (L === 'Debt (long-term)') f = (t) => at(debtRow, t);
+      else if (L === 'Total Current Liabilities') f = sumB(['Accounts Payable', 'Unearned Revenue (Off-plan advances)', `${labels.tax} payable`]);
+      else if (L === 'Debt (long-term)') f = debtBs;
       else if (L === 'TOTAL LIABILITIES') f = sumB(['Total Current Liabilities', 'Debt (long-term)']);
-      else if (L === 'Share Capital') f = (t) => at(shareRow, t);
-      else if (L === 'Statutory Reserve') f = (t) => at(rReserve, t);
-      else if (L === 'Retained Earnings') f = (t) => at(rRetained, t);
+      else if (L === 'Share Capital') f = shareClose;
+      else if (L === 'Statutory Reserve') f = sc(SR('Closing statutory reserve'));
+      else if (L === 'Retained Earnings') f = sc(E2('Closing retained earnings'));
       else if (L === 'Total Equity') f = sumB(['Share Capital', 'Statutory Reserve', 'Retained Earnings']);
       else if (L === 'TOTAL LIABILITIES + EQUITY') f = sumB(['TOTAL LIABILITIES', 'Total Equity']);
-      else if (L.startsWith('BS Check')) f = (t) => `${bsCell('TOTAL ASSETS', t)}-${bsCell('TOTAL LIABILITIES + EQUITY', t)}`;
+      else if (L.startsWith('BS Check')) f = (t) => `${R(BK('TOTAL ASSETS'), t)}-${R(BK('TOTAL LIABILITIES + EQUITY'), t)}`;
       if (!f) { bsRefused = `no rule for the Balance Sheet row "${L}"`; break; }
-      bsWrites.push([key, f]);
+      writes.push([BS, key, f, key.includes('||BS Check') ? 'maxabs' as never : 'last']);
+    }
+    // ── THE RECONCILIATION BRIDGE (2026-09-28): each line the change in ONE balance, through
+    // the rule its row above uses; Unexplained is the change in the check row less every line.
+    const checkLabel = bsRows.find((x) => x.label.startsWith('BS Check'))?.label;
+    const RK = (label: string): string => `bsr|${ALL}||${label}`;
+    const bridgeRefused = snap.bs.historicalOpeningCashTotal !== 0 || snap.financing.existing.debtOutstandingTotal !== 0 || snap.financing.existing.equityTotal !== 0;
+    const bridge: Array<[string, F]> = [
+      ['Net cash flow (Direct = Indirect)', keyF('cf|direct||Net Cash Flow')],
+      ['Δ Debt outstanding', neg(delta(debtBs))],
+      ['Δ Share capital', neg(delta(shareClose))],
+      ['Δ Reserve + Retained earnings', neg(delta(sumF([sc(SR('Closing statutory reserve')), sc(E2('Closing retained earnings'))])))],
+      ['Δ Accounts payable', neg(delta(apClose))],
+      ['Δ Unearned revenue', neg(delta(unearned))],
+      ...(taxLag ? [['Δ Tax payable', neg(delta(taxPay))] as [string, F]] : []),
+      ['Δ Restricted cash (escrow)', delta(escClose)],
+      ['Δ AR (operating)', delta(opArProject)],
+      ['Δ Receivables (residential)', delta(resAr)],
+      ['Δ Inventory', delta(sc('schv:A3:close'))],
+      ['Δ Fixed assets NBV', delta(sc('schv:__project__:capNbv'))],
+      ['Δ Land', delta(sc('schv:__project__:landClose'))],
+      ['Δ Capitalised IDC NBV', delta(sc('schv:__project__:idcNbv'))],
+    ];
+    const bridgeKeys = [...bridge.map(([l]) => RK(l)), RK('= Δ BS difference (this period)'), RK('Unexplained (must be 0)'), RK('BS difference (cumulative)')];
+    const bridgeLive = !bsRefused && !bridgeRefused && !!checkLabel && bridgeKeys.every(has);
+    if (bridgeLive && checkLabel) {
+      const checkF = keyF(BK(checkLabel));
+      for (const [label, f] of bridge) writes.push([BS, RK(label), f, 'none' as never]);
+      writes.push([BS, RK('= Δ BS difference (this period)'), delta(checkF), 'none' as never]);
+      writes.push([BS, RK('Unexplained (must be 0)'), (t) => `${R(RK('= Δ BS difference (this period)'), t)}-(${bridge.map(([l]) => R(RK(l), t)).join('+')})`, 'none' as never]);
+      writes.push([BS, RK('BS difference (cumulative)'), checkF, 'none' as never]);
+    }
+    const bsWrites = bsRefused ? [] : writes.splice(0);
+
+    // ── Write ────────────────────────────────────────────────────────────────
+    const apply = (list: Array<[string, string, F, string]>): void => {
+      for (const [sheet, key, f, tot] of list) {
+        here = sheet;
+        const r = w.addr(key).row;
+        for (let t = 0; t < N; t++) w.fA({ sheet, row: r, col: pc(t) }, f(t));
+        const rng = w.rangeA(sheet, r, pc(0), pc(N - 1));
+        const T = { sheet, row: r, col: TOTAL_COL };
+        if (tot === 'first') w.fA(T, w.refA({ sheet, row: r, col: pc(0) }, sheet));
+        else if (tot === 'last') w.fA(T, w.refA({ sheet, row: r, col: pc(N - 1) }, sheet));
+        else if (tot === 'maxabs') w.fA(T, `MAX(ABS(MAX(${rng})),ABS(MIN(${rng})))`);
+        else if (tot === 'sum') w.fA(T, `SUM(${rng})+N(${w.refA({ sheet, row: r, col: OPEN_COL }, sheet)})`);
+      }
+    };
+    apply(plWrites);
+    // The labels that carry a figure.
+    for (const l of labelWrites) w.fA({ sheet: l.sheet, row: w.addr(l.key).row, col: LBL_COL }, l.formula);
+    out.push({ sheet: PL, status: 'live', formulas: w.formulas.get(PL) ?? 0,
+      note: 'Live: the income statement, project and per phase, every row one formula across the years over Revenue, Schedules, Opex, Capex and the financing loop, down to profit after tax; the fee and tax labels are formulas too.' });
+    if (cfRefused) out.push({ sheet: CF, status: 'values' as const, formulas: 0, note: `The Cash Flow could not be made live for this model: ${cfRefused}.` });
+    else {
+      apply(cfWrites);
+      out.push({ sheet: CF, status: 'live', formulas: w.formulas.get(CF) ?? 0,
+        note: 'Live: the direct cash flow (revenue received, the operating receivables, opex paid through the payables, escrow, tax paid, capex per line and land in kind, the financing flows from the loop), the indirect cash flow from profit after tax, and net, opening and closing cash.' });
     }
     if (bsRefused) out.push({ sheet: BS, status: 'values' as const, formulas: 0, note: `The Balance Sheet could not be made live for this model: ${bsRefused}.` });
     else {
-      for (const [key, f] of bsWrites) {
-        const r = w.addr(key).row;
-        for (let t = 0; t < N; t++) w.fA({ sheet: BS, row: r, col: pc(t) }, f(t));
-        // Every balance sheet row is a closing balance: its lead cell is the last year,
-        // and the check row's is the largest difference in any year, as the platform prints it.
-        const rng = w.rangeA(BS, r, pc(0), pc(N - 1));
-        w.fA({ sheet: BS, row: r, col: TOTAL_COL }, key.includes('||BS Check') ? `MAX(ABS(MAX(${rng})),ABS(MIN(${rng})))` : w.refA({ sheet: BS, row: r, col: pc(N - 1) }));
-      }
-      // ── THE RECONCILIATION BRIDGE (2026-09-28, stage 7c) ─────────────────
-      // Each line is the change in ONE balance, read through the same rule the
-      // balance sheet row above uses, so the bridge can only disagree with the
-      // statement where a balance is missing from it, which is what it is for.
-      // Unexplained is the change in the check row less every line above it.
-      // A pre-axis opening (existing operations) has no cell to read, so that
-      // shape keeps the platform's values.
-      const bridgeRefused = snap.bs.historicalOpeningCashTotal !== 0 || snap.financing.existing.debtOutstandingTotal !== 0 || snap.financing.existing.equityTotal !== 0;
-      const RK = (label: string): string => `bsr|${ALL}||${label}`;
-      const checkLabel = bsRows.find((x) => x.label.startsWith('BS Check'))?.label;
-      const netKey = 'cf|direct||Net Cash Flow';
-      const delta = (f: F): F => (t) => (t === 0 ? `(${f(t)})` : `(${f(t)})-(${f(t - 1)})`);
-      const neg = (f: F): F => (t) => `-(${f(t)})`;
-      const bridge: Array<[string, F]> = [
-        ['Net cash flow (Direct = Indirect)', (t) => w.refA({ sheet: CF, row: w.addr(netKey).row, col: pc(t) })],
-        ['Δ Debt outstanding', neg(delta((t) => at(debtRow, t)))],
-        ['Δ Share capital', neg(delta((t) => at(shareRow, t)))],
-        ['Δ Reserve + Retained earnings', neg(delta((t) => `${at(rReserve, t)}+${at(rRetained, t)}`))],
-        ['Δ Accounts payable', neg(delta(apClose))],
-        ['Δ Unearned revenue', neg(delta(unearned))],
-        ...(taxLag ? [['Δ Tax payable', neg(delta(taxPay))] as [string, F]] : []),
-        ['Δ Restricted cash (escrow)', delta(escClose)],
-        ['Δ AR (operating)', delta(opArProject)],
-        ['Δ Receivables (residential)', delta(resAr)],
-        ['Δ Inventory', delta(has('schv:A3:close') ? sc('schv:A3:close') : () => '0')],
-        ['Δ Fixed assets NBV', delta(sc('schv:__project__:capNbv'))],
-        ['Δ Land', delta(sc('schv:__project__:landClose'))],
-        ['Δ Capitalised IDC NBV', delta(has('schv:__project__:idcNbv') ? sc('schv:__project__:idcNbv') : () => '0')],
-      ];
-      const bridgeKeys = [...bridge.map(([l]) => RK(l)), RK('= Δ BS difference (this period)'), RK('Unexplained (must be 0)'), RK('BS difference (cumulative)')];
-      const bridgeMissing = bridgeKeys.filter((k) => !has(k));
-      const bridgeLive = !bridgeRefused && !!checkLabel && has(netKey) && !bridgeMissing.length;
-      if (bridgeLive && checkLabel) {
-        const rowOf = (label: string): number => w.addr(RK(label)).row;
-        const checkF: F = (t) => bsCell(checkLabel, t);
-        for (const [label, f] of bridge) for (let t = 0; t < N; t++) w.fA({ sheet: BS, row: rowOf(label), col: pc(t) }, f(t));
-        for (let t = 0; t < N; t++) {
-          const lines = bridge.map(([label]) => w.refA({ sheet: BS, row: rowOf(label), col: pc(t) })).join('+');
-          w.fA({ sheet: BS, row: rowOf('= Δ BS difference (this period)'), col: pc(t) }, delta(checkF)(t));
-          w.fA({ sheet: BS, row: rowOf('Unexplained (must be 0)'), col: pc(t) }, `${w.refA({ sheet: BS, row: rowOf('= Δ BS difference (this period)'), col: pc(t) })}-(${lines})`);
-          w.fA({ sheet: BS, row: rowOf('BS difference (cumulative)'), col: pc(t) }, checkF(t));
-        }
-      }
-      out.push({
-        sheet: BS, status: 'partial' as const, formulas: w.formulas.get(BS) ?? 0,
-        note: `Live: every balance, from the Schedules, Revenue, Cost of Sales and Opex working sheets and the Cash Flow, retained earnings rolled forward from profit after tax less the statutory reserve and dividends, and the check row. ${bridgeLive
-          ? 'The reconciliation bridge beneath is live too: each line is the change in one balance, read through the same rule as its row above, and Unexplained is the change in the check row less every line.'
-          : `The reconciliation bridge beneath is the platform's values${bridgeRefused ? ': this model carries balances from before the model starts, which have no cell to read' : ''}.`}`,
-        waits: {
-          on: 'financing',
-          text: 'Debt, share capital and dividends come out of the financing solve and wait for that stage, and until then the check row reads zero only before an input moves.',
-          after: 'Debt, share capital and dividends read the live financing solve, so the check row holds when an input moves.',
-          afterStatus: bridgeLive ? 'live' : 'partial',
-        },
-      });
+      apply(bsWrites);
+      // The share capital before the first year: the amount typed on Inputs.
+      const ce = w.addr(E1('Closing equity (cumulative)'));
+      w.fA({ sheet: BS, row: ce.row, col: OPEN_COL }, `MAX(0,N(${w.ref('project:shareCapital')}))`);
+      out.push({ sheet: BS, status: bridgeLive ? 'live' : 'partial', formulas: w.formulas.get(BS) ?? 0,
+        note: `Live: every balance, from Schedules, Revenue, Opex, the Cash Flow and the financing loop, the equity, statutory reserve and retained earnings roll-forwards beneath it, and the check row. ${bridgeLive
+          ? 'The reconciliation bridge is live too: each line is the change in one balance, read through the same rule as its row above.'
+          : 'The reconciliation bridge is the platform\'s values: this model carries balances from before the model starts, which have no cell to read.'}` });
     }
     return out;
   },
 };
+
+function colLetter(c: number): string { let s = ''; for (let n = c; n > 0; n = Math.floor((n - 1) / 26)) s = String.fromCharCode(65 + ((n - 1) % 26)) + s; return s; }

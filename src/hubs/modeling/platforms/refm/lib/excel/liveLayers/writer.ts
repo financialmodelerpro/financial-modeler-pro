@@ -101,6 +101,8 @@ export class LiveWriter {
   private yearCol(sheet: string, t: number): number { return (LiveWriter.isWorking(sheet) ? 4 : 6) + t; }
   /** The row's cell for model year t (0 = the first year). */
   per(key: string, t: number): string { const a = this.addr(key); return this.refA({ sheet: a.sheet, row: a.row, col: this.yearCol(a.sheet, t) }); }
+  /** The row's cell for year t, column relative: inside a row of period formulas, one formula across. */
+  perP(key: string, t: number): string { const a = this.addr(key); return this.refP({ sheet: a.sheet, row: a.row, col: this.yearCol(a.sheet, t) }); }
   /** The row's years 0..n-1 as one range. */
   perRange(key: string, n: number): string { const a = this.addr(key); return this.rangeA(a.sheet, a.row, this.yearCol(a.sheet, 0), this.yearCol(a.sheet, n - 1)); }
   /** The row's one figure: a working sheet's column C, a visible tab's Total column. */

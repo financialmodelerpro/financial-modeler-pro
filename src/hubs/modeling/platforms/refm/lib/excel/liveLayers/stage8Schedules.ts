@@ -26,7 +26,6 @@ import type { LayerContext, LiveLayer } from '../formulaWorkbook';
 import { loopAt } from './stage6Loop';
 import { LiveWriter } from './writer';
 import { PERIOD_COLS } from '../buildModelWorkbook';
-import { getFinancialLabels, defaultTerminologyForCountry } from '@/src/core/calculations/financials';
 import { computeFinancialsSnapshot } from '../../financials-resolvers';
 import { resolveReturnsConfig } from '../../returns-resolvers';
 import { resolveFundTerms, FUND_FEE_SPECS } from '../../fundTerms';
@@ -46,12 +45,11 @@ export const stage8Schedules: LiveLayer = {
     const N = snap.axisLength;
     const { OPEN_COL, TOTAL_COL } = PERIOD_COLS;
     const pc = (t: number): number => OPEN_COL + 1 + t;
-    const labels = getFinancialLabels(state.project.financialTerminology ?? defaultTerminologyForCountry(state.project.country));
 
     // A visible statement row, a year at a time; a solve row on its working sheet.
-    const vis = (key: string): F | null => (has(key) ? (t) => `N(${w.refA({ sheet: w.addr(key).sheet, row: w.addr(key).row, col: pc(t) })})` : null);
+    const vis = (key: string): F | null => (has(key) ? (t) => `N(${w.refP({ sheet: w.addr(key).sheet, row: w.addr(key).row, col: pc(t) })})` : null);
     // A figure of the financing loop (stage6Loop, an outflow row read negated) or a working row, a year at a time.
-    const calc = (key: string): F | null => (has(key) ? (t) => `N(${key.startsWith('fnc:') ? loopAt(w, key, t) : w.per(key, t)})` : null);
+    const calc = (key: string): F | null => (has(key) ? (t) => `N(${key.startsWith('fnc:') ? loopAt(w, key, t) : w.perP(key, t)})` : null);
     const sumF = (fs: F[]): F => (t) => (fs.length ? `(${fs.map((f) => f(t)).join('+')})` : '0');
     const neg = (f: F): F => (t) => `-(${f(t)})`;
 
@@ -75,7 +73,8 @@ export const stage8Schedules: LiveLayer = {
         const SH = w.addr(k).sheet;
         for (let t = 0; t < N; t++) {
           const f = rule === 'opening'
-            ? (t === 0 ? `N(${w.refA({ sheet: SH, row: r, col: OPEN_COL })})` : w.refA({ sheet: SH, row: w.addr(closeKey!).row, col: pc(t - 1) }))
+            // The year before's closing (before year 1, the prior column the closing row carries).
+            ? `N(${w.refP({ sheet: SH, row: w.addr(closeKey!).row, col: pc(t - 1) })})`
             : rule(t);
           w.fA({ sheet: SH, row: r, col: pc(t) }, f);
         }
@@ -104,11 +103,11 @@ export const stage8Schedules: LiveLayer = {
       const held = calc('fnc:main:idcadd'), dep = calc('fnc:main:idcdep');
       // The interest written off at the exit: the project's interest NBV before the exit, on Schedules.
       const disp: F | null = has('schv:__project__:idcNbv') && has('tl:flag:exit')
-        ? (t) => `${w.per('tl:flag:exit', t)}*MAX(0,${t === 0 ? '0' : w.per('schv:__project__:idcNbv', t - 1)}+${w.per('schv:__project__:idcAdd', t)}-${w.per('schv:__project__:idcDep', t)})`
+        ? (t) => `${w.perP('tl:flag:exit', t)}*MAX(0,N(${w.perP('schv:__project__:idcNbv', t - 1)})+${w.perP('schv:__project__:idcAdd', t)}-${w.perP('schv:__project__:idcDep', t)})`
         : calc('fnc:main:idcdisp');
       const P = 'sch|__project__|idc|';
       const opening = `${P}Opening IDC NBV (held)`;
-      const rolled: F | null = held && dep && disp ? (t) => `${w.refA({ sheet: SCH, row: w.addr(opening).row, col: pc(t) })}+${held(t)}-${dep(t)}-${disp(t)}` : null;
+      const rolled: F | null = held && dep && disp ? (t) => `${w.refP({ sheet: SCH, row: w.addr(opening).row, col: pc(t) })}+${held(t)}-${dep(t)}-${disp(t)}` : null;
       table('the capitalised interest pool', P, {
         'Construction interest': idcKeys.length ? sumF(idcOf(() => true)) : null,
         'Capitalised to held fixed assets (Operate / Lease)': held,
@@ -128,40 +127,16 @@ export const stage8Schedules: LiveLayer = {
       const rules: Record<string, F | null> = { 'Total Debt Outstanding': debt };
       // Each facility's own closing balance from the solve, nothing after the exit
       // (the balance sheet's rule), so the tranche rows add up to the total.
-      const X = resolveReturnsConfig(state.project, N).exitYearOffset;
       const booked = snap.disposal.booked;
       for (const t of tranches) {
         const b = calc(`fnc:main:tr:${t.id}:bal`);
-        rules[t.name] = b ? (i) => (booked && i >= X ? '0' : b(i)) : null;
+        // Nothing after the exit: the Timeline's exit flag, one formula across.
+        rules[t.name] = b ? (i) => (booked && has('tl:flag:exit') ? `(1-N(${w.perP('tl:flag:exit', i)}))*${b(i)}` : b(i)) : null;
       }
       table('debt outstanding by tranche', 'sch|L3||', rules);
     }
 
-    // ── E1, the equity roll-forward ───────────────────────────────────────────
-    {
-      const cash = [vis('cf|direct||Equity Drawdown, development'), vis('cf|direct||Equity Drawdown, management fee')].filter((f): f is F => !!f);
-      const kind = vis('cf|direct||In-Kind Equity (non-cash, matched by Land In-Kind above)');
-      const share = vis('bs|__all__||Share Capital');
-      table('the equity roll-forward', 'sch|E1||', {
-        'Opening equity': 'opening',
-        '(+) Cash equity drawdown': cash.length ? sumF(cash) : null,
-        '(+) In-Kind equity (land in-kind, non-cash)': kind,
-        'Closing equity (cumulative)': share,
-      }, 'Closing equity (cumulative)');
-    }
-
-    // ── E2, the retained earnings roll-forward ────────────────────────────────
-    {
-      const pat = vis(`pl|__all__||${labels.pat}`);
-      const transfer = has('stc:bs:transfer') ? calc('stc:bs:transfer') : null;
-      table('the retained earnings roll-forward', 'sch|E2||', {
-        'Opening retained earnings': 'opening',
-        '(+) PAT for the period': pat,
-        '(−) Transfer to statutory reserve': transfer ? neg(transfer) : null,
-        '(−) Dividends declared': vis('cf|direct||Dividends paid'),
-        'Closing retained earnings': vis('bs|__all__||Retained Earnings'),
-      }, 'Closing retained earnings');
-    }
+    // E1, E2 and the statutory reserve close on the Balance Sheet, which writes them (stage 5).
 
     void TOTAL_COL;
     if (!done.length) return [];
@@ -221,8 +196,11 @@ export const stage8FundFees: LiveLayer = {
       if (kind === 'cap') { w.fA({ sheet: PL, row: r, col: TOTAL_COL }, cap(id)); continue; }
       if (kind === 'basis') {
         const spec = FUND_FEE_SPECS[Number(id)];
-        const active = (t: number): boolean => !(booked && t > X) && (spec.timing !== 'one_time' || t === 0);
-        for (let t = 0; t < N; t++) w.fA({ sheet: PL, row: r, col: pc(t) }, active(t) ? cap(baseLabel[spec.base]) : '0');
+        // In force through the exit year, a one-time fee in the first year only: the Timeline's years, one formula across.
+        const TY = (t: number): string => w.refP({ sheet: 'Timeline', row: 3, col: pc(t) }, PL);
+        const TYA = (t: number): string => w.refA({ sheet: 'Timeline', row: 3, col: pc(t) }, PL);
+        const gate = (t: number): string => `${booked ? `(${TY(t)}<=${TYA(X)})*` : ''}${spec.timing === 'one_time' ? `(${TY(t)}=${TYA(0)})*` : ''}`;
+        for (let t = 0; t < N; t++) w.fA({ sheet: PL, row: r, col: pc(t) }, `${gate(t)}${cap(baseLabel[spec.base])}`);
         // A base is a stock: the lead cell is the base, not a sum of its copies.
         w.fA({ sheet: PL, row: r, col: TOTAL_COL }, cap(baseLabel[spec.base]));
         continue;
@@ -234,7 +212,7 @@ export const stage8FundFees: LiveLayer = {
       }
       // The total: every fee charged, a year at a time.
       const feeRows = keys.filter((x) => x.startsWith('plfee|fee|')).map(rowOf);
-      for (let t = 0; t < N; t++) w.fA({ sheet: PL, row: r, col: pc(t) }, feeRows.map((fr) => w.refA({ sheet: PL, row: fr, col: pc(t) })).join('+') || '0');
+      for (let t = 0; t < N; t++) w.fA({ sheet: PL, row: r, col: pc(t) }, feeRows.map((fr) => w.refP({ sheet: PL, row: fr, col: pc(t) })).join('+') || '0');
       w.fA({ sheet: PL, row: r, col: TOTAL_COL }, `SUM(${rng(r)})`);
     }
     // The block was the last part of the P&L that was values, so the sheet is live.

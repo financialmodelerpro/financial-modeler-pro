@@ -362,8 +362,9 @@ export const stage1LandArea: LiveLayer = {
       const nsa = R(nsaKey);
       const areas: string[] = [];
       for (const u of line.rows) {
-        const k = (x: string): string => `su:${u.id}:${x}`;
+        const k = (x: string): string => `su:${u.id}:${x}`, kin = (x: string): string => `suin:${u.id}:${x}`;
         if (!w.has(k('area'))) continue;
+        const onLA = reg.get(k('share'))?.sheet === 'Land & Area';
         // A STRIP'S DERIVED ROW (reconcileRetailSubUnits) holds the pooled retail GFA while it is
         // the strip's only row; once the user adds a second, the split is theirs.
         const derivedStripRow = !!strip && u.id === retailCompanionSubUnitId(strip.id)
@@ -372,9 +373,16 @@ export const stage1LandArea: LiveLayer = {
           w.f(k('area'), nsa);
           w.f(k('share'), `IF(${nsa}>0,${R(k('area'))}/${nsa},"")`);
         } else if (u.metric === 'area') {
-          if (u.sharePct.typed) w.f(k('area'), `${R(k('share'))}*${nsa}`);
+          if (onLA && u.sharePct.typed && w.has(kin('share'))) { w.f(k('share'), `N(${R(kin('share'))})`); w.f(k('area'), `${R(k('share'))}*${nsa}`); }
+          else if (onLA && w.has(kin('area'))) { w.f(k('area'), `N(${R(kin('area'))})`); w.f(k('share'), `IF(${nsa}>0,${R(k('area'))}/${nsa},"")`); }
+          else if (u.sharePct.typed) w.f(k('area'), `${R(k('share'))}*${nsa}`);
           else if (u.areaSqm.typed) w.f(k('share'), `IF(${nsa}>0,${R(k('area'))}/${nsa},"")`);
           w.f(k('units'), `IF(N(${R(k('unit'))})>0,ROUND(${R(k('area'))}/${R(k('unit'))},0),"")`);
+        } else if (onLA && w.has(kin('units'))) {
+          // A count row: the count is typed and the area is the count x the unit size.
+          w.f(k('units'), `N(${R(kin('units'))})`);
+          w.f(k('area'), `MAX(0,${R(k('units'))})*MAX(0,N(${R(k('unit'))}))`);
+          w.f(k('share'), `IF(${nsa}>0,${R(k('area'))}/${nsa},"")`);
         }
         areas.push(R(k('area')));
       }

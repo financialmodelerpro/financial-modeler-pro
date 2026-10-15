@@ -3161,6 +3161,25 @@ follow drive only lines that never escalate. Moves money only where escalation i
 its periods; fails on the old engine (factor 1.02, periods 51.8m against a 51.0m total). **A comment that says a
 step "cannot change any total" is a claim about every later feature too; re-check it when one arrives.**
 
+### 7.66 A shortcut proved equal on the exported figures is a coincidence, not a rule
+
+**Symptom (2026-10-15):** the live workbook charged the fund fees on the funding need re-walked with the fees added
+back, and the export compared that re-walk with the platform's fee-free base and refused on any difference. On
+Marina Gate as exported it matched to the cent. Typed into Excel, one construction year off Phase 1 left the fee base
+88,170 below the platform's (on 678.8m); moving Phase 2 a year earlier, 93,507.
+
+**Mechanism:** the platform sizes the fees on a full solve WITHOUT them. The fees move tax, so once a year both pays
+tax and has a funding deficit, the fee-free solve pays more tax, draws more, and pays different interest (510,163 of
+interest expensed in one year of the test). On the exported model no deficit year paid tax, so the shortcut and the
+rule agreed by coincidence, and an export-time equality check can only ever see that one point.
+
+**Fix:** the fee-free solve is its own visible loop on Financing, filled from the engine's own pass
+(`computeFeeFreeSnapshot`), and the guard is gone.
+
+**Proof:** `verify-formula-workbook` C, both phase moves: every live cell matches the re-run platform, the fee rows
+included. **A guard that compares a shortcut with the rule on today's values proves today's values. Prove the
+shortcut under a change, or build the rule.**
+
 ## 8. Registries and two-step registration
 
 ### 8.1 A template registered in one place and not the other fails silently and permanently

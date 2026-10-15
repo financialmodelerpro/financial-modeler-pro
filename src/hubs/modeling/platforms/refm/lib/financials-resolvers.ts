@@ -3163,7 +3163,7 @@ export function computeFinancialsSnapshot(
   if (fundTerms.enabled) {
     // The fee-free pass goes straight to the solver, NOT back through this
     // function: recursing here would re-enter this branch and never terminate.
-    const feeFree = computeFinancialsSnapshotSolved(state, undefined);
+    const feeFree = computeFeeFreeSnapshot(state);
     const baseRequirement = Math.max(0, feeFree.financing.funding.selectedWithMinCash ?? 0);
     const baseDebtRequirement = baseRequirement * Math.max(0, feeFree.financing.funding.debtPct ?? 0) / 100;
     const baseEquityRequirement = baseRequirement * Math.max(0, feeFree.financing.funding.equityPct ?? 0) / 100;
@@ -3255,6 +3255,15 @@ export function computeFinancialsSnapshot(
     return computeFinancialsSnapshotSolved(state, stoppedSchedule);
   }
 
+  return computeFinancialsSnapshotSolved(state, undefined);
+}
+
+/**
+ * THE FEE-FREE PASS, the solve the fund fee schedule is sized on (above): the
+ * same fixed point with no fees in it. Exported for the formula-linked
+ * workbook, which shows this solve on Financing as the fees' base.
+ */
+export function computeFeeFreeSnapshot(state: FinancialsResolverState): ProjectFinancialsSnapshot {
   return computeFinancialsSnapshotSolved(state, undefined);
 }
 

@@ -21,10 +21,10 @@
  * which Schedules reads (cost of sales and the held lines' additions) and Capex's
  * Table 7; the Guide lists them.
  *
- * THE FEES NEED NO SECOND PASS (measured 2026-10-14): the base is the funding need
- * re-walked with the fee rows added back, which equals the platform's fee-free
- * requirement; where it would not (the layer re-walks the platform's own figures and
- * compares), the tab is refused by name.
+ * THE FEES ARE CHARGED ON THE FEE-FREE SOLVE (2026-10-15): on Method 3 the platform sizes
+ * them on its solve without fees, which draws, borrows and pays interest differently
+ * (the fees move tax). That solve is its own loop on this tab, so the base re-solves when
+ * an input moves; a re-walk of the funding need was exact only on the exported model.
  *
  * REFUSES by name (Financing stays the platform's values): a funding method other than
  * 1 to 3, a facility other than new loans (and existing ones raised inside the model)
@@ -32,20 +32,22 @@
  * parcel funding that varies within a phase or is deferred, monthly periods, an
  * operational phase or overlap, existing operations, a terminal value the sheet does
  * not state, an exit before the last year, a per-phase dividend policy, a fund fee on
- * NAV or a facility limit, interest allocated by GFA, the fee base above.
+ * NAV or a facility limit, interest allocated by GFA.
  *
  * No em dashes in this file.
  */
 import type ExcelJS from 'exceljs';
 import type { LayerContext, LiveLayer } from '../formulaWorkbook';
 import { LiveWriter } from './writer';
-import { PERIOD_COLS } from '../buildModelWorkbook';
+import { PERIOD_COLS, FEE_FREE } from '../buildModelWorkbook';
+import { vintageDepF, firstOperatingIdx, lifeInForce } from './stage4Schedules';
+import { revenueLineName } from '../../reports/revenueOutputReports';
 import { terminalRefusal, terminalValueFormula } from './terminal';
 import { citReliefF, citPoolF, taxF } from './taxRule';
 import { withResolvedAssetNames } from '@/src/core/calculations/assetName';
 import { sharesCapitalisedInterest } from '@/src/core/calculations/capitalisedInterest';
 import { isRevenueSubUnit } from '@/src/core/calculations';
-import { computeFinancialsSnapshot, computeFundingGap } from '../../financials-resolvers';
+import { computeFinancialsSnapshot } from '../../financials-resolvers';
 import { resolveFundTerms, FUND_FEE_SPECS } from '../../fundTerms';
 import { resolveReturnsConfig } from '../../returns-resolvers';
 import { planRevenueLines, lineForAsset } from '../../revenueLines';
@@ -72,7 +74,7 @@ const SWEEPS = (t: { repaymentMethod: string; cashSweepConfig?: { enabled?: bool
  */
 export const LOOP_NEGATIVE = new Set(['fnc:main:repay', 'fnc:main:intexp', 'fnc:main:div', 'fnc:main:sched', 'fnc:main:idcdisp']);
 export function loopAt(w: LiveWriter, key: string, t: number): string {
-  const r = w.per(key, t);
+  const r = w.perP(key, t);
   return LOOP_NEGATIVE.has(key) ? `(-${r})` : r;
 }
 /** A single figure of the loop (its Total column), or the setting it names. */
@@ -195,20 +197,6 @@ export const stage6Loop: LiveLayer = {
         if (v !== 0 && !has(`ft:${spec.label}`)) refuse.push(`the ${spec.label} rate is not on the Inputs sheet`);
       }
       if (fundTerms.fundSizeOverride && !has('ft:Fund size (typed target)')) refuse.push('a fund size override the Inputs sheet does not state as a number');
-      // THE FEE BASE: the platform's figures re-walked with the fee rows added back must equal
-      // its fee-free requirement, or a fee would be charged on a different base here.
-      if (METHOD === 3) {
-        const g = computeFundingGap(snap).method3Waterfall;
-        const fees = snap.fundFees.totalPerPeriod;
-        let open = 0, R = 0;
-        for (let t = 0; t < N; t++) {
-          const avail = open + (g.operatingInflowsPerPeriod[t] ?? 0) + (byEq ? 0 : (fees[t] ?? 0)) + (g.cashFromInvPerPeriod[t] ?? 0);
-          const need = (g.cashFromInvPerPeriod[t] ?? 0) < -0.005 ? Math.max(0, g.minCashReserve - avail) : 0;
-          R += need; open = avail + need;
-        }
-        const engine = (snap.fundFees.totalEquity?.amount ?? 0) + (snap.fundFees.debtFacility?.amount ?? 0);
-        if (Math.abs(R - engine) > Math.max(1, Math.abs(engine) * 1e-9)) refuse.push(`the fund fee base: the funding need without the fees is ${Math.round(R).toLocaleString('en-US')} against the platform's fee-free ${Math.round(engine).toLocaleString('en-US')} (a construction year whose tax or cash moves with the fees)`);
-      }
     }
     if ((project.idcConfig?.allocationBasis ?? 'land') !== 'land') refuse.push('capitalised interest allocated by GFA');
     for (const k of [K.minCash, K.debtPct, K.equityPct, K.payout, K.divOn, K.divStartIn, K.lastCon, K.dF, K.eF, K.landDebt, K.divStart, K.capexAll, K.nonLand, K.landCash, K.inKind, K.noi, K.proceeds, K.exitRepay]) {
@@ -345,6 +333,10 @@ export const stage6Loop: LiveLayer = {
       else if (f.kind === 'principal') putS(f.keys.pmt, `IF(${n()}>0,${T(f.keys.td)}/${n()},0)`);
     }
     const rate = (f: typeof fac[number]): string => T(`fin|${f.band}|Interest Rate %`);
+    // The lender, typed on Inputs.
+    for (const f of fac) if (has(`fin|${f.band}|Lender`) && has(`trlender:${f.t.id}`)) putS(`fin|${f.band}|Lender`, `IF(${w.ref(`trlender:${f.t.id}`)}="","-",${w.ref(`trlender:${f.t.id}`)}&"")`);
+    // The combined rate on Inputs: the interbank rate plus the spread typed beside it.
+    for (const f of fac) if (has(`trrate:${f.t.id}`) && has(`trib:${f.t.id}`) && has(`trsp:${f.t.id}`)) w.fA(w.addr(`trrate:${f.t.id}`), `N(${w.ref(`trib:${f.t.id}`)})+N(${w.ref(`trsp:${f.t.id}`)})`);
     for (const f of fac) putS(`fin|${f.band}|Interest Rate %`, `MAX(0,N(${inp(`fin|${f.band}|Interbank Rate %`)})+N(${inp(`fin|${f.band}|Credit Spread %`)}))`);
 
     // ── Capex, the exit, the operating cash ──────────────────────────────────
@@ -391,6 +383,11 @@ export const stage6Loop: LiveLayer = {
     put(kHosp, classOf((a) => operatingCashClass(a) === 'hospitality'));
     put(kRet, classOf((a) => operatingCashClass(a) === 'retail'));
     // HQ overheads (Opex's cash paid) and the selling and marketing expensed as incurred (Capex's block).
+    // The rise in the hotel and lease lines' receivables (Revenue's rows, each at its line's days).
+    const kAr = find(M3, '(-) Rise in operating receivables (hotel and lease lines)');
+    if (!kAr) return values('The financing could not be made live for this model: the Method 3 table does not carry the operating receivables row.');
+    const arKeys = lines.filter((l) => l.form !== 'sell').map((l) => `rvc:${l.key}:opar`).filter(has);
+    put(kAr, (t) => (arKeys.length ? `-(${arKeys.map((k) => `${P(k, t)}-N(${P(k, t, -1)})`).join('+')})` : '0'));
     put(kHq, (t) => `${has('oxo:ap:hq:lessPaid') ? P('oxo:ap:hq:lessPaid', t) : '0'}${has('cx1e:total') ? `-${P('cx1e:total', t)}` : ''}`);
     const escNet = 'esc||C. Cash Flow Impact (project totals)|Net Cash Flow Adjustment (to M4)';
     put(kEsc, (t) => (has(escNet) ? P(escNet, t) : '0'));
@@ -399,7 +396,7 @@ export const stage6Loop: LiveLayer = {
     if (kFeeM3) put(kFeeM3, (t) => (byEq ? '0' : `-${fee(t)}`));
     const kTaxPaid = `fin|${PBT}|Tax paid`;
     put(kTaxM3, (t) => `-${P(kTaxPaid, t)}`);
-    put(kOpIn, (t) => sumP([kRes, kHosp, kRet, kFeeM3, kHq, kEsc, kTaxM3], t));
+    put(kOpIn, (t) => sumP([kRes, kHosp, kRet, kFeeM3, kAr, kHq, kEsc, kTaxM3], t));
     why(kOpIn, byEq ? 'Not a SUM: the fund fee is drawn from equity outside the deficit, so its row reads zero here.' : 'The operating inflows above.');
     // Cash from operations: the operating inflows, less the fee where equity funds it.
     const cfo = (t: number): string => (byEq ? `${P(kOpIn, t)}-${fee(t)}` : P(kOpIn, t));
@@ -461,7 +458,20 @@ export const stage6Loop: LiveLayer = {
     if (!kCash) return values('The financing could not be made live for this model: the cash waterfall has no Cash Available row.');
     const shareOf = (f: typeof fac[number]): string => (f.isEx ? '0' : anyShareTyped && has(`tr:${f.t.id}:share`) ? `MAX(0,N(${w.ref(`tr:${f.t.id}:share`)}))` : String(1 / newCount));
     const owed = (f: typeof fac[number], t: number): string => `(${P(f.keys.open!, t)}+${P(f.keys.draw!, t)}+${P(f.keys.idc!, t)})`;
-    const yoyRow = (f: typeof fac[number]): string | undefined => (f.kind === 'yoy' ? `fin|${f.band}|Year-on-Year % Schedule` : undefined);
+    // A YEAR-ON-YEAR facility: the % typed for each year from its repayment start, and that year's
+    // share of the typed total (none typed repays evenly over the years left).
+    for (const f of fac.filter((x) => x.kind === 'yoy')) {
+      const sched = `fin|${f.band}|Year-on-Year % Schedule`;
+      const kTyped = `fin|${SET}|${f.t.name}: repayment % typed for the year`, kShare = `fin|${SET}|${f.t.name}: share of the total repaid in the year`;
+      if (!has(kTyped) || !has(kShare)) return values(`The financing could not be made live for this model: ${f.t.name}'s year-on-year rows are not on the Financing sheet.`);
+      const st = (): string => T(f.keys.start);
+      if (!has(`yoy:${f.t.id}`)) return values(`The financing could not be made live for this model: ${f.t.name}'s year-on-year schedule is not on the Inputs sheet.`);
+      const inRow = w.addr(`yoy:${f.t.id}`);
+      const inRange = w.rangeA(inRow.sheet, inRow.row, inRow.col, inRow.col + N - 1);
+      put(sched, (t) => `IF(${Y(t)}>=${st()},MAX(0,N(INDEX(${inRange},1,${Y(t)}-${st()}+1))),0)`);
+      put(kTyped, (t) => `IF(${Y(t)}>=${st()},MAX(0,N(${P(sched, t)})),0)`);
+      put(kShare, (t) => `IF(${Y(t)}<${st()},0,IF(SUM(${rowRange(kTyped)})<0.000000001,1/MAX(1,${YN()}+1-${st()}),${P(kTyped, t)}/SUM(${rowRange(kTyped)})))`);
+    }
     const sched = (f: typeof fac[number], t: number): string => {
       if (f.kind === 'sweep') return '0';
       const st = T(f.keys.start), n = T(f.keys.n);
@@ -589,7 +599,8 @@ export const stage6Loop: LiveLayer = {
     put(kCwClose, (t) => `${P(kCwForDiv!, t)}+${P(kCwDiv!, t)}`, 'last');
     put(find(CW, '(memo) IDC paid in cash'), (t) => newF.map((f) => `IF(${running(t)},${P(f.keys.charge!, t)}-${P(f.keys.idc!, t)},0)`).join('+') || '0');
     put(find(CW, '(memo) IDC capitalised to debt'), (t) => P(kTotIdc!, t));
-    put(find('Per-Tranche Debt: Sweep & Outstanding', 'Project total debt outstanding (post-sweep)'), (t) => fac.map((f) => P(f.keys.swClose!, t)).join('+') || '0', 'last');
+    put(find('Per-Tranche Debt: Sweep & Outstanding', 'Project total debt outstanding (post-sweep)'), (t) => fac.map((f) => (f.keys.swClose ? P(f.keys.swClose, t) : `(1-${exitF(t)})*${P(f.keys.close!, t)}`)).join('+') || '0', 'last');
+    why(find('Per-Tranche Debt: Sweep & Outstanding', 'Project total debt outstanding (post-sweep)'), 'Not a SUM: each swept facility\'s closing above, and a facility not on the sweep at its closing balance (nothing after the exit).');
 
     // ── The profit before tax inside the loop, and tax ───────────────────────
     const Q = (label: string): string => `fin|${PBT}|${label}`;
@@ -619,45 +630,12 @@ export const stage6Loop: LiveLayer = {
       relief = kRel;
     }
     put(kTax, (t) => taxF(P(kTaxable, t), rate0(), relief ? P(relief, t) : undefined));
-    const lag = (t: number, dt = 0): string => `${P(kTax, t, dt)}*MIN(365,MAX(0,N(${w.ref('project:taxDays')})))/365`;
-    put(kTaxPaid, (t) => (taxLagDays ? `${P(kTax, t)}-(${lag(t)}-${lag(t, -1)})` : P(kTax, t)));
+    const kTaxPay = Q('Tax payable at the year end');
+    if (taxLagDays && !has(kTaxPay)) return values('The financing could not be made live for this model: the tax payable row is not on the Financing sheet.');
+    put(kTaxPay, (t) => `${P(kTax, t)}*MIN(365,MAX(0,N(${w.ref('project:taxDays')})))/365`, 'last');
+    put(kTaxPaid, (t) => (taxLagDays ? `${P(kTax, t)}-(${P(kTaxPay, t)}-N(${P(kTaxPay, t, -1)}))` : P(kTax, t)));
+    if (taxLagDays) why(kTaxPaid, 'The tax less the rise in what is payable at the close.');
     why(kPbt, 'The loop\'s own profit before tax (Checks proves it equals the P&L every year).');
-
-    // ── The fund fees ────────────────────────────────────────────────────────
-    if (feeOn) {
-      const Fk = (label: string): string => `fin|${FEES}|${label}`;
-      const kAffd = Fk('Cash before funding, without the fund fees'), kNff = Fk('Funding need without the fund fees');
-      if (!has(kAffd) || !has(kNff) || !has(kFeeTot)) return values('The financing could not be made live for this model: the fund fee rows are not on the Financing sheet.');
-      // The deficit walk with the fee rows added back (Method 3); Methods 1 and 2 size without interest, so the base is the draws.
-      put(kAffd, (t) => (METHOD === 3 ? `${P(kAffd, t, -1)}+${P(kNff, t, -1)}+${P(kOpIn, t)}${byEq ? '' : `+${fee(t)}`}-${P(kCapexM3!, t)}` : '0'), 'last');
-      put(kNff, (t) => (METHOD === 3 ? `IF(${spending(t)},MAX(0,${MIN()}-${P(kAffd, t)}),0)` : `${P(kDebtReq, t)}+${P(kEqDev, t)}`));
-      const R = (): string => T(kNff);
-      const capOf = (label: string): string | undefined => find(FEES, label) ?? find(FEES, `= ${label}`);
-      const kEqB = capOf('Capex equity'), kDbB = capOf('Debt facility'), kFsB = capOf('Fund size');
-      putS(kEqB, `${R()}*${T(K.eF)}`);
-      putS(kDbB, `${R()}*${T(K.dF)}`);
-      putS(kFsB, fundTerms.fundSizeOverride ? `MAX(0,N(${w.ref('ft:Fund size (typed target)')}))` : (kEqB && kDbB ? `${T(kEqB)}+${T(kDbB)}` : R()));
-      const baseOf = (base: string): string => (base === 'fund_size' ? (kFsB ? T(kFsB) : (fundTerms.fundSizeOverride ? `MAX(0,N(${w.ref('ft:Fund size (typed target)')}))` : R()))
-        : base === 'total_equity' ? (kEqB ? T(kEqB) : `${R()}*${T(K.eF)}`) : base === 'debt_facility' ? (kDbB ? T(kDbB) : `${R()}*${T(K.dF)}`) : '0');
-      const feeKeys: string[] = [];
-      FUND_FEE_SPECS.forEach((spec, i) => {
-        const k = Fk(spec.label);
-        if (!has(k)) return;
-        const rateIn = (): string => (has(`ft:${spec.label}`) ? `N(${w.ref(`ft:${spec.label}`)})` : '0');
-        put(k, (t) => {
-          const first = spec.timing === 'one_time' ? `(${Y(t)}=${Y0()})*` : '';
-          return spec.kind === 'amount' ? `${first}${rateIn()}` : `${first}${rateIn()}*${baseOf(spec.base)}`;
-        });
-        feeKeys.push(k);
-        w.claim(`fnc:fee:${i}`, FIN, w.addr(k).row, 1);
-      });
-      put(kFeeTot, (t) => sumP(feeKeys, t));
-      claim('fnc:fee:base', kNff);
-      claim('fnc:fee:fundsize', kFsB);
-      if (kEqB) w.claim('ftcap:Capex equity', FIN, w.addr(kEqB).row, TOTAL_COL);
-      if (kDbB) w.claim('ftcap:Debt facility', FIN, w.addr(kDbB).row, TOTAL_COL);
-      if (kFsB) w.claim('ftcap:Fund size', FIN, w.addr(kFsB).row, TOTAL_COL);
-    }
 
     // ── Capitalised interest, by line on land under construction ─────────────
     const idcAssets = visible.filter(sharesCapitalisedInterest);
@@ -690,6 +668,243 @@ export const stage6Loop: LiveLayer = {
     const kIdcDisp = find(/^Routed to Fixed Assets/, /^Disposed at Exit/);
     put(kIdcDisp, (t) => (has('schv:__project__:idcNbv') ? `-(${exitF(t)}*${idcPre(t)})` : '0'));
     put(find(/^Routed to Fixed Assets/, /^Operate\/Lease IDC NBV/), (t) => (has('schv:__project__:idcNbv') ? P('schv:__project__:idcNbv', t) : '0'), 'last');
+
+    // ── THE FEE-FREE SOLVE (Method 3, a fund project): the base the fund fees are charged on ──
+    // The platform sizes the fees on its solve WITHOUT them (computeFeeFreeSnapshot). The fees move
+    // tax, so that solve draws, borrows and pays interest differently: it is solved here as its own
+    // loop, every row reading this world's own rows or the rows above that the fees do not move.
+    const report0 = buildFixedAssetReport({ fa: snap.fixedAssets, idc: snap.idc, state, dCtx: disposalContextOf(snap) });
+    let feeBase: string | undefined;
+    if (feeOn && METHOD === 3) {
+      const FF = (sec: string, label: string): string => `fin|${sec}|${label}`;
+      const C0 = (label: string): string => FF(FEE_FREE.cash, label);
+      const kOpBT = C0(FEE_FREE.opBeforeTax), kTaxF = C0('(-) Tax paid'), kOpF = C0('= Operating inflows'), kCapF = C0('(-) Cash capex less exit proceeds');
+      const kOpenF = C0('Opening cash'), kAvailF = C0('= Cash before financing'), kNeedF = C0(FEE_FREE.need);
+      const kDbF = C0('Debt draw (the debt share of the need)'), kEbF = C0('Equity draw (the equity share of the need)'), kAfterF = C0('Closing cash after funding');
+      const W0 = (label: string): string => FF(FEE_FREE.waterfall, label);
+      const L0 = (label: string): string => FF(FEE_FREE.lines, label);
+      const T0 = (label: string): string => FF(FEE_FREE.pbt, label);
+      const need: string[] = [kOpBT, kTaxF, kOpF, kCapF, kOpenF, kAvailF, kNeedF, kDbF, kEbF, kAfterF,
+        W0('Interest charged, all facilities'), W0('Capitalised interest (new facilities, while construction runs)'), W0('(-) Interest expensed'),
+        W0('Opening cash (after debt and dividends)'), W0('(+) Cash from operations'), W0('(-) Cash from investing'), W0('(+) Equity drawn'),
+        W0('(+) Debt drawn (capex and interest)'), W0('(-) Interest paid'), W0('= Cash available'), W0('Debt repaid at the exit'),
+        W0('(-) Debt repaid (scheduled, swept and at the exit)'), W0('= Cash available for dividend'), W0('(-) Dividends paid'), W0('= Closing cash'),
+        T0('Revenue less operating expenses'), T0('(-) Cost of sales'), T0('(-) Depreciation (capex and capitalised interest)'), T0('(-) Interest expensed'),
+        T0('(+) Gain on disposal'), T0('= Profit before tax'), T0('Taxable profit'), T0('Tax'), T0('Tax paid')];
+      const missing = need.filter((k) => !has(k));
+      if (missing.length) return values(`The financing could not be made live for this model: the fee-free solve has no row ${missing[0].split('|').slice(1).join(' / ')}.`);
+      // The funding need without the fees.
+      put(kOpBT, (t) => sumP([kRes, kHosp, kRet, kAr, kHq, kEsc], t));
+      why(kOpBT, 'Not a SUM: the Method 3 operating rows above, every one but the fee and tax, which this solve has its own of.');
+      put(kTaxF, (t) => `-${P(T0('Tax paid'), t)}`);
+      put(kOpF, (t) => sumP([kOpBT, kTaxF], t));
+      put(kCapF, (t) => `-${P(kCapexM3!, t)}`);
+      put(kOpenF, (t) => P(kAfterF, t, -1), 'last');
+      put(kAvailF, (t) => sumP([kOpF, kCapF, kOpenF], t), 'last');
+      why(kAvailF, 'Not a SUM over a block: the operating inflows, the capex and the opening cash.');
+      const spendF = (t: number): string => `(${P(kCapexM3!, t)}>0.005)`;
+      put(kNeedF, (t) => `IF(${spendF(t)},MAX(0,${MIN()}-${P(kAvailF, t)}),0)`);
+      const gapF = (): string => T(kNeedF);
+      put(kDbF, (t) => `IF(${gapF()}>0,${P(kNeedF, t)}*${T(K.dF)},${onCapexD(t)})`);
+      put(kEbF, (t) => `IF(${gapF()}>0,${P(kNeedF, t)}*${T(K.eF)},${onCapexE(t)})`);
+      put(kAfterF, (t) => `${P(kAvailF, t)}+${P(kNeedF, t)}`, 'last');
+      why(kAfterF, 'Not a SUM: the cash before financing plus the need.');
+      feeBase = kNeedF;
+      // Each facility, in the order the solve consumes the shared budgets.
+      const headF = (t: number): string => `MAX(0,${P(kAfterF, t)}-${MIN()})`;
+      const ffac = fac.map((f) => {
+        const B = (label: string): string => FF(FEE_FREE.facility(f.t.name), label);
+        return {
+          f, open: B('Opening'), draw: B('Capex drawdown'), idc: B('Interest drawn as debt'), sched: B('(-) Scheduled principal'),
+          sw: f.sweeps ? B('(-) Swept from surplus cash') : undefined, close: B('Closing'), charge: B('Interest charged'), td: B('Total drawn'), pmt: B('Scheduled payment'),
+        };
+      });
+      for (const g of ffac) for (const k of [g.open, g.draw, g.idc, g.sched, g.close, g.charge, g.td, ...(g.sw ? [g.sw] : [])]) {
+        if (!has(k)) return values(`The financing could not be made live for this model: the fee-free solve has no row ${k.split('|').slice(1).join(' / ')}.`);
+      }
+      const owedF = (g: typeof ffac[number], t: number): string => `(${P(g.open, t)}+${P(g.draw, t)}+${P(g.idc, t)})`;
+      const schedF = (g: typeof ffac[number], t: number): string => {
+        const f = g.f;
+        if (f.kind === 'sweep') return '0';
+        const st = T(f.keys.start), n = T(f.keys.n);
+        const inWindow = `AND(${Y(t)}>=${st},${Y(t)}<${st}+${n})`;
+        let due = '0';
+        if (f.kind === 'annuity') due = `IF(${inWindow},MIN(${owedF(g, t)},MAX(0,${T(g.pmt)}-${P(g.charge, t)})),0)`;
+        else if (f.kind === 'principal') due = `IF(${inWindow},MIN(${owedF(g, t)},${T(g.pmt)}),0)`;
+        else if (f.kind === 'yoy') due = `MIN(${owedF(g, t)},${T(g.td)}*${P(`fin|${SET}|${f.t.name}: share of the total repaid in the year`, t)})`;
+        return `IF(${Y(t)}=${T(f.keys.fin)},${owedF(g, t)},${due})`;
+      };
+      for (const [j, g] of ffac.entries()) {
+        const f = g.f;
+        put(g.open, (t) => P(g.close, t, -1), 'last');
+        put(g.draw, (t) => (f.isEx ? P(f.keys.draw!, t) : `MAX(0,${P(kDbF, t)})*${shareOf(f)}`));
+        const intStart = f.isEx && has(`fin|${f.band}|Interest Start Year`) ? `MAX(${Y0()},N(${inp(`fin|${f.band}|Interest Start Year`)}))` : null;
+        put(g.charge, (t) => `${intStart ? `(${Y(t)}>=${intStart})*` : ''}(${P(g.open, t)}+${P(g.draw, t)})*${rate(f)}`);
+        const paidBefore = (t: number): string => ffac.slice(0, j).filter((b) => !b.f.isEx).map((b) => `(${P(b.charge, t)}-${P(b.idc, t)})`).join('+') || '0';
+        put(g.idc, (t) => (f.isEx ? '0' : `IF(${running(t)},MAX(0,${P(g.charge, t)}-MAX(0,${headF(t)}-(${paidBefore(t)}))),0)`));
+        putS(g.td, `SUM(${rowRange(g.draw)})`);
+        if (has(g.pmt)) {
+          const n = (): string => T(f.keys.n);
+          if (f.kind === 'annuity') putS(g.pmt, `IF(OR(${n()}<=0,${T(g.td)}<=0),0,IF(${rate(f)}<=0,${T(g.td)}/${n()},${T(g.td)}*${rate(f)}*(1+${rate(f)})^${n()}/((1+${rate(f)})^${n()}-1)))`);
+          else if (f.kind === 'principal') putS(g.pmt, `IF(${n()}>0,${T(g.td)}/${n()},0)`);
+        }
+        put(g.sched, (t) => `-${schedF(g, t)}`);
+      }
+      const kCashF = W0('= Cash available'), kExitF = W0('Debt repaid at the exit');
+      const preSweepF = (t: number): string => `MAX(0,${P(kCashF, t)}-(${ffac.map((g) => `(-${P(g.sched, t)})`).join('+') || '0'})-${P(kExitF, t)}-${MIN()})`;
+      const tolF = (g: typeof ffac[number]): string => `MAX(1,MIN(1000,${T(g.td)}*0.0001))`;
+      for (const [j, g] of ffac.entries()) {
+        const balA = (t: number): string => `(${owedF(g, t)}+${P(g.sched, t)})`;
+        const swBefore = (t: number): string => ffac.slice(0, j).filter((b) => b.sw).map((b) => `(-${P(b.sw!, t)})`).join('+') || '0';
+        if (g.sw) put(g.sw, (t) => `-IF(AND(${Y(t)}>=${kSweepStart()},${balA(t)}>0),MIN(${balA(t)},MAX(0,${preSweepF(t)}-(${swBefore(t)}))*${sweepRatio()},MAX(0,${preSweepF(t)}-(${swBefore(t)}))),0)`);
+        const swAbs = (t: number): string => (g.sw ? `(-${P(g.sw, t)})` : '0');
+        put(g.close, (t) => `IF(ABS(${balA(t)}-${swAbs(t)})<${tolF(g)},0,${balA(t)}-${swAbs(t)})`, 'last');
+        why(g.close, 'Not a SUM: the opening plus the drawdowns less the repayments, snapped to zero within a cent-scale tolerance as the platform does.');
+      }
+      // Interest, the cash waterfall and the dividends.
+      const kChF = W0('Interest charged, all facilities'), kBasF = W0('Capitalised interest (new facilities, while construction runs)'), kExpF = W0('(-) Interest expensed');
+      put(kChF, (t) => ffac.map((g) => P(g.charge, t)).join('+') || '0');
+      why(kChF, 'Not a SUM over a block: each facility\'s interest charged, above.');
+      put(kBasF, (t) => `IF(${running(t)},${ffac.filter((g) => !g.f.isEx).map((g) => P(g.charge, t)).join('+') || '0'},0)`);
+      put(kExpF, (t) => `-(${P(kChF, t)}-${P(kBasF, t)})`);
+      const kOpenW = W0('Opening cash (after debt and dividends)'), kCfoW = W0('(+) Cash from operations'), kCfiW = W0('(-) Cash from investing'), kEqW = W0('(+) Equity drawn');
+      const kDebtW = W0('(+) Debt drawn (capex and interest)'), kIntW = W0('(-) Interest paid'), kPaidW = W0('(-) Debt repaid (scheduled, swept and at the exit)');
+      const kForDivW = W0('= Cash available for dividend'), kDivW = W0('(-) Dividends paid'), kCloseW = W0('= Closing cash');
+      put(kOpenW, (t) => P(kCloseW, t, -1), 'last');
+      put(kCfoW, (t) => P(kOpF, t));
+      put(kCfiW, cfi);
+      put(kEqW, (t) => P(kEbF, t));
+      put(kDebtW, (t) => ffac.map((g) => `${P(g.draw, t)}+${P(g.idc, t)}`).join('+') || '0');
+      put(kIntW, (t) => `-${P(kChF, t)}`);
+      put(kCashF, (t) => sumP([kOpenW, kCfoW, kCfiW, kEqW, kDebtW, kIntW], t), 'last');
+      put(kExitF, (t) => `${exitF(t)}*MAX(0,${ffac.map((g) => P(g.close, t)).join('+') || '0'})`);
+      put(kPaidW, (t) => `${ffac.map((g) => `${P(g.sched, t)}${g.sw ? `+${P(g.sw, t)}` : ''}`).join('+') || '0'}-${P(kExitF, t)}`);
+      why(kPaidW, 'Not a SUM over a block: each facility\'s scheduled and swept principal, and the exit repayment above.');
+      put(kForDivW, (t) => `${P(kCashF, t)}+${P(kPaidW, t)}`, 'last');
+      const excessF = (t: number): string => `IF(${P(kForDivW, t)}-${MIN()}<0.005,0,${P(kForDivW, t)}-${MIN()})`;
+      // This solve's cost of sales by line (its capitalised interest through the line's base).
+      const idcRowF = new Map<string, string>();
+      for (const l of idcLines) {
+        const title = lineTitle(l, lineState);
+        const k = L0(FEE_FREE.idcLine(title));
+        const actual = idcRowOf.get(l.assetIds.join('|'));
+        if (!has(k) || !actual) continue;
+        const as = l.assetIds.map((id) => idcAssets.find((a) => a.id === id)).filter((a): a is Asset => !!a);
+        const sq = as.map(sqm).join('+') || '0';
+        const flag = (t: number): string => (as[0] ? conFlag(as[0], t) : '0');
+        put(k, (t) => `IF(${P(kBasF, t)}=0,0,IF(${P(K.sqmActive, t)}>0,${flag(t)}*${P(kBasF, t)}*(${sq})/${P(K.sqmActive, t)},IF(${T(K.sqmTot)}>0,${P(kBasF, t)}*(${sq})/${T(K.sqmTot)},0)))`);
+        for (const id of l.assetIds) idcRowF.set(id, k);
+      }
+      const idcRowsOf = (ids: readonly string[]): string[] => [...new Set(ids.map((id) => idcRowF.get(id)).filter((k): k is string => !!k))];
+      const cosF = new Map<string, string>();
+      for (const l of lines.filter((x) => x.form === 'sell')) {
+        const k = L0(FEE_FREE.cos(revenueLineName(l)));
+        if (!has(k)) continue;
+        if (!has(`cosc:${l.key}:capex`)) return values(`The financing could not be made live for this model: ${revenueLineName(l)} has no cost of sales build on Schedules.`);
+        const TB = `(${T(`cosc:${l.key}:capex`)}${idcRowsOf(l.members.map((m) => m.id)).map((x) => `+${T(x)}`).join('')})`;
+        put(k, (t) => `IF(${TB}>0,${TB}*${P(`cosc:${l.key}:share`, t)},0)`);
+        cosF.set(l.key, k);
+      }
+      // The held lines: this solve's capitalised interest, its depreciation, write-off and NBV.
+      const heldF: Array<{ dep: string; off: string }> = [];
+      for (const gr of report0.groups) for (const l of gr.lines) {
+        const kAdd = L0(FEE_FREE.held(l.title, 'added')), kDep2 = L0(FEE_FREE.held(l.title, 'dep')), kOff = L0(FEE_FREE.held(l.title, 'off')), kNbv = L0(FEE_FREE.held(l.title, 'nbv'));
+        if (!has(kAdd)) continue;
+        if (![kDep2, kOff, kNbv].every(has) || !has(`fain:${l.hostId}`)) return values(`The financing could not be made live for this model: ${l.title} has no fee-free capitalised interest rows.`);
+        const host = state.assets.find((a) => a.id === l.hostId)!;
+        const ids = l.memberIds.filter((id) => { const r0 = snap.idc.byAsset.get(id); return !!r0 && idcRowIsHeld(r0); });
+        const rows = idcRowsOf(ids);
+        put(kAdd, (t) => rows.map((x) => P(x, t)).join('+') || '0');
+        const idxAll = w.rangeA('Schedules', 4, pc(0), pc(N - 1));
+        put(kDep2, (t) => vintageDepF(rowRange(kAdd), lifeInForce(w, host, here), firstOperatingIdx(w, host.phaseId), idxAll, w.refP({ sheet: 'Schedules', row: 4, col: pc(t) }, here)));
+        const pre = (t: number): string => `MAX(0,${P(kNbv, t, -1)}+${P(kAdd, t)}-${P(kDep2, t)})`;
+        put(kOff, (t) => `-(${exitF(t)}*${pre(t)})`);
+        put(kNbv, (t) => `(1-${exitF(t)})*${pre(t)}`, 'last');
+        heldF.push({ dep: kDep2, off: kOff });
+      }
+      // Dividends by phase, as above, on this solve's cash and cost of sales.
+      const phaseDivF: string[] = [];
+      for (const p of phases) {
+        const kEbP = W0(`${p.name}: EBITDA (revenue less cost of sales less opex)`), kDivP = W0(`${p.name}: dividend`);
+        if (!has(kEbP) || !has(kDivP)) return values(`The financing could not be made live for this model: the fee-free solve has no dividend rows for ${p.name}.`);
+        const pa = visible.filter((a) => a.phaseId === p.id);
+        const pl = lines.filter((l) => l.phaseId === p.id && cosF.has(l.key));
+        put(kEbP, (t) => `${pa.map((a) => assetRev(a)(t)).join('+') || '0'}-(${pl.map((l) => P(cosF.get(l.key)!, t)).join('+') || '0'})-(${pa.map((a) => assetOpex(a)(t)).join('+') || '0'})`);
+        const before = [...phaseDivF];
+        put(kDivP, (t) => {
+          const ex = `(${excessF(t)}${before.map((k) => `-${P(k, t)}`).join('')})`;
+          const budget = `MAX(0,SUM(${toNow(kEbP, t)})-SUM(${toPrev(kDivP, t)}))`;
+          return `IF(AND(${divOn()}=1,${Y(t)}>=${T(K.divStart)},${payout()}>0,${ex}>0),MIN(${onEbitda ? `MAX(0,${P(kEbP, t)})` : ex}*${payout()},${ex},${budget}),0)`;
+        });
+        phaseDivF.push(kDivP);
+      }
+      const phaseSumF = (t: number): string => phaseDivF.map((k) => P(k, t)).join('+') || '0';
+      put(kDivW, (t) => `-(${phaseSumF(t)}+${exitF(t)}*IF(AND(${divOn()}=1,${excessF(t)}>0,${P(kForDivW, t)}-(${phaseSumF(t)})>=0.005),${P(kForDivW, t)}-(${phaseSumF(t)}),0))`);
+      why(kDivW, 'Not a SUM: the phases\' dividends, and in the exit year all the cash above the minimum.');
+      put(kCloseW, (t) => `${P(kForDivW, t)}+${P(kDivW, t)}`, 'last');
+      // Profit before tax and tax.
+      const kE0 = T0('Revenue less operating expenses'), kCosF = T0('(-) Cost of sales'), kDepF = T0('(-) Depreciation (capex and capitalised interest)');
+      const kIntF = T0('(-) Interest expensed'), kGainF = T0('(+) Gain on disposal'), kPbtF = T0('= Profit before tax'), kTxbF = T0('Taxable profit'), kTaxF2 = T0('Tax'), kPaidF = T0('Tax paid');
+      put(kE0, (t) => P(kEbit0, t));
+      put(kCosF, (t) => `-(${[...cosF.values()].map((k) => P(k, t)).join('+') || '0'})`);
+      put(kDepF, (t) => (has('schv:__project__:idcDep')
+        ? `-(${P('schv:__project__:capDep', t)}${heldF.map((x) => `+${P(x.dep, t)}`).join('')})`
+        : P('schv:__project__:dep', t)));
+      put(kIntF, (t) => P(kExpF, t));
+      put(kGainF, (t) => `${P(kGain, t)}${kIdcDisp ? `-${P(kIdcDisp, t)}` : ''}${heldF.map((x) => `+${P(x.off, t)}`).join('')}`);
+      why(kGainF, 'The loop\'s gain above, with this solve\'s capitalised interest written off in place of the loop\'s.');
+      put(kPbtF, (t) => sumP([kE0, kCosF, kDepF, kIntF, kGainF], t));
+      put(kTxbF, (t) => (taxed ? P(kPbtF, t) : `${P(kPbtF, t)}-${P(kGainF, t)}`));
+      let reliefF: string | undefined;
+      if (project.tax?.basis === 'cit') {
+        const kPoolF = T0('Tax losses carried forward'), kRelF = T0('Tax loss relief');
+        if (!has(kPoolF) || !has(kRelF)) return values('The financing could not be made live for this model: the fee-free tax loss rows are not on the Financing sheet.');
+        put(kRelF, (t) => citReliefF(P(kTxbF, t), P(kPoolF, t, -1)));
+        put(kPoolF, (t) => citPoolF(P(kTxbF, t), P(kPoolF, t, -1), P(kRelF, t)), 'last');
+        reliefF = kRelF;
+      }
+      put(kTaxF2, (t) => taxF(P(kTxbF, t), rate0(), reliefF ? P(reliefF, t) : undefined));
+      const kPayF = T0('Tax payable at the year end');
+      if (taxLagDays && !has(kPayF)) return values('The financing could not be made live for this model: the fee-free tax payable row is not on the Financing sheet.');
+      put(kPayF, (t) => `${P(kTaxF2, t)}*MIN(365,MAX(0,N(${w.ref('project:taxDays')})))/365`, 'last');
+      put(kPaidF, (t) => (taxLagDays ? `${P(kTaxF2, t)}-(${P(kPayF, t)}-N(${P(kPayF, t, -1)}))` : P(kTaxF2, t)));
+    }
+
+    // ── The fund fees ────────────────────────────────────────────────────────
+    if (feeOn) {
+      const Fk = (label: string): string => `fin|${FEES}|${label}`;
+      // The base: the fee-free solve's funding need (Method 3, above); Methods 1 and 2 draw on capex
+      // and pre-sales, which the fees do not move, so their base is the draws.
+      const kNff = feeBase ?? Fk(FEE_FREE.need);
+      if (!has(kNff) || !has(kFeeTot)) return values('The financing could not be made live for this model: the fund fee rows are not on the Financing sheet.');
+      if (!feeBase) put(kNff, (t) => `${P(kDebtReq, t)}+${P(kEqDev, t)}`);
+      const R = (): string => T(kNff);
+      const capOf = (label: string): string | undefined => find(FEES, label) ?? find(FEES, `= ${label}`);
+      const kEqB = capOf('Capex equity'), kDbB = capOf('Debt facility'), kFsB = capOf('Fund size');
+      putS(kEqB, `${R()}*${T(K.eF)}`);
+      putS(kDbB, `${R()}*${T(K.dF)}`);
+      putS(kFsB, fundTerms.fundSizeOverride ? `MAX(0,N(${w.ref('ft:Fund size (typed target)')}))` : (kEqB && kDbB ? `${T(kEqB)}+${T(kDbB)}` : R()));
+      const baseOf = (base: string): string => (base === 'fund_size' ? (kFsB ? T(kFsB) : (fundTerms.fundSizeOverride ? `MAX(0,N(${w.ref('ft:Fund size (typed target)')}))` : R()))
+        : base === 'total_equity' ? (kEqB ? T(kEqB) : `${R()}*${T(K.eF)}`) : base === 'debt_facility' ? (kDbB ? T(kDbB) : `${R()}*${T(K.dF)}`) : '0');
+      const feeKeys: string[] = [];
+      FUND_FEE_SPECS.forEach((spec, i) => {
+        const k = Fk(spec.label);
+        if (!has(k)) return;
+        const rateIn = (): string => (has(`ft:${spec.label}`) ? `N(${w.ref(`ft:${spec.label}`)})` : '0');
+        put(k, (t) => {
+          const first = spec.timing === 'one_time' ? `(${Y(t)}=${Y0()})*` : '';
+          return spec.kind === 'amount' ? `${first}${rateIn()}` : `${first}${rateIn()}*${baseOf(spec.base)}`;
+        });
+        feeKeys.push(k);
+        w.claim(`fnc:fee:${i}`, FIN, w.addr(k).row, 1);
+      });
+      put(kFeeTot, (t) => sumP(feeKeys, t));
+      claim('fnc:fee:base', kNff);
+      claim('fnc:fee:fundsize', kFsB);
+      if (kEqB) w.claim('ftcap:Capex equity', FIN, w.addr(kEqB).row, TOTAL_COL);
+      if (kDbB) w.claim('ftcap:Debt facility', FIN, w.addr(kDbB).row, TOTAL_COL);
+      if (kFsB) w.claim('ftcap:Fund size', FIN, w.addr(kFsB).row, TOTAL_COL);
+    }
 
     // ── Equity, Method 2, the summary, the funding basis ─────────────────────
     const eq = (t: number): string => `${P(kEqDev, t)}${kFeeDraw ? `+${P(kFeeDraw, t)}` : ''}+${P(K.inKind, t)}`;
@@ -763,7 +978,13 @@ export const stage6Loop: LiveLayer = {
     // The minimum cash and the dividend switch are read through loopOne, by name; claimed so a reader can test for them.
     claim('fnc:min', K.minCash); claim('fnc:don', K.divOn);
     claim('fnc:capexall', 'cx2:total');
-    for (const f of fac) claim(`fnc:main:tr:${f.t.id}:bal`, f.keys.close);
+    for (const f of fac) {
+      claim(`fnc:main:tr:${f.t.id}:bal`, f.keys.close);
+      claim(`fnc:tr:${f.t.id}:draw`, f.keys.draw); claim(`fnc:tr:${f.t.id}:idc`, f.keys.idc);
+      claim(`fnc:tr:${f.t.id}:repaid`, f.keys.repaid); claim(`fnc:tr:${f.t.id}:charge`, f.keys.charge);
+    }
+    claim('fnc:tax', kTax); claim('fnc:taxpaid', kTaxPaid); claim('fnc:taxpay', kTaxPay);
+    claim('fnc:eqclose', kEqClose);
     // Interest: the facility's own ledger where there is one facility, the combined one otherwise.
     claim('fnc:main:interest', fac.length === 1 ? fac[0].keys.charge : find(CFC, /^Charge \(Accrued/));
     claim('fnc:main:idcdep', 'schv:__project__:idcDep');
@@ -779,7 +1000,7 @@ export const stage6Loop: LiveLayer = {
     };
     const lineIdc = (ids: readonly string[]) => (t: number): string => {
       const rows = [...new Set(ids.filter((id) => has(`fnc:main:idc:${id}`)).map((id) => w.addr(`fnc:main:idc:${id}`).row))];
-      return rows.map((r) => w.refA({ sheet: FIN, row: r, col: pc(t) })).join('+') || '0';
+      return rows.map((r) => w.refP({ sheet: FIN, row: r, col: pc(t) })).join('+') || '0';
     };
     for (const l of lines.filter((x) => has(`cosc:${x.key}:idc`))) liveRow(`cosc:${l.key}:idc`, (t) => `MAX(0,${lineIdc(l.members.map((m) => m.id))(t)})`);
     const report = buildFixedAssetReport({ fa: snap.fixedAssets, idc: snap.idc, state, dCtx: disposalContextOf(snap) });
@@ -788,37 +1009,11 @@ export const stage6Loop: LiveLayer = {
       const ids = l.memberIds.filter((id) => { const r0 = snap.idc.byAsset.get(id); return !!r0 && idcRowIsHeld(r0); });
       liveRow(`schv:${l.hostId}:idcAdd`, lineIdc(ids));
     }
-    const abs = (k: string | undefined, t: number): string => (k ? w.refA({ sheet: FIN, row: w.addr(k).row, col: pc(t) }) : '0');
-    liveRow('stc:interest', (t) => `-${abs(kIntExp, t)}`);
-    liveRow('stc:proceeds', (t) => abs(K.proceeds, t));
-    FUND_FEE_SPECS.forEach((_, i) => { if (has(`fnc:fee:${i}`)) liveRow(`stc:fee:${i}`, (t) => w.refA({ sheet: FIN, row: w.addr(`fnc:fee:${i}`).row, col: pc(t) })); });
-    liveRow('stc:bs:debt', (t) => abs(find('Per-Tranche Debt: Sweep & Outstanding', 'Project total debt outstanding (post-sweep)'), t));
-    liveRow('stc:bs:share', (t) => `${Math.max(0, project.shareCapital ?? 0)}+SUM(${w.rangeA(FIN, w.addr(kEqDev).row, pc(0), pc(t))})${kFeeDraw ? `+SUM(${w.rangeA(FIN, w.addr(kFeeDraw).row, pc(0), pc(t))})` : ''}+SUM(${w.rangeA(FIN, w.addr(K.inKind).row, pc(0), pc(t))})`);
-    const cfPending = (label: string, f: F): void => liveRow(`stc:cf:${label}`, f);
-    cfPending('Equity Drawdown, development', (t) => abs(kEqDev, t));
-    cfPending('Equity Drawdown (Cash)', (t) => `${abs(kEqDev, t)}+${abs(kFeeDraw, t)}`);
-    cfPending('Equity Drawdown, management fee', (t) => abs(kFeeDraw, t));
-    const byOrigin = (fs: typeof fac) => ({
-      draw: (t: number): string => fs.map((f) => `${abs(f.keys.draw, t)}+${abs(f.keys.idc, t)}`).join('+') || '0',
-      repay: (t: number): string => `${fs.map((f) => `-${abs(f.keys.repaid, t)}`).join('') || '0'}${booked ? `+${w.refA({ sheet: 'Timeline', row: w.addr('tl:flag:exit').row, col: pc(t) })}*MAX(0,${fs.map((f) => abs(f.keys.close, t)).join('+') || '0'})` : ''}`,
-      int: (t: number): string => fs.map((f) => abs(f.keys.charge, t)).join('+') || '0',
-    });
-    const nw = byOrigin(newF);
-    cfPending('Debt Drawdown, New loans', nw.draw);
-    cfPending('Debt Repayment, New loans', (t) => `-(${nw.repay(t)})`);
-    cfPending('Interest Paid, New loans', (t) => `-(${nw.int(t)})`);
-    if (exF.length) {
-      const ex = byOrigin(exF);
-      cfPending('Debt Drawdown, Existing loans', ex.draw);
-      cfPending('Debt Repayment, Existing loans', (t) => `-(${ex.repay(t)})`);
-      cfPending('Interest Paid, Existing loans', (t) => `-(${ex.int(t)})`);
-    }
-    cfPending('Dividends paid', (t) => abs(kCwDiv, t));
 
     // A CIRCULAR CELL NEEDS A STARTING VALUE. Excel iterates a loop from each cell's cached result;
     // a formula written with none enters the first pass with nothing to start from and the loop never
     // recovers. Every formula on the tabs the loop runs through that carries no value starts from 0.
-    for (const name of [FIN, 'Schedules', 'Statements Calc']) {
+    for (const name of [FIN, 'Schedules']) {
       wb.getWorksheet(name)?.eachRow((r) => r.eachCell((c) => {
         const v = c.value as unknown as { formula?: string; result?: unknown } | null;
         if (v && typeof v === 'object' && 'formula' in v && (v.result === undefined || v.result === null)) c.value = { formula: v.formula, result: 0 } as never;

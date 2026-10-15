@@ -32,3 +32,14 @@ export const ratioT = (num: string, den: string, d = 1): string => `IF(${den}>0,
 /** A ratio over a series whose unmeasured years print "-": "n/a" when no year is measured. */
 export const seriesT = (fn: 'MIN' | 'MAX' | 'AVERAGE', rng: string, fmt: (e: string) => string): string =>
   `IF(COUNT(${rng})=0,"n/a",${fmt(`${fn}(${rng})`)})`;
+/**
+ * formatAccounting at a display scale with the label unit (makeLabelMoney): "-" where the
+ * figure rounds to nothing, "(x)" when negative, the scale's unit after it.
+ */
+export const accT = (e: string, scale: 'full' | 'thousands' | 'millions', d: number): string => {
+  const div = scale === 'millions' ? 1000000 : scale === 'thousands' ? 1000 : 1;
+  const unit = scale === 'millions' ? ' m' : scale === 'thousands' ? ' k' : '';
+  const fmt = d > 0 ? `#,##0.${'0'.repeat(d)}` : '#,##0';
+  const a = div === 1 ? `ABS(${e})` : `ABS(${e})/${div}`;
+  return `IF(ROUND(${a},${d})=0,"-",IF(${e}<0,"("&TEXT(${a},"${fmt}")&")",TEXT(${a},"${fmt}")))${unit ? `&"${unit}"` : ''}`;
+};

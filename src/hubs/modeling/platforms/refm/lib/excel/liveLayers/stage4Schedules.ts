@@ -59,6 +59,20 @@ export function lifeInForce(w: LiveWriter, host: Asset, here?: string): string {
   return `IF(N(${life})>0,N(${life}),${dflt})`;
 }
 
+/**
+ * EACH YEAR'S ADDITION DEPRECIATES OVER THE LIFE FROM THE LATER OF ITS OWN YEAR AND THE FIRST
+ * OPERATING YEAR: the one rule, here and in the financing loop's fee-free solve. `addAll` is the
+ * additions row across the years; `idxAll` and `idxNow` are Schedules' year-index row and this year's cell.
+ */
+export function vintageDepF(addAll: string, life: string, firstOp: string, idxAll: string, idxNow: string): string {
+  const V = `((${idxAll}>${firstOp})*${idxAll}+(${idxAll}<=${firstOp})*${firstOp})`;
+  return `IF(${life}>0,SUMPRODUCT((${addAll}>0)*${addAll}/MAX(1,${life})*(${V}<=${idxNow})*(${V}+MAX(1,INT(${life}))>${idxNow})),0)`;
+}
+/** The year index (1 = the first year) of a phase's first operating year, from Inputs. */
+export function firstOperatingIdx(w: LiveWriter, phaseId: string): string {
+  return `(MAX(0,YEAR(${w.ref(`phase:${phaseId}:start`)})-${w.ref('project:axisYear')})+MAX(0,${w.ref(`phase:${phaseId}:cp`)})+1)`;
+}
+
 export const stage4Schedules: LiveLayer = {
   name: 'stage 4: schedules',
   apply(ctx: LayerContext) {
@@ -221,13 +235,8 @@ export const stage4Schedules: LiveLayer = {
         const Lf = (): string => lifeInForce(w, host, here);
         const inputs = w.addr(`fain:${host.id}`);
         w.fA({ sheet: SCH, row: inputs.row, col: OPEN_COL }, `IF(${Lf()}>0,1/${Lf()},0)`);
-        const S1 = (): string => `(MAX(0,YEAR(${w.ref(`phase:${p0.id}:start`)})-${w.ref('project:axisYear')})+MAX(0,${w.ref(`phase:${p0.id}:cp`)})+1)`;
         // Each year's addition depreciates from the later of its own year and the first operating year.
-        const vintageDep = (addKey: string) => (t: number): string => {
-          const addAll = w.rangeA(SCH, w.addr(addKey).row, pc(0), pc(N - 1));
-          const V = `((${idxAll()}>${S1()})*${idxAll()}+(${idxAll()}<=${S1()})*${S1()})`;
-          return `IF(${Lf()}>0,SUMPRODUCT((${addAll}>0)*${addAll}/MAX(1,${Lf()})*(${V}<=${idxRow(t)})*(${V}+MAX(1,INT(${Lf()}))>${idxRow(t)})),0)`;
-        };
+        const vintageDep = (addKey: string) => (t: number): string => vintageDepF(w.rangeA(SCH, w.addr(addKey).row, pc(0), pc(N - 1)), Lf(), firstOperatingIdx(w, p0.id), idxAll(), idxRow(t));
         writeTables(l.hostId, r, (t) => landKeys.map((k) => p(k, t)).join('+') || '0', (t) => otherKeys.map((k) => p(k, t)).join('+') || '0', vintageDep(r.capAdd),
           r.idcAdd ? { add: null, dep: vintageDep(r.idcAdd) } : null);
         lineRows.set(l.hostId, r);

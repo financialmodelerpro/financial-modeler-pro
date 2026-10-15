@@ -26,7 +26,7 @@ import type { LayerContext, LiveLayer } from '../formulaWorkbook';
 import { LiveWriter } from './writer';
 import { PERIOD_COLS } from '../buildModelWorkbook';
 import { CHECK_REL_TOL } from '../../reports/checksReport';
-import { irrOf } from './excelText';
+import { irrOf, accT } from './excelText';
 import { NUMFMT } from '../styles';
 import { computeFinancialsSnapshot } from '../../financials-resolvers';
 import { LOOP_PBT_CHECK } from '../buildModelWorkbook';
@@ -84,6 +84,19 @@ export const stage7cChecks: LiveLayer = {
       // implicitly intersected, not evaluated per year (measured in Excel, 2026-09-28).
       const peak = `MAX(MAX(${M}),-MIN(${M}))`;
       w.fA({ sheet: CHK, row: res.row, col: res.col - 1 }, `IF(ABS(${w.refA(res)})<=MAX(0.000001,${peak}*${tol}),"OK","CHECK")`);
+      // The detail: the verdict and the peak (never the float residue), the worst year where it fails.
+      // The loop's own check states its rule in words with no figure; every other states its verdict live.
+      if (id.label !== LOOP_PBT_CHECK) {
+        const det = { sheet: CHK, row: res.row, col: res.col + 1 };
+        const was = String(w.platformValue(det) ?? '');
+        const tail = was.includes('. ') && !/^every year: nothing/.test(was) ? was.slice(was.indexOf('. ') + 1) : (/^every year: nothing to reconcile\./.test(was) ? was.slice('every year: nothing to reconcile.'.length) : '');
+        const W = tail ? `&".${tail.replace(/"/g, '""')}"` : '';
+        const absDiff = `INDEX(ABS(${diff}),0)`;
+        const a0 = w.addr(id.a);
+        const years = w.rangeA(a0.sheet, 3, pc(0), pc(N - 1));
+        const st = w.refA({ sheet: CHK, row: res.row, col: res.col - 1 });
+        w.fA(det, `IF(${peak}=0,"every year: nothing to reconcile"${W},IF(${st}="OK","every year within tolerance of the peak "&${accT(peak, 'millions', 1)}${W},"worst year "&TEXT(INDEX(${years},MATCH(MAX(${absDiff}),${absDiff},0)),"0")&": "&${accT(`ABS(${w.refA(res)})`, 'millions', 1)}&" against a peak of "&${accT(peak, 'millions', 1)}${W}))`);
+      }
       liveIds.push(id.label);
     }
 
@@ -131,16 +144,23 @@ export const stage7cChecks: LiveLayer = {
     retOk.push(pair('Distributed Equity IRR (gross)', () => stream(DDM)));
     const returnsLive = retOk.every(Boolean);
 
+    // ── The performance fee no earner takes: the live fee total less the earners' shares of it ──
+    if (has('chk|note|perf')) {
+      const perfRow = reg.keys().find((k) => k === 'retr|Fee Income by Period|Performance Fee');
+      const shareKeys = reg.keys().filter((k) => k.startsWith('retg|Fund Fee Income by Earner|') && k.endsWith('|3') && !/\|(Unallocated|Total)\|3$/.test(k));
+      if (perfRow && shareKeys.length) {
+        const pr = w.addr(perfRow);
+        const tot = `SUM(${w.rangeA(RET, pr.row, OPEN_COL, OPEN_COL + N)})`;
+        const S = `(${shareKeys.map((k) => `MAX(0,IFERROR(VALUE(${w.ref(k)}),0))`).join('+')})`;
+        const a = w.addr('chk|note|perf');
+        w.fA(a, `MAX(0,${tot}-${S}*${tot})`);
+        w.fA({ sheet: CHK, row: a.row, col: a.col + 1 }, `"Performance fee shares in the fee distribution matrix total "&TEXT(${S},"0.0%")&", so "&${accT(w.refA(a), 'millions', 1)}&" ("&TEXT(1-${S},"0.0%")&") of the performance fee is allocated to no one. It is still taken from investors by the waterfall. Type the remaining share in Module 1, Fund Terms. Advisory, not a failure."`);
+      }
+    }
+
     if (!liveIds.length && !returnsLive) {
       return [{ sheet: CHK, status: 'values' as const, formulas: 0, note: 'The Checks sheet stays the platform\'s values: the statements it reconciles are not live for this model.' }];
     }
-    // The section headings said "as of export", which is now true only of the words beside the figures.
-    const ws = wb.getWorksheet(CHK)!;
-    ws.eachRow((row) => row.eachCell((cell) => {
-      if (cell.isMerged && cell.master.address !== cell.address) return;
-      if (cell.value === 'Platform verification snapshot (results as of export)' && liveIds.length) cell.value = 'Verification (recomputed live from the statements in this workbook)';
-      if (cell.value === 'Headline returns (platform snapshot)' && returnsLive) cell.value = 'Headline returns (live, over the Returns rows)';
-    }));
     const parts = [
       liveIds.length ? `Live: ${liveIds.length === ids.length ? 'every identity' : liveIds.join(', ')} (the residue is the worst signed divergence across the years between the live rows it reconciles, and the status is judged against the peak of that quantity on the relative tolerance, so it reads CHECK the moment an edit breaks it)` : '',
       returnsLive ? 'the headline returns (IRR and MOIC over the live stream rows of the Returns sheet)' : '',
@@ -151,7 +171,7 @@ export const stage7cChecks: LiveLayer = {
     ].filter(Boolean);
     return [{
       sheet: CHK, status: 'partial' as const, formulas: w.formulas.get(CHK) ?? 0,
-      note: `${parts.join(', and ')}. The Detail sentences quote the platform's residue in words and stay as of export, and so do the NOTE advisories on revenue basis and downpayments.${stays.length ? ` Also the platform's values: ${stays.join('; ')}.` : ''}`,
+      note: `${parts.join(', and ')}. Each Detail sentence states the verdict and the peak live (the worst year where an identity fails), and the performance fee note follows the live fee and the earners' shares.${stays.length ? ` Also the platform's values: ${stays.join('; ')}.` : ''}`,
     }];
   },
 };

@@ -47,7 +47,6 @@ import type { CostLine, Phase } from '../../state/module1-types';
 import { METRIC_LABELS } from '../../reports/metricCaptions';
 
 const RET = 'Returns';
-const CALC = 'Returns Calc';
 
 type F = (t: number) => string;
 
@@ -88,35 +87,42 @@ export const stage7Returns: LiveLayer = {
     // ── Excel text in the platform's words ───────────────────────────────────
     const moneyT = moneyWords(cur);
 
-    // ── The working sheet ────────────────────────────────────────────────────
-    const cs = wb.addWorksheet(CALC, { state: 'hidden' });
-    cs.getCell(1, 1).value = 'Returns working sheet: the streams\' components on the project axis (columns from D, year 1 onward) and the candidate exits and sensitivity streams on the stream basis (column D = inception). Hidden.';
-    const cT = (t: number): number => 4 + t;
-    let cr = 3;
-    const C = (r: number, c: number) => ({ sheet: CALC, row: r, col: c });
-    const at = (r: number, t: number): string => w.refA(C(r, cT(t)));
-    const sc3 = (r: number): string => w.refA(C(r, 3));
+    // ── The workings: below the Returns tables, on the sheet itself (2026-10-15) ──
+    // Each row is labelled and read by a figure above it: the streams' components by year in
+    // the year columns, single figures in the Total column, stream rows from the inception
+    // column. A row is one formula across its years; the exit year is the Timeline's flag.
+    const cs = wb.getWorksheet(RET)!;
+    let cr = cs.rowCount + 3;
+    cs.getCell(cr - 1, 1).value = 'Workings: the streams\' components by year, the exit values and the sensitivity streams, each read by a figure above';
+    cs.getCell(cr - 1, 1).font = { bold: true };
+    const C = (r: number, c: number) => ({ sheet: RET, row: r, col: c });
+    const at = (r: number, t: number): string => w.refP(C(r, pc(t)), RET);
+    const atA = (r: number, t: number): string => w.refA(C(r, pc(t)), RET);
+    const sc3 = (r: number): string => w.refA(C(r, TOTAL_COL), RET);
     const rowA = (key: string, label: string, f: F): number => {
-      const r = cr++; cs.getCell(r, 1).value = label; w.claim(key, CALC, r, 1);
-      for (let t = 0; t < N; t++) w.fA(C(r, cT(t)), f(t), { cached: 0 });
+      const r = cr++; cs.getCell(r, 1).value = label; w.claim(key, RET, r, 1);
+      for (let t = 0; t < N; t++) w.fA(C(r, pc(t)), f(t), { cached: 0 });
       return r;
     };
     const cellS = (key: string, label: string, f: () => string): number => {
-      const r = cr++; cs.getCell(r, 1).value = label; w.claim(key, CALC, r, 1);
-      w.fA(C(r, 3), f(), { cached: 0 });
+      const r = cr++; cs.getCell(r, 1).value = label; w.claim(key, RET, r, 1);
+      w.fA(C(r, TOTAL_COL), f(), { cached: 0 });
       return r;
     };
-    /** A stream-basis row: s = 0 (inception) .. last, from column D. */
+    /** A stream-basis row: s = 0 (inception) .. last, from the inception column. */
     const rowS = (key: string, label: string, f: (s: number) => string, last = N): number => {
-      const r = cr++; cs.getCell(r, 1).value = label; w.claim(key, CALC, r, 1);
-      for (let s = 0; s <= last; s++) w.fA(C(r, 4 + s), f(s), { cached: 0 });
+      const r = cr++; cs.getCell(r, 1).value = label; w.claim(key, RET, r, 1);
+      for (let s = 0; s <= last; s++) w.fA(C(r, sc(s)), f(s), { cached: 0 });
       return r;
     };
-    const rngS = (r: number, last = N): string => w.rangeA(CALC, r, 4, 4 + last);
+    const rngS = (r: number, last = N): string => w.rangeA(RET, r, sc(0), sc(last));
+    /** 1 in the exit year, on the stream basis (column s), from the Timeline's flag. */
+    const exitAt = (s: number): string => (has('tl:flag:exit') ? w.refP({ sheet: 'Timeline', row: w.addr('tl:flag:exit').row, col: sc(s) }, RET) : '0');
+    const exitAxis = (t: number): string => exitAt(t + 1);
     // The financing loop's figures, on the Financing tab (stage6Loop: an outflow row is read negated).
     const fnc = (key: string, t: number): string => loopAt(w, key, t);
     const fnc3 = (key: string): string => loopOne(w, key);
-    const vis = (sheet: string, key: string, t: number): string => w.refA({ sheet, row: w.addr(key).row, col: pc(t) });
+    const vis = (sheet: string, key: string, t: number): string => w.refP({ sheet, row: w.addr(key).row, col: pc(t) }, RET);
     const CF = (label: string, t: number): string => vis('Cash Flow', `cf|direct||${label}`, t);
 
     const proceedsKey = 'cf|direct||Proceeds from Disposal of Operating Assets';
@@ -142,20 +148,20 @@ export const stage7Returns: LiveLayer = {
     const sweeps = snap.cashSweep?.enabled === true;
     const level = rowA('rtc:trapLevel', sweeps ? 'cash held back (minimum reserve plus the sweep\'s claim)' : 'cash held back (the minimum reserve; no loan sweeps)', (t) =>
       `MIN(${sc3(floor)},MAX(0,${at(close, t)}))${sweeps ? `+MIN(MAX(0,MAX(0,${at(close, t)})-${sc3(floor)}),MAX(0,${at(debt, t)}))` : ''}`);
-    const trap = rowA('rtc:trap', 'cash retained this year', (t) => `${at(level, t)}-${t === 0 ? '0' : at(level, t - 1)}`);
+    const trap = rowA('rtc:trap', 'cash retained this year', (t) => `${at(level, t)}-N(${at(level, t - 1)})`);
     const ffPre = rowA('rtc:ffpre', 'FCFF before the terminal value', (t) => `${at(cfo, t)}+${at(cfi, t)}-${at(inKind, t)}`);
     const fePre = rowA('rtc:fepre', 'FCFE before the terminal value and the cash released at the exit', (t) => `${at(ffPre, t)}-${at(finCost, t)}+${at(draw, t)}+${at(idcDraw, t)}+${at(principal, t)}-${at(trap, t)}`);
     const capRef = (): string => `N(${w.ref('ret|Exit Cap Rate (%)', TOTAL_COL)})`;
     const ev = cellS('rtc:ev', 'terminal enterprise value (the exit proceeds)', () => fnc('fnc:proceeds', X));
-    const tvEq = cellS('rtc:tveq', 'terminal equity value (less the debt at the exit)', () => `MAX(0,${sc3(ev)}-MAX(0,${at(debt, X)}))`);
-    const held = cellS('rtc:held', 'cash held back at the exit, released to equity', () => at(level, X));
+    const tvEq = cellS('rtc:tveq', 'terminal equity value (less the debt at the exit)', () => `MAX(0,${sc3(ev)}-MAX(0,${atA(debt, X)}))`);
+    const held = cellS('rtc:held', 'cash held back at the exit, released to equity', () => atA(level, X));
     const paidOut = cellS('rtc:pd', 'the exit dividend already pays the proceeds out (1 = yes)', () => `IF(${fnc3('fnc:don')}=1,1,0)`);
     const tvDist = cellS('rtc:tvdist', 'terminal equity not already paid as a dividend', () => `IF(${sc3(paidOut)}=1,0,${sc3(tvEq)})`);
     // Stream-basis rows for the candidate exits and the sensitivity grid.
-    const sbFf = rowS('rtc:s:ffpre', 'FCFF before the terminal value (stream basis)', (s) => (s === 0 ? '0' : at(ffPre, s - 1)));
-    const sbFe = rowS('rtc:s:fepre', 'FCFE before the terminal value (stream basis)', (s) => (s === 0 ? '0' : at(fePre, s - 1)));
-    const sbCfo = rowS('rtc:s:cfo', 'cash from operations (stream basis)', (s) => (s === 0 ? '0' : at(cfo, s - 1)));
-    const sbEx = rowS('rtc:s:exit', 'the exit column (1 in the exit year)', (s) => (s === X + 1 ? '1' : '0'));
+    const sbFf = rowS('rtc:s:ffpre', 'FCFF before the terminal value (stream basis)', (s) => `N(${at(ffPre, s - 1)})`);
+    const sbFe = rowS('rtc:s:fepre', 'FCFE before the terminal value (stream basis)', (s) => `N(${at(fePre, s - 1)})`);
+    const sbCfo = rowS('rtc:s:cfo', 'cash from operations (stream basis)', (s) => `N(${at(cfo, s - 1)})`);
+    const sbEx = rowS('rtc:s:exit', 'the exit column (1 in the exit year)', (s) => exitAt(s));
 
     // ── Visible rows ─────────────────────────────────────────────────────────
     const writes: Array<() => void> = [];
@@ -164,7 +170,9 @@ export const stage7Returns: LiveLayer = {
     const need = (key: string): number | undefined => { const r = rowOf(key); if (r === undefined) missing.push(key); return r; };
     const retKeys = w.reg.keys();
     const findKey = (prefix: string, re: RegExp): string | undefined => retKeys.find((k) => k.startsWith(prefix) && re.test(k.slice(prefix.length)));
-    const cellR = (r: number, c: number): string => w.refA({ sheet: RET, row: r, col: c });
+    const cellR = (r: number, c: number): string => w.refP({ sheet: RET, row: r, col: c }, RET);
+    /** A fixed cell (a Total, a partner's column): absolute, so a row reading it stays one formula across. */
+    const cellA = (r: number, c: number): string => w.refA({ sheet: RET, row: r, col: c }, RET);
     const rngR = (r: number, last = N): string => w.rangeA(RET, r, sc(0), sc(last));
     /** A stream row: per column s (0 = inception), then its lifetime total. Undefined leaves the cell as it is. */
     const streamRow = (r: number, f: (s: number) => string | undefined, total = true): void => {
@@ -174,7 +182,7 @@ export const stage7Returns: LiveLayer = {
       });
     };
     const axis = (f: F): ((s: number) => string | undefined) => (s) => (s === 0 ? undefined : f(s - 1));
-    const onlyExit = (e: () => string): ((s: number) => string | undefined) => (s) => (s === X + 1 ? e() : undefined);
+    const onlyExit = (e: () => string): ((s: number) => string | undefined) => (s) => (s === 0 ? undefined : `${exitAt(s)}*${e()}`);
     const sumOf = (rows: number[]): ((s: number) => string) => (s) => rows.map((r) => cellR(r, sc(s))).join('+');
     const scalar = (key: string, f: () => string): void => { const r = need(key); if (r !== undefined) writes.push(() => w.fA({ sheet: RET, row: r, col: TOTAL_COL }, f())); };
     const cellAt = (key: string, col: number, f: () => string): void => { const r = need(key); if (r !== undefined) writes.push(() => w.fA({ sheet: RET, row: r, col }, f())); };
@@ -229,7 +237,7 @@ export const stage7Returns: LiveLayer = {
     streamRow(R(feFf), axis((t) => `${cellR(R(ffTot), pc(t))}-${cellR(R(ffTv), pc(t))}`));
     streamRow(R(feDebt), axis((t) => `${at(draw, t)}+${at(idcDraw, t)}+${at(principal, t)}`));
     streamRow(R(feCost), axis((t) => `-${at(finCost, t)}`));
-    streamRow(R(feCash), axis((t) => `-${at(trap, t)}${t === X ? `+${sc3(held)}` : ''}`));
+    streamRow(R(feCash), axis((t) => `-${at(trap, t)}+${exitAxis(t)}*${sc3(held)}`));
     streamRow(R(feTv), onlyExit(() => sc3(tvEq)));
     streamRow(R(feTot), sumOf([R(feEx), R(feFf), R(feDebt), R(feCost), R(feCash), R(feTv)]));
     streamRow(R(ddCash), axis((t) => `-${at(eqCash, t)}`));
@@ -266,7 +274,7 @@ export const stage7Returns: LiveLayer = {
     basisRow(distLabel('retg|Returns by Cash-Flow Basis'), DDM);
 
     // Totals the cards read.
-    const sumA = (r: number): string => w.rangeA(CALC, r, cT(0), cT(N - 1));
+    const sumA = (r: number): string => w.rangeA(RET, r, pc(0), pc(N - 1));
     const gdv = (): string => `SUM(${w.rangeA('P&L', w.addr('pl|__all__||Total Revenue').row, pc(0), pc(X))})`;
     const tdc = (): string => `SUM(${w.perRange('fnc:capexall', N)})`;
     // The operating expenses over the same years as the GDV (2026-10-08): the P&L row is printed negative.
@@ -294,12 +302,12 @@ export const stage7Returns: LiveLayer = {
         const pf = (): string => `MAX(0,MIN(1,N(${w.ref('ft:Performance fee on the excess')})))`;
         scalar('ret|Hurdle rate (preferred return)', h);
         scalar('ret|Performance fee on the excess', pf);
-        const hr = (): string => cellR(w.addr('ret|Hurdle rate (preferred return)').row, TOTAL_COL);
-        const pr = (): string => cellR(w.addr('ret|Performance fee on the excess').row, TOTAL_COL);
+        const hr = (): string => cellA(w.addr('ret|Hurdle rate (preferred return)').row, TOTAL_COL);
+        const pr = (): string => cellA(w.addr('ret|Performance fee on the excess').row, TOTAL_COL);
         const e = (t: number): string => `(${at(eqCash, t)}+${at(inKind, t)})`;
         const c = (r: number | undefined, s: number): string => cellR(R(r), sc(s));
         streamRow(R(drawn), axis((t) => `MAX(0,${e(t)})+MAX(0,-${at(div, t)})`));
-        streamRow(R(gross), axis((t) => `MAX(0,${at(div, t)})+MAX(0,-${e(t)})${t === X ? `+MAX(0,${sc3(tvDist)})` : ''}`));
+        streamRow(R(gross), axis((t) => `MAX(0,${at(div, t)})+MAX(0,-${e(t)})+${exitAxis(t)}*MAX(0,${sc3(tvDist)})`));
         streamRow(R(bop), (s) => (s === 0 ? undefined : c(eop, s - 1)), false);
         streamRow(R(acc), (s) => `(${c(bop, s)}+${c(drawn, s)})*${hr()}`, false);
         streamRow(R(owed), (s) => `${c(drawn, s)}+${c(bop, s)}+${c(acc, s)}`, false);
@@ -375,10 +383,10 @@ export const stage7Returns: LiveLayer = {
       typeRow('In-Kind Equity (land)', '% share~1', kindT);
       const pctCell = (k: string, j: number): string => `MAX(0,MIN(1,N(${w.ref(`${EP}${k}|${j + 1}`)})))`;
       // The time-weighted shareholding: each partner's capital-years over everyone's.
-      const capYears = (r: number): string => `SUMPRODUCT(${w.rangeA(CALC, r, cT(0), cT(N - 1))},${N}-(COLUMN(${w.rangeA(CALC, r, cT(0), cT(N - 1))})-${cT(0)}))`;
+      const capYears = (r: number): string => `SUMPRODUCT(${w.rangeA(RET, r, pc(0), pc(N - 1))},COLUMNS(${w.rangeA(RET, r, pc(0), pc(N - 1))})-(COLUMN(${w.rangeA(RET, r, pc(0), pc(N - 1))})-COLUMN(${w.refA(C(r, pc(0)), RET)})))`;
       const capT = (j: number): string => `(IF(${cashT()}>0,${pctCell('% share', j)},0)*${capYears(eqCash)}+IF(${kindT()}>0,${pctCell('% share~1', j)},0)*${capYears(inKind)})`;
       const totCapT = (): string => Array.from({ length: n }, (_, j) => capT(j)).join('+');
-      const investedJ = (j: number): string => `(MAX(0,${cellR(w.addr(`${EP}New Cash Equity|${j + 1}`).row, OPEN_COL + j + 1)})+MAX(0,${cellR(w.addr(`${EP}In-Kind Equity (land)|${j + 1}`).row, OPEN_COL + j + 1)}))`;
+      const investedJ = (j: number): string => `(MAX(0,${cellA(w.addr(`${EP}New Cash Equity|${j + 1}`).row, OPEN_COL + j + 1)})+MAX(0,${cellA(w.addr(`${EP}In-Kind Equity (land)|${j + 1}`).row, OPEN_COL + j + 1)}))`;
       const projEq = (): string => `(MAX(0,${cashT()})+MAX(0,${kindT()}))`;
       gridCell(`${EP}Total Invested`, 0, projEq);
       for (let j = 0; j < n; j++) gridCell(`${EP}Total Invested`, j + 1, () => investedJ(j));
@@ -386,7 +394,7 @@ export const stage7Returns: LiveLayer = {
       for (let j = 0; j < n; j++) gridCell(`${EP}Weighted-Avg %`, j + 1, () => wavg(j));
       gridCell(`${EP}Weighted-Avg %`, 0, () => `SUM(${w.rangeA(RET, w.addr(`${EP}Weighted-Avg %|1`).row, OPEN_COL + 1, OPEN_COL + n)})`);
       const agreedCell = (j: number): string => w.ref(`${EP}Agreed % (override)|${j + 1}`);
-      const agreed = (j: number): string => `IF(ISNUMBER(${agreedCell(j)}),MAX(0,${agreedCell(j)}),${cellR(w.addr(`${EP}Weighted-Avg %|${j + 1}`).row, OPEN_COL + j + 1)})`;
+      const agreed = (j: number): string => `IF(ISNUMBER(${agreedCell(j)}),MAX(0,${agreedCell(j)}),${cellA(w.addr(`${EP}Weighted-Avg %|${j + 1}`).row, OPEN_COL + j + 1)})`;
       gridCell(`${EP}Agreed % (override)`, 0, () => Array.from({ length: n }, (_, j) => agreed(j)).join('+'));
       // Each partner's results.
       const partnerRows = ps.partners;
@@ -426,7 +434,7 @@ export const stage7Returns: LiveLayer = {
     if (rs.feeEarners.active) {
       const feeRow = (i: number, t: number): string => fnc(`fnc:fee:${i}`, t);
       const R0 = (): string => fnc3('fnc:fee:base');
-      const baseOf = (base: string): string => (base === 'fund_size' ? fnc3('fnc:fee:fundsize') : base === 'total_equity' ? `${R0()}*${fnc3('fnc:eF')}` : base === 'debt_facility' ? `${R0()}*${fnc3('fnc:dF')}` : '0');
+      const baseOf = (base: string): string => (base === 'fund_size' ? (has('fnc:fee:fundsize') ? fnc3('fnc:fee:fundsize') : `MAX(0,N(${w.ref('ft:Fund size (typed target)')}))`) : base === 'total_equity' ? `${R0()}*${fnc3('fnc:eF')}` : base === 'debt_facility' ? `${R0()}*${fnc3('fnc:dF')}` : '0');
       // The capital block (equity + debt = fund size) is printed only where the parts sum
       // to the total (buildFundCapitalRows); a TYPED fund size is not their sum, so under
       // the override the platform omits it and its absence is the answer, not a gap.
@@ -444,7 +452,8 @@ export const stage7Returns: LiveLayer = {
         if (basis !== undefined) {
           const oneTime = line.timing === 'one_time';
           writes.push(() => {
-            for (let t = 0; t < N; t++) w.fA({ sheet: RET, row: basis, col: pc(t) }, oneTime && t > 0 ? '0' : baseOf(line.base));
+            // A one-time fee's basis is its base in the first year only: the Timeline's year against the first.
+            for (let t = 0; t < N; t++) w.fA({ sheet: RET, row: basis, col: pc(t) }, `${oneTime ? `(${w.refP({ sheet: 'Timeline', row: 3, col: pc(t) }, RET)}=${w.refA({ sheet: 'Timeline', row: 3, col: pc(0) }, RET)})*` : ''}${baseOf(line.base)}`);
             w.fA({ sheet: RET, row: basis, col: TOTAL_COL }, baseOf(line.base));
           });
         }
@@ -528,8 +537,8 @@ export const stage7Returns: LiveLayer = {
       const plAt = (key: string, t: number): string => (has(key) ? vis('P&L', key, t) : '0');
       const hosp = (): string => `(${plAt('pl|__all__||Hospitality Revenue', M)}+${plAt('pl|__all__||Hospitality operating expenses', M)})`;
       exitCell(`Hospitality EBITDA, ${my}`, hosp);
-      exitCell(`Retail NOI, ${my}`, () => `${at(noi, M)}-${hosp()}`);
-      exitCell('Income capitalised', () => at(noi, M));
+      exitCell(`Retail NOI, ${my}`, () => `${atA(noi, M)}-${hosp()}`);
+      exitCell('Income capitalised', () => atA(noi, M));
       exitCell('Exit cap rate', capRef);
       exitCell('Exit multiple', () => w.ref('ret|Exit Multiple (x stabilised NOI)', TOTAL_COL));
       exitCell('Income grown by (1 + g) before capitalising', () => w.ref('ret|Growth g (%)', TOTAL_COL));
@@ -594,8 +603,8 @@ export const stage7Returns: LiveLayer = {
       // array expression repeated per guess.
       const shockCells = new Map<number, number>(), capCells = new Map<number, number>();
       const axisCell = (key: string, label: string, v: number): number => {
-        const r = cr++; cs.getCell(r, 1).value = label; w.claim(key, CALC, r, 1);
-        w.valueA(C(r, 3), v); return r;
+        const r = cr++; cs.getCell(r, 1).value = label; w.claim(key, RET, r, 1);
+        w.valueA(C(r, TOTAL_COL), v); return r;
       };
       for (const y of ys) shockCells.set(y, axisCell(`rtc:sens:y:${y}`, `sensitivity axis: sales price shock ${yLabel(y)}`, y));
       for (const xv of xs) capCells.set(xv, axisCell(`rtc:sens:x:${xv}`, `sensitivity axis: exit cap rate ${(xv * 100).toFixed(1)}%`, xv));
@@ -606,9 +615,9 @@ export const stage7Returns: LiveLayer = {
           const yc = (): string => sc3(shockCells.get(y)!), xc = (): string => sc3(capCells.get(xv)!);
           const tag = `${yLabel(y)} / ${(xv * 100).toFixed(1)}%`;
           const eq = cellS(`rtc:sens:eq:${y}:${xv}`, `sensitivity ${tag}: terminal equity plus cash released`,
-            () => `MAX(0,MAX(0,${at(noi, M)}*(1+${yc()})/${xc()})-MAX(0,${at(debt, X)}))+${sc3(held)}`);
+            () => `MAX(0,MAX(0,${atA(noi, M)}*(1+${yc()})/${xc()})-MAX(0,${atA(debt, X)}))+${sc3(held)}`);
           const st = rowS(`rtc:sens:fe:${y}:${xv}`, `sensitivity ${tag}: FCFE`,
-            (s) => `${w.refA(C(sbFe, 4 + s))}+${yc()}*${w.refA(C(sbCfo, 4 + s))}${s === X + 1 ? `+${sc3(eq)}` : ''}`);
+            (s) => `${w.refP(C(sbFe, sc(s)), RET)}+${yc()}*${w.refP(C(sbCfo, sc(s)), RET)}+${exitAt(s)}*${sc3(eq)}`);
           gridCell(rk, i, () => `IFERROR(${irrOf(rngS(st))},"n/a")`);
         });
       }
@@ -618,7 +627,6 @@ export const stage7Returns: LiveLayer = {
 
     if (missing.length) return values(`The Returns sheet stays the platform's values: rows were not found (${missing.slice(0, 6).join('; ')}${missing.length > 6 ? ` and ${missing.length - 6} more` : ''}).`);
     for (const fn of writes) fn();
-    for (let col = 1; col <= 4 + N; col++) cs.getColumn(col).width = col <= 3 ? 30 : 14;
     return [{
       sheet: RET, status: 'partial' as const, formulas: w.formulas.get(RET) ?? 0,
       note: 'Live: 1. Returns (the three streams built on their own rows, every IRR and MOIC, the equity partners, fund fee income, the hurdle waterfall, sources and uses, development economics, the exit working and the sensitivity grid). The figures quoted inside explanatory notes are as of export.',

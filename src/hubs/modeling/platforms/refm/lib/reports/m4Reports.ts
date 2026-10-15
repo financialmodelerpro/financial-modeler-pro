@@ -34,6 +34,8 @@ type Labels = ReturnType<typeof getFinancialLabels>;
 export const SELLING_EXPENSE_LABEL = 'Selling & Marketing Expenses';
 
 export interface M4ReportCtx {
+  /** Every row a total reads, zeros included (the live workbook); the screens show the rows with figures. */
+  allRows?: boolean;
   snap: ProjectFinancialsSnapshot;
   state: FinancialsResolverState;
   labels: Labels;
@@ -145,6 +147,8 @@ function phaseShortName(state: FinancialsResolverState, phaseId: string): string
 
 // ── Profit & Loss ─────────────────────────────────────────────────────────
 export function buildPLRows(ctx: M4ReportCtx): M4Row[] {
+  // EVERY ROW, ZEROS INCLUDED (ctx.allRows, the live workbook): a row that feeds a total is shown even at zero.
+  const all = ctx.allRows === true;
   const { snap, state, labels, filterPhaseId } = ctx;
   const N = snap.axisLength;
   const visibleAssets = state.assets.filter((a) => a.visible !== false);
@@ -269,7 +273,7 @@ export function buildPLRows(ctx: M4ReportCtx): M4Row[] {
     const ids = new Set(list.map((a) => a.id));
     for (const line of planReportLines(state, (a) => ids.has(a.id))) {
       const series = sumLine(line, (id) => snap.perAssetPL.get(id)?.[key], N);
-      if (series.every((v) => v === 0)) continue;
+      if (!all && series.every((v) => v === 0)) continue;
       rows.push({
         label: lineRowLabel(line, state),
         values: sign === 1 ? series : negArr(series),
@@ -284,7 +288,7 @@ export function buildPLRows(ctx: M4ReportCtx): M4Row[] {
   const hospLines = hospitalityStatementsByLine(snap, state, new Set(hospitalityAssets.map((a) => a.id)));
   const pushHospParts = (parts: Array<{ label: string; values: number[] }>, prefix: string, phaseId: string, group: string, sign: 1 | -1): void => {
     for (const part of parts) {
-      if (part.values.every((v) => v === 0)) continue;
+      if (!all && part.values.every((v) => v === 0)) continue;
       rows.push({
         label: `${prefix}: ${part.label}`,
         values: sign === 1 ? part.values : negArr(part.values),
@@ -300,7 +304,7 @@ export function buildPLRows(ctx: M4ReportCtx): M4Row[] {
   // revenue still reads by department under its section; every other line is one
   // member row. The headers add to Total Revenue, which is unchanged.
   for (const sec of revenueBySection(snap, state, matchesPhase)) {
-    if (sec.values.every((v) => v === 0)) continue;
+    if (!all && sec.values.every((v) => v === 0)) continue;
     const group = `pl-rev-${sec.key}`;
     rows.push({ label: `${sec.section} Revenue`, values: sec.values, isSection: true, collapseGroup: group, collapseRole: 'header', defaultCollapsed: false });
     const inSection = new Set(sec.assetIds);
@@ -312,7 +316,7 @@ export function buildPLRows(ctx: M4ReportCtx): M4Row[] {
   rows.push({ label: 'Total Revenue', values: totalRev, isTotal: true });
 
   // ── COST OF SALES ──────────────────────────────────────────────────────
-  if (cosTotal.some((v) => v !== 0)) {
+  if ((all || cosTotal.some((v) => v !== 0))) {
     rows.push({ label: 'COST OF SALES', values: [], isSection: true });
     rows.push({ label: 'Residential cost of sales', values: negArr(cosTotal), isSection: true, collapseGroup: 'pl-cos', collapseRole: 'header', defaultCollapsed: false });
     pushLinesPL(residentialAssets, 'cosPerPeriod', 'pl-cos', -1);
@@ -320,18 +324,18 @@ export function buildPLRows(ctx: M4ReportCtx): M4Row[] {
 
   // ── OPERATING EXPENSES ──────────────────────────────────────────────────
   rows.push({ label: 'OPERATING EXPENSES', values: [], isSection: true });
-  if (hospitalityAssets.length > 0 && hospOpex.some((v) => v !== 0)) {
+  if (hospitalityAssets.length > 0 && (all || hospOpex.some((v) => v !== 0))) {
     rows.push({ label: 'Hospitality operating expenses', values: negArr(hospOpex), isSection: true, collapseGroup: 'pl-opex-hosp', collapseRole: 'header', defaultCollapsed: false });
     for (const h of hospLines) pushHospParts(hospitalityCostParts(h.statement), h.line.label, h.line.phaseId, 'pl-opex-hosp', -1);
   }
-  if (retailAssets.length > 0 && retailOpex.some((v) => v !== 0)) {
+  if (retailAssets.length > 0 && (all || retailOpex.some((v) => v !== 0))) {
     rows.push({ label: 'Retail operating expenses', values: negArr(retailOpex), isSection: true, collapseGroup: 'pl-opex-ret', collapseRole: 'header', defaultCollapsed: false });
     pushLinesPL(retailAssets, 'opexPerPeriod', 'pl-opex-ret', -1);
   }
-  if (hqOpex.some((v) => v !== 0)) {
+  if ((all || hqOpex.some((v) => v !== 0))) {
     rows.push({ label: `HQ Expenses${projTag}`, values: negArr(hqOpex), indent: 1 });
   }
-  if (sellingExp.some((v) => v !== 0)) {
+  if ((all || sellingExp.some((v) => v !== 0))) {
     rows.push({ label: `${SELLING_EXPENSE_LABEL}${projTag}`, values: negArr(sellingExp), indent: 1 });
   }
   rows.push({ label: 'Total Operating Expenses', values: negArr(totalOpex), isSubtotal: true });
@@ -356,7 +360,7 @@ export function buildPLRows(ctx: M4ReportCtx): M4Row[] {
   // values. Built here rather than in the tab, so the screen, the PDF and the
   // Excel export all pick it up from the one place.
   const fundFees = p.fundFeesPerPeriod ?? [];
-  if (fundFees.some((v) => v !== 0)) {
+  if ((all || fundFees.some((v) => v !== 0))) {
     for (const line of snap.fundFees.lines) {
       // Every fee row states its RATE and its BASE inline. Without this a fee
       // reading zero is unreadable: you cannot tell a zero rate from an empty
@@ -364,7 +368,7 @@ export function buildPLRows(ctx: M4ReportCtx): M4Row[] {
       // nothing on screen explaining why. The full columnar detail is in the
       // Fund Fee Basis table (buildFundFeeBasisRows); this is the version that
       // travels with the statement line itself into the PDF and Excel.
-      if (line.amountPerPeriod.some((v) => v !== 0) || line.basisPerPeriod.some((v) => v !== 0)) {
+      if (all || line.amountPerPeriod.some((v) => v !== 0) || line.basisPerPeriod.some((v) => v !== 0)) {
         rows.push({ label: fundFeeLineLabel(line, ctx.labelFmt ?? ctx.fmt), values: negArr(line.amountPerPeriod), indent: 1 });
       }
     }
@@ -382,7 +386,7 @@ export function buildPLRows(ctx: M4ReportCtx): M4Row[] {
   }
   // BELOW INTEREST, ABOVE ZAKAT (2026-09-14): the exit booked as a disposal.
   const gainOnDisposal = p.gainOnDisposalPerPeriod ?? [];
-  if (gainOnDisposal.some((v) => v !== 0)) {
+  if ((all || gainOnDisposal.some((v) => v !== 0))) {
     rows.push({ label: 'Gain on Disposal of Operating Assets', values: gainOnDisposal, indent: 1 });
   }
   rows.push({ label: labels.pbt, values: pbt, isSubtotal: true });
@@ -666,6 +670,7 @@ export function fundFeeBasisBaseCell(row: FundFeeBasisRow): string {
 
 // ── Cash Flow shared Investment / Financing sections ──────────────────────
 function buildInvestmentRows(ctx: M4ReportCtx, capexSubtotal: number[], cfiSubtotal: number[]): M4Row[] {
+  const all = ctx.allRows === true;
   const { snap, state, filterPhaseId } = ctx;
   const N = snap.axisLength;
   const visibleAssets = state.assets.filter((a) => a.visible !== false);
@@ -700,13 +705,13 @@ function buildInvestmentRows(ctx: M4ReportCtx, capexSubtotal: number[], cfiSubto
   const pushCapexBucket = (list: typeof residentialAssets, label: string, group: string): void => {
     if (list.length === 0) return;
     const total = seriesTotal(list, assetCash);
-    if (!total.some((v) => v !== 0)) return;
+    if (!all && !total.some((v) => v !== 0)) return;
     rows.push({ label, values: total.map((v) => -v), isSection: true, collapseGroup: group, collapseRole: 'header', defaultCollapsed: false });
     // One member row per consolidated line (2026-09-15).
     const ids = new Set(list.map((a) => a.id));
     for (const line of planReportLines(state, (a) => ids.has(a.id))) {
       const series = sumLine(line, assetCash, N);
-      if (series.every((v) => v === 0)) continue;
+      if (!all && series.every((v) => v === 0)) continue;
       rows.push({ label: lineRowLabel(line, state), values: series.map((v) => -v), indent: 2, phaseLabel: phaseShort(line.phaseId), collapseGroup: group, collapseRole: 'member' });
     }
   };
@@ -743,7 +748,7 @@ function buildInvestmentRows(ctx: M4ReportCtx, capexSubtotal: number[], cfiSubto
   const cfiCashShown = scoped ? capexRendered.map((v) => -v) : cfiSubtotal;
   const capexShown = capexCashShown.map((v, t) => v - (inKindAll[t] ?? 0));
   const cfiShown = cfiCashShown.map((v, t) => v - (inKindAll[t] ?? 0));
-  if (inKindAll.some((v) => v !== 0)) {
+  if ((all || inKindAll.some((v) => v !== 0))) {
     // indent 1, level with Pre-Capex: this is a PROJECT-level row, and at
     // indent 2 it rendered directly under the last asset of the Retail
     // bucket and read as one of that bucket's rows.
@@ -753,7 +758,7 @@ function buildInvestmentRows(ctx: M4ReportCtx, capexSubtotal: number[], cfiSubto
   // The held assets sold at the exit (2026-09-14). Project level, so a phase
   // filter, whose subtotal is built from the rows above, does not show it.
   const proceedsShown = scoped ? new Array<number>(N).fill(0) : (snap.directCF.proceedsFromDisposalPerPeriod ?? []);
-  if (proceedsShown.some((v) => v !== 0)) {
+  if ((all || proceedsShown.some((v) => v !== 0))) {
     rows.push({ label: 'Proceeds from Disposal of Operating Assets', values: proceedsShown, indent: 1 });
   }
   rows.push({ label: 'Cash Flow from Investment', values: cfiShown, isTotal: true, priorValue: -priorPreCapex });
@@ -761,6 +766,7 @@ function buildInvestmentRows(ctx: M4ReportCtx, capexSubtotal: number[], cfiSubto
 }
 
 function buildFinancingRows(ctx: M4ReportCtx, cffSubtotal: number[]): M4Row[] {
+  const all = ctx.allRows === true;
   const { snap, state } = ctx;
   const N = snap.axisLength;
   // PRIOR-COLUMN DEBT IS THE ENGINE'S (2026-09-29): an existing loan raised INSIDE the model is drawn
@@ -778,8 +784,8 @@ function buildFinancingRows(ctx: M4ReportCtx, cffSubtotal: number[]): M4Row[] {
   // third line INSIDE the financing total, matching the Land In-Kind row inside
   // the investing total, so the two net to zero and both sections foot.
   const feeDraw = d.equityManagementFeeDrawdownPerPeriod ?? [];
-  const hasFeeDraw = feeDraw.some((v) => Math.abs(v) > 0.005);
-  if (d.equityDrawdownPerPeriod.some((v) => v !== 0) || priorEquityTotal > 0) {
+  const hasFeeDraw = feeDraw.some((v) => Math.abs(v) > 0.005) || (all && state.project.fundTerms?.enabled === true && state.project.fundTerms?.managementFeeFunding === 'equity');
+  if (all || d.equityDrawdownPerPeriod.some((v) => v !== 0) || priorEquityTotal > 0) {
     rows.push({
       label: hasFeeDraw ? 'Equity Drawdown, development' : 'Equity Drawdown (Cash)',
       values: hasFeeDraw ? d.equityDevelopmentDrawdownPerPeriod : d.equityDrawdownPerPeriod,
@@ -788,7 +794,7 @@ function buildFinancingRows(ctx: M4ReportCtx, cffSubtotal: number[]): M4Row[] {
   }
   if (hasFeeDraw) rows.push({ label: 'Equity Drawdown, management fee', values: feeDraw, indent: 1 });
   const inKindEq = d.equityInKindDrawdownPerPeriod;
-  const hasInKindEq = inKindEq.some((v) => v !== 0);
+  const hasInKindEq = all || inKindEq.some((v) => v !== 0);
   if (hasInKindEq) rows.push({ label: 'In-Kind Equity (non-cash, matched by Land In-Kind above)', values: inKindEq, indent: 1 });
   const sumOrigin = (origin: 'existing' | 'new', key: 'drawSchedule' | 'interestCapitalized' | 'principalRepaid' | 'interestPaid' | 'interestDuringConstruction'): number[] => {
     const out = new Array<number>(N).fill(0);
@@ -810,16 +816,17 @@ function buildFinancingRows(ctx: M4ReportCtx, cffSubtotal: number[]): M4Row[] {
   // `interestForAssetBasis`, an accounting routing, not a reason to hide the
   // payment, so nothing here is a memo.
   const pushDebtBucket = (origin: 'existing' | 'new', label: string, opening?: number): void => {
+    const bucketAll = all && state.financingTranches.some((t) => (t.origin === 'existing') === (origin === 'existing'));
     const draw = sumOrigin(origin, 'drawSchedule');
     const drawIdc = sumOrigin(origin, 'interestCapitalized');
     const repaid = sumOrigin(origin, 'principalRepaid');
     const intPaid = sumOrigin(origin, 'interestPaid');
     const drawAll = draw.map((v, i) => v + (drawIdc[i] ?? 0));
-    if (drawAll.some((v) => v !== 0) || (opening ?? 0) > 0) {
+    if (bucketAll || drawAll.some((v) => v !== 0) || (opening ?? 0) > 0) {
       rows.push({ label: `Debt Drawdown, ${label}`, values: drawAll, indent: 1, ...(opening !== undefined ? { priorValue: opening } : {}) });
     }
-    if (repaid.some((v) => v !== 0)) rows.push({ label: `Debt Repayment, ${label}`, values: repaid.map((v) => -v), indent: 1 });
-    if (intPaid.some((v) => Math.abs(v) > 0.005)) rows.push({ label: `Interest Paid, ${label}`, values: intPaid.map((v) => -v), indent: 1 });
+    if (bucketAll || repaid.some((v) => v !== 0)) rows.push({ label: `Debt Repayment, ${label}`, values: repaid.map((v) => -v), indent: 1 });
+    if (bucketAll || intPaid.some((v) => Math.abs(v) > 0.005)) rows.push({ label: `Interest Paid, ${label}`, values: intPaid.map((v) => -v), indent: 1 });
   };
   pushDebtBucket('existing', 'Existing loans', existingOpening);
   pushDebtBucket('new', 'New loans');
@@ -836,6 +843,8 @@ function buildFinancingRows(ctx: M4ReportCtx, cffSubtotal: number[]): M4Row[] {
 
 // ── Direct Cash Flow ───────────────────────────────────────────────────────
 export function buildDirectCFRows(ctx: M4ReportCtx): M4Row[] {
+  // EVERY ROW, ZEROS INCLUDED (ctx.allRows, the live workbook): a row that feeds a total is shown even at zero.
+  const all = ctx.allRows === true;
   const { snap, state, labels, filterPhaseId, fmt } = ctx;
   const N = snap.axisLength;
   const visibleAssets = state.assets.filter((a) => a.visible !== false);
@@ -857,7 +866,7 @@ export function buildDirectCFRows(ctx: M4ReportCtx): M4Row[] {
     const ids = new Set(list.map((a) => a.id));
     for (const line of planReportLines(state, (a) => ids.has(a.id))) {
       const series = sumLine(line, (id) => (snap.perAssetCF.get(id)?.[key] as number[] | undefined), N);
-      if (series.every((v) => v === 0)) continue;
+      if (!all && series.every((v) => v === 0)) continue;
       rows.push({ label: lineRowLabel(line, state), values: sign === 1 ? series : series.map((v) => -v), indent: 2, phaseLabel: phaseShort(line.phaseId), collapseGroup: group, collapseRole: 'member' });
     }
   };
@@ -874,21 +883,21 @@ export function buildDirectCFRows(ctx: M4ReportCtx): M4Row[] {
 
   if (residentialAssets.length > 0) {
     const resRev = sumAssetSeries(residentialAssets, 'revenueReceivedPerPeriod');
-    if (resRev.some((v) => v !== 0)) {
+    if ((all || resRev.some((v) => v !== 0))) {
       rows.push({ label: 'Residential revenue received', values: resRev, isSection: true, collapseGroup: 'cf-rev-res', collapseRole: 'header', defaultCollapsed: false });
       pushLineRows(residentialAssets, 'revenueReceivedPerPeriod', 'cf-rev-res');
     }
   }
   if (hospitalityAssets.length > 0) {
     const hospRev = sumAssetSeries(hospitalityAssets, 'revenueReceivedPerPeriod');
-    if (hospRev.some((v) => v !== 0)) {
+    if ((all || hospRev.some((v) => v !== 0))) {
       rows.push({ label: 'Hospitality revenue received', values: hospRev, isSection: true, collapseGroup: 'cf-rev-hosp', collapseRole: 'header', defaultCollapsed: false });
       pushLineRows(hospitalityAssets, 'revenueReceivedPerPeriod', 'cf-rev-hosp');
     }
   }
   if (retailAssets.length > 0) {
     const retRev = sumAssetSeries(retailAssets, 'revenueReceivedPerPeriod');
-    if (retRev.some((v) => v !== 0)) {
+    if ((all || retRev.some((v) => v !== 0))) {
       rows.push({ label: 'Retail revenue received', values: retRev, isSection: true, collapseGroup: 'cf-rev-ret', collapseRole: 'header', defaultCollapsed: false });
       pushLineRows(retailAssets, 'revenueReceivedPerPeriod', 'cf-rev-ret');
     }
@@ -941,30 +950,30 @@ export function buildDirectCFRows(ctx: M4ReportCtx): M4Row[] {
   const opexPaid = phaseFiltered ? sumAssetSeries(phaseAssets, 'opexPaidPerPeriod').map((v) => -v) : d.opexPaidPerPeriod;
   rows.push({ label: 'Total Revenue Received', values: revenueReceived, isSubtotal: true });
 
-  if (escrowHeld.some((v) => v !== 0) || escrowRelease.some((v) => v !== 0)) {
+  if (all || escrowHeld.some((v) => v !== 0) || escrowRelease.some((v) => v !== 0)) {
     rows.push({ label: 'Less: Inaccessible Funds Locked', values: escrowHeld, indent: 1 });
     rows.push({ label: 'Add: Release of Inaccessible Funds', values: escrowRelease, indent: 1 });
   }
 
   if (hospitalityAssets.length > 0) {
     const hospOpex = sumAssetSeries(hospitalityAssets, 'opexPaidPerPeriod');
-    if (hospOpex.some((v) => v !== 0)) {
+    if ((all || hospOpex.some((v) => v !== 0))) {
       rows.push({ label: 'Hospitality operating expenses paid', values: hospOpex.map((v) => -v), isSection: true, collapseGroup: 'cf-opex-hosp', collapseRole: 'header', defaultCollapsed: false });
       pushLineRows(hospitalityAssets, 'opexPaidPerPeriod', 'cf-opex-hosp', -1);
     }
   }
   if (retailAssets.length > 0) {
     const retOpex = sumAssetSeries(retailAssets, 'opexPaidPerPeriod');
-    if (retOpex.some((v) => v !== 0)) {
+    if ((all || retOpex.some((v) => v !== 0))) {
       rows.push({ label: 'Retail operating expenses paid', values: retOpex.map((v) => -v), isSection: true, collapseGroup: 'cf-opex-ret', collapseRole: 'header', defaultCollapsed: false });
       pushLineRows(retailAssets, 'opexPaidPerPeriod', 'cf-opex-ret', -1);
     }
   }
-  if (d.hqOpexPaidPerPeriod.some((v) => v !== 0)) {
+  if ((all || d.hqOpexPaidPerPeriod.some((v) => v !== 0))) {
     rows.push({ label: `HQ Expenses${projTag}`, values: d.hqOpexPaidPerPeriod, indent: 1 });
   }
   const sellingPaid = d.sellingExpensePaidPerPeriod ?? d.hqOpexPaidPerPeriod.map(() => 0);
-  if (sellingPaid.some((v) => v !== 0)) {
+  if ((all || sellingPaid.some((v) => v !== 0))) {
     rows.push({ label: `${SELLING_EXPENSE_LABEL}${projTag}`, values: sellingPaid, indent: 1 });
   }
 
@@ -983,21 +992,21 @@ export function buildDirectCFRows(ctx: M4ReportCtx): M4Row[] {
     if (residentialAssets.length > 0) {
       const rev = sumAssetSeries(residentialAssets, 'revenueReceivedPerPeriod');
       const opx = sumAssetSeries(residentialAssets, 'opexPaidPerPeriod');
-      if (rev.some((v) => v !== 0)) {
+      if (all || rev.some((v) => v !== 0)) {
         contribution.push({ label: '= Residential Cash Collection', series: rev.map((v, i) => v - (opx[i] ?? 0)) });
       }
     }
     if (hospitalityAssets.length > 0) {
       const rev = sumAssetSeries(hospitalityAssets, 'revenueReceivedPerPeriod');
       const opx = sumAssetSeries(hospitalityAssets, 'opexPaidPerPeriod');
-      if (rev.some((v) => v !== 0) || opx.some((v) => v !== 0)) {
+      if (all || rev.some((v) => v !== 0) || opx.some((v) => v !== 0)) {
         contribution.push({ label: '= Hospitality EBITDA', series: rev.map((v, i) => v - (opx[i] ?? 0)) });
       }
     }
     if (retailAssets.length > 0) {
       const rev = sumAssetSeries(retailAssets, 'revenueReceivedPerPeriod');
       const opx = sumAssetSeries(retailAssets, 'opexPaidPerPeriod');
-      if (rev.some((v) => v !== 0) || opx.some((v) => v !== 0)) {
+      if (all || rev.some((v) => v !== 0) || opx.some((v) => v !== 0)) {
         contribution.push({ label: '= Retail NOI', series: rev.map((v, i) => v - (opx[i] ?? 0)) });
       }
     }
@@ -1018,11 +1027,11 @@ export function buildDirectCFRows(ctx: M4ReportCtx): M4Row[] {
   // Direct and Indirect still agree: the fee is a cash expense already inside
   // PAT, so the indirect method needs no add-back and is left untouched.
   const fundFeesPaid = d.fundFeesPaidPerPeriod ?? [];
-  if (!phaseFiltered && fundFeesPaid.some((v) => v !== 0)) {
+  if (!phaseFiltered && (all || fundFeesPaid.some((v) => v !== 0))) {
     rows.push({ label: 'Fund Management and Other Expenses', values: fundFeesPaid, indent: 1 });
   }
 
-  if (!phaseFiltered && d.taxPaidPerPeriod.some((v) => v !== 0)) {
+  if (!phaseFiltered && (all || d.taxPaidPerPeriod.some((v) => v !== 0))) {
     rows.push({ label: `${labels.taxPaid}`, values: d.taxPaidPerPeriod, indent: 1 });
   }
   const cfo = phaseFiltered
@@ -1048,6 +1057,8 @@ export function buildDirectCFRows(ctx: M4ReportCtx): M4Row[] {
 
 // ── Indirect Cash Flow ─────────────────────────────────────────────────────
 export function buildIndirectCFRows(ctx: M4ReportCtx): M4Row[] {
+  // EVERY ROW, ZEROS INCLUDED (ctx.allRows, the live workbook): a row that feeds a total is shown even at zero.
+  const all = ctx.allRows === true;
   const { snap, state, labels, filterPhaseId, fmt } = ctx;
   const N = snap.axisLength;
   const visibleAssets = state.assets.filter((a) => a.visible !== false);
@@ -1150,7 +1161,7 @@ export function buildIndirectCFRows(ctx: M4ReportCtx): M4Row[] {
   rows.push({ label: `(−) Change in AR${projTag}`, values: changeArPhase, indent: 1 });
   rows.push({ label: '(+) Cost of sales (add back; capex in investing)', values: cosAdd, indent: 1 });
   const gainBack = ic.gainOnDisposalPerPeriod ?? [];
-  if (gainBack.some((v) => v !== 0)) {
+  if ((all || gainBack.some((v) => v !== 0))) {
     rows.push({ label: '(−) Gain on disposal (non-cash; proceeds in investing)', values: gainBack, indent: 1 });
   }
   rows.push({ label: '(+) Change in AP', values: ap, indent: 1 });
@@ -1184,6 +1195,8 @@ export interface BSRowsResult {
 }
 
 export function buildBSRows(ctx: M4ReportCtx): BSRowsResult {
+  // EVERY ROW, ZEROS INCLUDED (ctx.allRows, the live workbook): a row that feeds a total is shown even at zero.
+  const all = ctx.allRows === true;
   const { snap, state, fmt, labels } = ctx;
   const N = snap.axisLength;
   const bs = snap.bs;
@@ -1264,12 +1277,12 @@ export function buildBSRows(ctx: M4ReportCtx): BSRowsResult {
 
   rows.push({ label: 'Current Assets', values: [], isSection: true });
   rows.push({ label: 'Cash', values: cash, indent: 1, totalIsBalance: true, totalOverride: fmt(cash[N - 1] ?? 0), priorValue: priorCash });
-  if (arOperating.some((v) => v !== 0)) {
+  if ((all || arOperating.some((v) => v !== 0))) {
     rows.push({ label: 'Accounts Receivable (Operating)', values: arOperating, indent: 1, totalIsBalance: true, totalOverride: fmt(arOperating[N - 1] ?? 0), priorValue: 0 });
   }
   rows.push({ label: 'Residential Sales Receivables', values: resReceivables, indent: 1, totalIsBalance: true, totalOverride: fmt(resReceivables[N - 1] ?? 0), priorValue: 0 });
   rows.push({ label: 'Inventory (Residential WIP)', values: inventory, indent: 1, totalIsBalance: true, totalOverride: fmt(inventory[N - 1] ?? 0), priorValue: 0 });
-  if (escrow.some((v) => v !== 0)) {
+  if ((all || escrow.some((v) => v !== 0))) {
     rows.push({ label: 'Restricted Cash (Escrow)', values: escrow, indent: 1, totalIsBalance: true, totalOverride: fmt(escrow[N - 1] ?? 0), priorValue: 0 });
   }
   rows.push({ label: 'Total Current Assets', values: totalCA, isSubtotal: true, totalIsBalance: true, totalOverride: fmt(totalCA[N - 1] ?? 0), priorValue: priorCA });
