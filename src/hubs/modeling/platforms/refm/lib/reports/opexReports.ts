@@ -30,6 +30,10 @@ import { planRevenueLines, type RevenueSection } from '../revenueLines';
 import {
   buildHospitalityStatement, hospitalityStatisticsRows, hospitalityStatementRows,
 } from './hospitalityStatement';
+import { resolveOpsWindow } from '../opex-resolvers';
+import { normalizeOpexIndexation, hqOpexLinesInForce } from '@/src/core/calculations/opex';
+import { applyIndexation } from '@/src/core/calculations/revenue/indexation';
+import type { Asset } from '../state/module1-types';
 
 export interface ReportTable {
   title: string;
@@ -55,11 +59,38 @@ export type OpexReportState = Pick<FinancialsResolverState, 'assets' | 'subUnits
 
 const anyNonZero = (a: readonly number[] | undefined): boolean => !!a && a.some((v) => (v ?? 0) !== 0);
 
-export function buildOpexReport(snap: OpexReportSnap, state: OpexReportState): ReportTable[] {
+/**
+ * `allLines` is the live workbook's layout (2026-10-14): every line of every
+ * group, zeros and switched-off lines included, so each total sums rows on the
+ * page, and each line's statement opens with its operating years and its
+ * inflation factor, the two things its cost formulas read. The screen, the PDF
+ * and the hardcoded workbook never pass it.
+ */
+export function buildOpexReport(snap: OpexReportSnap, state: OpexReportState, opts: { allLines?: boolean } = {}): ReportTable[] {
   const opex = snap.opex;
   const rev = snap.revenue;
   const N = snap.axisLength;
   const z = (): number[] => new Array<number>(N).fill(0);
+  const all = opts.allLines === true;
+  const phaseMap = new Map(state.phases.map((p) => [p.id, p]));
+  /** The operating years and the inflation factor while operating, by the engine's rules (assetOpex.ts). */
+  const drivers = (a: Asset): M4Row[] => {
+    if (!all) return [];
+    const win = resolveOpsWindow(a, state.project, phaseMap, N);
+    const start = Math.max(0, Math.min(N - 1, win.opsStartIdx));
+    const end = Math.max(start, Math.min(N - 1, win.opsEndIdx));
+    const inOps = z().map((_, t) => (t >= start && t <= end ? 1 : 0));
+    const out: M4Row[] = [
+      { label: 'Operating years and inflation', values: [], isSection: true },
+      { label: 'In operations (1 = yes)', values: inOps, indent: 1, valueKind: 'count' },
+    ];
+    const ix = normalizeOpexIndexation(a.opex?.defaultIndexation);
+    if ((ix.method ?? 'none') !== 'none') {
+      const idx = { ...ix, startYear: Math.max(ix.startYear ?? 0, start) };
+      out.push({ label: 'Inflation factor while operating', values: inOps.map((on, t) => (on ? applyIndexation(1, t, idx) : 0)), indent: 1, valueKind: 'rate', totalOverride: '' });
+    }
+    return out;
+  };
   const tables: ReportTable[] = [];
   const hospitalitySummary: Array<{ name: string; revenue: number[]; gop: number[]; ebitda: number[] }> = [];
   const leaseSummary: Array<{ name: string; revenue: number[]; ebitda: number[] }> = [];
@@ -73,12 +104,12 @@ export function buildOpexReport(snap: OpexReportSnap, state: OpexReportState): R
       if (members.length === 0) continue;
       const st = buildHospitalityStatement(
         members.map((a) => ({ asset: a, opex: opex.byAsset.get(a.id), revenue: rev.byHospitalityAsset.get(a.id) })),
-        N, line.key,
+        N, line.key, { includeDisabled: all },
       );
-      if (!anyNonZero(st.revenue.totalRevenuePerPeriod) && !anyNonZero(st.totalOpex)) continue;
+      if (!all && !anyNonZero(st.revenue.totalRevenuePerPeriod) && !anyNonZero(st.totalOpex)) continue;
       const stats = hospitalityStatisticsRows(st);
       if (stats.length > 0) tables.push({ ...tag, title: `${name}: Operating statistics`, rows: stats });
-      tables.push({ ...tag, title: `${name}: Operating statement`, rows: hospitalityStatementRows(st) });
+      tables.push({ ...tag, title: `${name}: Operating statement`, rows: [...drivers(members[0]), ...hospitalityStatementRows(st, { allLines: all })] });
       hospitalitySummary.push({ name, revenue: st.revenue.totalRevenuePerPeriod, gop: st.gop, ebitda: st.ebitda });
       continue;
     }
@@ -100,7 +131,7 @@ export function buildOpexReport(snap: OpexReportSnap, state: OpexReportState): R
       }
       const per = r?.perLinePerPeriod ?? [];
       (a.opex?.lines ?? []).forEach((ln, i) => {
-        if (ln.disabled) return;
+        if (ln.disabled && !all) return;
         const bucket = buckets[leaseCostBucket(String(ln.category))];
         const acc = bucket.get(ln.name) ?? z();
         const src = per[i] ?? [];
@@ -108,12 +139,12 @@ export function buildOpexReport(snap: OpexReportSnap, state: OpexReportState): R
         bucket.set(ln.name, acc);
       });
     }
-    if (!anyNonZero(revenue) && !anyNonZero(totalOpex)) continue;
+    if (!all && !anyNonZero(revenue) && !anyNonZero(totalOpex)) continue;
     // ONE OPERATING STATEMENT PER LINE (2026-09-14, founder: the hospitality
     // statement reads well, so the standalone and retail lines take the same
     // shape, revenue down to EBITDA in one table, instead of four tables).
     // Active rows only; the check row states any cost the groups do not hold.
-    const rows: M4Row[] = [];
+    const rows: M4Row[] = [...drivers(members[0])];
     const revTotal = revenue.reduce((x, v) => x + v, 0);
     rows.push({ label: 'Revenue', values: [], isSection: true });
     rows.push({ label: 'Lease revenue', values: revenue, indent: 1 });
@@ -125,8 +156,8 @@ export function buildOpexReport(snap: OpexReportSnap, state: OpexReportState): R
     ];
     const grouped = z();
     for (const [bucket, title, totalLabel] of defs) {
-      const entries = [...buckets[bucket].entries()].filter(([, values]) => values.some((v) => v !== 0));
-      if (entries.length === 0) continue;
+      const entries = [...buckets[bucket].entries()].filter(([, values]) => all || values.some((v) => v !== 0));
+      if (entries.length === 0 && !all) continue;
       const subtotal = z();
       rows.push({ label: title, values: [], isSection: true });
       for (const [label, values] of entries) {
@@ -184,9 +215,14 @@ export function buildOpexReport(snap: OpexReportSnap, state: OpexReportState): R
     tables.push({ title: 'Leasing operating summary', rows });
   }
 
-  const hqLines = state.project.hqOpex?.lines ?? [];
-  if (hqLines.length && anyNonZero(opex.hq.totalOpexPerPeriod)) {
-    const rows: M4Row[] = hqLines.map((ln, i) => ({ label: ln.disabled ? `${ln.name} (off)` : ln.name, values: (opex.hq.perLinePerPeriod[i] ?? []).slice(0, N), indent: 1 }));
+  // The live layout lists the lines the engine runs (the stored list, or the seed when none is stored).
+  const hqLines = all ? hqOpexLinesInForce(state.project.hqOpex?.lines) : state.project.hqOpex?.lines ?? [];
+  if (hqLines.length && (all || anyNonZero(opex.hq.totalOpexPerPeriod))) {
+    const hqIx = normalizeOpexIndexation(state.project.hqOpex?.defaultIndexation);
+    const rows: M4Row[] = all && (hqIx.method ?? 'none') !== 'none'
+      ? [{ label: 'Inflation factor', values: z().map((_, t) => applyIndexation(1, t, hqIx)), indent: 1, valueKind: 'rate', totalOverride: '' }]
+      : [];
+    rows.push(...hqLines.map((ln, i) => ({ label: ln.disabled && !all ? `${ln.name} (off)` : ln.name, values: (opex.hq.perLinePerPeriod[i] ?? []).slice(0, N), indent: 1 })));
     rows.push({ label: 'Total HQ Opex', values: opex.hq.totalOpexPerPeriod, isTotal: true });
     tables.push({ title: 'HQ & Corporate Overheads (project-wide)', rows });
   }

@@ -120,7 +120,8 @@ export const stage6bFinancingSheet: LiveLayer = {
       if (a.strategy === 'Lease') return has(`rvc:${l.key}:rev`) ? (t) => rv(`rvc:${l.key}:rev`, t) : () => '0';
       return has(`rvc:${a.id}:cash`) ? (t) => rv(`rvc:${a.id}:cash`, t) : () => '0';
     };
-    const opexPaid = (a: Asset): F => (has(`oxc:ap:${a.id}:paid`) ? (t) => w.refA({ sheet: 'Opex Calc', row: w.addr(`oxc:ap:${a.id}:paid`).row, col: 4 + t }) : () => '0');
+    // The Opex tab shows cash paid as a negative row ("Less: Cash Paid"), in its own period columns.
+    const opexPaid = (a: Asset): F => (has(`oxo:ap:${a.id}:lessPaid`) ? (t) => `-${w.refA({ sheet: 'Opex', row: w.addr(`oxo:ap:${a.id}:lessPaid`).row, col: PERIOD_COLS.OPEN_COL + 1 + t })}` : () => '0');
     const classOf = (pick: (a: Asset) => boolean): F => (t) => visible.filter(pick).map((a) => `(${assetRev(a)(t)})-(${opexPaid(a)(t)})`).join('+') || '0';
     // The one classifier (operatingCashClass), by strategy: a Lease retail strip is retail, not hospitality.
     const resColl = classOf((a) => operatingCashClass(a) === 'residential');

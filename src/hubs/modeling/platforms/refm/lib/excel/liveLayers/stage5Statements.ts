@@ -67,7 +67,7 @@ export const stage5Statements: LiveLayer = {
     // ── Preconditions ────────────────────────────────────────────────────────
     const refuse: string[] = [];
     if (!has('schg:__project__:dep')) refuse.push('the Schedules working sheet is not live');
-    if (!w.reg.keys().some((k) => k.startsWith('oxc:'))) refuse.push('Opex is not live');
+    if (!w.reg.keys().some((k) => k.startsWith('oxo:'))) refuse.push('Opex is not live');
     if (!w.reg.keys().some((k) => k.startsWith('rvc:'))) refuse.push('Revenue is not live');
     if (!has('project:taxRate')) refuse.push('the tax rate is not on the Inputs sheet');
     // 2026-10-05: the formulas charge the rate on each year's profit and pay it
@@ -111,10 +111,12 @@ export const stage5Statements: LiveLayer = {
       return () => '0';
     };
     const assetCos = (a: Asset): F => (has(`cosc:${a.id}:cos`) ? (t) => sheetAt('Cost of Sales Calc', `cosc:${a.id}:cos`, t) : () => '0');
-    const assetOpex = (a: Asset): F => (has(`oxc:${a.id}:total`) ? (t) => sheetAt('Opex Calc', `oxc:${a.id}:total`, t) : () => '0');
+    // Opex reads the Opex tab's own rows (2026-10-14): the period columns are the visible ones.
+    const opexAt = (key: string, t: number): string => w.refA({ sheet: 'Opex', row: w.addr(key).row, col: pc(t) });
+    const assetOpex = (a: Asset): F => (has(`oxo:${a.id}:total`) ? (t) => opexAt(`oxo:${a.id}:total`, t) : () => '0');
     const sumF = (fs: F[]): F => (t) => fs.map((f) => f(t)).join('+') || '0';
     const neg = (f: F): F => (t) => `-(${f(t)})`;
-    const hq: F = (t) => sheetAt('Opex Calc', 'oxc:hq:total', t);
+    const hq: F = (t) => (has('oxo:hq:total') ? opexAt('oxo:hq:total', t) : '0');
     const expensedKeys = w.reg.keys().filter((k) => k.startsWith('cxe:') && k.split(':').length === 3);
     const sellingExp: F = (t) => (expensedKeys.length ? expensedKeys.map((k) => w.refA({ sheet: 'Capex Calc', row: w.addr(k).row, col: w.addr('cxc:P0').col + t })).join('+') : '0');
     const projDep: F = (t) => `${sheetAt('Schedules Calc', 'schg:__project__:dep', t)}${has('schg:__project__:idcDep') ? `+${sheetAt('Schedules Calc', 'schg:__project__:idcDep', t)}` : ''}`;
@@ -191,8 +193,8 @@ export const stage5Statements: LiveLayer = {
         const parts = hospitalityCostParts(h.statement);
         parts.forEach((p, i) => {
           if (!nonZero(p.values)) return;
-          const k = `oxc:${h.line.key}:grp:${HOSPITALITY_COST_GROUPS[i]}`;
-          hospMembers.push({ label: `${h.line.label}: ${p.label}`, f: has(k) ? neg((t) => sheetAt('Opex Calc', k, t)) : () => '0' });
+          const k = `oxo:${h.line.key}:grp:${HOSPITALITY_COST_GROUPS[i]}`;
+          hospMembers.push({ label: `${h.line.label}: ${p.label}`, f: has(k) ? neg((t) => opexAt(k, t)) : () => '0' });
         });
       }
       groups.set('pl-opex-hosp', hospMembers);
@@ -316,8 +318,9 @@ export const stage5Statements: LiveLayer = {
     const revRcv = (a: Asset): F => ((a.strategy === 'Sell' || a.strategy === 'Sell + Manage')
       ? (has(`rvc:${a.id}:cash`) ? (t) => rv(`rvc:${a.id}:cash`, t) : () => '0')
       : assetRev(a));
-    const opexPaid = (a: Asset): F => (has(`oxc:ap:${a.id}:paid`) ? (t) => sheetAt('Opex Calc', `oxc:ap:${a.id}:paid`, t) : () => '0');
-    const hqPaid: F = (t) => sheetAt('Opex Calc', 'oxc:ap:hq:paid', t);
+    // The Opex tab shows cash paid as a negative row ("Less: Cash Paid").
+    const opexPaid = (a: Asset): F => (has(`oxo:ap:${a.id}:lessPaid`) ? (t) => `-${opexAt(`oxo:ap:${a.id}:lessPaid`, t)}` : () => '0');
+    const hqPaid: F = (t) => `-${opexAt('oxo:ap:hq:lessPaid', t)}`;
     const sellEarners = visible.filter((a) => (a.strategy === 'Sell' || a.strategy === 'Sell + Manage') && has(`rvc:${a.id}:cash`));
     const lineSeries = (k: string): F => (t) => sellEarners.map((a) => { const l = lineForAsset(lines, a.id); return l && has(`rvc:${l.key}:${k}`) ? rv(`rvc:${l.key}:${k}`, t) : '0'; }).join('+') || '0';
     const resAr = lineSeries('ar');

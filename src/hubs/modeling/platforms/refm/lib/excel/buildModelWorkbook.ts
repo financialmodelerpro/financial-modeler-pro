@@ -1118,7 +1118,7 @@ function addAssumptions(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFin
 
   // ── Module 3: Opex inputs per line and accounts payable ────────────────────
   inputDivider('OPEX INPUTS');
-  section((c) => emitOpexInputs(c, state));
+  section((c) => emitOpexInputs(c, state, snap.projectStartYear));
 
   // ── Module 4: P&L inputs and depreciation inputs ───────────────────────────
   inputDivider('FINANCIAL STATEMENT INPUTS');
@@ -3139,7 +3139,7 @@ function addOpex(ctx: EmitCtx): OpexLinks {
   // ── 2. Opex Output ───────────────────────────────────────────────────────────
   em.section('2. Opex Output (per-line operating statements by section, the project total, accounts payable)');
   em.setRegScope('opex');
-  const tables = buildOpexReport(snap, state);
+  const tables = buildOpexReport(snap, state, { allLines: isLiveLayout() });
   for (const section of REVENUE_SECTIONS) {
     const sectionTables = tables.filter((t) => t.lineKey && t.section === section);
     if (sectionTables.length === 0) continue;

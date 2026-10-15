@@ -249,6 +249,13 @@ export const stage3Revenue: LiveLayer = {
       // The start year shown is the default until someone changes it (then it is an override).
       const r = newRow(`rvc:ops:${l.key}`, `${revenueLineName(l)}: operations start, end`);
       const cell = w.addr(startKey, TOTAL_COL);
+      // THE CARD SHOWS THE YEAR IN FORCE, worked out from the override on Inputs (2026-10-14):
+      // the override, never before construction starts, else the year after handover.
+      const ovKey = `oxin|opsStart|${l.key}`;
+      if (w.has(ovKey)) {
+        const ov = w.ref(ovKey, 2), sy = `MAX(${AXIS()},YEAR(${w.ref(`phase:${p.id}:start`)}))`;
+        w.fA(cell, `IF(ISNUMBER(${ov}),MAX(${sy},${ov}),${sy}+MAX(1,${w.ref(`phase:${p.id}:cp`)}))`);
+      }
       const shown = w.platformValue(cell) as number;
       const hasOverride = (l.form === 'operate' ? l.host.revenue?.operate?.operationsStartYearOverride : l.host.revenue?.lease?.operationsStartYearOverride) != null;
       const clamp = `MAX(${CSI(p)},MIN(${N - 1},${w.refA(cell)}-${AXIS()}))`;

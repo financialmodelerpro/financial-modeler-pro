@@ -307,7 +307,7 @@ export const stage6Financing: LiveLayer = {
       if (a.strategy === 'Lease') return has(`rvc:${l.key}:rev`) ? (t) => rv(`rvc:${l.key}:rev`, t) : zero;
       return zero;
     };
-    const assetOpex = (a: Asset): F => (has(`oxc:${a.id}:total`) ? (t) => sheetAt('Opex Calc', `oxc:${a.id}:total`, t) : zero);
+    const assetOpex = (a: Asset): F => (has(`oxo:${a.id}:total`) ? (t) => visCell('Opex', `oxo:${a.id}:total`, t) : zero);
     const held = visible.filter((a) => a.strategy === 'Operate' || a.strategy === 'Lease');
     const noi = row('fnc:noi', 'NOI of the held assets', (t) => `${sumF(held.map(assetRev))(t)}-(${sumF(held.map(assetOpex))(t)})`);
     const metricIdx = retCfg.terminalValueBasis === 'exit_year' ? X : Math.max(0, X - 1);

@@ -19,7 +19,7 @@
  */
 import type ExcelJS from 'exceljs';
 import {
-  ARGB, NUMFMT, BODY_SIZE, fcell, setInput, markInput, setFormula, setLabel, setSectionHeader, setColHeader, fillRange,
+  ARGB, NUMFMT, BODY_SIZE, fcell, setInput, markInput, setFormula, setLabel, setSectionHeader, setColHeader, fillRange, isLiveLayout,
 } from './styles';
 import type { computeFinancialsSnapshot, FinancialsResolverState } from '../financials-resolvers';
 import { computePhaseTimeline, resolveAssetAreaMetrics, resolveSubUnitAdr, resolveUsefulLifeYears } from '@/src/core/calculations';
@@ -30,7 +30,7 @@ import {
   buildStandardsView, buildAssetAreaTables, buildSubUnitLines, type ViewCell, type AssetAreaTables,
 } from '../../components/modules/_shared/assetInputsView';
 import { registerCell } from './cellRegistry';
-import { hqOpexLinesInForce } from '@/src/core/calculations/opex';
+import { hqOpexLinesInForce, normalizeOpexIndexation } from '@/src/core/calculations/opex';
 import { planRevenueLines, groupRevenueLines, type RevenueLine } from '../revenueLines';
 import { planReportLines, lineTitle } from '../reports/lineRows';
 import { resolveRowVelocity } from '../revenue-resolvers';
@@ -641,6 +641,21 @@ function emitSellLine(c: SheetCursor, line: RevenueLine, w: LineWindow, snap: Sn
   }
 }
 
+/**
+ * THE OPERATIONS START, TYPED ONCE (live layout, 2026-10-14): the cell holds an
+ * override or nothing, and the Revenue card works out the year from it (blank:
+ * the year after handover). The hardcoded export prints the year in force.
+ */
+function opsStartRow(c: SheetCursor, line: RevenueLine, w: LineWindow, snap: Snap, override: number | null | undefined, link: string): void {
+  if (!isLiveLayout()) {
+    kv(c, 'Operations start year', snap.projectStartYear + w.opsIdx, NUMFMT.year, override != null,
+      undefined, `Default (after handover): ${snap.projectStartYear + w.defaultOpsIdx}`, override != null ? link : undefined);
+    return;
+  }
+  const r = kv(c, 'Operations start year, if not the year after handover', override ?? undefined, NUMFMT.year, true, undefined, 'Blank: the year after handover.', `oxin|opsStart|${line.key}`);
+  if (override == null) markInput(c.ws.getCell(r, 2));
+}
+
 function emitOperateLine(c: SheetCursor, line: RevenueLine, w: LineWindow, snap: Snap, projectDso: number): void {
   const op = line.host.revenue?.operate;
   // THE ADR THE ENGINE SELLS AT: the first positive of the row's stored ADR and
@@ -648,8 +663,7 @@ function emitOperateLine(c: SheetCursor, line: RevenueLine, w: LineWindow, snap:
   for (const u of line.subUnits) kv(c, `Starting ADR, ${u.name || 'sub-unit'} (per room per night, Table 5)`, resolveSubUnitAdr(u), NUMFMT.rate, false);
   const L = (label: string, col = 4): string => `inp=revin|${line.key}|*|${label}@${col}`;
   indexationRows(c, 'ADR indexation', op?.adrIndexation, snap, line.key);
-  kv(c, 'Operations start year', snap.projectStartYear + w.opsIdx, NUMFMT.year, op?.operationsStartYearOverride != null,
-    undefined, `Default (after handover): ${snap.projectStartYear + w.defaultOpsIdx}`, op?.operationsStartYearOverride != null ? L('Operations start year') : undefined);
+  opsStartRow(c, line, w, snap, op?.operationsStartYearOverride, L('Operations start year'));
   yearStrip(c, 'Occupancy', w.operations, (idx) => op?.occupancyPerPeriod?.[idx], NUMFMT.pct, true, snap, 'Occupancy ramp', (idx) => `revin|${line.key}|*|Occupancy ramp@${axisCol(idx)}`);
   kv(c, 'Average guests per occupied room night', op?.guestsPerOccupiedRoom ?? 1.5, NUMFMT.rate, op?.guestsPerOccupiedRoom !== undefined, undefined, undefined, L('Average guests per occupied room night'));
   ancillaryRows(c, 'F&B Revenue', op?.fb, L('F&B Revenue, F&B %'));
@@ -665,8 +679,7 @@ function emitLeaseLine(c: SheetCursor, line: RevenueLine, w: LineWindow, snap: S
   }
   const L = (label: string, col = 4): string => `inp=revin|${line.key}|*|${label}@${col}`;
   indexationRows(c, 'Rent indexation', lease?.rentIndexation, snap, line.key);
-  kv(c, 'Operations start year', snap.projectStartYear + w.opsIdx, NUMFMT.year, lease?.operationsStartYearOverride != null,
-    undefined, `Default (after handover): ${snap.projectStartYear + w.defaultOpsIdx}`, lease?.operationsStartYearOverride != null ? L('Operations start year') : undefined);
+  opsStartRow(c, line, w, snap, lease?.operationsStartYearOverride, L('Operations start year'));
   yearStrip(c, 'Occupancy', w.operations, (idx) => lease?.occupancyPerPeriod?.[idx], NUMFMT.pct, true, snap, 'Occupancy ramp', (idx) => `revin|${line.key}|*|Occupancy ramp@${axisCol(idx)}`);
   kv(c, lease?.arDays !== undefined ? 'Accounts Receivable Days (set on this line)' : 'Accounts Receivable Days (the project DSO; this line states none)', lease?.arDays ?? Math.max(0, projectDso), NUMFMT.int, lease?.arDays !== undefined, undefined, undefined, L('Accounts Receivable Days'));
 }
@@ -702,7 +715,20 @@ export function emitEscrowInputs(c: SheetCursor, state: FinancialsResolverState,
 
 const opexValFmt = (mode: string): string => mode === 'fixed_baseline' ? NUMFMT.money : mode.startsWith('per_') ? NUMFMT.rate : NUMFMT.pct;
 
-export function emitOpexInputs(c: SheetCursor, state: FinancialsResolverState): void {
+/**
+ * The inflation a card states in words, as the two numbers the live workbook
+ * reads (2026-10-14): the rate, and the calendar year it counts from. Only in
+ * the live layout and only for a method that has them (compounding or one step).
+ */
+function opexInflationInputs(c: SheetCursor, who: string, key: string, cfg: unknown, axisYear: number): void {
+  if (!isLiveLayout()) return;
+  const ix = normalizeOpexIndexation(cfg) as { method?: string; rate?: number; startYear?: number };
+  if (ix.method !== 'yoy_compound' && ix.method !== 'single_rate') return;
+  kv(c, `${who} inflation: rate %`, ix.rate ?? 0, NUMFMT.pct2, true, undefined, undefined, `oxin|${key}|rate`);
+  kv(c, `${who} inflation: counted from year`, axisYear + (ix.startYear ?? 0), NUMFMT.year, true, undefined, key === 'hq' ? undefined : 'Never before the line starts operating.', `oxin|${key}|from`);
+}
+
+export function emitOpexInputs(c: SheetCursor, state: FinancialsResolverState, axisYear: number): void {
   const assets = state.assets;
   const ctx = { assets, phases: state.phases, parcels: state.parcels };
   const lines = planReportLines(ctx, (a) => a.strategy === 'Operate' || a.strategy === 'Lease');
@@ -714,6 +740,7 @@ export function emitOpexInputs(c: SheetCursor, state: FinancialsResolverState): 
     const title = lineTitle(line, ctx);
     setSectionHeader(c.ws.getRow(c.r), `Opex lines, ${title}`, 7); c.r += 1;
     kv(c, 'Asset Inflation (default for fixed-cost lines)', summarizeOpexIndexation(host.opex?.defaultIndexation), '@', true);
+    opexInflationInputs(c, 'Asset', host.id, host.opex?.defaultIndexation, axisYear);
     const all = host.opex?.lines ?? [];
     if (all.length === 0) { note(c, 'No opex lines on this line.'); c.r += 1; continue; }
     headers(c, ['Line item', 'Category', 'Mode', 'Rate', 'Value', 'Inflation', 'On']);
@@ -731,6 +758,7 @@ export function emitOpexInputs(c: SheetCursor, state: FinancialsResolverState): 
       else if (l.useAssetDefault !== false) derived(c.ws.getCell(c.r, 6), `Inherits: ${summarizeOpexIndexation(host.opex?.defaultIndexation)}`, '@');
       else setInput(c.ws.getCell(c.r, 6), summarizeOpexIndexation(l.indexation), '@');
       setInput(c.ws.getCell(c.r, 7), l.disabled ? 'Off' : 'On', '@');
+      linkHere(c, c.r, 7, `opexin|${host.id}||${l.name}@8`);
       c.r += 1;
     }
     c.r += 1;
@@ -738,6 +766,10 @@ export function emitOpexInputs(c: SheetCursor, state: FinancialsResolverState): 
   const hq = hqOpexLinesInForce(p.hqOpex?.lines);
   if (hq.length > 0) {
     setSectionHeader(c.ws.getRow(c.r), 'HQ / Corporate opex lines', 6); c.r += 1;
+    if (isLiveLayout()) {
+      kv(c, 'HQ Inflation (default for fixed lines)', summarizeOpexIndexation(p.hqOpex?.defaultIndexation), '@', true);
+      opexInflationInputs(c, 'HQ', 'hq', p.hqOpex?.defaultIndexation, axisYear);
+    }
     headers(c, ['Line item', 'Category', 'Mode', 'Value', 'Inflation', 'On']);
     for (const l of hq) {
       setLabel(c.ws.getCell(c.r, 1), l.name, { indent: 1 });
@@ -747,6 +779,7 @@ export function emitOpexInputs(c: SheetCursor, state: FinancialsResolverState): 
       linkHere(c, c.r, 4, `opexin|__hq__||${l.name}@6`);
       setInput(c.ws.getCell(c.r, 5), summarizeOpexIndexation(l.indexation), '@');
       setInput(c.ws.getCell(c.r, 6), l.disabled ? 'Off' : 'On', '@');
+      linkHere(c, c.r, 6, `opexin|__hq__||${l.name}@8`);
       c.r += 1;
     }
     c.r += 1;
@@ -754,7 +787,7 @@ export function emitOpexInputs(c: SheetCursor, state: FinancialsResolverState): 
   if (ordered.length === 0 && hq.length === 0) { note(c, 'No operating lines: opex applies to Operate and Lease lines.'); c.r += 1; }
   setSectionHeader(c.ws.getRow(c.r), 'Accounts Payable (DPO)', 3); c.r += 1;
   kv(c, 'Project Default DPO (days)', p.opexAp?.defaultApDays ?? 0, NUMFMT.int, true, 'DpoDays', 'Blank or 0 = pay on incurrence (no AP).', 'inp=opexin|__ap__||Project Default DPO (days)@4#dpo');
-  kv(c, 'Days basis', p.opexAp?.daysPerYear ?? 365, NUMFMT.int, p.opexAp?.daysPerYear !== undefined);
+  kv(c, 'Days basis', p.opexAp?.daysPerYear ?? 365, NUMFMT.int, p.opexAp?.daysPerYear !== undefined || isLiveLayout(), undefined, undefined, isLiveLayout() ? 'inp=opexin|__ap__||Days basis@4' : undefined);
   if (ordered.length > 0) {
     headers(c, ['Asset', 'Effective DPO (days)', 'DPO Override']);
     for (const { line, host } of ordered) {
@@ -762,6 +795,9 @@ export function emitOpexInputs(c: SheetCursor, state: FinancialsResolverState): 
       setLabel(c.ws.getCell(c.r, 1), lineTitle(line, ctx));
       derived(c.ws.getCell(c.r, 2), override !== undefined && override >= 0 ? override : projectDpo, NUMFMT.int);
       if (override !== undefined) setInput(c.ws.getCell(c.r, 3), override, NUMFMT.int);
+      else if (isLiveLayout()) markInput(c.ws.getCell(c.r, 3));
+      // The live workbook types an override here and works out the effective days beside it.
+      registerCell(`oxin|dpo|${host.id}`, c.ws, c.ws.getCell(c.r, 2));
       c.r += 1;
     }
   }

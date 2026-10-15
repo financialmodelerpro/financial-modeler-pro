@@ -152,7 +152,7 @@ function buildAssetRevenueContext(
  * Determine [opsStartIdx, opsEndIdx] for an asset from its phase.
  * Mirrors the convention used by the revenue resolvers.
  */
-function resolveOpsWindow(
+export function resolveOpsWindow(
   asset: Asset,
   project: Project,
   phaseMap: Map<string, Phase>,

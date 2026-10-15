@@ -96,6 +96,7 @@ export function buildHospitalityStatement(
   members: readonly HospitalityMember[],
   axisLength: number,
   key: string,
+  opts: { includeDisabled?: boolean } = {},
 ): HospitalityStatement {
   const N = Math.max(0, axisLength);
   const z = (): number[] => new Array<number>(N).fill(0);
@@ -114,8 +115,9 @@ export function buildHospitalityStatement(
     for (let t = 0; t < N; t++) totalOpex[t] += total[t] ?? 0;
     const per = m.opex?.perLinePerPeriod ?? [];
     (m.asset.opex?.lines ?? []).forEach((ln, i) => {
-      // The engine leaves a disabled line out of every total, so does this.
-      if (ln.disabled) return;
+      // The engine leaves a disabled line out of every total, so does this. The
+      // live workbook keeps its row (at zero), so switching it on has a row to fill.
+      if (ln.disabled && !opts.includeDisabled) return;
       const group = hospitalityCostGroup(String(ln.category));
       const k = `${group}|${ln.name}`;
       let row = byKey.get(k);
@@ -167,8 +169,13 @@ export function hospitalityStatisticsRows(st: HospitalityStatement): M4Row[] {
   ];
 }
 
-/** THE OPERATING STATEMENT, revenue down to EBITDA, with the check row. */
-export function hospitalityStatementRows(st: HospitalityStatement): M4Row[] {
+/**
+ * THE OPERATING STATEMENT, revenue down to EBITDA, with the check row.
+ * `allLines` (the live workbook, 2026-10-14) keeps every line and every group,
+ * zeros included, and states the total operating expenses above EBITDA, so each
+ * total sums rows a reader can see.
+ */
+export function hospitalityStatementRows(st: HospitalityStatement, opts: { allLines?: boolean } = {}): M4Row[] {
   const r = st.revenue;
   const rows: M4Row[] = [];
   const revTotal = sum(r.totalRevenuePerPeriod);
@@ -183,8 +190,8 @@ export function hospitalityStatementRows(st: HospitalityStatement): M4Row[] {
     // line and most of them are blank, so only a line with a value in some
     // period is shown, and a group with none is left out with its zero total.
     // The group totals, GOP and EBITDA are unchanged: a blank line adds zero.
-    const lines = st.costLines.filter((l) => l.group === g && l.values.some((v) => v !== 0));
-    if (lines.length === 0) return;
+    const lines = st.costLines.filter((l) => l.group === g && (opts.allLines || l.values.some((v) => v !== 0)));
+    if (lines.length === 0 && !opts.allLines) return;
     rows.push({ label: HOSPITALITY_COST_GROUP_LABEL[g], values: [], isSection: true });
     for (const l of lines) rows.push({ label: l.name, values: l.values, indent: 1 });
     rows.push({ label: totalLabel, values: st.groupTotals[g], isSubtotal: true });
@@ -200,6 +207,7 @@ export function hospitalityStatementRows(st: HospitalityStatement): M4Row[] {
   });
   group('management', 'Total management fees');
   group('fixed', 'Total fixed charges and reserves');
+  if (opts.allLines) rows.push({ label: 'Total operating expenses', values: st.totalOpex, isSubtotal: true });
   rows.push({ label: 'EBITDA, net operating income', values: st.ebitda, isTotal: true });
   rows.push({
     label: 'EBITDA margin', values: ratio(st.ebitda, r.totalRevenuePerPeriod), isPercent: true,

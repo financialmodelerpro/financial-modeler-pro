@@ -445,10 +445,10 @@ function perturbations(input: LiveExportInputs, reg: CellRegistry): Perturbation
     const sy = (le.rentIndexation?.startYear ?? 0) + 1;
     out.push({ movesRevenue: true, label: 'the rent indexation starts a year later', cell: `revfoot|${leaseL.key}|idx`, col: RC.OPEN, value: sy,
       edit: (s) => { (s.assets as any[]).find((q) => q.id === a.id).revenue.lease.rentIndexation.startYear = sy; } });
-    // The operations start shown, one year later: on the platform, an override.
+    // The operations start one year later: typed into the override on Inputs (blank means the year after handover).
     const cp = ph.find((q) => q.id === leaseL.phaseId).constructionPeriods;
     const shownStart = psy + off + cp;
-    out.push({ movesRevenue: true, label: `a lease's operations start one year later (${shownStart + 1})`, cell: `revin|${leaseL.key}|Rent Indexation|Operations start year`, col: RC.TOTAL, value: shownStart + 1,
+    out.push({ movesRevenue: true, label: `a lease's operations start one year later (${shownStart + 1})`, cell: `oxin|opsStart|${leaseL.key}`, col: 2, value: shownStart + 1,
       edit: (s) => { (s.assets as any[]).find((q) => q.id === a.id).revenue.lease.operationsStartYearOverride = shownStart + 1; } });
   } else out.push({ label: 'lease revenue inputs', skip: 'no lease line' });
 
@@ -481,7 +481,7 @@ function perturbations(input: LiveExportInputs, reg: CellRegistry): Perturbation
     const di = leaseA.opex?.defaultIndexation;
     if (di?.method && di.method !== 'none') {
       const r2 = (di.rate ?? 0) + 0.01;
-      out.push({ movesRevenue: false, label: 'lease asset inflation +1 point (on a copy where a per sqm line charges)', cell: `oxfoot|${leaseA.id}|idx`, col: RC.TOTAL, value: r2,
+      out.push({ movesRevenue: false, label: 'lease asset inflation +1 point (on a copy where a per sqm line charges)', cell: `oxin|${leaseA.id}|rate`, col: 2, value: r2,
         edit: (s) => { const q = (s.assets as any[]).find((x) => x.id === leaseA.id); q.opex.defaultIndexation.rate = r2; q.opex.lines[rm.i].value = rm.l.value + 50; },
         variant: setLine(leaseA.id, rm.i, rm.l.value + 50) });
     }
