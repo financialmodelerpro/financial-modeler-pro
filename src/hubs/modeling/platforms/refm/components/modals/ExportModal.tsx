@@ -400,7 +400,7 @@ export default function ExportModal({
           body: JSON.stringify({
             // The working draft is not exported this way: CURRENT means the latest saved version.
             versionId: selectedVersionId === CURRENT ? null : selectedVersionId,
-            caseId: selectedCaseId, displayScale: pdfScale, displayDecimals: pdfDecimals, parts: { ...groupSel },
+            caseId: selectedCaseId, displayScale: pdfScale, displayDecimals: pdfDecimals,
           }),
         });
         if (!res.ok) {
@@ -773,7 +773,8 @@ export default function ExportModal({
                 </span>
               </div>
             )}
-            {(reportKind === 'full' || excelKind) && (
+            {/* The live workbook links across every tab, so it shows them all: no section filter. */}
+            {(reportKind === 'full' || reportKind === 'excel') && (
               <div data-testid="export-groups" style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: '8px 10px', border: '1px solid var(--color-border)', borderRadius: 8, background: 'var(--color-surface)' }}>
                 <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-heading)' }}>Sections to include</div>
                 <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>

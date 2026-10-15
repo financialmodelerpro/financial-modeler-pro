@@ -431,6 +431,11 @@ section('O. The Output tab, the Inputs card and the selling costs read per line,
   check('O1 blocks 1 and 2 are ONE table each, banded pre-sales and sales during operation, with the two totals at the foot',
     out.includes('bands={saleBands}') && out.includes('buildPrePostRows(') && out.includes("label: 'Pre-sales (construction)'") && out.includes("tone: 'pre' as const") && out.includes("tone: 'post' as const") && /label: 'Sales during operation'/.test(out)
     && !out.includes('1a. Pre-Sales') && !out.includes('2a. Pre-Sales Revenue') && !out.includes('2b. Sales During Operation Revenue'));
+  // THE LATEST OPERATIONS START IS THE LAST OPERATING YEAR (founder, 2026-10-15), on both cards.
+  const capped = inp.split('max={projectStartYear + lastOperatingIdx}').length - 1;
+  const clamped = inp.split('const yr = clampOpsStartYear(Number(e.target.value));').length - 1;
+  check('O1b neither operations start input (hotel, lease) takes a year after the last operating year',
+    capped === 2 && clamped === 2 && /lastOperatingIdx = Math\.max\(constructionStartIdx, Math\.min\(totalPeriods - 1, defaultOperationsStartIdx \+ op - 1\)\)/.test(inp), `${capped} capped, ${clamped} clamped`);
   check('O2 the share sold per year is the first table of block 1, per sub-unit, pre and post in one row',
     out.includes('buildShareSoldRows(') && out.includes('1a. Share of inventory sold per year'));
   check('O3 the selling costs table and its year-on-year schedule file per LINE, the plots of a line added',

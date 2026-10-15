@@ -748,6 +748,10 @@ function AssetCard({ line, allLines, phase, project, phases, parcels }: AssetCar
   // calendar end (defaultOperationsStartIdx + op - 1), so the override
   // can only pull the start in, never trim the back.
   const operationsEndIdx = Math.max(operationsStartIdx, Math.min(totalPeriods - 1, defaultOperationsStartIdx + op - 1));
+  // THE LATEST START IS THE LAST OPERATING YEAR (founder, 2026-10-15): a start after it would leave
+  // no operating year inside the phase, so the input stops there and a typed year is held to it.
+  const lastOperatingIdx = Math.max(constructionStartIdx, Math.min(totalPeriods - 1, defaultOperationsStartIdx + op - 1));
+  const clampOpsStartYear = (yr: number): number => Math.max(projectStartYear + constructionStartIdx, Math.min(projectStartYear + lastOperatingIdx, yr));
 
   const constructionWindow: WindowCell[] = cp > 0
     ? Array.from({ length: Math.max(0, handoverYear - constructionStartIdx + 1) }, (_, k) => {
@@ -1744,9 +1748,9 @@ function AssetCard({ line, allLines, phase, project, phases, parcels }: AssetCar
                       type="number"
                       value={projectStartYear + operationsStartIdx}
                       min={projectStartYear + constructionStartIdx}
-                      max={projectStartYear + Math.max(0, totalPeriods - 1)}
+                      max={projectStartYear + lastOperatingIdx}
                       onChange={(e) => {
-                        const yr = Number(e.target.value);
+                        const yr = clampOpsStartYear(Number(e.target.value));
                         const defaultYr = projectStartYear + defaultOperationsStartIdx;
                         updateOperateInline({ operationsStartYearOverride: yr === defaultYr ? undefined : yr });
                       }}
@@ -1755,7 +1759,7 @@ function AssetCard({ line, allLines, phase, project, phases, parcels }: AssetCar
                     />
                   </div>
                   <span style={{ fontSize: 10, color: 'var(--color-meta)' }}>
-                    Default (after handover): {projectStartYear + defaultOperationsStartIdx}
+                    Default (after handover): {projectStartYear + defaultOperationsStartIdx}; latest: {projectStartYear + lastOperatingIdx}, the last operating year
                   </span>
                   {opsStartOverride != null && (
                     <button
@@ -2185,9 +2189,9 @@ function AssetCard({ line, allLines, phase, project, phases, parcels }: AssetCar
                       type="number"
                       value={projectStartYear + operationsStartIdx}
                       min={projectStartYear + constructionStartIdx}
-                      max={projectStartYear + Math.max(0, totalPeriods - 1)}
+                      max={projectStartYear + lastOperatingIdx}
                       onChange={(e) => {
-                        const yr = Number(e.target.value);
+                        const yr = clampOpsStartYear(Number(e.target.value));
                         const defaultYr = projectStartYear + defaultOperationsStartIdx;
                         updateLeaseInline({ operationsStartYearOverride: yr === defaultYr ? undefined : yr });
                       }}
@@ -2196,7 +2200,7 @@ function AssetCard({ line, allLines, phase, project, phases, parcels }: AssetCar
                     />
                   </div>
                   <span style={{ fontSize: 10, color: 'var(--color-meta)' }}>
-                    Default (after handover): {projectStartYear + defaultOperationsStartIdx}
+                    Default (after handover): {projectStartYear + defaultOperationsStartIdx}; latest: {projectStartYear + lastOperatingIdx}, the last operating year
                   </span>
                   {leaseOpsStartOverride != null && (
                     <button

@@ -55,7 +55,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   if (pErr) return NextResponse.json({ error: pErr }, { status: 500 });
   if (!project) return notFound();
 
-  let body: { versionId?: string | null; caseId?: string | null; displayScale?: 'full' | 'thousands' | 'millions'; displayDecimals?: 0 | 1 | 2; parts?: { inputs?: boolean; outputs?: boolean; schedules?: boolean } } = {};
+  let body: { versionId?: string | null; caseId?: string | null; displayScale?: 'full' | 'thousands' | 'millions'; displayDecimals?: 0 | 1 | 2 } = {};
   try { body = await req.json(); } catch { body = {}; }
 
   const { row: version, error: vErr } = body.versionId ? await getVersionById(projectId, body.versionId) : await getLatestVersion(projectId);
@@ -70,7 +70,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   const decimals = body.displayDecimals === 1 || body.displayDecimals === 2 ? body.displayDecimals : 0;
   const buf = await generateFormulaWorkbookBuffer({
     state: inputs.state as never, projectName, dateLabel, displayScale: scale, displayDecimals: decimals,
-    parts: body.parts, caseComparison: inputs.caseComparison as never, parties,
+    caseComparison: inputs.caseComparison as never, parties,
     includeSensitivity: featureAllowed(gate, 'sensitivity'),
   });
   const base = (version.label || version.version_label || projectName).replace(/[^a-z0-9_-]+/gi, '_').slice(0, 80) || 'project';

@@ -109,6 +109,9 @@ function walk(dir: string, out: string[] = []): string[] {
   const sets = [...m.matchAll(/setFormulaAllowed\(([^)]*\)?)\)/g)].map((x) => x[1]);
   check('G7b the answer is set only from the route\'s reply, or to false', sets.length > 0 && sets.every((x) => x === 'false' || x.includes("j?.allowed === true")), sets.join(' | '));
   check('G7c the dialog asks the route on open', m.includes('/export/formula-workbook`, { cache: \'no-store\' }'));
+  // The live workbook shows every tab (founder, 2026-10-15): no section picker, and the route takes no filter.
+  check('G7d the dialog shows the section picker for the PDF and the hardcoded Excel only', m.includes(`{(reportKind === 'full' || reportKind === 'excel') && (\n              <div data-testid="export-groups"`));
+  check('G7e the live route reads no section filter', !/\bparts\b/.test(readFileSync(ROUTE, 'utf8')));
 
   console.log(`\n${failed === 0 ? 'ALL PASS' : 'FAILURES'}: ${passed} passed, ${failed} failed`);
   if (failed) { console.log(fails.map((x) => `  - ${x}`).join('\n')); process.exit(1); }
