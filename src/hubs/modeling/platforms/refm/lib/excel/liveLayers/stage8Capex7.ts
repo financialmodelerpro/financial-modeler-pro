@@ -88,9 +88,10 @@ export const stage8Capex7: LiveLayer = {
         near(nsa.v, l.area.nsa) && near(bua.v, l.area.bua) && near(gfa.v, l.area.gfa) ? '' : 'areas',
       ].filter(Boolean);
       if (bad.length) { problems.push(`${l.label} (${bad.join(', ')} disagree with the report)`); continue; }
-      const idcTerms = l.memberIds.filter((id) => has(`fnc:main:idc:${id}`)).flatMap((id) => {
-        const a = w.addr(`fnc:main:idc:${id}`);
-        return Array.from({ length: N }, (_, t) => `MAX(0,N(${w.refA({ sheet: a.sheet, row: a.row, col: 4 + t })}))`);
+      // A line's capitalised interest is one row its plots share (stage6Loop): each row once.
+      const idcSeen = new Set<number>();
+      const idcTerms = l.memberIds.filter((id) => has(`fnc:main:idc:${id}`)).filter((id) => { const r = w.addr(`fnc:main:idc:${id}`).row; if (idcSeen.has(r)) return false; idcSeen.add(r); return true; }).flatMap((id) => {
+        return Array.from({ length: N }, (_, t) => `MAX(0,N(${w.per(`fnc:main:idc:${id}`, t)}))`);
       });
       const fig: Fig = { construction, land, idc: idcTerms.length ? `(${idcTerms.join('+')})` : '0', nsa, bua, gfa };
       if (l.sale) {

@@ -21,6 +21,7 @@
  * No em dashes in this file.
  */
 import type { LayerContext, LiveLayer } from '../formulaWorkbook';
+import { loopAt } from './stage6Loop';
 import { LiveWriter } from './writer';
 import { irrOf, pctT, irrT, multT, moicOf, moneyT as moneyWords, ratioT, seriesT } from './excelText';
 import { PERIOD_COLS } from '../buildModelWorkbook';
@@ -79,7 +80,7 @@ export const stage7bMetrics: LiveLayer = {
       return r;
     };
     const vis = (sheet: string, key: string, t: number): string => w.refA({ sheet, row: w.addr(key).row, col: pc(t) });
-    const fnc = (key: string, t: number): string => w.refA({ sheet: 'Financing Calc', row: w.addr(key).row, col: 4 + t });
+    const fnc = (key: string, t: number): string => loopAt(w, key, t);
     const plKey = (re: RegExp): string | undefined => w.reg.keys().find((k) => k.startsWith('pl|__all__||') && re.test(k.slice('pl|__all__||'.length)));
     const patKey = plKey(/^Profit after /), ebitdaKey = plKey(/^EBITDA$/);
     const missing: string[] = [];
@@ -131,10 +132,10 @@ export const stage7bMetrics: LiveLayer = {
       ? `IF(${at(noi, M - 1)}>0,TEXT(${AX()}+${M}-${at(stabRun, M)},"0"),${stab95()})`
       : stab95());
     const yoc = (): string => `${stab()}/${sc3(heldCost)}`;
-    const tdc = (): string => `SUM(${w.rangeA('Financing Calc', w.addr('fnc:capexall').row, 4, 4 + N - 1)})`;
+    const tdc = (): string => `SUM(${w.perRange('fnc:capexall', N)})`;
     // The operating expenses over the same years as the GDV (2026-10-08): the P&L row is printed negative.
     const opx = (): string => `(-SUM(${w.rangeA('P&L', w.addr('pl|__all__||Total Operating Expenses').row, pc(0), pc(X))}))`;
-    const tfc = (): string => `SUM(${w.rangeA('Financing Calc', w.addr('fnc:main:interest').row, 4, 4 + N - 1)})`;
+    const tfc = (): string => `SUM(${w.perRange('fnc:main:interest', N)})`;
     const revX = (): string => `SUM(${w.rangeA(CALC, rev, cT(0), cT(X))})`;
     const patX = (): string => `SUM(${w.rangeA(CALC, pat, cT(0), cT(X))})`;
 

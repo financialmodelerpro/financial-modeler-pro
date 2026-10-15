@@ -23,6 +23,7 @@
  * No em dashes in this file.
  */
 import type { LayerContext, LiveLayer } from '../formulaWorkbook';
+import { loopAt } from './stage6Loop';
 import { LiveWriter } from './writer';
 import { PERIOD_COLS } from '../buildModelWorkbook';
 import { getFinancialLabels, defaultTerminologyForCountry } from '@/src/core/calculations/financials';
@@ -49,7 +50,8 @@ export const stage8Schedules: LiveLayer = {
 
     // A visible statement row, a year at a time; a solve row on its working sheet.
     const vis = (key: string): F | null => (has(key) ? (t) => `N(${w.refA({ sheet: w.addr(key).sheet, row: w.addr(key).row, col: pc(t) })})` : null);
-    const calc = (key: string): F | null => (has(key) ? (t) => `N(${w.refA({ sheet: w.addr(key).sheet, row: w.addr(key).row, col: 4 + t })})` : null);
+    // A figure of the financing loop (stage6Loop, an outflow row read negated) or a working row, a year at a time.
+    const calc = (key: string): F | null => (has(key) ? (t) => `N(${key.startsWith('fnc:') ? loopAt(w, key, t) : w.per(key, t)})` : null);
     const sumF = (fs: F[]): F => (t) => (fs.length ? `(${fs.map((f) => f(t)).join('+')})` : '0');
     const neg = (f: F): F => (t) => `-(${f(t)})`;
 
@@ -97,8 +99,13 @@ export const stage8Schedules: LiveLayer = {
     {
       const idcKeys = reg.keys().filter((k) => /^fnc:main:idc:[^:]+$/.test(k));
       const sellIds = new Set(state.assets.filter((a) => a.strategy === 'Sell' || a.strategy === 'Sell + Manage').map((a) => a.id));
-      const idcOf = (pred: (id: string) => boolean): F[] => idcKeys.filter((k) => pred(k.split(':')[3])).map((k) => calc(k)!);
-      const held = calc('fnc:main:idcadd'), dep = calc('fnc:main:idcdep'), disp = calc('fnc:main:idcdisp');
+      // A line's capitalised interest is one row its plots share: each row once.
+      const idcOf = (pred: (id: string) => boolean): F[] => { const seen = new Set<number>(); return idcKeys.filter((k) => pred(k.split(':')[3])).filter((k) => { const r = w.addr(k).row; if (seen.has(r)) return false; seen.add(r); return true; }).map((k) => calc(k)!); };
+      const held = calc('fnc:main:idcadd'), dep = calc('fnc:main:idcdep');
+      // The interest written off at the exit: the project's interest NBV before the exit, on Schedules.
+      const disp: F | null = has('schv:__project__:idcNbv') && has('tl:flag:exit')
+        ? (t) => `${w.per('tl:flag:exit', t)}*MAX(0,${t === 0 ? '0' : w.per('schv:__project__:idcNbv', t - 1)}+${w.per('schv:__project__:idcAdd', t)}-${w.per('schv:__project__:idcDep', t)})`
+        : calc('fnc:main:idcdisp');
       const P = 'sch|__project__|idc|';
       const opening = `${P}Opening IDC NBV (held)`;
       const rolled: F | null = held && dep && disp ? (t) => `${w.refA({ sheet: SCH, row: w.addr(opening).row, col: pc(t) })}+${held(t)}-${dep(t)}-${disp(t)}` : null;
@@ -205,7 +212,7 @@ export const stage8FundFees: LiveLayer = {
     if (refuse.length) return [{ sheet: PL, status: 'partial' as const, formulas: 0, note: `The Fund Fee Basis block stays the platform's values: ${[...new Set(refuse)].join('; ')}.` }];
 
     const cap = (label: string): string => `N(${w.ref(capKey(label)!)})`;
-    const fee = (i: number, t: number): string => `N(${w.refA({ sheet: 'Financing Calc', row: w.addr(`fnc:fee:${i}`).row, col: 4 + t })})`;
+    const fee = (i: number, t: number): string => `N(${loopAt(w, `fnc:fee:${i}`, t)})`;
     const rowOf = (k: string): number => w.addr(k).row;
     const rng = (r: number): string => w.rangeA(PL, r, pc(0), pc(N - 1));
     for (const k of keys) {

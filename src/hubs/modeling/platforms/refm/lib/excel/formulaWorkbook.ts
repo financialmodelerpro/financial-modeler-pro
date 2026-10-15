@@ -40,8 +40,7 @@ import { stage3Cos } from './liveLayers/stage3Cos';
 import { stage3Opex } from './liveLayers/stage3Opex';
 import { stage4Schedules } from './liveLayers/stage4Schedules';
 import { stage5Statements } from './liveLayers/stage5Statements';
-import { stage6Financing } from './liveLayers/stage6Financing';
-import { stage6bFinancingSheet } from './liveLayers/stage6bFinancingSheet';
+import { stage6Loop } from './liveLayers/stage6Loop';
 import { stage7Returns } from './liveLayers/stage7Returns';
 import { stage7bMetrics } from './liveLayers/stage7bMetrics';
 import { stage7cChecks } from './liveLayers/stage7cChecks';
@@ -92,7 +91,7 @@ export interface LiveLayer {
 
 /** The layers, in dependency order. */
 // Revenue before Capex: Capex's selling costs read the revenue a line earns.
-export const LIVE_LAYERS: LiveLayer[] = [stage1LandArea, stage3Revenue, stage2Capex, stage3Cos, stage3Opex, stage4Schedules, stage5Statements, stage6Financing, stage6bFinancingSheet, stage8Schedules, stage8FundFees, stage8Capex7, stage7Returns, stage7bMetrics, stage7cChecks, stage7dSummary, stage9InputLinks];
+export const LIVE_LAYERS: LiveLayer[] = [stage1LandArea, stage3Revenue, stage2Capex, stage3Cos, stage3Opex, stage4Schedules, stage5Statements, stage6Loop, stage8Schedules, stage8FundFees, stage8Capex7, stage7Returns, stage7bMetrics, stage7cChecks, stage7dSummary, stage9InputLinks];
 
 /** Sheets that are values by the founder's decision (2026-09-27), never live. */
 const BY_DESIGN: Record<string, string> = {
@@ -158,10 +157,18 @@ export function buildFormulaWorkbook(opts: BuildModelOptions): FormulaWorkbookRe
   // SIMPLE FORMULAS (founder, 2026-10-11): sum chains become SUM over ranges and terms
   // that add nothing go, the arithmetic unchanged (liveLayers/simplify.ts).
   simplifyWorkbook(wb);
+  // A CIRCULAR CELL NEEDS A STARTING VALUE (the financing loop runs through Financing, Schedules
+  // and the statements): Excel iterates from each cell's cached result, and a formula with none
+  // enters the loop with nothing to start from and never recovers. Run last, after every rewrite.
+  for (const ws of wb.worksheets) ws.eachRow((r) => r.eachCell((c) => {
+    const v = c.value as unknown as { formula?: string; result?: unknown } | null;
+    if (v && typeof v === 'object' && typeof v.formula === 'string' && (v.result === undefined || v.result === null)) c.value = { formula: v.formula, result: 0 } as never;
+  }));
   // A layer's hidden working sheet is not a tab the reader sees, so it gets no status line.
   for (const ws of wb.worksheets) if (ws.state !== 'visible' && ws.state !== undefined) status.delete(ws.name);
   relabel(wb, status);
   orderTabs(wb);
+  writeLoopLinks(wb);
   const problems = exportShapeProblems(wb);
   if (problems.length) throw new Error(`The live workbook failed its shape check: ${problems.slice(0, 6).join('; ')}${problems.length > 6 ? ` and ${problems.length - 6} more` : ''}.`);
   return { wb, registry, status, pending };
@@ -188,7 +195,7 @@ function orderTabs(wb: ExcelJS.Workbook): void {
  * working sheet is the one kind of hidden sheet allowed. Each commit removes
  * its sheet from this list, and the list ends empty.
  */
-export const HIDDEN_SHEETS_PENDING_REBUILD: readonly string[] = ['Statements Calc', 'Financing Calc', 'Returns Calc'];
+export const HIDDEN_SHEETS_PENDING_REBUILD: readonly string[] = ['Statements Calc', 'Returns Calc'];
 
 /**
  * THE SHAPE CHECK (2026-10-14, founder): the export fails rather than ship a
@@ -292,5 +299,65 @@ function relabel(wb: ExcelJS.Workbook, status: FormulaWorkbookResult['status']):
         }
       }
     }));
+  }
+}
+
+/** The tabs a formula may only read forward from, in the flow (front matter and Checks read everything). */
+const FLOW = TAB_ORDER.filter((n) => !['Cover', 'Guide', 'Summary', 'Scenarios', 'Checks'].includes(n));
+
+/**
+ * EVERY FORMULA THAT READS A LATER TAB (2026-10-15), by row: a flow tab reading a tab after it, or a
+ * hidden working sheet. The one allowed kind is the financing loop's output (the capitalised interest
+ * Schedules and Capex read back from Financing); `writeLoopLinks` lists those on the Guide.
+ */
+export function backwardReads(wb: ExcelJS.Workbook): Array<{ from: string; row: number; to: string; toRow: number }> {
+  const pos = (n: string): number => FLOW.indexOf(n);
+  const out: Array<{ from: string; row: number; to: string; toRow: number }> = [];
+  const seen = new Set<string>();
+  for (const ws of wb.worksheets) {
+    if (pos(ws.name) < 0) continue;
+    ws.eachRow((row, r) => row.eachCell((cell) => {
+      const v = cell.value as unknown as { formula?: string } | null;
+      const f = v && typeof v === 'object' ? v.formula : undefined;
+      if (!f) return;
+      for (const m of f.matchAll(/(?:'((?:[^']|'')+)'|([A-Za-z][A-Za-z0-9&.]*))!\$?[A-Z]{1,3}\$?(\d+)/g)) {
+        const name = (m[1] ?? m[2]).replace(/''/g, "'");
+        const later = pos(name) > pos(ws.name) || (pos(name) < 0 && / Calc$/.test(name));
+        if (!later) continue;
+        const k = `${ws.name}|${r}|${name}|${m[3]}`;
+        if (seen.has(k)) continue;
+        seen.add(k);
+        out.push({ from: ws.name, row: r, to: name, toRow: Number(m[3]) });
+      }
+    }));
+  }
+  return out;
+}
+
+/** THE LOOP'S LINKS ON THE GUIDE: each row that reads the financing loop's output back, and what it reads. */
+function writeLoopLinks(wb: ExcelJS.Workbook): void {
+  const guide = wb.getWorksheet('Guide');
+  if (!guide) return;
+  const label = (sheet: string, row: number): string => String(wb.getWorksheet(sheet)?.getCell(row, 1).value ?? '').trim();
+  const links = backwardReads(wb).filter((x) => x.to === 'Financing' && (x.from === 'Schedules' || x.from === 'Capex'));
+  if (!links.length) return;
+  const uniq = new Map<string, [string, string]>();
+  for (const x of links) {
+    const a = `${x.from}: ${label(x.from, x.row)}`, b = `${x.to}: ${label(x.to, x.toRow)}`;
+    uniq.set(`${a}|${b}`, [a, b]);
+  }
+  let r = guide.rowCount + 2;
+  const head = guide.getCell(r, 1);
+  head.value = 'Links that read a later tab: the financing loop\'s output';
+  head.font = { name: 'Calibri', size: 11, bold: true };
+  r += 1;
+  const note = guide.getCell(r, 1);
+  note.value = 'Every other formula reads only the tabs before it. The financing loop solves the capitalised interest, which Schedules (cost of sales and the held lines\' additions) and Capex (Table 7) read back; Excel iterates the loop to the platform\'s fixed point.';
+  note.font = { name: 'Calibri', size: 9, italic: true };
+  r += 1;
+  for (const [a, b] of [...uniq.values()].sort((x, y) => x[0].localeCompare(y[0]))) {
+    guide.getCell(r, 1).value = a;
+    guide.getCell(r, 2).value = `reads ${b}`;
+    r += 1;
   }
 }

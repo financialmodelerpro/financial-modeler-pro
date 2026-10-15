@@ -208,7 +208,7 @@ export const stage7dSummary: LiveLayer = {
       for (const pt of fundingChartPoints(snap)) {
         const t = snap.yearLabels.indexOf(pt.year);
         put(`sum|fund|${pt.year}`, `the funding requirement for ${pt.year}`, !!need && t >= 0, () => {
-          const e = `N(${w.refA({ sheet: need!.sheet, row: need!.row, col: 4 + t })})`;
+          const e = `N(${w.per('fnc:main:netreq', t)})`;
           return `IF(ROUND(ABS(${e})/1000000,1)=0,"-",IF(${e}<0,"("&TEXT(ABS(${e})/1000000,"#,##0.0")&")",TEXT(ABS(${e})/1000000,"#,##0.0")))`;
         });
       }

@@ -140,26 +140,28 @@ export const stage4Schedules: LiveLayer = {
       const r = t.rows.find((x) => pred(x.label));
       return r ? `sch|${keyBase}|${kind}|${r.label}` : undefined;
     };
-    interface Rows { landAdd: string; landOpen: string; landDisp?: string; landClose: string; open: string; capAdd: string; idcAdd?: string; dep: string; capDep: string; disp?: string; close: string; capNbv: string; idcNbv?: string; accum?: string; tot: FixedAssetTable }
+    interface Rows { landAdd: string; landOpen: string; landDisp?: string; landClose: string; open: string; capAdd: string; idcAdd?: string; idcDep?: string; dep: string; capDep: string; disp?: string; close: string; capNbv: string; idcNbv?: string; accum?: string; tot: FixedAssetTable }
     const rowsOf = (keyBase: string, land: FixedAssetTable, dep: FixedAssetTable, tot: FixedAssetTable): Rows | null => {
       const L = (pred: (s: string) => boolean): string | undefined => find(land, 'land', keyBase, pred);
       const D = (pred: (s: string) => boolean): string | undefined => find(dep, 'dep', keyBase, pred);
       const withIdc = dep.rows.some((r) => r.label.includes('IDC'));
       const capDepKey = `sch|${keyBase}|dep|   of which: on capex`;
+      const idcDepKey = `sch|${keyBase}|dep|   of which: on capitalised interest`;
       const out = {
         landAdd: L((s) => s === '(+) Land Additions'), landOpen: L((s) => s === 'Opening Land'), landDisp: L((s) => s.startsWith('(−) Land Disposed')), landClose: L((s) => s === 'Closing Land'),
         open: D((s) => s.startsWith('Opening NBV')), capAdd: D((s) => s === '(+) Capex Additions'), idcAdd: D((s) => s.startsWith('(+) IDC Additions')),
-        dep: D((s) => s.startsWith('(−) Depreciation')), capDep: withIdc ? capDepKey : D((s) => s.startsWith('(−) Depreciation')),
+        dep: D((s) => s.startsWith('(−) Depreciation')), capDep: withIdc ? capDepKey : D((s) => s.startsWith('(−) Depreciation')), idcDep: withIdc ? idcDepKey : undefined,
         disp: D((s) => s.startsWith('(−) Disposed at Exit')), close: D((s) => s.startsWith('Closing NBV')),
         capNbv: withIdc ? D((s) => s.includes('of which: Capex NBV')) : D((s) => s.startsWith('Closing NBV')),
         idcNbv: D((s) => s.includes('of which: IDC NBV')), accum: D((s) => s.startsWith('Accumulated')), tot,
       };
       if (!out.landAdd || !out.landOpen || !out.landClose || !out.open || !out.capAdd || !out.dep || !out.capDep || !out.close || !out.capNbv || !has(out.capDep)) return null;
-      if (withIdc && (!out.idcAdd || !out.idcNbv)) return null;
+      if (withIdc && (!out.idcAdd || !out.idcNbv || !has(idcDepKey))) return null;
       return out as Rows;
     };
     /** Write a line's (or the project's) three tables. `capDepF` and the additions come from the caller. */
-    const writeTables = (keyBase: string, r: Rows, landAddF: (t: number) => string, capAddF: (t: number) => string, capDepF: ((t: number) => string) | null): void => {
+    /** `idc`: the interest additions (null: the financing loop writes them) and their depreciation. */
+    const writeTables = (keyBase: string, r: Rows, landAddF: (t: number) => string, capAddF: (t: number) => string, capDepF: ((t: number) => string) | null, idc: { add: ((t: number) => string) | null; dep: (t: number) => string } | null): void => {
       const withIdc = !!r.idcAdd;
       // Land.
       row(r.landAdd, landAddF, 'sum');
@@ -172,12 +174,16 @@ export const stage4Schedules: LiveLayer = {
       if (capDepF) row(r.capDep, withIdc ? capDepF : (t) => `-(${capDepF(t)})`, 'sum');
       const capPre = (t: number): string => `MAX(0,${p(r.capNbv, t, -1)}+${p(r.capAdd, t)}-${capDepPos(t)})`;
       row(r.capNbv, (t) => `(1-${exit(t)})*${capPre(t)}`, 'last');
-      if (withIdc) {
-        // Interest: the financing writes these cells.
-        pendingRow(r.idcAdd!, plat(r.idcAdd!), 'sum');
-        pendingRow(r.dep, plat(r.dep), 'sum');
-        if (r.disp) pendingRow(r.disp, plat(r.disp), 'sum');
-        pendingRow(r.idcNbv!, plat(r.idcNbv!), 'last');
+      if (withIdc && idc) {
+        // CAPITALISED INTEREST: its additions are the financing loop's (written into these cells
+        // by the loop, the one backward link); its depreciation, NBV and write-off are worked
+        // out here, by the rule capex follows.
+        if (idc.add) row(r.idcAdd!, idc.add, 'sum'); else pendingRow(r.idcAdd!, plat(r.idcAdd!), 'sum');
+        row(r.idcDep!, idc.dep, 'sum');
+        row(r.dep, (t) => `-(${p(r.capDep, t)}+${p(r.idcDep!, t)})`, 'sum');
+        const idcPre = (t: number): string => `MAX(0,${p(r.idcNbv!, t, -1)}+${p(r.idcAdd!, t)}-${p(r.idcDep!, t)})`;
+        if (r.disp) row(r.disp, (t) => `-(${exit(t)}*(${capPre(t)}+${idcPre(t)}))`, 'sum');
+        row(r.idcNbv!, (t) => `(1-${exit(t)})*${idcPre(t)}`, 'last');
         row(r.close, (t) => `${p(r.capNbv, t)}+${p(r.idcNbv!, t)}`, 'last');
       } else if (r.disp) row(r.disp, (t) => `-(${exit(t)}*${capPre(t)})`, 'sum');
       row(r.open, (t) => p(r.close, t, -1), 'last');
@@ -196,7 +202,7 @@ export const stage4Schedules: LiveLayer = {
         else throw new Error(`Schedules: no rule for the row "${L}" (total)`);
       }
       // The rows later layers read.
-      for (const [name, k] of Object.entries({ landAdd: r.landAdd, landDisp: r.landDisp, landClose: r.landClose, capAdd: r.capAdd, capDep: r.capDep, dep: r.dep, disp: r.disp, capNbv: r.capNbv, idcAdd: r.idcAdd, idcNbv: r.idcNbv, close: r.close })) {
+      for (const [name, k] of Object.entries({ landAdd: r.landAdd, landDisp: r.landDisp, landClose: r.landClose, capAdd: r.capAdd, capDep: r.capDep, dep: r.dep, disp: r.disp, capNbv: r.capNbv, idcAdd: r.idcAdd, idcDep: r.idcDep, idcNbv: r.idcNbv, close: r.close })) {
         if (k) claim(`schv:${keyBase}:${name}`, k);
       }
     };
@@ -216,13 +222,14 @@ export const stage4Schedules: LiveLayer = {
         const inputs = w.addr(`fain:${host.id}`);
         w.fA({ sheet: SCH, row: inputs.row, col: OPEN_COL }, `IF(${Lf()}>0,1/${Lf()},0)`);
         const S1 = (): string => `(MAX(0,YEAR(${w.ref(`phase:${p0.id}:start`)})-${w.ref('project:axisYear')})+MAX(0,${w.ref(`phase:${p0.id}:cp`)})+1)`;
-        const addAll = (): string => w.rangeA(SCH, w.addr(r.capAdd).row, pc(0), pc(N - 1));
         // Each year's addition depreciates from the later of its own year and the first operating year.
-        const capDepF = (t: number): string => {
+        const vintageDep = (addKey: string) => (t: number): string => {
+          const addAll = w.rangeA(SCH, w.addr(addKey).row, pc(0), pc(N - 1));
           const V = `((${idxAll()}>${S1()})*${idxAll()}+(${idxAll()}<=${S1()})*${S1()})`;
-          return `IF(${Lf()}>0,SUMPRODUCT((${addAll()}>0)*${addAll()}/MAX(1,${Lf()})*(${V}<=${idxRow(t)})*(${V}+MAX(1,INT(${Lf()}))>${idxRow(t)})),0)`;
+          return `IF(${Lf()}>0,SUMPRODUCT((${addAll}>0)*${addAll}/MAX(1,${Lf()})*(${V}<=${idxRow(t)})*(${V}+MAX(1,INT(${Lf()}))>${idxRow(t)})),0)`;
         };
-        writeTables(l.hostId, r, (t) => landKeys.map((k) => p(k, t)).join('+') || '0', (t) => otherKeys.map((k) => p(k, t)).join('+') || '0', capDepF);
+        writeTables(l.hostId, r, (t) => landKeys.map((k) => p(k, t)).join('+') || '0', (t) => otherKeys.map((k) => p(k, t)).join('+') || '0', vintageDep(r.capAdd),
+          r.idcAdd ? { add: null, dep: vintageDep(r.idcAdd) } : null);
         lineRows.set(l.hostId, r);
         w.claim(`schc:${host.id}:life`, inputs.sheet, inputs.row, TOTAL_COL);
       }
@@ -234,7 +241,9 @@ export const stage4Schedules: LiveLayer = {
       const ls = [...lineRows.values()];
       const sum = (pick: (x: Rows) => string | ((t: number) => string)) => (t: number): string => ls.map((x) => { const v = pick(x); return typeof v === 'string' ? p(v, t) : v(t); }).join('+') || '0';
       const capDepOf = (x: Rows): string | ((t: number) => string) => (x.idcAdd ? x.capDep : (t: number) => `(-${p(x.dep, t)})`);
-      writeTables('__project__', pr, sum((x) => x.landAdd), sum((x) => x.capAdd), pr.idcAdd ? sum(capDepOf) : (t) => `-(${sum((x) => x.dep)(t)})`);
+      const zero = (): string => '0';
+      writeTables('__project__', pr, sum((x) => x.landAdd), sum((x) => x.capAdd), pr.idcAdd ? sum(capDepOf) : (t) => `-(${sum((x) => x.dep)(t)})`,
+        pr.idcAdd ? { add: sum((x) => x.idcAdd ?? zero), dep: sum((x) => x.idcDep ?? zero) } : null);
     }
     // The capitalised interest pool's per-line additions read the financing (stage 8).
 

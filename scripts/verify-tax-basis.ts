@@ -69,7 +69,8 @@ const S = (a: readonly number[]): number => a.reduce((s, v) => s + (v ?? 0), 0);
   // verify-formula-workbook on a cit copy). The rule is "mirror or refuse, never ignore":
   // both P&L and solve read the twin, the twin reads the core cap, and no refusal is left.
   const L5 = readFileSync(R + 'lib/excel/liveLayers/stage5Statements.ts', 'utf8');
-  const L6 = readFileSync(R + 'lib/excel/liveLayers/stage6Financing.ts', 'utf8');
+  // The financing loop is liveLayers/stage6Loop.ts since 2026-10-15 (the solve on the visible Financing tab).
+  const L6 = readFileSync(R + 'lib/excel/liveLayers/stage6Loop.ts', 'utf8');
   const twin = readFileSync(R + 'lib/excel/liveLayers/taxRule.ts', 'utf8');
   check('the live formula layer mirrors the cit basis: the P&L and the financing solve both build the loss relief from the one formula twin, on the core 25% cap',
     [L5, L6].every((s) => /basis === 'cit'/.test(s) && /citReliefF\(/.test(s) && /citPoolF\(/.test(s)) && /CIT_LOSS_RELIEF_CAP/.test(twin)

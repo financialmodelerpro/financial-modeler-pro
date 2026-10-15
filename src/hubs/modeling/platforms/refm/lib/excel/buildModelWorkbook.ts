@@ -49,7 +49,7 @@ import { buildOpexReport, OPEX_AP_BASIS, OPEX_AP_TOTAL_BASIS } from '../reports/
 import { planCapexSpread } from './liveLayers/capexSpread';
 import { isParcelDrivenLandLine, resolvePhasingSource } from '@/src/core/calculations/capexPhasing';
 import { buildPLRows, taxBasisNote, buildDirectCFRows, buildIndirectCFRows, buildBSRows, buildBsReconciliationRows, buildBsFeederTables, BS_FEEDER_SECTIONS, BS_RECONCILIATION_CAPTION, buildFundFeeBasisRows, buildFundCapitalRows, fundFeeBasisBaseCell, totalColumnHeading, totalColumnNote, TOTAL_COLUMN_HEADINGS, TOTAL_COLUMN_NOTES, FUND_CAPITAL_BASES_TITLE, FUND_CAPITAL_BASES_NOTE, FUND_CAPITAL_BASE_TAG, type M4ReportCtx, type FundFeeBasisRow } from '../reports/m4Reports';
-import { buildFixedAssetReport, type FixedAssetTable } from '../reports/fixedAssetReports';
+import { buildFixedAssetReport, idcRowIsHeld, type FixedAssetTable } from '../reports/fixedAssetReports';
 import { buildCaseComparisonReport, caseOverridesNote, type CaseComparisonInput, type CaseComparisonReport, type CaseKpiKind } from '../reports/caseComparisonReport';
 import { buildCaseYoYReport, YOY_DRIVER_NOTE, YOY_RECONCILIATION_TITLE, YOY_RECONCILIATION_NOTE, yoyAloneLabel, yoyReconLabels, type CaseYoYReport } from '../reports/caseYoYReport';
 import { formatAssumptionValue, assumptionUnitSuffix, curatedDefaultFields, inactiveLeverReason, nonEconomicLeverReason, isPerPeriodLever, isAppliedValue, assumptionFor, buildGridContext, groupAssumptionRows, leverNote, type GridRowLite } from '../cases/assumptionGrid';
@@ -69,7 +69,7 @@ import {
   emitLandTables, LAND_CHAIN_COLS, utcMonthYear, utcYear, phaseStatusLabel, type SheetCursor,
 } from './inputsSheetSections';
 import { buildAssetAreaTables, buildAssetLandView } from '../../components/modules/_shared/assetInputsView';
-import { resolveFundTerms } from '../fundTerms';
+import { resolveFundTerms, FUND_FEE_SPECS } from '../fundTerms';
 import {
   isFundActive, hasFundFeeIncome, buildFundWaterfallRows, buildFundFeeIncomeRows, buildDdmPostFeeRows,
   buildFundGrossNetRows, buildFundEarnerRows, fundPerformanceFeeDefaultNote, fundPerformanceFeeShortfallNote, performanceFeeShortfall, buildFundHeadlineCards, fundGrossNetNote,
@@ -783,7 +783,8 @@ function addAssumptions(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFin
     termRow('Facility limit override', fundTerms.facilityLimitOverride ? 'Yes' : 'No', '@', '', fundTerms.facilityLimitOverride ? `Typed limit ${formatAccounting(fundTerms.facilityLimit, 'millions', 1)} m.` : 'Off: the debt facility is resolved from the model.');
     r += 1;
 
-    const capRows = buildFundCapitalRows(snap);
+    // The live layout shows the capital bases on Financing, where the loop sizes them.
+    const capRows = isLiveLayout() ? [] : buildFundCapitalRows(snap);
     if (capRows.length) {
       setSectionHeader(ws.getRow(r), 'Resolved capital bases (computed from the model, not typed)', 4); r += 1;
       ['Base', 'Amount', '', 'How it is resolved'].forEach((h, i) => setColHeader(ws.getCell(r, i + 1), h, i === 1 ? 'right' : 'left')); r += 1;
@@ -3468,6 +3469,151 @@ function addOpex(ctx: EmitCtx): OpexLinks {
 // real snapshot model), so a stub registry is returned.
 function addFinancing(ctx: EmitCtx): FinLinks {
   const { wb, snap, state } = ctx;
+  // THE FINANCING LOOP'S OWN ROWS (live layout, 2026-10-15), written after the platform's tables:
+  // the settings the solve works with, the land the capitalised interest is shared on, the fund
+  // fees and their base, the profit before tax inside the loop, the dividends by phase, the exit.
+  const emitLoopRows = (): void => {
+    const Y0 = snap.projectStartYear;
+    const yearOf = (p: { startDate?: string }): number => (p.startDate ? new Date(p.startDate).getUTCFullYear() : Y0);
+    const cend = Math.max(...state.phases.map((p) => Math.max(0, yearOf(p) - Y0) + Math.max(0, p.constructionPeriods ?? 0)));
+    const clamp = (v: number, lo: number, hi: number): number => Math.max(lo, Math.min(hi, v));
+    const fnd2 = snap.financing.funding;
+    const dp = Math.max(0, fnd2.debtPct ?? 0), ep = Math.max(0, fnd2.equityPct ?? 0);
+    const dF = dp + ep > 0 ? dp / (dp + ep) : 0.7;
+    subTitle('Settings in force (worked out from the inputs above)');
+    scalar('Last construction year', Y0 + cend - 1, NUMFMT.year, 'The latest phase\'s start plus its construction years, less one');
+    scalar('Debt share of the funding', dF, NUMFMT.pct2, 'Debt % over debt % plus equity %');
+    scalar('Equity share of the funding', 1 - dF, NUMFMT.pct2, 'One less the debt share');
+    {
+      const pf = state.project.financing?.parcelFunding ?? [];
+      const typed = (c: { debtPct?: number; equityPct?: number }): boolean => typeof c.debtPct === 'number' || typeof c.equityPct === 'number';
+      const shareOf = (c: (typeof pf)[number] | undefined): number => {
+        if (!c) return 0;
+        if (typed(c)) { const d = Math.max(0, c.debtPct ?? 0), e = Math.max(0, c.equityPct ?? 0); return d + e > 0 ? d / (d + e) : 0; }
+        return c.fundingType === '100pct_debt' ? 1 : c.fundingType === 'custom_split' ? Math.max(0, c.customDebtPct ?? 0) / Math.max(1e-9, Math.max(0, c.customDebtPct ?? 0) + Math.max(0, c.customEquityPct ?? 100 - (c.customDebtPct ?? 0))) : 0;
+      };
+      const plots = state.parcels.map((p) => ({ p, cash: Math.max(0, (p.area ?? 0) * (p.rate ?? 0) * Math.max(0, Math.min(100, p.cashPct ?? 0)) / 100) }));
+      const tot = plots.reduce((a, x) => a + x.cash, 0);
+      scalar('Land cash funded by debt (share)', tot > 0 ? plots.reduce((a, x) => a + x.cash * shareOf(pf.find((c) => c.parcelId === x.p.id)), 0) / tot : 0, NUMFMT.pct2, 'Each plot\'s debt share, weighted by its cash land value');
+    }
+    const hasSweep = state.financingTranches.some((t) => t.repaymentMethod === 'cash_sweep' || t.cashSweepConfig?.enabled === true);
+    const N1 = N - 1;
+    const cs2 = state.project.financing?.cashSweep?.startingYear;
+    if (hasSweep) scalar('Sweep starts (year)', Y0 + (cs2 !== undefined ? clamp(cs2 - Y0, 0, N1) : clamp(cend, 0, N1)), NUMFMT.year, 'The year typed above, else the year after construction');
+    {
+      const dflt = Math.max(Y0, ...state.phases.map((p) => yearOf(p) + Math.max(0, p.constructionPeriods ?? 0)));
+      const sy = state.project.dividendStartYear;
+      scalar('Dividends start (year)', Y0 + (sy !== undefined ? clamp(sy - Y0, 0, N1) : clamp(dflt - Y0, 0, N1)), NUMFMT.year, 'The year typed above, else the year after construction');
+    }
+    for (const t of state.financingTranches) {
+      const f = snap.financing.facilities.get(t.id);
+      if (!f) continue;
+      const isEx = t.origin === 'existing';
+      const sweeps = t.repaymentMethod === 'cash_sweep' || t.cashSweepConfig?.enabled === true;
+      const start = t.repaymentStartYear === undefined ? (isEx ? 0 : clamp(cend, 0, N)) : clamp(t.repaymentStartYear - Y0, 0, N);
+      const nTyped = Math.max(0, t.repaymentPeriods ?? 0);
+      const n = sweeps ? 0 : isEx ? nTyped : nTyped > 0 ? nTyped : Math.max(0, N - start);
+      const fin2 = sweeps ? N1 : (n > 0 ? Math.min(N1, start + n - 1) : N1);
+      const td = sl(f.drawSchedule).reduce((a, v) => a + (v ?? 0), 0);
+      const rate = Math.max(0, ((t.interbankRatePct ?? 0) + (t.creditSpreadPct ?? 0)) / 100);
+      const sub = t.repaymentMethod === 'equal_repayment' ? (t.equalRepaymentSubMethod ?? 'equal_total') : '';
+      const kind = sweeps ? 'sweep' : t.repaymentMethod === 'year_on_year_pct' ? 'yoy' : t.repaymentMethod === 'bullet' ? 'bullet'
+        : t.repaymentMethod === 'equal_periodic_amortization' || sub === 'equal_total' ? 'annuity' : 'principal';
+      const pmt = kind === 'annuity' ? (n <= 0 || td <= 0 ? 0 : rate <= 0 ? td / n : td * rate * Math.pow(1 + rate, n) / (Math.pow(1 + rate, n) - 1))
+        : kind === 'principal' ? (n > 0 ? td / n : 0) : 0;
+      scalar(`${t.name}: repayment starts (year)`, Y0 + start, NUMFMT.year, 'The year typed on the facility, else the year after construction');
+      scalar(`${t.name}: repayment periods`, n, NUMFMT.int, 'As typed; none typed repays over the years left');
+      scalar(`${t.name}: final repayment (year)`, Y0 + fin2, NUMFMT.year, 'The last scheduled year, when the rest of the balance is due');
+      scalar(`${t.name}: total drawn`, td, NUMFMT.money, 'The facility\'s capex drawdowns over the years');
+      if (kind === 'yoy') {
+        // The typed schedule read from the repayment start (k = 0 in the start year as shown), and its share.
+        const shownStart = t.repaymentStartYear ?? (Y0 + start);
+        const s0 = shownStart - Y0;
+        const sch = t.yearOnYearPctSchedule ?? [];
+        const typed = zeros();
+        for (let u = 0; u < N; u++) { const k = u - start + s0; if (u >= start && k >= 0 && k <= N1) typed[u] = Math.max(0, sch[k] ?? 0); }
+        const tot = typed.reduce((x, v) => x + v, 0);
+        const share = typed.map((v, u) => (u < start ? 0 : tot < 1e-9 ? 1 / Math.max(1, N - start) : v / tot));
+        emitM4({ label: `${t.name}: repayment % typed for the year`, values: typed, priorValue: 0 }, 'The year-on-year schedule, read from the repayment start');
+        emitM4({ label: `${t.name}: share of the total repaid in the year`, values: share, priorValue: 0 }, 'The typed % over its total; none typed repays evenly');
+      }
+      if (kind === 'annuity' || kind === 'principal') scalar(`${t.name}: scheduled payment`, pmt, NUMFMT.money, kind === 'annuity' ? 'Annuity on the total drawn over the periods' : 'The total drawn over the periods');
+    }
+    // The land the capitalised interest is shared on.
+    const idcAssets = [...snap.idc.byAsset.values()];
+    if (idcAssets.length) {
+      const sqmTot = idcAssets.reduce((a, x) => a + x.landSqm, 0);
+      scalar('Land of the assets that share capitalised interest (sqm)', sqmTot, NUMFMT.int, 'Each asset\'s land, the basis the interest is shared on');
+      const active = zeros();
+      for (const x of idcAssets) {
+        const a = state.assets.find((y) => y.id === x.assetId);
+        const p = a && state.phases.find((q) => q.id === a.phaseId);
+        if (!p) continue;
+        const s0 = clamp(yearOf(p) - Y0, 0, N1), cp = p.constructionPeriods ?? 0;
+        const e0 = cp > 0 ? Math.min(N1, s0 + cp - 1) : -1;
+        for (let t = s0; t <= e0; t++) active[t] += x.landSqm;
+      }
+      emitM4({ label: 'Land under construction (sqm)', values: active, priorValue: 0 }, 'The land of the assets building in the year');
+    }
+    // Fund fees: their base, sized on the funding need without the fees.
+    const ft = state.project.fundTerms;
+    if (ft?.enabled) {
+      const g = computeFundingGap(snap).method3Waterfall;
+      const fees = sl(snap.fundFees.totalPerPeriod);
+      const byEq = g.feeFundedByEquity;
+      const opIn2 = sl(g.operatingInflowsPerPeriod), cfi2 = sl(g.cashFromInvPerPeriod), minC = g.minCashReserve;
+      const availFf = zeros(), needFf = zeros();
+      let open = 0;
+      for (let t = 0; t < N; t++) {
+        availFf[t] = open + (opIn2[t] ?? 0) + (byEq ? 0 : (fees[t] ?? 0)) + (cfi2[t] ?? 0);
+        needFf[t] = (cfi2[t] ?? 0) < -0.005 ? Math.max(0, minC - availFf[t]) : 0;
+        open = availFf[t] + needFf[t];
+      }
+      subTitle('Fund fees (charged on the funding need without the fees)');
+      emitM4({ label: 'Cash before funding, without the fund fees', values: availFf, priorValue: 0 }, 'The deficit walk with the fees added back', { stateRow: true });
+      emitM4({ label: 'Funding need without the fund fees', values: needFf, priorValue: 0 }, 'The minimum less that cash, in a spending year');
+      for (const c of buildFundCapitalRows(snap)) scalar(c.isTotal ? `= ${c.label}` : c.label, c.amount, NUMFMT.money, c.note);
+      FUND_FEE_SPECS.forEach((spec, i) => emitM4({ label: spec.label, values: sl(snap.fundFees.lines[i]?.amountPerPeriod), indent: 1, priorValue: 0 }, spec.kind === 'amount' ? 'A fixed amount' : `Rate x ${spec.base.replace(/_/g, ' ')}`));
+      emitM4({ label: 'Total fund fees', values: fees, isSubtotal: true, priorValue: 0 }, 'The fees above');
+    }
+    // The profit before tax the loop solves with (it must equal the P&L's, which Checks proves).
+    {
+      const pl = snap.pl;
+      subTitle('Profit before tax inside the financing loop');
+      emitM4({ label: 'Revenue less operating expenses', values: sl(pl.ebitdaBeforeFundFeesPerPeriod).map((v, t) => v + (sl(pl.cosPerPeriod)[t] ?? 0)), priorValue: 0 }, 'Revenue and Opex');
+      emitM4({ label: '(-) Cost of sales', values: neg(sl(pl.cosPerPeriod)), indent: 1, priorValue: 0 }, 'Schedules: cost of sales');
+      emitM4({ label: '(-) Fund management fees', values: neg(sl(snap.fundFees.totalPerPeriod)), indent: 1, priorValue: 0 }, 'The fees above');
+      emitM4({ label: '(-) Depreciation (capex and capitalised interest)', values: neg(sl(pl.daPerPeriod)), indent: 1, priorValue: 0 }, 'Schedules: depreciation');
+      emitM4({ label: '(-) Interest expensed', values: neg(sl(pl.interestExpensePerPeriod)), indent: 1, priorValue: 0 }, 'Interest less what is capitalised');
+      emitM4({ label: '(+) Gain on disposal', values: sl(pl.gainOnDisposalPerPeriod), indent: 1, priorValue: 0 }, 'Exit proceeds less what the exit writes off');
+      emitM4({ label: '= Profit before tax', values: sl(pl.pbtPerPeriod), isSubtotal: true, priorValue: 0 }, 'The rows above');
+      emitM4({ label: 'Taxable profit', values: sl(pl.pbtPerPeriod).map((v, t) => v - (state.project.tax?.applyToDisposalGain === true ? 0 : (sl(pl.gainOnDisposalPerPeriod)[t] ?? 0))), indent: 1, priorValue: 0 }, 'The gain on disposal is untaxed unless the project says so');
+      if (state.project.tax?.basis === 'cit') {
+        emitM4({ label: 'Tax losses carried forward', values: sl(pl.taxLossCarriedForwardPerPeriod), indent: 1, priorValue: 0 }, 'Losses not yet relieved', { stateRow: true });
+        emitM4({ label: 'Tax loss relief', values: sl(pl.taxLossReliefPerPeriod), indent: 1, priorValue: 0 }, 'Losses set against this year\'s profit');
+      }
+      emitM4({ label: 'Tax', values: sl(pl.taxPerPeriod), indent: 1, priorValue: 0 }, 'At the rate on Inputs');
+      emitM4({ label: 'Tax paid', values: neg(sl(snap.directCF.taxPaidPerPeriod)), indent: 1, priorValue: 0 }, 'The tax less the change in what is payable at the close');
+    }
+    // Dividends by phase (each capped at its phase's EBITDA to date), then the exit.
+    {
+      const rowsP = [...snap.dividends.beforeSweepPhases, ...snap.dividends.afterSweepPhases];
+      subTitle('Dividends by phase');
+      for (const p of state.phases) {
+        const rp = rowsP.find((x) => x.phaseId === p.id);
+        emitM4({ label: `${p.name}: EBITDA (revenue less cost of sales less opex)`, values: sl(rp?.phaseEbitdaPerPeriod), priorValue: 0 }, 'Its lines\' revenue, cost of sales and opex');
+        emitM4({ label: `${p.name}: dividend`, values: sl(rp?.dividendsPerPeriod), indent: 1, priorValue: 0 }, 'Payout of the cash above the minimum, capped at the phase\'s EBITDA to date');
+      }
+      const exitP = zeros();
+      if (snap.disposal.booked) exitP[snap.disposal.exitIdx] = snap.disposal.proceeds;
+      subTitle('Exit');
+      const noi = zeros();
+      for (const pa of snap.perAssetPL.values()) if (pa.strategy === 'Operate' || pa.strategy === 'Lease') for (let t = 0; t < N; t++) noi[t] += (pa.revenuePerPeriod[t] ?? 0) - (pa.opexPerPeriod[t] ?? 0);
+      emitM4({ label: 'Income of the held assets (NOI)', values: noi, priorValue: 0 }, 'Revenue less opex of the Operate and Lease lines');
+      emitM4({ label: 'Exit proceeds (terminal value, in the exit year)', values: exitP, priorValue: 0 }, 'The income of the basis year over the exit cap rate');
+      emitM4({ label: 'Debt repaid at the exit', values: sl(snap.disposal.debtRepaidPerPeriod), priorValue: 0 }, 'The balance outstanding in the exit year');
+    }
+  };
   const N = snap.axisLength;
   const fin = snap.financing;
   const ws = wb.addWorksheet(SHEETS.financing, { properties: { tabColor: { argb: ARGB.navy } } });
@@ -3856,11 +4002,20 @@ function addFinancing(ctx: EmitCtx): FinLinks {
   subTitle('Method 3, Cash Deficit Funding (Drawdown Sizing)');
   emitM4({ label: 'Cash Capex (construction, land cash, RETT)', values: sl(w.cashFromInvPerPeriod).map((v) => -v), isSubtotal: true, priorValue: fin.existing.preCapexTotal }, 'Capex Table 3 paid in cash');
   note('Operating inflows');
-  if (nz(resColl)) emitM4({ label: 'Residential cash collection', values: resColl, indent: 1, priorValue: 0 }, 'Sell lines: collections less opex paid');
-  if (nz(hospEbitda)) emitM4({ label: 'Hospitality EBITDA', values: hospEbitda, indent: 1, priorValue: 0 }, 'Operate lines: revenue received less opex paid');
-  if (nz(retailNoi)) emitM4({ label: 'Retail NOI', values: retailNoi, indent: 1, priorValue: 0 }, 'Lease lines: rent received less opex paid');
-  if (nz(feeInSizing)) emitM4({ label: '(-) Fund management fee', values: feeInSizing, indent: 1, priorValue: 0 }, 'Inside the deficit, funded at the ratio');
-  if (otherOps.some((v) => Math.abs(v) > 0.005)) emitM4({ label: 'Other operating cash (HQ, tax, escrow movements)', values: otherOps, indent: 1, priorValue: 0 }, 'Total operating inflows less the classes above');
+  // THE LIVE LAYOUT SHOWS EVERY ROW (zeros included), and the other operating cash in its parts.
+  const liveFin = isLiveLayout();
+  if (liveFin || nz(resColl)) emitM4({ label: 'Residential cash collection', values: resColl, indent: 1, priorValue: 0 }, 'Sell lines: collections less opex paid');
+  if (liveFin || nz(hospEbitda)) emitM4({ label: 'Hospitality EBITDA', values: hospEbitda, indent: 1, priorValue: 0 }, 'Operate lines: revenue received less opex paid');
+  if (liveFin || nz(retailNoi)) emitM4({ label: 'Retail NOI', values: retailNoi, indent: 1, priorValue: 0 }, 'Lease lines: rent received less opex paid');
+  if ((liveFin && state.project.fundTerms?.enabled === true) || nz(feeInSizing)) emitM4({ label: '(-) Fund management fee', values: feeInSizing, indent: 1, priorValue: 0 }, w.feeFundedByEquity ? 'Drawn from equity, outside the deficit' : 'Inside the deficit, funded at the ratio');
+  if (liveFin) {
+    const esc = sl(snap.escrow.projectTotals.cashFlowAdjustmentPerPeriod);
+    const taxPaid = sl(snap.directCF.taxPaidPerPeriod);
+    const hq = otherOps.map((v, t) => v - (esc[t] ?? 0) - (taxPaid[t] ?? 0));
+    emitM4({ label: 'HQ overheads and marketing paid', values: hq, indent: 1, priorValue: 0 }, 'Opex: HQ cash paid; Capex: selling and marketing expensed');
+    emitM4({ label: 'Escrow: pre-sales cash held and released', values: esc, indent: 1, priorValue: 0 }, 'Revenue: escrow cash flow impact');
+    emitM4({ label: 'Tax paid', values: taxPaid, indent: 1, priorValue: 0 }, 'The tax inside the financing loop, paid');
+  } else if (otherOps.some((v) => Math.abs(v) > 0.005)) emitM4({ label: 'Other operating cash (HQ, tax, escrow movements)', values: otherOps, indent: 1, priorValue: 0 }, 'Total operating inflows less the classes above');
   emitM4({ label: '= Total operating inflows', values: opIn, isSubtotal: true, priorValue: 0 }, 'Sum of the operating inflows');
   emitM4({ label: '= Pre-financing net cash (inflows less cash capex)', values: sl(w.preFinancingNetCashPerPeriod), isTotal: true, priorValue: -fin.existing.preCapexTotal }, 'Total operating inflows - cash capex');
   emitM4({ label: 'Minimum cash target', values: new Array<number>(N).fill(minCash) }, 'Minimum cash reserve (a balance)', { stateRow: true });
@@ -3877,9 +4032,9 @@ function addFinancing(ctx: EmitCtx): FinLinks {
   emitM4({ label: '= Total Debt Drawdown', values: totalNewDebt, isTotal: true, priorValue: 0 }, 'Capex + IDC drawdown');
   note('Equity drawdown');
   emitM4({ label: 'Equity Drawdown, development', values: equitySplit, indent: 1, priorValue: 0 }, 'Equity draw, base');
-  if (w.feeFundedByEquity || hasFeeDraw) emitM4({ label: 'Equity Drawdown, fund management fee (direct, outside the ratio)', values: feeDraw, indent: 1, priorValue: 0 }, 'Only while construction spends, as far as keeps cash at the minimum');
+  if (w.feeFundedByEquity || hasFeeDraw || (liveFin && state.project.fundTerms?.enabled === true)) emitM4({ label: 'Equity Drawdown, fund management fee (direct, outside the ratio)', values: feeDraw, indent: 1, priorValue: 0 }, 'Only while construction spends, as far as keeps cash at the minimum');
   emitM4({ label: '= Total Equity Drawdown', values: totalEquityDraw, isTotal: true, priorValue: 0 }, 'Development + fund management fee');
-  if (w.feeFundedByEquity && feePaidFromCash.some((v) => v !== 0)) emitM4({ label: '(-) Fund management fee paid from cash (not drawn)', values: feePaidFromCash, indent: 1, priorValue: 0 }, 'Fee not drawn from equity');
+  if (w.feeFundedByEquity && (liveFin || feePaidFromCash.some((v) => v !== 0))) emitM4({ label: '(-) Fund management fee paid from cash (not drawn)', values: feePaidFromCash, indent: 1, priorValue: 0 }, 'Fee not drawn from equity');
   emitM4({ label: 'Closing cash (after funding, before finance cost, sweep and dividends)', values: sl(w.closingCashAfterFundingPerPeriod), isTotal: true, priorValue: snap.bs.historicalOpeningCashTotal }, 'Engine closing cash after the drawdowns', { stateRow: true });
   note(`Lifetime: development funding need ${Math.round(w.totalNetCashRequired).toLocaleString('en-US')}; debt drawn ${Math.round(totalNewDebt.reduce((a, v) => a + v, 0)).toLocaleString('en-US')} (capex + IDC); equity drawn ${Math.round(totalEquityDraw.reduce((a, v) => a + v, 0)).toLocaleString('en-US')}${hasFeeDraw ? ` (of which fund management fee ${Math.round(feeDraw.reduce((a, v) => a + v, 0)).toLocaleString('en-US')})` : ''}. These are the figures in 8 and 9 above.`);
   r += 1;
@@ -3924,10 +4079,10 @@ function addFinancing(ctx: EmitCtx): FinLinks {
     emitTable(table);
     if (table.title.startsWith('Cash Waterfall')) {
       const idcCash = sl(w.idcCashPaidPerPeriod);
-      if (nz(idcCash)) {
+      if (isLiveLayout() || nz(idcCash)) {
         note('Memo: IDC funding split, paid in cash where there is surplus, capitalised to debt otherwise');
         emitM4({ label: '(memo) IDC paid in cash', values: idcCash, indent: 1, priorValue: 0 }, 'IDC paid from surplus cash');
-        if (nz(idcAdd)) emitM4({ label: '(memo) IDC capitalised to debt', values: idcAdd, indent: 1, priorValue: 0 }, 'IDC drawn as debt');
+        if (isLiveLayout() || nz(idcAdd)) emitM4({ label: '(memo) IDC capitalised to debt', values: idcAdd, indent: 1, priorValue: 0 }, 'IDC drawn as debt');
       }
       const sweepSnap = snap.cashSweep; const div = snap.dividends;
       const debtPaidLife = -sum(snap.directCF.debtRepaymentPerPeriod);
@@ -3936,6 +4091,7 @@ function addFinancing(ctx: EmitCtx): FinLinks {
     r += 1;
   }
 
+  if (isLiveLayout()) emitLoopRows();
   // Stub registry: in STATIC mode these rows feed only discarded formula strings
   // on the downstream tabs (their values come from the real snapshot model).
   const s = 5;
@@ -3998,7 +4154,7 @@ function addSchedules(ctx: EmitCtx): void {
 
   // A fixed asset table from the shared builder: a balance row's Total column
   // holds its last period, a flow row's the sum, exactly as the screen prints.
-  const emitFaTable = (t: FixedAssetTable, regTable = '', capexDep?: readonly number[]): void => {
+  const emitFaTable = (t: FixedAssetTable, regTable = '', capexDep?: readonly number[], idcDep?: readonly number[]): void => {
     E.subTitle(t.title);
     E.setRegTable(regTable);
     for (const row of t.rows) {
@@ -4014,6 +4170,7 @@ function addSchedules(ctx: EmitCtx): void {
       // carries both, so the part on capex has its own row, the one the funding solve reads.
       if (capexDep && row.label.startsWith('(−) Depreciation (on Capex + IDC)')) {
         E.moneyRow('   of which: on capex', capexDep.slice(0, N).map((v) => v ?? 0), { indent: 2, prior: 0 });
+        if (idcDep) E.moneyRow('   of which: on capitalised interest', idcDep.slice(0, N).map((v) => v ?? 0), { indent: 2, prior: 0 });
       }
     }
     E.note(t.caption);
@@ -4023,6 +4180,13 @@ function addSchedules(ctx: EmitCtx): void {
     if (!live) return undefined;
     const out = new Array<number>(N).fill(0);
     for (const id of ids) (snap.fixedAssets.byAsset.get(id)?.depreciable.depreciationPerPeriod ?? []).forEach((v, t) => { if (t < N) out[t] += v ?? 0; });
+    return out;
+  };
+  // Depreciation on the interest capitalised into the held plots (idcRowIsHeld), the line's own.
+  const idcDepOf = (ids: readonly string[]): number[] | undefined => {
+    if (!live) return undefined;
+    const out = new Array<number>(N).fill(0);
+    for (const id of ids) { const r0 = snap.idc.byAsset.get(id); if (r0 && idcRowIsHeld(r0)) r0.depreciationPerPeriod.forEach((v, t) => { if (t < N) out[t] += v ?? 0; }); }
     return out;
   };
 
@@ -4074,14 +4238,14 @@ function addSchedules(ctx: EmitCtx): void {
     for (const l of g.lines) {
       E.setRegLine(l.hostId);
       emitFaTable(l.land, 'land');
-      emitFaTable(l.depreciable, 'dep', capexDepOf(l.memberIds));
+      emitFaTable(l.depreciable, 'dep', capexDepOf(l.memberIds), idcDepOf(l.memberIds));
       emitFaTable(l.total, 'total');
     }
   }
   E.groupBand('Project Total');
   E.setRegLine('__project__');
   emitFaTable(report.project.land, 'land');
-  emitFaTable(report.project.depreciable, 'dep', live ? snap.fixedAssets.projectTotals.depreciable.depreciationPerPeriod.slice(0, N) : undefined);
+  emitFaTable(report.project.depreciable, 'dep', live ? snap.fixedAssets.projectTotals.depreciable.depreciationPerPeriod.slice(0, N) : undefined, live ? snap.idc.idcDepreciationPerPeriod.slice(0, N) : undefined);
   emitFaTable(report.project.total, 'total');
   if (report.project.idcPool) emitFaTable(report.project.idcPool, 'idc');
   E.setRegScope(null);
@@ -5206,6 +5370,9 @@ function addScenarios(ctx: EmitCtx): void {
 }
 
 // ── Checks / legend ───────────────────────────────────────────────────────────
+/** The Checks row that ties the financing loop's profit before tax to the P&L (live layout). */
+export const LOOP_PBT_CHECK = 'Profit before tax inside the financing loop equals the P&L';
+
 function addChecks(ctx: EmitCtx, capexAddrs: CapexAddrs, retLinks: RetLinks): void {
   void capexAddrs;
   // Every check reconciles the PLATFORM snapshot, which is what this workbook
@@ -5244,6 +5411,9 @@ function addChecks(ctx: EmitCtx, capexAddrs: CapexAddrs, retLinks: RetLinks): vo
   for (const c of buildIntegrityChecks(snap)) {
     checkRow(c.label, c.ok ? 'OK' : 'CHECK', c.residue, checkDetail(c, snap.yearLabels, checkMoney), `chk|id|${c.label}`);
   }
+  // THE FINANCING LOOP'S OWN PROFIT BEFORE TAX (live layout): the loop solves its tax on it, so it must
+  // equal the P&L's every year; the residue is the worst year's difference.
+  if (isLiveLayout()) checkRow(LOOP_PBT_CHECK, 'OK', 0, 'Every year: the profit before tax the financing loop solves with (Financing) less the P&L figure. The loop reads only the tabs before it, so this proves it repeats the statement exactly.', `chk|id|${LOOP_PBT_CHECK}`);
   // Advisories: NOTE, never OK or CHECK. A gap between cash collected and gross
   // sale value, or a sale with no downpayment stated, is legitimate model state,
   // not a broken identity, so the residue beside a NOTE is the size of the gap it

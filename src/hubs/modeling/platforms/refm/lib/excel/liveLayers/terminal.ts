@@ -36,9 +36,17 @@ export function terminalRefusal(cfg: TvConfig, has: (k: string) => boolean): str
 }
 
 /** The terminal enterprise value of `income` (an Excel expression), by the model's method. */
-export function terminalValueFormula(w: LiveWriter, cfg: TvConfig, income: string): string {
-  const inc = cfg.applyGrowthToTerminal ? `${income}*(1+${w.ref(TV_KEYS.growth, PERIOD_COLS.TOTAL_COL)})` : income;
-  if (cfg.terminalMethod === 'exit_multiple') return `MAX(0,${inc})*MAX(0,${w.ref(TV_KEYS.multiple, PERIOD_COLS.TOTAL_COL)})`;
-  const cap = w.ref(TV_KEYS.capRate, PERIOD_COLS.TOTAL_COL);
+/**
+ * `fromInputs`: read each setting from its Inputs cell where Inputs carries one (the financing loop,
+ * which comes before Returns in the flow); else from Returns.
+ */
+export function terminalValueFormula(w: LiveWriter, cfg: TvConfig, income: string, fromInputs = false): string {
+  const at = (key: string): string => {
+    if (fromInputs) { const k = w.reg.keys().find((x) => x.startsWith(`inp=${key}@`)); if (k) return w.refA(w.addr(k)); }
+    return w.ref(key, PERIOD_COLS.TOTAL_COL);
+  };
+  const inc = cfg.applyGrowthToTerminal ? `${income}*(1+${at(TV_KEYS.growth)})` : income;
+  if (cfg.terminalMethod === 'exit_multiple') return `MAX(0,${inc})*MAX(0,${at(TV_KEYS.multiple)})`;
+  const cap = at(TV_KEYS.capRate);
   return `IF(${cap}<=0.000000001,0,MAX(0,${inc}/${cap}))`;
 }

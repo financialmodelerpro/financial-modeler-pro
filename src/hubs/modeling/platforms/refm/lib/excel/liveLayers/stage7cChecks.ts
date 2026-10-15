@@ -29,6 +29,8 @@ import { CHECK_REL_TOL } from '../../reports/checksReport';
 import { irrOf } from './excelText';
 import { NUMFMT } from '../styles';
 import { computeFinancialsSnapshot } from '../../financials-resolvers';
+import { LOOP_PBT_CHECK } from '../buildModelWorkbook';
+import { getFinancialLabels, defaultTerminologyForCountry } from '@/src/core/calculations/financials';
 
 const CHK = 'Checks';
 const RET = 'Returns';
@@ -42,6 +44,7 @@ export const stage7cChecks: LiveLayer = {
     const N = computeFinancialsSnapshot(ctx.opts.state).axisLength;
     const { OPEN_COL } = PERIOD_COLS;
     const pc = (t: number): number => OPEN_COL + 1 + t;
+    const pbtLabel = getFinancialLabels(ctx.opts.state.project.financialTerminology ?? defaultTerminologyForCountry(ctx.opts.state.project.country)).pbt;
     const isFormula = (sheet: string, row: number, col: number): boolean => {
       const v = wb.getWorksheet(sheet)?.findRow(row)?.findCell(col)?.value as unknown;
       return !!v && typeof v === 'object' && 'formula' in (v as object);
@@ -60,6 +63,8 @@ export const stage7cChecks: LiveLayer = {
       { label: 'Cash flow closing == balance sheet cash', a: 'cf|direct||Closing cash', b: 'bs|__all__||Cash', mag: 'bs|__all__||Cash' },
       { label: 'Direct cash flow == Indirect cash flow', a: 'cf|direct||Net Cash Flow', b: 'cf|indirect||Net Cash Flow', mag: 'cf|direct||Net Cash Flow' },
       { label: 'Balance sheet reconciliation bridge, unexplained', a: 'bsr|__all__||Unexplained (must be 0)', b: null, mag: 'bs|__all__||TOTAL ASSETS' },
+      // The financing loop solves its tax on its own profit before tax: it must be the P&L's, every year.
+      { label: LOOP_PBT_CHECK, a: 'fin|Profit before tax inside the financing loop|= Profit before tax', b: `pl|__all__||${pbtLabel}`, mag: `pl|__all__||${pbtLabel}` },
     ];
     const tol = CHECK_REL_TOL.toExponential().toUpperCase().replace('E+', 'E');
     const liveIds: string[] = [], valueIds: string[] = [];

@@ -31,6 +31,7 @@
  * No em dashes in this file.
  */
 import type { LayerContext, LiveLayer } from '../formulaWorkbook';
+import { loopAt, loopOne } from './stage6Loop';
 import { LiveWriter } from './writer';
 import { terminalRefusal } from './terminal';
 import { irrOf, pctT, irrT, multT, moicOf, moneyT as moneyWords, ratioT } from './excelText';
@@ -112,8 +113,9 @@ export const stage7Returns: LiveLayer = {
       return r;
     };
     const rngS = (r: number, last = N): string => w.rangeA(CALC, r, 4, 4 + last);
-    const fnc = (key: string, t: number): string => w.refA({ sheet: 'Financing Calc', row: w.addr(key).row, col: 4 + t });
-    const fnc3 = (key: string): string => w.refA({ sheet: 'Financing Calc', row: w.addr(key).row, col: 3 });
+    // The financing loop's figures, on the Financing tab (stage6Loop: an outflow row is read negated).
+    const fnc = (key: string, t: number): string => loopAt(w, key, t);
+    const fnc3 = (key: string): string => loopOne(w, key);
     const vis = (sheet: string, key: string, t: number): string => w.refA({ sheet, row: w.addr(key).row, col: pc(t) });
     const CF = (label: string, t: number): string => vis('Cash Flow', `cf|direct||${label}`, t);
 
@@ -129,7 +131,7 @@ export const stage7Returns: LiveLayer = {
     const finCost = rowA('rtc:fincost', 'finance cost, the full accrued charge', (t) => fnc('fnc:main:interest', t));
     const eqCash = rowA('rtc:eqcash', 'new cash equity (development and fee)', (t) => `${fnc('fnc:main:equity', t)}+${fnc('fnc:main:feedraw', t)}`);
     const div = rowA('rtc:div', 'dividends paid', (t) => fnc('fnc:main:div', t));
-    const noi = rowA('rtc:noi', 'NOI of the held assets', (t) => w.refA({ sheet: 'Financing Calc', row: w.addr('fnc:noi').row, col: 4 + t }));
+    const noi = rowA('rtc:noi', 'NOI of the held assets', (t) => fnc('fnc:noi', t));
     const debtKey = has('bs|__all__||Debt (long-term)') ? 'bs|__all__||Debt (long-term)' : '';
     const debt = rowA('rtc:debt', 'debt outstanding', (t) => (debtKey ? vis('Balance Sheet', debtKey, t) : fnc('fnc:main:debtbs', t)));
     const close = rowA('rtc:close', 'closing cash', (t) => CF('Closing cash', t));
@@ -266,10 +268,10 @@ export const stage7Returns: LiveLayer = {
     // Totals the cards read.
     const sumA = (r: number): string => w.rangeA(CALC, r, cT(0), cT(N - 1));
     const gdv = (): string => `SUM(${w.rangeA('P&L', w.addr('pl|__all__||Total Revenue').row, pc(0), pc(X))})`;
-    const tdc = (): string => `SUM(${w.rangeA('Financing Calc', w.addr('fnc:capexall').row, 4, 4 + N - 1)})`;
+    const tdc = (): string => `SUM(${w.perRange('fnc:capexall', N)})`;
     // The operating expenses over the same years as the GDV (2026-10-08): the P&L row is printed negative.
     const opx = (): string => `(-SUM(${w.rangeA('P&L', w.addr('pl|__all__||Total Operating Expenses').row, pc(0), pc(X))}))`;
-    const tfc = (): string => `SUM(${w.rangeA('Financing Calc', w.addr('fnc:main:interest').row, 4, 4 + N - 1)})`;
+    const tfc = (): string => `SUM(${w.perRange('fnc:main:interest', N)})`;
     const invested = (): string => `MAX(0,SUM(${sumA(eqCash)})+SUM(${sumA(inKind)}))`;
     const distTotal = (): string => `(SUM(${sumA(div)})+${sc3(tvDist)})`;
 
@@ -499,7 +501,7 @@ export const stage7Returns: LiveLayer = {
       const land = (): string => landKeys.map((k) => `SUM(${w.perRange(k, N)})`).join('+') || '0';
       const cashEq = (): string => `SUM(${sumA(eqCash)})`, kindEq = (): string => `SUM(${sumA(inKind)})`;
       const newDebt = (): string => `SUM(${sumA(draw)})+SUM(${sumA(idcDraw)})`;
-      const idc = (): string => `SUM(${w.rangeA('Financing Calc', w.addr('fnc:main:basis').row, 4, 4 + N - 1)})`;
+      const idc = (): string => `SUM(${w.perRange('fnc:main:basis', N)})`;
       const uses = (): string => `(${tdc()}+${idc()})`;
       const nonOp = (): string => `(${cashEq()}+${kindEq()}+${newDebt()}+${collections()})`;
       scalar('ret|New Equity (cash)', cashEq);
