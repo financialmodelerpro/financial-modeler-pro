@@ -33,6 +33,9 @@ const DEPS = new WeakMap<Set<string>, Map<string, string[]>>();
  *  writes a formula over one takes it out (stage 6 makes stage 3 to 5's pending
  *  figures live), so pending is recomputed from these, never only added to. */
 const SOURCES = new WeakMap<Set<string>, Set<string>>();
+/** The formula cells a layer wrote where the platform prints no figure, per workbook (evaluate.ts fills them). */
+const COMPUTED = new WeakMap<ExcelJS.Workbook, Map<string, CellAddr>>();
+export function computedCells(wb: ExcelJS.Workbook): CellAddr[] { return [...(COMPUTED.get(wb)?.values() ?? [])]; }
 
 /** Recompute pending: the pending values, and every formula that reads one, directly or through others. */
 export function settlePending(pending: Set<string>): number {
@@ -128,6 +131,8 @@ export class LiveWriter {
     const deps = this.deps; this.deps = [];
     const c = this.cellA(a);
     const cached = opts.cached !== undefined ? opts.cached : this.platformValue(a);
+    if (cached === undefined) { if (!COMPUTED.has(this.wb)) COMPUTED.set(this.wb, new Map()); COMPUTED.get(this.wb)!.set(addrId(a), a); }
+    else COMPUTED.get(this.wb)?.delete(addrId(a));
     c.value = { formula, result: cached } as unknown as ExcelJS.CellValue;
     if (opts.numFmt) c.numFmt = opts.numFmt;
     this.allDeps.set(addrId(a), deps);

@@ -1058,6 +1058,23 @@ function formulaCells(wb: ExcelJS.Workbook): Map<string, { formula: string; resu
       const f = rec.formulasBySheet.get(sheet) ?? 0;
       check(`B3 ${sheet}: ${ps.compared} figures recalculate to the platform's (${f} live formulas)`, ps.bad.length === 0, ps.bad.slice(0, 6).join('\n        '));
     }
+    // B5. A VALUE STORED WHERE THE PLATFORM PRINTS NO FIGURE (2026-10-20, evaluate.ts): the Returns
+    // workings, the helper cells that keep a formula short. The file must open showing Excel's own
+    // value there, so each stored number is compared with what Excel computes.
+    {
+      let n = 0; const bad: string[] = [];
+      for (const ws of wb.worksheets) ws.eachRow((row, r) => row.eachCell((cell, c) => {
+        const v = cell.value as unknown as { formula?: string; result?: unknown } | null;
+        if (!v || typeof v !== 'object' || typeof v.formula !== 'string') return;
+        const k = cellKey(ws.name, r, c);
+        if (oracle.has(k)) return;
+        const e = rec.cells.get(k);
+        if (typeof v.result !== 'number' || typeof e !== 'number') return;
+        n++;
+        if (Math.abs(e - v.result) > tolFor(ws.name, v.result, Math.abs(v.result))) bad.push(`${k}: stored ${v.result}, Excel ${e}`);
+      }));
+      check(`B5 ${n} values stored where the platform prints no figure are Excel's own`, n > 0 && bad.length === 0, bad.slice(0, 6).join('\n        '));
+    }
     // B3b. The checks above are the whole proof, so their NUMBER is pinned to the sheets the platform builds.
     check(`B3b every sheet the platform builds was compared (${perSheet.size})`, perSheet.size >= wb.worksheets.filter((x) => x.state !== 'hidden' && x.name !== 'Cover' && x.name !== 'Guide').length - 1);
     // B0. The comparison FIRES: a copy with one figure deliberately wrong must be

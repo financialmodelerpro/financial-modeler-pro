@@ -23,7 +23,7 @@
 import type { LayerContext, LiveLayer } from '../formulaWorkbook';
 import { LOOP_NEGATIVE } from './stage6Loop';
 import { LiveWriter } from './writer';
-import { irrOf, pctT, irrT, multT, moicOf, moneyT as moneyWords, ratioT, seriesT } from './excelText';
+import { irrOf, pctT, irrT, multT, moicOf, moneyT as moneyWords, ratioT, seriesT, workingLabel } from './excelText';
 import { PERIOD_COLS } from '../buildModelWorkbook';
 import { terminalValueFormula } from './terminal';
 import { withResolvedAssetNames } from '@/src/core/calculations/assetName';
@@ -73,13 +73,13 @@ export const stage7bMetrics: LiveLayer = {
     /** Year 0 to year t of a row on this sheet: $F$r:F$r. */
     const toNow = (r: number, t: number): string => { w.refP(C(r, pc(t)), RET); return `$${colL(pc(0))}$${r}:${colL(pc(t))}$${r}`; };
     const rowA = (key: string, label: string, f: (t: number) => string): number => {
-      const r = cr++; cs.getCell(r, 1).value = label; w.claim(key, RET, r, 1);
-      for (let t = 0; t < N; t++) w.fA(C(r, pc(t)), f(t), { cached: 0 });
+      const r = cr++; cs.getCell(r, 1).value = workingLabel(label); w.claim(key, RET, r, 1);
+      for (let t = 0; t < N; t++) w.fA(C(r, pc(t)), f(t));
       return r;
     };
     const cellS = (key: string, label: string, f: () => string): number => {
-      const r = cr++; cs.getCell(r, 1).value = label; w.claim(key, RET, r, 1);
-      w.fA(C(r, TOTAL_COL), f(), { cached: 0 });
+      const r = cr++; cs.getCell(r, 1).value = workingLabel(label); w.claim(key, RET, r, 1);
+      w.fA(C(r, TOTAL_COL), f());
       return r;
     };
     const vis = (sheet: string, key: string, t: number): string => w.refP({ sheet, row: w.addr(key).row, col: pc(t) }, RET);
@@ -207,8 +207,8 @@ export const stage7bMetrics: LiveLayer = {
       const evE = cellS(`rtm:x:${e}:ev`, `exit ${x.exitYearLabel}: enterprise value`, () => terminalValueFormula(w, cfg, atA(noi, m)));
       const eqE = cellS(`rtm:x:${e}:eq`, `exit ${x.exitYearLabel}: equity value`, () => `MAX(0,${sc3(evE)}-MAX(0,${atA(debt, e)}))`);
       const s = (key: string, label: string, base: number, add: () => string): number => {
-        const r = cr++; cs.getCell(r, 1).value = label; w.claim(key, RET, r, 1);
-        for (let k = 0; k <= e + 1; k++) w.fA(C(r, OPEN_COL + k), `${w.refP(C(base, OPEN_COL + k), RET)}+(${TY(OPEN_COL + k)}=${TYA(e)})*(${add()})`, { cached: 0 });
+        const r = cr++; cs.getCell(r, 1).value = workingLabel(label); w.claim(key, RET, r, 1);
+        for (let k = 0; k <= e + 1; k++) w.fA(C(r, OPEN_COL + k), `${w.refP(C(base, OPEN_COL + k), RET)}+(${TY(OPEN_COL + k)}=${TYA(e)})*(${add()})`);
         return r;
       };
       const ff = s(`rtm:x:${e}:ff`, `exit ${x.exitYearLabel}: FCFF`, sbFf, () => sc3(evE));

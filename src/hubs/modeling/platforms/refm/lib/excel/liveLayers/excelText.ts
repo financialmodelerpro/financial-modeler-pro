@@ -44,3 +44,27 @@ export const accT = (e: string, scale: 'full' | 'thousands' | 'millions', d: num
   // One TEXT with a negative and a zero section (2026-10-20): "(x)" when negative, "-" when it rounds to nothing.
   return `TEXT(ROUND(${div === 1 ? e : `(${e})/${div}`},${d}),"${fmt};(${fmt});-")${unit ? `&"${unit}"` : ''}`;
 };
+
+/**
+ * A WORKING ROW'S LABEL IN PLAIN WORDS (2026-10-20, founder): sentence case and short, the
+ * longer engine names said more simply. The Guide says what the workings are for.
+ */
+const WORKING_WORDS: Array<[RegExp, string]> = [
+  [/^FCFE before the terminal value and the cash released at the exit$/, 'FCFE before terminal value and released cash'],
+  [/^the exit dividend already pays the proceeds out \(1 = yes\)$/, 'Exit dividend pays out the proceeds (1 = yes)'],
+  [/^cash from investing: cash capex, before the exit proceeds$/, 'Cash capex, before exit proceeds'],
+  [/^stabilisation: consecutive years at the steady growth$/, 'Stabilisation: years in a row at steady growth'],
+  [/^operating year \(any phase in its operations window\)$/, 'Operating year (any phase operating)'],
+  [/^terminal equity value \(less the debt at the exit\)$/, 'Exit equity value (less exit debt)'],
+  [/^terminal enterprise value \(the exit proceeds\)$/, 'Exit enterprise value (exit proceeds)'],
+  [/^terminal equity not already paid as a dividend$/, 'Exit equity not paid as a dividend'],
+  [/^cash held back at the exit, released to equity$/, 'Cash held back, released at exit'],
+  [/^gross development value \(revenue over the hold\)$/, 'Gross development value (revenue over hold)'],
+  [/terminal equity plus cash released/, 'exit equity plus cash'],
+  [/^Area available while letting, sqm-years$/, 'Area available, sqm-years'],
+];
+export function workingLabel(s: string): string {
+  let out = s;
+  for (const [re, to] of WORKING_WORDS) out = out.replace(re, to);
+  return out.charAt(0).toUpperCase() + out.slice(1);
+}

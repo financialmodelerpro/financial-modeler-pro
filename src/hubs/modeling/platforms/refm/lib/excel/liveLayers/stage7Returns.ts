@@ -34,7 +34,7 @@ import type { LayerContext, LiveLayer } from '../formulaWorkbook';
 import { loopAt, loopOne } from './stage6Loop';
 import { LiveWriter } from './writer';
 import { terminalRefusal } from './terminal';
-import { irrOf, pctT, irrT, multT, moicOf, moneyT as moneyWords, ratioT } from './excelText';
+import { irrOf, pctT, irrT, multT, moicOf, moneyT as moneyWords, ratioT, workingLabel } from './excelText';
 import { PERIOD_COLS } from '../buildModelWorkbook';
 import { withResolvedAssetNames } from '@/src/core/calculations/assetName';
 import { isLandValueLine } from '@/src/core/calculations';
@@ -100,19 +100,19 @@ export const stage7Returns: LiveLayer = {
     const atA = (r: number, t: number): string => w.refA(C(r, pc(t)), RET);
     const sc3 = (r: number): string => w.refA(C(r, TOTAL_COL), RET);
     const rowA = (key: string, label: string, f: F): number => {
-      const r = cr++; cs.getCell(r, 1).value = label; w.claim(key, RET, r, 1);
-      for (let t = 0; t < N; t++) w.fA(C(r, pc(t)), f(t), { cached: 0 });
+      const r = cr++; cs.getCell(r, 1).value = workingLabel(label); w.claim(key, RET, r, 1);
+      for (let t = 0; t < N; t++) w.fA(C(r, pc(t)), f(t));
       return r;
     };
     const cellS = (key: string, label: string, f: () => string): number => {
-      const r = cr++; cs.getCell(r, 1).value = label; w.claim(key, RET, r, 1);
-      w.fA(C(r, TOTAL_COL), f(), { cached: 0 });
+      const r = cr++; cs.getCell(r, 1).value = workingLabel(label); w.claim(key, RET, r, 1);
+      w.fA(C(r, TOTAL_COL), f());
       return r;
     };
     /** A stream-basis row: s = 0 (inception) .. last, from the inception column. */
     const rowS = (key: string, label: string, f: (s: number) => string, last = N): number => {
-      const r = cr++; cs.getCell(r, 1).value = label; w.claim(key, RET, r, 1);
-      for (let s = 0; s <= last; s++) w.fA(C(r, sc(s)), f(s), { cached: 0 });
+      const r = cr++; cs.getCell(r, 1).value = workingLabel(label); w.claim(key, RET, r, 1);
+      for (let s = 0; s <= last; s++) w.fA(C(r, sc(s)), f(s));
       return r;
     };
     const rngS = (r: number, last = N): string => w.rangeA(RET, r, sc(0), sc(last));
@@ -637,7 +637,7 @@ export const stage7Returns: LiveLayer = {
       ys.forEach((y, i) => { if (has(`sensin:price:${i}`)) shockIn.set(y, `sensin:price:${i}`); });
       xs.forEach((xv, i) => { if (has(`sensin:cap:${i}`)) capIn.set(xv, `sensin:cap:${i}`); });
       const axisCell = (key: string, label: string, v: number): number => {
-        const r = cr++; cs.getCell(r, 1).value = label; w.claim(key, RET, r, 1);
+        const r = cr++; cs.getCell(r, 1).value = workingLabel(label); w.claim(key, RET, r, 1);
         w.valueA(C(r, TOTAL_COL), v); return r;
       };
       if (shockIn.size !== ys.length) for (const y of ys) shockCells.set(y, axisCell(`rtc:sens:y:${y}`, `sensitivity axis: sales price shock ${yLabel(y)}`, y));

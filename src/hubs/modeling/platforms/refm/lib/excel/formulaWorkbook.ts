@@ -49,6 +49,8 @@ import { stage8Schedules, stage8FundFees } from './liveLayers/stage8Schedules';
 import { stage8Capex7 } from './liveLayers/stage8Capex7';
 import { stage9InputLinks } from './liveLayers/stage9InputLinks';
 import { simplifyWorkbook, dropNumberWrappers } from './liveLayers/simplify';
+import { storeComputedValues } from './liveLayers/evaluate';
+import { computedCells } from './liveLayers/writer';
 import { linkPeriodHeaders } from './liveLayers/foundations';
 
 export type SheetStatus = 'live' | 'partial' | 'values' | 'values-by-design' | 'front';
@@ -159,6 +161,9 @@ export function buildFormulaWorkbook(opts: BuildModelOptions): FormulaWorkbookRe
   simplifyWorkbook(wb);
   // N() only where a cell can be text or blank (2026-10-20).
   dropNumberWrappers(wb);
+  // A CELL THE PLATFORM PRINTS NO FIGURE FOR STORES ITS VALUE (2026-10-20): evaluated from the
+  // stored figures it reads, so the file opens showing it (the verifier compares each with Excel, B5).
+  storeComputedValues(wb, computedCells(wb));
   // A CIRCULAR CELL NEEDS A STARTING VALUE (the financing loop runs through Financing, Schedules
   // and the statements): Excel iterates from each cell's cached result, and a formula with none
   // enters the loop with nothing to start from and never recovers. Run last, after every rewrite.
