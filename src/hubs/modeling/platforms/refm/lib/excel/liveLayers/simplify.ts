@@ -210,7 +210,68 @@ function dropSumBrackets(code: string): string {
   return code;
 }
 
-const pass = (code: string, chains: boolean): string => dropSumBrackets(dropZeros(sumOfSums(mergeSumLists((chains ? sumChains : (c: string) => c)(positiveSums(code))))));
+/**
+ * SIGNS WRITTEN ONCE (2026-10-20, founder): a layer negates a row that is already a negative
+ * figure, and pads an empty list with a zero, so "-(-(Opex!F$301))" and "-(-(0)+-(0))"
+ * reached the sheet. Exact rewrites, applied until nothing changes:
+ *   -(-X) where X is one term  ->  +X          -(atom) / +(atom)  ->  -atom / +atom
+ *   a zero term in a list       ->  dropped     +-  ->  -,  a--b  ->  a+b,  (+x  ->  (x
+ * A "--" that opens a group is Excel's coercion of a test to a number and is kept.
+ */
+const CELL = `(?:${SHEET}!)?\\$?[A-Z]{1,3}\\$?\\d+(?::\\$?[A-Z]{1,3}\\$?\\d+)?`;
+const ATOM = `(?:N\\(${CELL}\\)|${CELL}|\\d+(?:\\.\\d+)?)`;
+const NEG_ATOM_IN = new RegExp(`-\\(-(${ATOM})\\)`, 'g');
+const SIGNED_ATOM_IN = new RegExp(`([+\\-])\\((-?${ATOM})\\)`, 'g');
+/** "-(-X)" with X one term at its own level (no top-level + or -): "+X". */
+function negNeg(code: string): string {
+  let out = code;
+  for (let i = out.indexOf('-(-'); i >= 0; i = out.indexOf('-(-', i + 1)) {
+    let depth = 0, close = -1, flat = true;
+    for (let j = i + 1; j < out.length; j++) {
+      const ch = out[j];
+      if (ch === '(') depth++;
+      else if (ch === ')') { depth--; if (depth === 0) { close = j; break; } }
+      else if (depth === 1 && (ch === '^' || ch === '%')) flat = false;
+      else if (depth === 1 && j > i + 2 && (ch === '+' || ch === '-' || ch === ',' || ch === '<' || ch === '>' || ch === '=' || ch === '&')) {
+        // A minus that follows an operator or an exponent is a sign, not a term boundary.
+        const p = out[j - 1];
+        if (!(ch === '-' && (p === '(' || p === '*' || p === '/' || p === '^' || p === 'E'))) flat = false;
+      }
+    }
+    if (close < 0 || !flat) continue;
+    out = `${out.slice(0, i)}+${out.slice(i + 3, close)}${out.slice(close + 1)}`;
+  }
+  return out;
+}
+/** "-(-a-b+c)", a list of single terms that opens negative: the minus carried in, "+a+b-c". */
+const NEG_LIST = new RegExp(`(?<![*/^&<>=])-\\((-${ATOM}(?:[+\\-]${ATOM})+)\\)(?![\\^%*/])`, 'g');
+const flipList = (_: string, list: string): string => list.replace(new RegExp(`([+\\-])(${ATOM})`, 'g'), (_m, sg: string, a: string) => `${sg === '-' ? '+' : '-'}${a}`);
+function cleanSigns(code: string): string {
+  let prev: string;
+  do {
+    prev = code;
+    code = code.replace(NEG_LIST, flipList);
+    code = negNeg(code);
+    code = code.replace(NEG_ATOM_IN, '+$1');
+    code = code.replace(SIGNED_ATOM_IN, '$1$2');
+    code = code.replace(/([(,]|^)-\(0\)\+/g, '$10+');
+    code = code.replace(/\+-\(0\)(?=$|[)+\-,])/g, '');
+    code = code.replace(/([(,]|^)-\(0\)(?=\))/g, '$10');
+    code = code.replace(/([(,]|^)-0(?=[+-])/g, '$10');
+    code = code.replace(/([(,]|^)-0(?=\))/g, '$10');
+    // (No "0+x" to "x": 0+ turns a TRUE / FALSE into 1 / 0, and a test compared or divided by bare is not the same, 2026-10-20.)
+    code = code.replace(/\+-/g, '-');
+    code = code.replace(/([)\w$])--/g, '$1+');
+    code = code.replace(/([)\w$])-\+/g, '$1-');
+    code = code.replace(/([(,]|^)\+/g, '$1');
+    code = dropZeros(code);
+  } while (code !== prev);
+  return code;
+}
+
+const pass = (code: string, chains: boolean): string => dropSumBrackets(dropZeros(sumOfSums(mergeSumLists((chains ? sumChains : (c: string) => c)(positiveSums(cleanSigns(code)))))));
+/** Exposed for the verifier's own probes. */
+export const cleanSignsForTest = cleanSigns;
 
 /** Rewrite one formula (without the leading "="). Text in quotes is left alone. */
 export function simplifyFormula(f: string, opts: { sumChains?: boolean } = {}): string {

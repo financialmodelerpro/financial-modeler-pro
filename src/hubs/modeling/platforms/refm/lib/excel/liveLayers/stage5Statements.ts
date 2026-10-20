@@ -98,6 +98,17 @@ export const stage5Statements: LiveLayer = {
       return shift < 0 ? `N(${ref})` : ref;
     };
     const prevOf = (f: F, t: number): string => { shift = -1; try { return f(t); } finally { shift = 0; } };
+    /**
+     * A TOTAL ADDS THE ROWS SHOWN UNDER IT (2026-10-20, founder): never the pieces again. Rows
+     * that sit together are one SUM over their block, rows apart are added.
+     */
+    const sumKeysF = (keys: string[]): F => (t) => {
+      const ks = keys.filter(has);
+      if (ks.length === 0) return '0';
+      const rows = ks.map((k) => w.addr(k).row);
+      const together = ks.length > 1 && rows.every((r, i) => i === 0 || r === rows[i - 1] + 1);
+      return together ? `SUM(${R(ks[0], t)}:${R(ks[ks.length - 1], t)})` : ks.map((k) => R(k, t)).join('+');
+    };
     const delta = (f: F): F => (t) => `(${f(t)})-(${prevOf(f, t)})`;
     const sumF = (fs: F[]): F => (t) => fs.map((f) => f(t)).join('+') || '0';
     const neg = (f: F): F => (t) => `-(${f(t)})`;
@@ -211,6 +222,10 @@ export const stage5Statements: LiveLayer = {
       const opexRows: string[] = [];
       const feeRows: string[] = [];
       const usedFees = new Set<number>();
+      // Each group's line and the rows shown under it; the revenue groups' lines for the total.
+      const headKey = new Map<string, string>();
+      const memberKeys = new Map<string, string[]>();
+      const revHeads: string[] = [];
       // A fund fee's label carries its base, so a fee row is found by the fee's own name.
       const feeOf = (r: M4Row): number => (phaseFiltered || r.indent !== 1 ? -1
         : snap.fundFees.lines.findIndex((l, i) => !usedFees.has(i) && r.label.startsWith(`${l.label} (`)));
@@ -224,13 +239,17 @@ export const stage5Statements: LiveLayer = {
         const g = r.collapseGroup;
         const L = r.label;
         let f: F | undefined;
-        if (g && r.collapseRole === 'header') { f = heads.get(g); if (g.startsWith('pl-opex')) opexRows.push(key); }
-        else if (g && r.collapseRole === 'member') {
+        if (g && r.collapseRole === 'header') {
+          f = heads.get(g); headKey.set(g, key);
+          if (g.startsWith('pl-opex')) opexRows.push(key);
+          if (g.startsWith('pl-rev-')) revHeads.push(key);
+        } else if (g && r.collapseRole === 'member') {
           const i = cursor.get(g) ?? 0; cursor.set(g, i + 1);
           const m = groups.get(g)?.[i];
           if (!m || m.label !== L) { refused = `the ${g} rows do not match (${L} against ${m?.label ?? 'nothing'})`; return; }
           f = m.f;
-        } else if (L === 'Total Revenue') f = totalRev;
+          memberKeys.set(g, [...(memberKeys.get(g) ?? []), key]);
+        } else if (L === 'Total Revenue') f = revHeads.length ? sumKeysF([...revHeads]) : totalRev;
         else if (L.startsWith('HQ Expenses')) { f = neg(hq); opexRows.push(key); }
         else if (L.startsWith(SELLING_EXPENSE_LABEL)) { f = neg(sellingExp); opexRows.push(key); }
         else if (L === 'Total Operating Expenses') { const rs = [...opexRows]; f = (t) => rs.map((k) => R(k, t)).join('+') || '0'; }
@@ -259,6 +278,13 @@ export const stage5Statements: LiveLayer = {
         }
         if (!f) { refused = `no rule for the P&L row "${L}"`; return; }
         writes.push([PL, key, f, 'sum']);
+      }
+      // A group's line is the sum of the rows shown under it.
+      for (const [g, hk] of headKey) {
+        const ms = memberKeys.get(g);
+        if (!ms?.length) continue;
+        const at = writes.findIndex((x) => x[1] === hk);
+        if (at >= 0) writes[at] = [PL, hk, sumKeysF(ms), 'sum'];
       }
     };
     doView(ALL);
@@ -354,6 +380,13 @@ export const stage5Statements: LiveLayer = {
       const financing: string[] = [];
       const operating: string[] = [];
       const investing: string[] = [];
+      // Each group's line and the rows under it (a total adds the rows shown, never the pieces).
+      const headKey = new Map<string, string>();
+      const memberKeys = new Map<string, string[]>();
+      const headOf = (g: string): string[] => (headKey.has(g) ? [headKey.get(g)!] : []);
+      const OPAR = 'Less: Rise in operating receivables';
+      // A residential line with an operating cost has no row of its own to show it, so its collection keeps the pieces.
+      const resNoOpex = res.every((a) => (snap.perAssetCF.get(a.id)?.opexPaidPerPeriod ?? []).every((v) => !v));
       let inFinancing = false;
       let inIndirectOps = view === 'indirect';
       for (const r of rows) {
@@ -368,13 +401,15 @@ export const stage5Statements: LiveLayer = {
         const L = r.label;
         let f: F | undefined;
         let tot: 'sum' | 'first' | 'last' = 'sum';
-        if (g && r.collapseRole === 'header') { f = heads.get(g); if (g.startsWith('cf-capex')) investing.push(L); }
+        if (g && r.collapseRole === 'header') { f = heads.get(g); headKey.set(g, key); if (g.startsWith('cf-capex')) investing.push(L); }
         else if (g && r.collapseRole === 'member') {
           const i = cursor.get(g) ?? 0; cursor.set(g, i + 1);
           const m = groups.get(g)?.[i];
           if (!m || m.label !== L) { cfRefused = `the ${g} rows do not match (${L} against ${m?.label ?? 'nothing'})`; return; }
           f = m.f;
-        } else if (inIndirectOps) {
+          memberKeys.set(g, [...(memberKeys.get(g) ?? []), key]);
+        } else if (L === OPAR) f = neg(delta(opAr));
+        else if (inIndirectOps) {
           if (L === 'Cash Flow from Operations') { const rs = [...operating]; f = sumRows(rs); }
           else {
             operating.push(L);
@@ -389,15 +424,22 @@ export const stage5Statements: LiveLayer = {
             else if (L === `(+) Change in ${labels.tax} payable`) f = delta(taxPay);
             else if (L === '(+) Change in Escrow balance') f = neg(delta(escClose));
           }
-        } else if (L === 'Total Revenue Received') f = (t) => `${sumF(res.map(revRcv))(t)}+${opCash(t)}`;
+        } else if (L === 'Total Revenue Received') f = has(K(OPAR))
+          ? sumKeysF([...headOf('cf-rev-res'), ...headOf('cf-rev-hosp'), ...headOf('cf-rev-ret'), K(OPAR)])
+          : (t) => `${sumF(res.map(revRcv))(t)}+${opCash(t)}`;
         else if (L === 'Less: Inaccessible Funds Locked') f = phaseFiltered ? neg(phaseEscrow('held')) : neg(keyF(escB('Total Additions')));
         else if (L === 'Add: Release of Inaccessible Funds') f = phaseFiltered ? phaseEscrow('release') : neg(keyF(escB('Less: Release of Locked Funds')));
         else if (L.startsWith('HQ Expenses')) f = neg(hqPaid);
         else if (L.startsWith(SELLING_EXPENSE_LABEL)) f = neg(sellingExp);
-        else if (L === '= Residential Cash Collection') f = (t) => `${sumF(res.map(revRcv))(t)}-(${sumF(res.map(opexPaid))(t)})`;
-        else if (L === '= Hospitality EBITDA') f = (t) => `${sumF(hosp.map(revRcv))(t)}-(${sumF(hosp.map(opexPaid))(t)})`;
-        else if (L === '= Retail NOI') f = (t) => `${sumF(ret.map(revRcv))(t)}-(${sumF(ret.map(opexPaid))(t)})`;
-        else if (L === 'Total Operating Expenses Paid') f = (t) => `-(${sumF(all.map(opexPaid))(t)})-${hqPaid(t)}-(${sellingExp(t)})`;
+        // A class's contribution: its revenue received and its opex paid, the rows above.
+        // (A residential line pays no operating cost of its own, so it is its collections.)
+        else if (L === '= Residential Cash Collection') f = headKey.has('cf-rev-res') && resNoOpex ? sumKeysF(headOf('cf-rev-res')) : (t) => `${sumF(res.map(revRcv))(t)}-(${sumF(res.map(opexPaid))(t)})`;
+        else if (L === '= Hospitality EBITDA') f = headKey.has('cf-rev-hosp') ? sumKeysF([...headOf('cf-rev-hosp'), ...headOf('cf-opex-hosp')]) : (t) => `${sumF(hosp.map(revRcv))(t)}-(${sumF(hosp.map(opexPaid))(t)})`;
+        else if (L === '= Retail NOI') f = headKey.has('cf-rev-ret') ? sumKeysF([...headOf('cf-rev-ret'), ...headOf('cf-opex-ret')]) : (t) => `${sumF(ret.map(revRcv))(t)}-(${sumF(ret.map(opexPaid))(t)})`;
+        else if (L === 'Total Operating Expenses Paid') {
+          const parts = [...headOf('cf-opex-hosp'), ...headOf('cf-opex-ret'), ...[`HQ Expenses${phaseFiltered ? ' (project)' : ''}`, `${SELLING_EXPENSE_LABEL}${phaseFiltered ? ' (project)' : ''}`].map(K).filter(has)];
+          f = resNoOpex ? sumKeysF(parts) : (t) => `-(${sumF(all.map(opexPaid))(t)})-${hqPaid(t)}-(${sellingExp(t)})`;
+        }
         else if (L === 'Fund Management and Other Expenses') f = neg(feesF);
         else if (L === labels.taxPaid) f = neg(keyF('fnc:taxpaid'));
         else if (L === 'Cash Flow from Operations') {
@@ -430,6 +472,13 @@ export const stage5Statements: LiveLayer = {
         else if (L === 'Closing cash') { f = sumRows(['Opening cash', 'Net Cash Flow']); tot = 'last'; }
         if (!f) { cfRefused = `no rule for the Cash Flow row "${L}"${phaseFiltered ? ` (${phaseId})` : ''}`; return; }
         writes.push([CF, key, f, tot]);
+      }
+      // A group's line is the sum of the rows shown under it.
+      for (const [g, hk] of headKey) {
+        const ms = memberKeys.get(g);
+        if (!ms?.length) continue;
+        const at = writes.findIndex((x) => x[1] === hk);
+        if (at >= 0) writes[at] = [CF, hk, sumKeysF(ms), 'sum'];
       }
     };
     cfView('direct', ALL, buildDirectCFRows({ snap, state, labels, filterPhaseId: ALL, fmt: (v: number) => String(v), allRows: true }));

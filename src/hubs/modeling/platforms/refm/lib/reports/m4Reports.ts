@@ -948,6 +948,13 @@ export function buildDirectCFRows(ctx: M4ReportCtx): M4Row[] {
   const escrowHeld = phaseFiltered ? sumEscrow('heldPerPeriod').map((v) => -v) : d.escrowHeldPerPeriod;
   const escrowRelease = phaseFiltered ? sumEscrow('releasePerPeriod') : d.escrowReleasePerPeriod;
   const opexPaid = phaseFiltered ? sumAssetSeries(phaseAssets, 'opexPaidPerPeriod').map((v) => -v) : d.opexPaidPerPeriod;
+  // THE LIVE WORKBOOK SHOWS THE ROW ITS TOTAL ADDS (2026-10-20): a hotel or lease line's cash is its
+  // revenue less the rise in its receivable, so that rise is a row of its own and Total Revenue
+  // Received is the sum of the rows above it. Only where an operating line exists.
+  if (all && hospitalityAssets.length + retailAssets.length > 0) {
+    const shown = sumAssetSeries([...residentialAssets, ...hospitalityAssets, ...retailAssets], 'revenueReceivedPerPeriod');
+    rows.push({ label: 'Less: Rise in operating receivables', values: revenueReceived.map((v, t) => v - (shown[t] ?? 0)), indent: 1 });
+  }
   rows.push({ label: 'Total Revenue Received', values: revenueReceived, isSubtotal: true });
 
   if (all || escrowHeld.some((v) => v !== 0) || escrowRelease.some((v) => v !== 0)) {
