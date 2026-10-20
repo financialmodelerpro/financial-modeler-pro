@@ -72,7 +72,9 @@ export function vintageDepF(addAll: string, life: string, firstOp: string, idxAl
   return `IF(${life}>0,SUMPRODUCT((${addAll}>0)*${addAll}/MAX(1,${life})*(${V}<=${idxNow})*(${V}+MAX(1,INT(${life}))>${idxNow})),0)`;
 }
 /** The year index (1 = the first year) of a phase's first operating year, from Inputs. */
-export function firstOperatingIdx(w: LiveWriter, phaseId: string): string {
+export function firstOperatingIdx(w: LiveWriter, phaseId: string, hostId?: string): string {
+  // The held line's own cell on the depreciation inputs table, where the live layout carries one.
+  if (hostId && w.has(`fafirst:${hostId}`)) return w.ref(`fafirst:${hostId}`);
   return `(MAX(0,YEAR(${w.ref(`phase:${phaseId}:start`)})-${w.ref('project:axisYear')})+MAX(0,${w.ref(`phase:${phaseId}:cp`)})+1)`;
 }
 
@@ -244,9 +246,16 @@ export const stage4Schedules: LiveLayer = {
           w.fA({ sheet: SCH, row: inputs.row, col: TOTAL_COL }, `IF(N(${ov})>0,N(${ov}),${w.ref(dk)})`);
         }
         w.fA({ sheet: SCH, row: inputs.row, col: OPEN_COL }, `IF(${Lf()}>0,1/${Lf()},0)`);
+        // The year depreciation starts (the first operating year, as a model year number).
+        if (w.has(`fafirst:${host.id}`)) w.f(`fafirst:${host.id}`, firstOperatingIdx(w, p0.id));
         // Each year's addition depreciates from the later of its own year and the first operating year.
-        const vintageDep = (addKey: string) => (t: number): string => vintageDepF(w.rangeA(SCH, w.addr(addKey).row, pc(0), pc(N - 1)), Lf(), firstOperatingIdx(w, p0.id), idxAll(), idxRow(t));
-        writeTables(l.hostId, r, (t) => landKeys.map((k) => p(k, t)).join('+') || '0', (t) => otherKeys.map((k) => p(k, t)).join('+') || '0', vintageDep(r.capAdd),
+        const vintageDep = (addKey: string) => (t: number): string => vintageDepF(w.rangeA(SCH, w.addr(addKey).row, pc(0), pc(N - 1)), Lf(), firstOperatingIdx(w, p0.id, host.id), idxAll(), idxRow(t));
+        // The asset's rows on Capex: Table 4 (excluding all land) is what depreciates, Table 2 less it is its land.
+        const c2 = l.memberIds.map((id) => `cx2:${id}`).find((k) => w.has(k)), c4 = l.memberIds.map((id) => `cx4:${id}`).find((k) => w.has(k));
+        const byTables = !!c2 && !!c4 && c2.slice(4) === c4.slice(4);
+        writeTables(l.hostId, r,
+          byTables ? (t) => `${p(c2!, t)}-${p(c4!, t)}` : (t) => landKeys.map((k) => p(k, t)).join('+') || '0',
+          byTables ? (t) => p(c4!, t) : (t) => otherKeys.map((k) => p(k, t)).join('+') || '0', vintageDep(r.capAdd),
           r.idcAdd ? { add: null, dep: vintageDep(r.idcAdd) } : null);
         lineRows.set(l.hostId, r);
         w.claim(`schc:${host.id}:life`, inputs.sheet, inputs.row, TOTAL_COL);

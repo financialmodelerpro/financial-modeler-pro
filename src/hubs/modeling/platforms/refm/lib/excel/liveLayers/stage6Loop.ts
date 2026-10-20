@@ -844,7 +844,7 @@ export const stage6Loop: LiveLayer = {
         const rows = idcRowsOf(ids);
         put(kAdd, (t) => rows.map((x) => P(x, t)).join('+') || '0');
         const idxAll = w.rangeA('Schedules', 4, pc(0), pc(N - 1));
-        put(kDep2, (t) => vintageDepF(rowRange(kAdd), lifeInForce(w, host, here), firstOperatingIdx(w, host.phaseId), idxAll, w.refP({ sheet: 'Schedules', row: 4, col: pc(t) }, here)));
+        put(kDep2, (t) => vintageDepF(rowRange(kAdd), lifeInForce(w, host, here), firstOperatingIdx(w, host.phaseId, host.id), idxAll, w.refP({ sheet: 'Schedules', row: 4, col: pc(t) }, here)));
         const pre = (t: number): string => `MAX(0,${P(kNbv, t, -1)}+${P(kAdd, t)}-${P(kDep2, t)})`;
         put(kOff, (t) => `-(${exitF(t)}*${pre(t)})`);
         put(kNbv, (t) => `(1-${exitF(t)})*${pre(t)}`, 'last');

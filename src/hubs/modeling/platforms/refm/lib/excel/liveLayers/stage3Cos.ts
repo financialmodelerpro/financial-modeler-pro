@@ -114,9 +114,9 @@ export const stage3Cos: LiveLayer = {
         if (!members.length) continue;
         const a = w.addr(key);
         here = a.sheet;
-        // The plot's row on Capex: its rate (C), the base it charges on (D) and its total.
-        w.fA({ sheet: a.sheet, row: a.row, col: 5 }, fx(members[0], 3));
-        w.fA({ sheet: a.sheet, row: a.row, col: 7 }, members.map((k) => fx(k, 4)).join('+'));
+        // The asset's row on Capex: its rate (where it is typed), the base it charges on (C) and its total.
+        w.fA({ sheet: a.sheet, row: a.row, col: 5 }, has(members[0].replace(/^cx[ce]:/, 'cxrate:')) ? `N(${w.ref(members[0].replace(/^cx[ce]:/, 'cxrate:'))})` : fx(members[0], 3));
+        w.fA({ sheet: a.sheet, row: a.row, col: 7 }, members.map((k) => fx(k, 3)).join('+'));
         w.fA({ sheet: a.sheet, row: a.row, col: 8 }, members.map((k) => w.one(k)).join('+'));
         costRows.push(key);
       }

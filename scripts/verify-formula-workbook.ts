@@ -30,6 +30,9 @@ import { buildModelWorkbook, PERIOD_COLS } from '../src/hubs/modeling/platforms/
 import { buildFormulaWorkbook, enableFormulaIteration, exportShapeProblems, TAB_ORDER } from '../src/hubs/modeling/platforms/refm/lib/excel/formulaWorkbook';
 import { readCells, shadedCells, isShaded, isLegendSwatch, cellId } from '../src/hubs/modeling/platforms/refm/lib/excel/liveLayers/inputAudit';
 import { loadLiveExportInputs } from './fixtures/liveExportInputs';
+import { multiPlotVariant } from './fixtures/multiPlotVariant';
+import { groupAssetsForConsolidation } from '../src/core/calculations/consolidation';
+import { normaliseAssetTypeId } from '../src/hubs/modeling/platforms/refm/lib/state/assetTypeStandards';
 import { excelAvailable, recalcInExcel, cellKey } from './excelRecalc';
 import JSZip from 'jszip';
 import { planRevenueLines } from '../src/hubs/modeling/platforms/refm/lib/revenueLines';
@@ -398,8 +401,12 @@ function perturbations(input: LiveExportInputs, reg: CellRegistry): Perturbation
   // built here: a line's second plot types its own curve, unlike the first, and the test moves it.
   {
     // The plots of each pooled line, from Capex's plot rows (cx1p:<line>:<cost line>:<plot>), the platform's own line planner.
+    // (2026-10-20: Capex shows one row per cost line per asset, so the plots of a line are found
+    // from the platform's own assets: a line is its phase, type and strategy, companions apart.)
     const byLine = new Map<string, Set<string>>();
-    for (const k of reg.keys()) if (k.startsWith('cx1p:')) { const [, host, , plot] = k.split(':'); byLine.set(host, (byLine.get(host) ?? new Set()).add(plot)); }
+    for (const g of groupAssetsForConsolidation((st.assets as any[]).filter((a) => a.visible !== false && a.isCompanion !== true), (st.phases as any[]).map((p) => p.id), normaliseAssetTypeId)) {
+      byLine.set(g.key, new Set((g.assets as any[]).map((a) => a.id).filter((id: string) => reg.get(`chain:${id}:land`))));
+    }
     const pair = [...byLine.values()].map((ids) => [...ids].map((id) => (st.assets as any[]).find((x) => x.id === id)).filter(Boolean)).find((g) => g.length >= 2);
     const target = pair && (pair.find((a) => a.capexPhasing?.phasing !== 'manual') ?? pair[1]);
     if (target) {
@@ -847,7 +854,9 @@ function formulaCells(wb: ExcelJS.Workbook): Map<string, { formula: string; resu
 (async () => {
   // --project <id> proves another open project (B in full; C's rules may find no target there).
   const projAt = process.argv.indexOf('--project');
-  const input = await loadLiveExportInputs(projAt > 0 ? process.argv[projAt + 1] : undefined);
+  let input = await loadLiveExportInputs(projAt > 0 ? process.argv[projAt + 1] : undefined);
+  // --variant multiplot: the reference project with several lands per asset (multiPlotVariant.ts).
+  if (process.argv.includes('--variant') && process.argv[process.argv.indexOf('--variant') + 1] === 'multiplot') input = multiPlotVariant(input);
   const opts = { state: input.state, projectName: input.projectName, dateLabel: 'verify', caseComparison: input.caseComparison, parties: input.parties, includeSensitivity: true };
   console.log(`Project: ${input.projectName}, version ${input.versionLabel ?? '(unlabelled)'}\n`);
 

@@ -338,17 +338,20 @@ export const stage5Statements: LiveLayer = {
       const ret = visible.filter((a) => a.strategy === 'Lease' && matches(a));
       const all = [...res, ...hosp, ...ret];
       const byId = new Map(state.assets.map((a) => [a.id, a] as const));
-      const members = (list: Asset[], pick: (a: Asset) => F, sign: 1 | -1): Array<{ label: string; f: F }> => {
+      // A capex line reads ONE CELL: its asset's row on Capex Table 3 (capex excluding land in kind).
+      const cashCapexKey = (assetIds: readonly string[]): string | undefined => assetIds.map((id) => `cx3:${id}`).find(has);
+      const members = (list: Asset[], pick: (a: Asset) => F, sign: 1 | -1, capexLine = false): Array<{ label: string; f: F }> => {
         const ids = new Set(list.map((a) => a.id));
         return planReportLines(state, (a) => ids.has(a.id)).map((line) => {
-          const f = sumF(line.assetIds.map((id) => pick(byId.get(id)!)));
+          const one = capexLine ? cashCapexKey(line.assetIds) : undefined;
+          const f = one ? keyF(one) : sumF(line.assetIds.map((id) => pick(byId.get(id)!)));
           return { label: lineRowLabel(line, state), f: sign === 1 ? f : neg(f) };
         });
       };
       const groups = new Map<string, Array<{ label: string; f: F }>>([
         ['cf-rev-res', members(res, revRcv, 1)], ['cf-rev-hosp', members(hosp, revRcv, 1)], ['cf-rev-ret', members(ret, revRcv, 1)],
         ['cf-opex-hosp', members(hosp, opexPaid, -1)], ['cf-opex-ret', members(ret, opexPaid, -1)],
-        ['cf-capex-res', members(res, capexCash, -1)], ['cf-capex-hosp', members(hosp, capexCash, -1)], ['cf-capex-ret', members(ret, capexCash, -1)],
+        ['cf-capex-res', members(res, capexCash, -1, true)], ['cf-capex-hosp', members(hosp, capexCash, -1, true)], ['cf-capex-ret', members(ret, capexCash, -1, true)],
       ]);
       const heads = new Map<string, F>([
         ['cf-rev-res', sumF(res.map(revRcv))], ['cf-rev-hosp', sumF(hosp.map(revRcv))], ['cf-rev-ret', sumF(ret.map(revRcv))],
@@ -361,7 +364,9 @@ export const stage5Statements: LiveLayer = {
       const oparKeys = lines.filter((l) => l.form !== 'sell' && l.members.some((m) => viewIds.has(m.id))).map((l) => `rvc:${l.key}:opar`).filter(has);
       const opAr: F = (t) => oparKeys.map((k) => R(k, t)).join('+') || '0';
       const opCash: F = (t) => `MAX(0,${opRev(t)})-(${delta(opAr)(t)})`;
-      const inKind = sumF(all.map(inKindOf));
+      // Land in kind reads Capex Table 5 (the project's, or the phase's), one cell.
+      const inKindKey = phaseFiltered ? `cx5:${phaseId}:inkind` : 'cx5:total:inkind';
+      const inKind = has(inKindKey) ? keyF(inKindKey) : sumF(all.map(inKindOf));
       const seen = new Map<string, number>();
       const keyFor = (label: string): string => { const b = `cf|${view}||${label}`; const n = seen.get(b) ?? 0; seen.set(b, n + 1); return n ? `${b}~${n}` : b; };
       const K = (label: string): string => `cf|${view}||${label}`;
