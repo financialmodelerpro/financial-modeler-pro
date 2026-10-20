@@ -209,7 +209,11 @@ function isInputsEcho(sheet: string, f: string): boolean {
     || /^(?:'Inputs'|Inputs)!\$?[A-Z]+\$\d+$/.test(f)
     || /^IF\(N\((?:'Inputs'|Inputs)!\$?[A-Z]+\$\d+\)=[01],/.test(f)
     // A door that may be blank: the number when there is one, else the module's own word for none.
-    || /^IF\(ISNUMBER\(((?:'Inputs'|Inputs)!\$?[A-Z]+\$\d+)\),\1,"[^"]*"\)$/.test(f);
+    || /^IF\(ISNUMBER\(((?:'Inputs'|Inputs)!\$?[A-Z]+\$\d+)\),\1,"[^"]*"\)$/.test(f)
+    // A door whose blank takes a default worked out live (2026-10-20): the typed figure when
+    // there is one, else the default (a useful life's category default, a start year after construction).
+    || /^IF\(ISNUMBER\(((?:'Inputs'|Inputs)!\$?[A-Z]+\$\d+)\),\1,/.test(f)
+    || /^IF\(N\(((?:'Inputs'|Inputs)!\$?[A-Z]+\$\d+)\)>0,N\(\1\),/.test(f);
 }
 function inputsDoor(wb: ExcelJS.Workbook, a: { sheet: string; row: number; col: number }, value: number): { at: { sheet: string; row: number; col: number }; value: number } {
   const v = wb.getWorksheet(a.sheet)?.getCell(a.row, a.col).value as unknown as { formula?: string } | null;
@@ -1003,7 +1007,10 @@ function formulaCells(wb: ExcelJS.Workbook): Map<string, { formula: string; resu
   console.log('\n=== Status by sheet ===');
   for (const [name, s] of status) console.log(`  ${name.padEnd(16)} ${s.status.padEnd(17)} formulas ${String(s.formulas).padStart(6)}  ${s.note}`);
 
-  const xl = excelAvailable();
+  // --a-only: the offline legs only, for iterating (reported as a failure, never a proof).
+  const aOnly = process.argv.includes('--a-only');
+  if (aOnly) check('B and C skipped by --a-only (iteration only; never a proof)', false);
+  const xl = aOnly ? { ok: false, reason: '--a-only' } : excelAvailable();
   if (!xl.ok) {
     console.log(`\n[SKIP] B/C need real Excel: ${xl.reason}`);
   } else {

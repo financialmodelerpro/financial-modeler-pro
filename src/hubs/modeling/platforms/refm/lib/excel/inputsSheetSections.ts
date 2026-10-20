@@ -38,6 +38,7 @@ import { resolveRowVelocity } from '../revenue-resolvers';
 import { buildSaleCohortTermsBlock, saleCohortRuleText } from '../reports/saleCohortReports';
 import { OPEX_CATEGORY_LABELS, OPEX_MODE_LABELS, isFixedCostOpexMode, summarizeOpexIndexation } from '../reports/opexInputLabels';
 import { resolveReturnsConfig, computeReturnsSnapshot } from '../returns-resolvers';
+import { defaultSensitivityValues } from '@/src/core/calculations/returns';
 import { statedLineReceivableDays } from '../receivableDays';
 
 type Snap = ReturnType<typeof computeFinancialsSnapshot>;
@@ -142,9 +143,29 @@ export function emitProjectSection(c: SheetCursor, state: FinancialsResolverStat
 }
 
 export function emitPhasesSection(c: SheetCursor, state: FinancialsResolverState, snap: Snap): void {
-  setSectionHeader(c.ws.getRow(c.r), 'Phases', 8); c.r += 1;
-  headers(c, ['Phase Name', 'Phase Start Date', 'Construction (years)', 'Operations (years)', 'Construction End', 'Operations Start', 'Operations End', 'Status']);
+  // THE LIVE LAYOUT HOLDS TYPED VALUES ONLY (2026-10-20): the phase end dates and the axis
+  // year are worked out on the Timeline, which reads these cells.
+  const live = isLiveLayout();
+  setSectionHeader(c.ws.getRow(c.r), 'Phases', live ? 6 : 8); c.r += 1;
+  headers(c, live ? ['Phase Name', 'Phase Start Date', 'Construction (years)', 'Operations (years)', 'Status', 'Start year at export']
+    : ['Phase Name', 'Phase Start Date', 'Construction (years)', 'Operations (years)', 'Construction End', 'Operations Start', 'Operations End', 'Status']);
   for (const ph of state.phases) {
+    if (live) {
+      setLabel(c.ws.getCell(c.r, 1), ph.name);
+      setInput(c.ws.getCell(c.r, 2), utcDate(ph.startDate && ph.startDate.length === 10 ? ph.startDate : state.project.startDate), '@');
+      setInput(c.ws.getCell(c.r, 3), ph.constructionPeriods ?? 0, NUMFMT.int);
+      setInput(c.ws.getCell(c.r, 4), ph.operationsPeriods ?? 0, NUMFMT.int);
+      (['start', 'cp', 'op'] as const).forEach((k, i) => registerCell(`phase:${ph.id}:${k}`, c.ws, c.ws.getCell(c.r, 2 + i)));
+      setInput(c.ws.getCell(c.r, 5), phaseStatusLabel(ph.status), '@');
+      // The year the phase started at export: the input cards lay their years out for it.
+      const sx = c.ws.getCell(c.r, 6);
+      sx.value = utcYear(ph.startDate as string, snap.projectStartYear); sx.numFmt = NUMFMT.year;
+      sx.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } };
+      registerCell(`phase:${ph.id}:sx`, c.ws, sx);
+      setNote(sx, 'Fixed at export: the year this phase started when the workbook was exported. The input cards lay their years out for it.');
+      c.r += 1;
+      continue;
+    }
     const tl = computePhaseTimeline(ph, state.project);
     setLabel(c.ws.getCell(c.r, 1), ph.name);
     setInput(c.ws.getCell(c.r, 2), utcDate(ph.startDate && ph.startDate.length === 10 ? ph.startDate : state.project.startDate), '@');
@@ -157,6 +178,7 @@ export function emitPhasesSection(c: SheetCursor, state: FinancialsResolverState
     setInput(c.ws.getCell(c.r, 8), phaseStatusLabel(ph.status), '@');
     c.r += 1;
   }
+  if (live) { c.r += 1; return; }
   // The model axis starts at the earliest phase: derived, and the name the
   // period sheets key their year headings to.
   setLabel(c.ws.getCell(c.r, 1), 'Model axis start year (derived)', { bold: true });
@@ -250,8 +272,10 @@ export function emitStandardsSection(c: SheetCursor, state: FinancialsResolverSt
 export function emitPlotsSection(c: SheetCursor, state: FinancialsResolverState): void {
   if (state.parcels.length === 0) return;
   const cur = state.project.currency ?? 'SAR';
-  setSectionHeader(c.ws.getRow(c.r), 'Plots, the land', 9); c.r += 1;
-  headers(c, ['Plot', 'Phase', 'Area (sqm)', `${cur}/sqm`, 'Cash %', 'In-Kind %', 'Land Value', 'Cash Value', 'In-Kind Value']);
+  // THE LIVE LAYOUT HOLDS TYPED VALUES ONLY (2026-10-20): the plot values are worked out on Land & Area.
+  const live = isLiveLayout();
+  setSectionHeader(c.ws.getRow(c.r), 'Plots, the land', live ? 6 : 9); c.r += 1;
+  headers(c, live ? ['Plot', 'Phase', 'Area (sqm)', `${cur}/sqm`, 'Cash %', 'In-Kind %'] : ['Plot', 'Phase', 'Area (sqm)', `${cur}/sqm`, 'Cash %', 'In-Kind %', 'Land Value', 'Cash Value', 'In-Kind Value']);
   let area = 0, value = 0, cash = 0, inKind = 0;
   for (const pa of state.parcels) {
     const a = Math.max(0, pa.area ?? 0), rate = Math.max(0, pa.rate ?? 0);
@@ -262,13 +286,16 @@ export function emitPlotsSection(c: SheetCursor, state: FinancialsResolverState)
     setInput(c.ws.getCell(c.r, 4), pa.rate ?? 0, NUMFMT.rate);
     setInput(c.ws.getCell(c.r, 5), (pa.cashPct ?? 0) / 100, NUMFMT.pct);
     setInput(c.ws.getCell(c.r, 6), (pa.inKindPct ?? 0) / 100, NUMFMT.pct);
-    derived(c.ws.getCell(c.r, 7), lv, NUMFMT.money);
-    derived(c.ws.getCell(c.r, 8), cv, NUMFMT.money);
-    derived(c.ws.getCell(c.r, 9), iv, NUMFMT.money);
-    (['area', 'rate', 'cash', 'inkind', 'value', 'cashValue', 'inkindValue'] as const).forEach((k, i) => registerCell(`parcel:${pa.id}:${k}`, c.ws, c.ws.getCell(c.r, 3 + i)));
+    if (!live) {
+      derived(c.ws.getCell(c.r, 7), lv, NUMFMT.money);
+      derived(c.ws.getCell(c.r, 8), cv, NUMFMT.money);
+      derived(c.ws.getCell(c.r, 9), iv, NUMFMT.money);
+    }
+    (['area', 'rate', 'cash', 'inkind', 'value', 'cashValue', 'inkindValue'] as const).forEach((k, i) => { if (!live || i < 4) registerCell(`parcel:${pa.id}:${k}`, c.ws, c.ws.getCell(c.r, 3 + i)); });
     area += a; value += lv; cash += cv; inKind += iv;
     c.r += 1;
   }
+  if (live) { c.r += 1; return; }
   setLabel(c.ws.getCell(c.r, 1), 'Totals', { bold: true });
   derived(c.ws.getCell(c.r, 3), area, NUMFMT.int, true);
   derived(c.ws.getCell(c.r, 4), area > 0 ? value / area : 0, NUMFMT.rate, true);
@@ -436,12 +463,38 @@ export function emitSubUnitAreas(c: SheetCursor, state: FinancialsResolverState,
 
 // ── DEPRECIATION INPUTS (Module 4, Fixed Assets) ────────────────────────────
 
+/** The category whose default life an asset inherits (the strategy switch of `resolveUsefulLifeYears`). */
+export function usefulLifeCategory(a: Pick<Asset, 'strategy'>): string {
+  return a.strategy === 'Operate' ? 'hospitality' : a.strategy === 'Lease' ? 'retail'
+    : a.strategy === 'Sell' || a.strategy === 'Sell + Manage' ? 'residential' : 'default';
+}
+const USEFUL_LIFE_CATEGORY_LABELS: Record<string, string> = { hospitality: 'Hospitality', retail: 'Retail / Lease', residential: 'Residential', default: 'Other' };
+
 export function emitDepreciationSection(c: SheetCursor, state: FinancialsResolverState, snap: Snap): void {
   const assets = state.assets;
   const lines = planReportLines({ assets, phases: state.phases, parcels: state.parcels }, (a) => snap.fixedAssets.byAsset.has(a.id));
   if (lines.length === 0) return;
   setSectionHeader(c.ws.getRow(c.r), 'Depreciation Inputs (all assets)', 7); c.r += 1;
-  headers(c, ['Asset', 'Strategy', 'Method', 'Useful Life (yrs)', 'Rate', 'Opening Land', 'Opening Bldg NBV']);
+  const live = isLiveLayout();
+  if (live) {
+    // THE CATEGORY DEFAULTS, TYPED ONCE (2026-10-20): an asset that states no life takes its
+    // category's (`resolveUsefulLifeYears`); Schedules works out the life in force.
+    headers(c, ['Default useful life', 'Years']);
+    const cats = new Map<string, number>();
+    for (const line of lines) {
+      const h = assets.find((a) => a.id === line.assetIds[0]);
+      if (h) cats.set(usefulLifeCategory(h), resolveUsefulLifeYears({ ...h, usefulLifeYears: undefined } as Asset));
+    }
+    for (const [cat, yrs] of cats) {
+      setLabel(c.ws.getCell(c.r, 1), USEFUL_LIFE_CATEGORY_LABELS[cat] ?? cat, { indent: 1 });
+      setInput(c.ws.getCell(c.r, 2), yrs, NUMFMT.int);
+      registerCell(`fadefault:${cat}`, c.ws, c.ws.getCell(c.r, 2));
+      c.r += 1;
+    }
+    c.r += 1;
+  }
+  headers(c, live ? ['Asset', 'Strategy', 'Method', 'Useful life (blank = default)', 'Rate', 'Opening Land', 'Opening Bldg NBV']
+    : ['Asset', 'Strategy', 'Method', 'Useful Life (yrs)', 'Rate', 'Opening Land', 'Opening Bldg NBV']);
   for (const line of lines) {
     const host = assets.find((a) => a.id === line.assetIds[0]);
     if (!host) continue;
@@ -452,23 +505,32 @@ export function emitDepreciationSection(c: SheetCursor, state: FinancialsResolve
     setLabel(c.ws.getCell(c.r, 1), lineTitle(line, { assets, phases: state.phases, parcels: state.parcels }));
     setLabel(c.ws.getCell(c.r, 2), host.strategy === 'Operate' ? (host.isCompanion ? 'Hospitality (Manage)' : 'Hospitality') : host.strategy === 'Lease' ? 'Retail / Lease' : String(host.strategy));
     setInput(c.ws.getCell(c.r, 3), isRB ? 'Reducing Balance (WDV)' : 'Straight Line (SL)', '@');
-    if (isLiveLayout()) {
-      setInput(c.ws.getCell(c.r, 4), lifeEffective, NUMFMT.int);
-      registerCell(`inp=fain:${host.id}@4`, c.ws, c.ws.getCell(c.r, 4));
-      if (!(lifeStored !== undefined && lifeStored > 0)) setNote(c.ws.getCell(c.r, 4), 'Blank on the platform: the asset category default. Typing a life here overrides it.');
+    if (live) {
+      // A life the asset states, typed; blank takes the category default above.
+      if (lifeStored !== undefined && lifeStored > 0) setInput(c.ws.getCell(c.r, 4), lifeStored, NUMFMT.int);
+      else { markInput(c.ws.getCell(c.r, 4)); c.ws.getCell(c.r, 4).numFmt = NUMFMT.int; }
+      registerCell(`falife:${host.id}`, c.ws, c.ws.getCell(c.r, 4));
     } else if (lifeStored !== undefined && lifeStored > 0) setInput(c.ws.getCell(c.r, 4), lifeStored, NUMFMT.int);
     else derived(c.ws.getCell(c.r, 4), lifeEffective, NUMFMT.int);
     if (isRB) {
       if (host.depreciationRate !== undefined) setInput(c.ws.getCell(c.r, 5), host.depreciationRate, NUMFMT.pct2);
-      else derived(c.ws.getCell(c.r, 5), lifeEffective > 0 ? 2 / lifeEffective : 0, NUMFMT.pct2);
-    } else derived(c.ws.getCell(c.r, 5), lifeEffective > 0 ? 1 / lifeEffective : 0, NUMFMT.pct2);
+      else if (!live) derived(c.ws.getCell(c.r, 5), lifeEffective > 0 ? 2 / lifeEffective : 0, NUMFMT.pct2);
+    } else if (!live) derived(c.ws.getCell(c.r, 5), lifeEffective > 0 ? 1 / lifeEffective : 0, NUMFMT.pct2);
     const openingLand = rows.reduce((s, x) => s + (x.land.openingAtAxisStart ?? 0), 0);
     const openingBldg = rows.reduce((s, x) => s + (x.depreciable.openingNBVPerPeriod[0] ?? 0), 0);
-    derived(c.ws.getCell(c.r, 6), openingLand > 0 ? openingLand : '-', openingLand > 0 ? NUMFMT.money : '@');
-    derived(c.ws.getCell(c.r, 7), openingBldg > 0 ? openingBldg : '-', openingBldg > 0 ? NUMFMT.money : '@');
+    if (live) {
+      // The opening balances at the model start, typed here; the Schedules inputs table echoes them.
+      setInput(c.ws.getCell(c.r, 6), openingLand, NUMFMT.money);
+      setInput(c.ws.getCell(c.r, 7), openingBldg, NUMFMT.money);
+      registerCell(`inp=fain:${host.id}@6`, c.ws, c.ws.getCell(c.r, 6));
+      registerCell(`inp=fain:${host.id}@7`, c.ws, c.ws.getCell(c.r, 7));
+    } else {
+      derived(c.ws.getCell(c.r, 6), openingLand > 0 ? openingLand : '-', openingLand > 0 ? NUMFMT.money : '@');
+      derived(c.ws.getCell(c.r, 7), openingBldg > 0 ? openingBldg : '-', openingBldg > 0 ? NUMFMT.money : '@');
+    }
     c.r += 1;
   }
-  note(c, 'An unshaded useful life is blank on the platform and inherits the asset category default. Straight line rate = 1 / life; a blank reducing balance rate = 2 / life.');
+  if (!live) note(c, 'An unshaded useful life is blank on the platform and inherits the asset category default. Straight line rate = 1 / life; a blank reducing balance rate = 2 / life.');
   c.r += 1;
 }
 
@@ -529,6 +591,34 @@ export function emitReturnsSection(c: SheetCursor, state: FinancialsResolverStat
   }
   c.r += 1;
   if (!isLiveLayout()) return;
+  // THE EXISTING POSITION AT THE MODEL START (live workbook, 2026-10-20): typed here, the Returns
+  // sheet reads them. Existing operations are not built live, so these are as exported.
+  {
+    const ex = snap.financing.existing;
+    setSectionHeader(c.ws.getRow(c.r), 'Existing position at the model start', 2); c.r += 1;
+    const one = (label: string, v: number, key: string): void => {
+      setLabel(c.ws.getCell(c.r, 1), label);
+      setInput(c.ws.getCell(c.r, 2), v, NUMFMT.money);
+      registerCell(key, c.ws, c.ws.getCell(c.r, 2));
+      c.r += 1;
+    };
+    one('Historical development investment', Math.max(0, ex.preCapexTotal), 'retin:hist');
+    one('Existing debt', Math.max(0, ex.debtOutstandingTotal), 'retin:debt');
+    one('Existing equity', snap.financing.equity.totalExisting, 'retin:equity');
+    c.r += 1;
+  }
+  // THE SENSITIVITY GRID'S AXES (live workbook, 2026-10-20): typed here, the Returns grid reads them.
+  {
+    setSectionHeader(c.ws.getRow(c.r), 'Sensitivity grid axes', 8); c.r += 1;
+    const axis = (label: string, vals: number[], key: string): void => {
+      setLabel(c.ws.getCell(c.r, 1), label);
+      vals.forEach((v, i) => { setInput(c.ws.getCell(c.r, 2 + i), v, NUMFMT.pct2); registerCell(`${key}:${i}`, c.ws, c.ws.getCell(c.r, 2 + i)); });
+      c.r += 1;
+    };
+    axis('Sales price change', defaultSensitivityValues('sales_price_pct', cfg.discountRate), 'sensin:price');
+    axis('Exit cap rate', defaultSensitivityValues('exit_cap_rate', cfg.discountRate), 'sensin:cap');
+    c.r += 1;
+  }
   // THE EQUITY PARTNERS AND THE LENDER COVENANTS (live workbook): typed here, the Returns sheet echoes them.
   const partners = state.project.partners ?? [];
   const effective = partners.length ? partners : [{ id: 'sponsor', name: 'Sponsor', cashPct: 100, inKindPct: 100, existingPct: 100 }];
@@ -542,7 +632,8 @@ export function emitReturnsSection(c: SheetCursor, state: FinancialsResolverStat
     registerCell(`inp=retg|Equity Partners|% share|${j + 1}`, c.ws, c.ws.getCell(c.r, 2));
     setInput(c.ws.getCell(c.r, 3), pct(p.inKindPct), NUMFMT.pct2);
     registerCell(`inp=retg|Equity Partners|% share~1|${j + 1}`, c.ws, c.ws.getCell(c.r, 3));
-    derived(c.ws.getCell(c.r, 4), pct(p.existingPct), NUMFMT.pct2);
+    setInput(c.ws.getCell(c.r, 4), pct(p.existingPct), NUMFMT.pct2);
+    registerCell(`inp=retg|Equity Partners|% share~2|${j + 1}`, c.ws, c.ws.getCell(c.r, 4));
     const ag = c.ws.getCell(c.r, 5);
     if (ps[j]?.shareholdingIsManual) setInput(ag, ps[j].shareholdingPct, NUMFMT.pct2); else { markInput(ag); ag.numFmt = NUMFMT.pct2; }
     registerCell(`inp=retg|Equity Partners|Agreed % (override)|${j + 1}#blank`, c.ws, ag);
@@ -906,13 +997,20 @@ export function emitOpexInputs(c: SheetCursor, state: FinancialsResolverState, a
   kv(c, 'Project Default DPO (days)', p.opexAp?.defaultApDays ?? 0, NUMFMT.int, true, 'DpoDays', 'Blank or 0 = pay on incurrence (no AP).', 'inp=opexin|__ap__||Project Default DPO (days)@4#dpo');
   kv(c, 'Days basis', p.opexAp?.daysPerYear ?? 365, NUMFMT.int, p.opexAp?.daysPerYear !== undefined || isLiveLayout(), undefined, undefined, isLiveLayout() ? 'inp=opexin|__ap__||Days basis@4' : undefined);
   if (ordered.length > 0) {
-    headers(c, ['Asset', 'Effective DPO (days)', 'DPO Override']);
+    const liveDpo = isLiveLayout();
+    // Live layout: the override only (blank = the project default); the days in force are worked out on Opex.
+    headers(c, liveDpo ? ['Asset', 'DPO override (blank = default)'] : ['Asset', 'Effective DPO (days)', 'DPO Override']);
     for (const { line, host } of ordered) {
       const override = host.opex?.apDaysOverride;
       setLabel(c.ws.getCell(c.r, 1), lineTitle(line, ctx));
+      if (liveDpo) {
+        if (override !== undefined) setInput(c.ws.getCell(c.r, 2), override, NUMFMT.int); else markInput(c.ws.getCell(c.r, 2));
+        registerCell(`oxin|dpo|${host.id}`, c.ws, c.ws.getCell(c.r, 2));
+        c.r += 1;
+        continue;
+      }
       derived(c.ws.getCell(c.r, 2), override !== undefined && override >= 0 ? override : projectDpo, NUMFMT.int);
       if (override !== undefined) setInput(c.ws.getCell(c.r, 3), override, NUMFMT.int);
-      else if (isLiveLayout()) markInput(c.ws.getCell(c.r, 3));
       // The live workbook types an override here and works out the effective days beside it.
       registerCell(`oxin|dpo|${host.id}`, c.ws, c.ws.getCell(c.r, 2));
       c.r += 1;
@@ -995,6 +1093,7 @@ export function emitLandTables(c: SheetCursor, tables: AssetAreaTables): void {
     setLabel(ws.getCell(c.r, 2), l.phaseName);
     setLabel(ws.getCell(c.r, 3), l.strategy);
     derived(ws.getCell(c.r, 4), l.plots, NUMFMT.int);
+    registerCell(`chainline:${l.key}:plots`, ws, ws.getCell(c.r, 4));
     chainCells(ws, c.r, 5, l.landSqm, l.pooled, { landscapePct: l.landscapePct, unitSize: l.avgUnitSize, slotRatio: l.slotsPerUnit });
     registerChainRow(ws, c.r, 5, `chainline:${l.key}`);
     c.r += 1;
@@ -1006,6 +1105,7 @@ export function emitLandTables(c: SheetCursor, tables: AssetAreaTables): void {
       setLabel(ws.getCell(c.r, 2), s.phaseName);
       setLabel(ws.getCell(c.r, 3), s.strategy);
       derived(ws.getCell(c.r, 4), s.hosts, NUMFMT.int);
+      registerCell(`chaincomp:${s.name}:hosts`, ws, ws.getCell(c.r, 4));
       const g: Pooled = { retailGfaSqm: s.retailGfaSqm, totalGfaSqm: s.retailGfaSqm, netSaleableSqm: s.nsaSqm, retailParkingSlots: s.slots, retailParkingAreaSqm: s.parkingAreaSqm, totalParkingAreaSqm: s.parkingAreaSqm, totalBuaSqm: s.totalBuaSqm };
       chainCells(ws, c.r, 5, s.landSqm, g, {});
       registerChainRow(ws, c.r, 5, `chaincomp:${s.name}`);

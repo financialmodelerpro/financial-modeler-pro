@@ -266,6 +266,11 @@ export const stage6Loop: LiveLayer = {
       putS(K.landDebt, plots.length ? `IF((${tot})>0,(${plots.map((x) => `${cv(x)}*${shareOf(x)}`).join('+')})/(${tot}),0)` : '0');
     }
     const lastCon = (): string => T(K.lastCon);
+    /** The Inputs cell that types a module setting (`inp=<key>@<col>`), as a reference, or undefined. */
+    const inputsCellOf = (moduleKey: string): string | undefined => {
+      const k = reg.keys().find((x) => x.startsWith(`inp=${moduleKey}@`));
+      return k ? w.refA(reg.need(k), here) : undefined;
+    };
     // The sweep and dividend starts: the year typed, else after construction (the default follows the
     // phases until a year is typed; a typed year is the one the Inputs carry).
     const startYear = (inKey: string, stored: number | undefined, dflt: () => string): string => {
@@ -274,8 +279,22 @@ export const stage6Loop: LiveLayer = {
       return stored !== undefined ? typed : `IF(N(${inp(inKey)})=${shown},${dflt()},${typed})`;
     };
     const hasSweepIn = has(K.sweepStartIn);
-    if (has(K.sweepStart)) putS(K.sweepStart, hasSweepIn ? startYear(K.sweepStartIn, finCfg?.cashSweep?.startingYear, () => `MAX(${Y0()},MIN(${YN()},${lastCon()}+1))`) : `MAX(${Y0()},MIN(${YN()},${lastCon()}+1))`);
-    putS(K.divStart, startYear(K.divStartIn, project.dividendStartYear, () => `MAX(${Y0()},MIN(${YN()},MAX(${psd()},${phases.map((p) => `YEAR(${w.ref(`phase:${p.id}:start`)})+MAX(0,${w.ref(`phase:${p.id}:cp`)})`).join(',')})))`));
+    // A blank on Inputs sweeps from the year after construction (the engine's `??`: a typed 0 is a year).
+    const inSw = inputsCellOf(K.sweepStartIn);
+    const swDflt = `MAX(${Y0()},MIN(${YN()},${lastCon()}+1))`;
+    if (has(K.sweepStart) && inSw) {
+      putS(K.sweepStartIn, `IF(ISNUMBER(${inSw}),${inSw},${swDflt})`);
+      putS(K.sweepStart, `IF(ISNUMBER(${inSw}),MAX(${Y0()},MIN(${YN()},${inSw})),${swDflt})`);
+    } else if (has(K.sweepStart)) putS(K.sweepStart, hasSweepIn ? startYear(K.sweepStartIn, finCfg?.cashSweep?.startingYear, () => `MAX(${Y0()},MIN(${YN()},${lastCon()}+1))`) : `MAX(${Y0()},MIN(${YN()},${lastCon()}+1))`);
+    {
+      // A blank on Inputs pays from the year after construction (the engine's `??`: a typed 0 is a year).
+      const dflt = (): string => `MAX(${Y0()},MIN(${YN()},MAX(${psd()},${phases.map((p) => `YEAR(${w.ref(`phase:${p.id}:start`)})+MAX(0,${w.ref(`phase:${p.id}:cp`)})`).join(',')})))`;
+      const inD = inputsCellOf(K.divStartIn);
+      if (inD) {
+        putS(K.divStartIn, `IF(ISNUMBER(${inD}),${inD},${dflt()})`);
+        putS(K.divStart, `IF(ISNUMBER(${inD}),MAX(${Y0()},MIN(${YN()},${inD})),${dflt()})`);
+      } else putS(K.divStart, startYear(K.divStartIn, project.dividendStartYear, dflt));
+    }
     const sweepRatio = (): string => (has(K.sweepRatio) ? `MAX(0,MIN(1,N(${inp(K.sweepRatio)})))` : '1');
     const divOn = (): string => `IF(${inp(K.divOn)}="On",1,0)`;
     const payout = (): string => `MAX(0,MIN(1,N(${inp(K.payout)})))`;
@@ -320,9 +339,18 @@ export const stage6Loop: LiveLayer = {
       const bk = (s: string): string => `fin|${f.band}|${s}`;
       const startIn = bk('Repayment Start Year'), perIn = bk('Repayment Periods');
       const auto = f.isEx ? Y0() : `MIN(${YN()}+1,${lastCon()}+1)`;
-      const typedS = `MAX(${Y0()},MIN(${YN()}+1,N(${inp(startIn)})))`;
-      putS(f.keys.start, !has(startIn) ? auto : f.t.repaymentStartYear === undefined
-        ? `IF(N(${inp(startIn)})=${Number(w.platformValue(w.addr(startIn, TOTAL_COL)))},${auto},${typedS})` : typedS);
+      // THE DEFAULT IS WORKED OUT, NEVER TYPED (2026-10-20): a blank (or 0) on Inputs repays from
+      // the year after the last construction year, the engine's rule (an existing loan from the
+      // first model year); the module copy shows the year in force.
+      const inS = inputsCellOf(startIn);
+      if (inS) {
+        putS(startIn, `IF(N(${inS})=0,${auto},N(${inS}))`);
+        putS(f.keys.start, `IF(N(${inS})=0,${auto},MAX(${Y0()},MIN(${YN()}+1,N(${inS}))))`);
+      } else {
+        const typedS = `MAX(${Y0()},MIN(${YN()}+1,N(${inp(startIn)})))`;
+        putS(f.keys.start, !has(startIn) ? auto : f.t.repaymentStartYear === undefined
+          ? `IF(N(${inp(startIn)})=${Number(w.platformValue(w.addr(startIn, TOTAL_COL)))},${auto},${typedS})` : typedS);
+      }
       const st = (): string => T(f.keys.start);
       putS(f.keys.n, f.sweeps || !has(perIn) ? '0' : f.isEx ? `MAX(0,N(${inp(perIn)}))` : `IF(MAX(0,N(${inp(perIn)}))>0,MAX(0,N(${inp(perIn)})),MAX(0,${YN()}+1-${st()}))`);
       const n = (): string => T(f.keys.n);

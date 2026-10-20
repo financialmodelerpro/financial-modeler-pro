@@ -184,7 +184,8 @@ export const stage3Cos: LiveLayer = {
       row(S('On pre-sales recognition'), (t) => `IF(${TR()}>0,${TB()}*MAX(0,${p(`rvc:${l.key}:recPre`, t)})/${TR()},0)`);
       row(S('On post-handover sales'), (t) => `IF(${TR()}>0,${TB()}*MAX(0,${p(`rvc:${l.key}:postRev`, t)})/${TR()},0)`);
       row(S('Total Cost of Sales'), (t) => p(kCos, t));
-      row(kOpen, (t) => p(kInv, t, -1), 'none');
+      // The opening balance's Total is the balance at the start, the first year's opening.
+      row(kOpen, (t) => p(kInv, t, -1), () => w.refA({ sheet: w.addr(kOpen).sheet, row: w.addr(kOpen).row, col: pc(0) }, here));
       row(kAdd, (t) => p(kBase, t));
       row(kRel, (t) => `-${p(kCos, t)}`);
       row(kInv, (t) => `${p(kOpen, t)}+${p(kAdd, t)}+${p(kRel, t)}`, 'last');

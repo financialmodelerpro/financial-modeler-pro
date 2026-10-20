@@ -81,7 +81,7 @@ import { formatAccounting } from '@/src/core/formatters';
 import { computeLiveModel, type LiveAssetInput, type LiveModel, type LiveGroup } from './liveModel';
 import {
   ARGB, NUMFMT, BODY_SIZE, fcell, setInput, markInput, setFormula, setLabel, setTitle, setSectionHeader, setColHeader, colLetter,
-  fillCell, fillRange, boxBorder, sheetRef, scaleMoneyFormats, scaleNote, defaultDecimals, setStaticMode, setLiveLayout, isLiveLayout, setNote, setBasis, setSectionSink, insertRowsAt, type DisplayScale, type DisplayDecimals,
+  fillCell, fillRange, boxBorder, sheetRef, scaleMoneyFormats, scaleNote, defaultDecimals, setStaticMode, setLiveLayout, isLiveLayout, setNote, setBasis, setSectionSink, insertRowsAt, quoteSheet, type DisplayScale, type DisplayDecimals,
 } from './styles';
 import { withResolvedAssetNames, assetLabel } from '@/src/core/calculations/assetName';
 // Module 2 and Module 3 mirror (addRevenue / addOpex).
@@ -970,7 +970,11 @@ function addAssumptions(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFin
   addKV('IDC allocation basis', (p.idcConfig?.allocationBasis ?? 'land') === 'bua' ? 'Total GFA' : 'Land Area', '@');
   addKV('Dividends enabled (1 = yes)', p.dividendPolicy?.enabled ? 1 : 0, NUMFMT.int, undefined, `inp=${FIN('Dividend Policy', 'Pay Dividends')}#onoff`);
   addKV('Dividend payout ratio %', (p.dividendPolicy?.payoutRatio ?? 0) / 100, NUMFMT.pct, undefined, `inp=${FIN('Dividend Policy', 'Payout Ratio')}`);
-  addKV('Dividend start year (0 = auto)', p.dividendStartYear ?? 0, NUMFMT.year, undefined, `inp=${FIN('Dividend Policy', 'Start Year')}#auto`);
+  if (isLiveLayout()) {
+    // A blank states no year: dividends start after construction, worked out on Financing.
+    const dr = addKV('Dividend start year (blank = after construction)', p.dividendStartYear ?? '', NUMFMT.year, undefined, `inp=${FIN('Dividend Policy', 'Start Year')}#auto`);
+    if (p.dividendStartYear === undefined) { const dc = ws.getCell(`B${dr}`); dc.value = null; markInput(dc); dc.numFmt = NUMFMT.year; }
+  } else addKV('Dividend start year (0 = auto)', p.dividendStartYear ?? 0, NUMFMT.year, undefined, `inp=${FIN('Dividend Policy', 'Start Year')}#auto`);
   const fcfg = p.financing;
   const fmId = (fcfg?.fundingMethod ?? 1) as FundingMethodId;
   if (fmId === 2 && fcfg?.netFundingConfig) {
@@ -1040,8 +1044,9 @@ function addAssumptions(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFin
   setSectionHeader(ws.getRow(r), 'Cash sweep settings', 2); r += 1;
   ['Setting', 'Value'].forEach((h, i) => setColHeader(ws.getCell(r, i + 1), h, i === 0 ? 'left' : 'right'));
   r += 1;
-  setLabel(ws.getCell(`A${r}`), 'Sweep starting year (0 = auto)');
-  setInput(ws.getCell(`B${r}`), sweepCfg.startingYear ?? 0, NUMFMT.year);
+  setLabel(ws.getCell(`A${r}`), isLiveLayout() ? 'Sweep starting year (blank = after construction)' : 'Sweep starting year (0 = auto)');
+  if (isLiveLayout() && sweepCfg.startingYear === undefined) { const sc = ws.getCell(`B${r}`); markInput(sc); sc.numFmt = NUMFMT.year; }
+  else setInput(ws.getCell(`B${r}`), sweepCfg.startingYear ?? 0, NUMFMT.year);
   registerCell(`inp=${FIN('Cash Sweep Settings', 'Sweep Starting Year (calendar)')}#auto`, ws, ws.getCell(`B${r}`));
   // With no loan on the sweep nothing reads these two, so they are fixed, not offered (2026-09-29).
   const anySweeps = state.financingTranches.some((t) => t.repaymentMethod === 'cash_sweep' || t.cashSweepConfig?.enabled === true);
@@ -1057,7 +1062,7 @@ function addAssumptions(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFin
   // Financing facilities (debt).
   if (state.financingTranches.length) {
     setSectionHeader(ws.getRow(r), 'Financing facilities (debt)', 12); r += 1;
-    ['Facility', 'Origin', 'Opening balance', 'Interest rate %', 'Drawdown method', 'Repayment method', 'Repay periods', 'IDC capitalize', 'Repay start year', 'Interest start year', 'Origination year', 'Facility share %', ...(isLiveLayout() ? ['Interbank rate %', 'Credit spread %', 'Lender'] : [])].forEach((h, i) => setColHeader(ws.getCell(r, i + 1), h, i === 0 ? 'left' : 'right'));
+    ['Facility', 'Origin', 'Opening balance', isLiveLayout() ? 'Rate (on Financing)' : 'Interest rate %', 'Drawdown method', 'Repayment method', 'Repay periods', 'IDC capitalize', isLiveLayout() ? 'Repay start (blank = auto)' : 'Repay start year', 'Interest start year', 'Origination year', 'Facility share %', ...(isLiveLayout() ? ['Interbank rate %', 'Credit spread %', 'Lender', 'Upfront fee %', 'Commitment fee %'] : [])].forEach((h, i) => setColHeader(ws.getCell(r, i + 1), h, i === 0 ? 'left' : 'right'));
     r += 1;
     for (const t of state.financingTranches) {
       // The rate the engine charges (effectiveTrancheRatePct), never the stored field alone.
@@ -1071,7 +1076,9 @@ function addAssumptions(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFin
       // An existing loan's periods are its REMAINING ones, as the Financing sheet and the engine read them.
       setInput(ws.getCell(`G${r}`), (t.origin === 'existing' ? t.remainingRepaymentPeriods : t.repaymentPeriods) ?? 0, NUMFMT.int);
       setInput(ws.getCell(`H${r}`), t.idcCapitalize ? 1 : 0, NUMFMT.int);
-      setInput(ws.getCell(`I${r}`), t.repaymentStartYear ?? 0, NUMFMT.year);
+      // Live layout: a blank states no year (repays after construction, worked out on Financing).
+      if (isLiveLayout() && !t.repaymentStartYear) { const ic = ws.getCell(`I${r}`); markInput(ic); ic.numFmt = NUMFMT.year; }
+      else setInput(ws.getCell(`I${r}`), t.repaymentStartYear ?? 0, NUMFMT.year);
       setInput(ws.getCell(`J${r}`), t.interestStartYear ?? 0, NUMFMT.year);
       setInput(ws.getCell(`K${r}`), t.originationYear ?? 0, NUMFMT.year);
       setInput(ws.getCell(`L${r}`), (t.facilitySharePct ?? 0) / 100, NUMFMT.pct);
@@ -1085,12 +1092,17 @@ function addAssumptions(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFin
           setInput(ws.getCell(`N${r}`), (t.creditSpreadPct ?? 0) / 100, NUMFMT.pct2);
           setInput(ws.getCell(`O${r}`), String(t.lender || '-'), '@');
           registerCell(`inp=${FIN(sec, 'Interbank Rate %')}`, ws, ws.getCell(`M${r}`));
+          // The fees, typed here; the Financing sheet echoes them (the platform's financing charges neither).
+          setInput(ws.getCell(`P${r}`), (t.upfrontFeePct ?? 0) / 100, NUMFMT.pct2);
+          setInput(ws.getCell(`Q${r}`), (t.commitmentFeePct ?? 0) / 100, NUMFMT.pct2);
+          registerCell(`inp=${FIN(sec, 'Upfront Fee %')}`, ws, ws.getCell(`P${r}`));
+          registerCell(`inp=${FIN(sec, 'Commitment Fee %')}`, ws, ws.getCell(`Q${r}`));
           registerCell(`inp=${FIN(sec, 'Credit Spread %')}`, ws, ws.getCell(`N${r}`));
           registerCell(`trlender:${t.id}`, ws, ws.getCell(`O${r}`));
+          // The combined rate is worked out on Financing (Inputs holds typed values only).
           const d = ws.getCell(`D${r}`);
-          d.fill = { type: 'pattern', pattern: 'none' } as ExcelJS.Fill;
+          d.value = null; d.fill = { type: 'pattern', pattern: 'none' } as ExcelJS.Fill;
           d.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } };
-          registerCell(`trrate:${t.id}`, ws, d);
           registerCell(`trib:${t.id}`, ws, ws.getCell(`M${r}`));
           registerCell(`trsp:${t.id}`, ws, ws.getCell(`N${r}`));
         } else registerCell(`echo=${FIN(sec, 'Interest Rate %')}`, ws, ws.getCell(`D${r}`));
@@ -1304,6 +1316,8 @@ function addPhaseTimeline(ws: ExcelJS.Worksheet, snap: ReturnType<typeof compute
     setFormula(ws.getCell(r, 7), fcell(String(phase.constructionPeriods), phase.constructionPeriods), NUMFMT.int);
     setFormula(ws.getCell(r, 8), fcell(String(phase.operationsPeriods), phase.operationsPeriods), NUMFMT.int);
     (['cs', 'ce', 'os', 'oe', 'cp', 'op'] as const).forEach((k, i) => registerCell(`tl:phase:${phase.id}:${k}`, ws, ws.getCell(r, 3 + i)));
+    // The phase end dates are worked out HERE in the live layout (Inputs holds typed values only).
+    if (isLiveLayout()) (['cEnd', 'oStart', 'oEnd'] as const).forEach((k, i) => registerCell(`phase:${phase.id}:${k}`, ws, ws.getCell(r, 4 + i)));
     if (isLiveLayout()) {
       // THE PHASE IN YEARS (live layout, 2026-10-15): the handover (the last construction
       // year, never before the first model year), the last operating year, and the year the
@@ -1332,7 +1346,17 @@ function addPhaseTimeline(ws: ExcelJS.Worksheet, snap: ReturnType<typeof compute
     cell.alignment = { horizontal: 'right' };
   }
   for (let c = 1; c <= 8; c++) fillCell(ws.getCell(r, c), ARGB.subtotal);
-  r += 2;
+  r += 1;
+  if (isLiveLayout()) {
+    // The model axis starts at the earliest phase: worked out here (Inputs holds typed values only).
+    setLabel(ws.getCell(r, 1), 'First model year');
+    const ay = ws.getCell(r, 3); ay.value = snap.projectStartYear; ay.numFmt = NUMFMT.year;
+    ay.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } }; ay.alignment = { horizontal: 'right' };
+    registerCell('project:axisYear', ws, ay);
+    ws.workbook.definedNames.add(`${quoteSheet(ws.name)}!$C$${r}`, 'ProjectStartYear');
+    r += 1;
+  }
+  r += 1;
 
   // ── 2. Cell-based Gantt across the period grid ──────────────────────────────
   setSectionHeader(ws.getRow(r), 'Development programme (Gantt)', last, ARGB.sectionDark); r += 1;
@@ -1469,6 +1493,37 @@ function addLandArea(wb: ExcelJS.Workbook, state: FinancialsResolverState, refs:
   const LAND_HEADS = ['Asset', 'Land (sqm)', 'Land rate', 'Land value', 'Cash land', 'In-kind land'];
   const land = buildAssetLandView(state);
   let r = cursor.r;
+  if (isLiveLayout() && state.parcels.length > 0) {
+    // PLOT VALUES (live layout, 2026-10-20): area x rate, split cash / in-kind, worked out
+    // here from the plots typed on Inputs (Inputs holds typed values only).
+    setSectionHeader(ws.getRow(r), 'Plot land values', LAND_HEADS.length); r += 1;
+    ['Plot', 'Area (sqm)', 'Rate', 'Land value', 'Cash land', 'In-kind land'].forEach((h, i) => setColHeader(ws.getCell(r, i + 1), h, i === 0 ? 'left' : 'right')); r += 1;
+    let ta = 0, tv = 0, tc = 0, ti = 0;
+    for (const pa of state.parcels) {
+      const a = Math.max(0, pa.area ?? 0), rate = Math.max(0, pa.rate ?? 0);
+      const lv = a * rate, cv = lv * (Math.max(0, pa.cashPct ?? 0) / 100), iv = lv * (Math.max(0, pa.inKindPct ?? 0) / 100);
+      setLabel(ws.getCell(r, 1), pa.name, { indent: 1 });
+      setFormula(ws.getCell(r, 2), fcell('0', a), NUMFMT.int);
+      setFormula(ws.getCell(r, 3), fcell('0', rate), NUMFMT.rate);
+      setFormula(ws.getCell(r, 4), fcell('0', lv), NUMFMT.money);
+      setFormula(ws.getCell(r, 5), fcell('0', cv), NUMFMT.money);
+      setFormula(ws.getCell(r, 6), fcell('0', iv), NUMFMT.money);
+      (['value', 'cashValue', 'inkindValue'] as const).forEach((k, i) => registerCell(`parcel:${pa.id}:${k}`, ws, ws.getCell(r, 4 + i)));
+      registerCell(`parcel:${pa.id}:areaEcho`, ws, ws.getCell(r, 2));
+      registerCell(`parcel:${pa.id}:rateEcho`, ws, ws.getCell(r, 3));
+      ta += a; tv += lv; tc += cv; ti += iv;
+      r += 1;
+    }
+    setLabel(ws.getCell(r, 1), 'Total', { bold: true });
+    setFormula(ws.getCell(r, 2), fcell('0', ta), NUMFMT.int, true);
+    setFormula(ws.getCell(r, 3), fcell('0', ta > 0 ? tv / ta : 0), NUMFMT.rate, true);
+    setFormula(ws.getCell(r, 4), fcell('0', tv), NUMFMT.money, true);
+    setFormula(ws.getCell(r, 5), fcell('0', tc), NUMFMT.money, true);
+    setFormula(ws.getCell(r, 6), fcell('0', ti), NUMFMT.money, true);
+    (['area', 'rate', 'value', 'cashValue', 'inkindValue'] as const).forEach((k, i) => registerCell(`parcels:total:${k}`, ws, ws.getCell(r, 2 + i)));
+    fillRange(ws, r, 1, r, LAND_HEADS.length, ARGB.subtotal);
+    r += 2;
+  }
   setSectionHeader(ws.getRow(r), 'Land by asset (what Capex charges and the Balance Sheet holds)', LAND_HEADS.length); r += 1;
   LAND_HEADS.forEach((h, i) => setColHeader(ws.getCell(r, i + 1), h, i === 0 ? 'left' : 'right')); r += 1;
   const landAddrsByAsset = new Map<string, LandAreaAssetAddrs>();
@@ -2284,6 +2339,9 @@ const xc = (sheet: string, row: number, t: number): string => sheetRef(sheet, `$
 // shared one); used by the tabs that read the Capex schedule live.
 const capexPeriodCell = (capexAddrs: CapexAddrs, row: number, t: number): string => sheetRef(SHEETS.capex, `${colLetter(capexAddrs.periodCol(t))}${row}`);
 
+/** THE OPENING COLUMN IS BLANK WHERE NOTHING HAPPENS (live layout, 2026-10-20): a zero is not typed there. */
+const openBlank = (v: number | undefined): boolean => isLiveLayout() && !v;
+
 interface RowOpts { open?: { f?: string; v: number }; total?: 'sum' | 'last' | 'none'; indent?: number; bold?: boolean; fmt?: string; basis?: string }
 /** Write one period row (label + Basis/Calculation text + opening E + per-period
  *  F.. + Total D). The basis is plain descriptive text, never a live formula. */
@@ -2295,7 +2353,7 @@ function emitRow(ws: ExcelJS.Worksheet, r: number, N: number, label: string, per
     if (x.f) setFormula(ws.getCell(r, c), fcell(x.f, x.v), fmt);
     else { const cell = ws.getCell(r, c); cell.value = x.v; cell.numFmt = fmt; cell.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } }; }
   };
-  put(OPEN_COL, opts.open ?? { v: 0 });
+  if (!(isLiveLayout() && !opts.open?.f && !(opts.open?.v))) put(OPEN_COL, opts.open ?? { v: 0 });
   const cached: number[] = [];
   for (let t = 0; t < N; t++) { const x = per(t); put(pcol(t), x); cached.push(x.v); }
   if (opts.total !== 'none') {
@@ -2336,7 +2394,7 @@ type RowStyle = 'plain' | 'subtotal' | 'total';
  *  of every scalar row the screen and the PDF filled in, and it would have
  *  printed the last period of the build's check row rather than the footing.
  *  Both emitters now map a row the same way. */
-interface M4RowOpts { style: RowStyle; indent?: number; prior?: number; totalValue?: number; numFmt?: string }
+interface M4RowOpts { style: RowStyle; indent?: number; prior?: number; totalValue?: number; numFmt?: string; noTotal?: boolean }
 function m4RowOpts(row: M4Row): M4RowOpts {
   // A BLANK override is a deliberate "print no total" sentinel, not a zero.
   // m4Reports says so (`isRealTotal` is `r.totalOverride !== ''`) and the
@@ -2358,6 +2416,9 @@ function m4RowOpts(row: M4Row): M4RowOpts {
     // Counts and rates never take the display scale: `int` and `rate` are left
     // alone by scaleMoneyFormats, which sweeps money formats only.
     numFmt: row.isPercent ? NUMFMT.pct : row.valueKind === 'count' ? NUMFMT.int : row.valueKind === 'rate' ? NUMFMT.rate : undefined,
+    // A FACTOR HAS NO TOTAL (live layout, 2026-10-20): a rate row the builder states no figure for
+    // (an inflation factor) prints a blank Total, never the sum of its years.
+    noTotal: isLiveLayout() && row.valueKind === 'rate' && blank && row.totalValue === undefined,
   };
 }
 
@@ -2417,7 +2478,7 @@ function makeEmitters(ws: ExcelJS.Worksheet, N: number, start = 5): {
     // period cells at all. Writing zeros there printed 0 in every year column
     // beside a figure that is a single amount, not a flow (2026-09-17).
     if (!opts.noPeriods) {
-      put(OPEN_COL, opts.prior ?? 0);
+      if (!openBlank(opts.prior)) put(OPEN_COL, opts.prior ?? 0);
       for (let t = 0; t < N; t++) put(pcol(t), vals[t] ?? 0);
     }
     if (!opts.noTotal) put(TOTAL_COL, opts.totalValue !== undefined ? opts.totalValue : opts.totalLast ? (vals[N - 1] ?? 0) : vals.reduce((s, v) => s + (v ?? 0), 0) + (opts.prior ?? 0));
@@ -2719,7 +2780,8 @@ function addRevenue(ctx: EmitCtx): { revLinks: RevLinks; cosLinks: CosLinks } {
               [LBL_COL, su.name || 'sub-unit', '@'],
               [META_B, `${size}; sells per ${active === 'pricePerUnit' ? 'unit' : 'sqm'}`, '@'],
               [TOTAL_COL, priceOf('pricePerSqm'), NUMFMT.rate, true],
-              ...(hasDualPrice(su) ? [[OPEN_COL, priceOf('pricePerUnit'), NUMFMT.rate, true] as [number, number, string, boolean]] : []),
+              // Live layout: a price on the basis the row does not sell on shows only where one is stated.
+              ...(hasDualPrice(su) && !(isLiveLayout() && active !== 'pricePerUnit' && !priceOf('pricePerUnit')) ? [[OPEN_COL, priceOf('pricePerUnit'), NUMFMT.rate, true] as [number, number, string, boolean]] : []),
             ]);
           } else if (form === 'operate') {
             // THE RESOLVED ADR, by the one rule the engine applies: the row's
@@ -2753,14 +2815,14 @@ function addRevenue(ctx: EmitCtx): { revLinks: RevLinks; cosLinks: CosLinks } {
             for (const su of line.subUnits) {
               const { axis, source } = axisOf(su.id, kind);
               em.periodRow(su.name || 'sub-unit', axis, window, NUMFMT.pct, {
-                input: true, total: sumOver(axis),
+                input: true, total: isLiveLayout() ? undefined : sumOver(axis),
                 basis: `${su.category}${source === 'default' ? ', at the line pace' : source === 'none' ? ', NO VELOCITY: sells nothing until one is typed' : ''}`,
               });
             }
           } else {
             const dflt = sell?.velocityDefault;
             const axis = dflt ? axisFromPhase(kind === 'pre' ? dflt.preSalesVelocityByPhase : dflt.postSalesVelocityByPhase, w.phaseOffset) : axisOf(line.subUnits[0].id, kind).axis;
-            em.periodRow('All sub-units', axis, window, NUMFMT.pct, { input: true, total: sumOver(axis), basis: `Lockstep across every sub-unit (${line.subUnits.length})` });
+            em.periodRow('All sub-units', axis, window, NUMFMT.pct, { input: true, total: isLiveLayout() ? undefined : sumOver(axis), basis: `Lockstep across every sub-unit (${line.subUnits.length})` });
           }
         };
         if (w.construction.length > 0) {
@@ -3855,7 +3917,7 @@ function addFinancing(ctx: EmitCtx): FinLinks {
     if (basis) setBasis(ws.getCell(r, META_B), basis);
     const vals = row.values ?? [];
     const put = (c: number, v: number): void => constCell(ws.getCell(r, c), v, NUMFMT.money);
-    put(OPEN_COL, row.priorValue ?? 0);
+    if (!openBlank(row.priorValue)) put(OPEN_COL, row.priorValue ?? 0);
     for (let t = 0; t < N; t++) put(pcol(t), vals[t] ?? 0);
     const total = stated !== undefined
       ? stated
@@ -4806,14 +4868,16 @@ function addReturns(ctx: EmitCtx, revLinks: RevLinks, opexLinks: OpexLinks, fin:
     r += 1;
   };
   // A money row from an array (label + opening + per-period + Total).
-  const moneyRow = (label: string, series: number[] | undefined, opts: { style?: 'plain' | 'subtotal' | 'total'; prior?: number; indent?: number; basis?: string } = {}): number => {
+  const moneyRow = (label: string, series: number[] | undefined, opts: { style?: 'plain' | 'subtotal' | 'total'; prior?: number; indent?: number; basis?: string; inceptionOnly?: boolean } = {}): number => {
     const used = r;
     const vals = (series ?? []).slice(0, N);
+    // An inception-only row (live layout) prints its opening figure and no year cells.
+    const noYears = isLiveLayout() && opts.inceptionOnly === true && vals.every((v) => !v);
     registerCell(retKey(`retr|${retSec}|${label}`), ws, ws.getCell(r, LBL_COL));
     setLabel(ws.getCell(r, LBL_COL), label, { bold: !!(opts.style && opts.style !== 'plain'), indent: opts.indent });
     const put = (c: number, v: number): void => { const cell = ws.getCell(r, c); cell.value = v; cell.numFmt = NUMFMT.money; cell.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } }; };
-    put(OPEN_COL, opts.prior ?? 0);
-    for (let t = 0; t < N; t++) put(pcol(t), vals[t] ?? 0);
+    if (!openBlank(opts.prior) || noYears) put(OPEN_COL, opts.prior ?? 0);
+    if (!noYears) for (let t = 0; t < N; t++) put(pcol(t), vals[t] ?? 0);
     put(TOTAL_COL, (opts.prior ?? 0) + vals.reduce((s, v) => s + (v ?? 0), 0));
     if (opts.style === 'total') { fillRange(ws, r, 1, r, lastActiveCol(N), ARGB.navy); for (let c = 1; c <= lastActiveCol(N); c++) ws.getCell(r, c).font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.white } }; }
     else if (opts.style === 'subtotal') { for (let c = 1; c <= lastActiveCol(N); c++) ws.getCell(r, c).font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.navyDark } }; }
@@ -4832,7 +4896,7 @@ function addReturns(ctx: EmitCtx, revLinks: RevLinks, opexLinks: OpexLinks, fin:
     registerCell(retKey(`retr|${retSec}|${row.label}`), ws, ws.getCell(r, LBL_COL));
     setLabel(ws.getCell(r, LBL_COL), row.label, { indent: row.indent, bold: style !== 'plain' });
     const put = (c: number, v: number): void => { const cell = ws.getCell(r, c); cell.value = v; cell.numFmt = NUMFMT.money; cell.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } }; };
-    put(OPEN_COL, prior);
+    if (!openBlank(prior)) put(OPEN_COL, prior);
     for (let t = 0; t < N; t++) put(pcol(t), vals[t] ?? 0);
     if (row.totalOverride !== '') {
       const tv = row.totalOverride !== undefined ? Number(row.totalOverride) : prior + vals.reduce((a, v) => a + (v ?? 0), 0);
@@ -4860,7 +4924,7 @@ function addReturns(ctx: EmitCtx, revLinks: RevLinks, opexLinks: OpexLinks, fin:
     for (let i = 1; i < s.length && i - 1 < N; i++) vals[i - 1] = s[i] ?? 0;
     return { prior, vals };
   };
-  const streamRow = (label: string, stream: number[] | undefined, opts: { style?: 'plain' | 'subtotal' | 'total'; indent?: number; basis?: string } = {}): number => { const p = place(stream); return moneyRow(label, p.vals, { ...opts, prior: p.prior }); };
+  const streamRow = (label: string, stream: number[] | undefined, opts: { style?: 'plain' | 'subtotal' | 'total'; indent?: number; basis?: string; inceptionOnly?: boolean } = {}): number => { const p = place(stream); return moneyRow(label, p.vals, { ...opts, prior: p.prior }); };
 
   note('Returns on three cash-flow bases: FCFF (unlevered, to all capital providers), FCFE (levered, free cash to equity after debt service), and Distributed Equity (IRR on the actual cash distributions to equity investors). Terminal value is added in the exit year per the assumptions below. ' + returnsNpvNote((ctx.caseComparison?.cases.length ?? 0) > 1) + ' Exit-year, funding-mix and equity-exposure analytics live on the RE Metrics tab.');
 
@@ -5082,7 +5146,7 @@ function addReturns(ctx: EmitCtx, revLinks: RevLinks, opexLinks: OpexLinks, fin:
   const emitBuildup = (title: string, caption: string, rows: Array<{ label: string; values: number[]; indent?: number; isTotal?: boolean }>): void => {
     subTitle(title);
     note(caption);
-    for (const row of rows) streamRow(row.label, row.values, row.isTotal ? { style: 'total' } : { indent: row.indent });
+    for (const row of rows) streamRow(row.label, row.values, row.isTotal ? { style: 'total' } : { indent: row.indent, inceptionOnly: /at inception|Historical Development Investment/.test(row.label) });
     r += 1;
   };
   emitBuildup('FCFF Build-Up (unlevered, to all capital providers)',
@@ -5429,7 +5493,7 @@ function addScenarios(ctx: EmitCtx): void {
     const font = { name: 'Calibri', size: BODY_SIZE, bold: style === 'bold', italic: style === 'delta', color: { argb: style === 'delta' ? ARGB.navyDark : ARGB.formula } };
     if (style === 'delta') ws.getCell(r, LBL_COL).font = font;
     const put = (c: number, v: number): void => { const cell = ws.getCell(r, c); cell.value = v; cell.numFmt = NUMFMT.money; cell.font = font; };
-    put(OPEN_COL, prior);
+    if (!openBlank(prior)) put(OPEN_COL, prior);
     for (let t = 0; t < N; t++) put(pcol(t), vals[t] ?? 0);
     if (kind === 'flow') put(TOTAL_COL, vals.reduce((s, v) => s + (v ?? 0), 0));
     r += 1;

@@ -27,7 +27,7 @@
 import type ExcelJS from 'exceljs';
 import type { LayerContext, LiveLayer } from '../formulaWorkbook';
 import { LiveWriter } from './writer';
-import { ARGB } from '../styles';
+import { ARGB, colLetter } from '../styles';
 import { readCells, shadedCells, fixAtExport, isShaded, isLegendSwatch, cellId } from './inputAudit';
 
 const INPUTS = 'Inputs';
@@ -70,6 +70,8 @@ export const stage9InputLinks: LiveLayer = {
     // the pair is fixed at export on both sides instead.
     const readBefore = readCells(wb);
     const unreadPairs = new Map<string, string>();
+    /** Inputs cells whose only reader is an echo this layer wrote: never evidence of a live input. */
+    const echoOnly = new Set<string>();
     const WHY_PAIR = 'Neither this cell nor its copy on the module sheet is read by the live workbook.';
     let echoes = 0;
     // A `*` stands for one key segment the Inputs builder cannot know (which subtitle a
@@ -102,10 +104,28 @@ export const stage9InputLinks: LiveLayer = {
         continue;
       }
       const modVal = w.platformValue(target);
+      // A LAYER ALREADY LINKED IT (a default worked out live beside the typed cell): keep its formula.
+      {
+        const tv = w.cellA(target).value as unknown;
+        const srcText = `Inputs!$${colLetter(src.col)}$${src.row}`;
+        if (tv && typeof tv === 'object' && 'formula' in (tv as object) && String((tv as { formula: string }).formula).includes(srcText)) {
+          w.reset();
+          linked.push({ inputs: cellId(src.sheet, src.row, src.col), module: cellId(target.sheet, target.row, target.col) });
+          continue;
+        }
+      }
+      // A MODULE COPY IS NEVER A TYPED NUMBER (2026-10-20, founder): where no formula reads
+      // it, it still becomes an echo of Inputs, so the one typed copy is the Inputs cell. That
+      // cell is then held to what it was before the echo: read by nothing else, it is fixed
+      // at export with the note (the echo is a display, not a reader).
       if (!readBefore.has(cellId(target.sheet, target.row, target.col))) {
-        unreadPairs.set(cellId(src.sheet, src.row, src.col), WHY_PAIR);
-        unreadPairs.set(cellId(target.sheet, target.row, target.col), WHY_PAIR);
+        if (!readBefore.has(cellId(src.sheet, src.row, src.col))) unreadPairs.set(cellId(src.sheet, src.row, src.col), WHY_PAIR);
         w.reset();
+        const conv0 = spec.conv && spec.conv !== 'yearidx' ? CONVERSIONS[spec.conv] : undefined;
+        if (spec.conv === 'yearidx' || (spec.conv && !conv0)) continue;
+        w.fA(target, conv0 ? conv0.formula(inRef, modVal) : typeof inVal === 'string' ? inRef : `N(${inRef})`, { cached: modVal });
+        unshadeAsEcho(w.cellA(target));
+        echoOnly.add(cellId(src.sheet, src.row, src.col));
         continue;
       }
       // A calendar year on Inputs, a model-year index on the module: less the live axis start year.
@@ -196,10 +216,8 @@ export const stage9InputLinks: LiveLayer = {
     const MODULE_FIXED: Array<{ re: RegExp; col?: number; why: string }> = [
       { re: /^cx:esc$/, col: 3, why: 'The live Capex is built without cost escalation, as exported.' },
       { re: /^revin\|.+\|\|.+$/, col: 5, why: 'The row sells on the other basis; this price is kept for a switch, not used.' },
-      { re: /^fin\|.+ facility\)\|(Upfront Fee %|Commitment Fee %)$/, col: 4, why: 'The live financing charges no upfront or commitment fee, as exported.' },
       { re: /^fin\|4\. Land Funding .*\|.+, (Debt|Equity) %$/, col: 4, why: 'Land is funded at the split stated at export.' },
       { re: /^fin\|.+ \(existing facility\)\|Origination Year$/, col: 4, why: 'The existing loan is drawn in the year it was raised, as exported: a year before the model starts is existing operations, which the live workbook is not built for.' },
-      { re: /^retg\|Equity Partners\|(Existing Equity|% share~2)\|\d+$/, why: 'Existing equity belongs to existing operations, which the live workbook is not built for.' },
     ];
     for (const k of allKeys) for (const m of MODULE_FIXED) {
       if (!m.re.test(k)) continue;
@@ -216,7 +234,7 @@ export const stage9InputLinks: LiveLayer = {
       const id = cellId(s.sheet, s.row, s.col);
       const ws = wb.getWorksheet(s.sheet)!;
       if (s.isFormula) { unshadeAsEcho(ws.getCell(s.row, s.col)); unshadedFormulas++; continue; }
-      if (read.has(id)) continue;
+      if (read.has(id) && !(echoOnly.has(id) && !readBefore.has(id))) continue;
       // The colour legend (Cover, Guide, Checks) shows what the shading means; its swatch is a label, not an input.
       if (s.isText && isLegendSwatch(String(s.value))) continue;
       const partner = pairOf.get(id);

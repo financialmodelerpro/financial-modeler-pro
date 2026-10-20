@@ -248,6 +248,26 @@ export const stage7Returns: LiveLayer = {
     const FCFF = (): string => rngR(R(ffTot)), FCFE = (): string => rngR(R(feTot)), DDM = (): string => rngR(R(ddTot));
     { const k = retKeys.find((x) => x.startsWith(`rett|${ddmSec}`)); if (k) cellAt(k, 1, () => `"DDM IRR${fundOn ? ' (before performance fee)' : ''} "&${irrT(DDM())}&" · MOIC "&${multT(moicOf(DDM()))}`); }
 
+    // THE EXISTING POSITION, TYPED ON INPUTS (2026-10-20): the inception column of each stream,
+    // the sources and uses, and the partners' existing equity read it there.
+    if (has('retin:hist') && has('retin:debt') && has('retin:equity')) {
+      const hist = (): string => w.ref('retin:hist'), debtIn = (): string => w.ref('retin:debt');
+      streamRow(R(ffHist), (s) => (s === 0 ? `-${hist()}` : undefined));
+      streamRow(R(feEx), (s) => (s === 0 ? `-(${hist()}-${debtIn()})` : undefined));
+      streamRow(R(ddEx), (s) => (s === 0 ? `-(${hist()}-${debtIn()})` : undefined));
+      if (has('ret|Existing Equity')) scalar('ret|Existing Equity', () => w.ref('retin:equity'));
+      if (has('ret|Existing Debt')) scalar('ret|Existing Debt', () => debtIn());
+      const EP = 'retg|Equity Partners|';
+      if (has(`${EP}Existing Equity|0`)) {
+        const tot = w.addr(`${EP}Existing Equity|0`);
+        gridCell(`${EP}Existing Equity`, 0, () => w.ref('retin:equity'));
+        for (let j = 1; has(`${EP}Existing Equity|${j}`) && has(`${EP}% share~2|${j}`); j++) {
+          const sh = w.addr(`${EP}% share~2|${j}`);
+          gridCell(`${EP}Existing Equity`, j, () => `${cellA(tot.row, tot.col)}*${cellA(sh.row, sh.col)}`);
+        }
+      }
+    }
+
     // The streams as shown.
     const RS = findKey('retr|', /^Return Cash-Flow Streams .*\|FCFF, unlevered project$/);
     const streamsSec = RS ? RS.split('|')[1] : '';
@@ -602,17 +622,22 @@ export const stage7Returns: LiveLayer = {
       // in one cell), so the grid cell is an IRR over a short range, not over an inline
       // array expression repeated per guess.
       const shockCells = new Map<number, number>(), capCells = new Map<number, number>();
+      // The axes are typed on Inputs (2026-10-20); each grid cell reads its pair there.
+      const shockIn = new Map<number, string>(), capIn = new Map<number, string>();
+      ys.forEach((y, i) => { if (has(`sensin:price:${i}`)) shockIn.set(y, `sensin:price:${i}`); });
+      xs.forEach((xv, i) => { if (has(`sensin:cap:${i}`)) capIn.set(xv, `sensin:cap:${i}`); });
       const axisCell = (key: string, label: string, v: number): number => {
         const r = cr++; cs.getCell(r, 1).value = label; w.claim(key, RET, r, 1);
         w.valueA(C(r, TOTAL_COL), v); return r;
       };
-      for (const y of ys) shockCells.set(y, axisCell(`rtc:sens:y:${y}`, `sensitivity axis: sales price shock ${yLabel(y)}`, y));
-      for (const xv of xs) capCells.set(xv, axisCell(`rtc:sens:x:${xv}`, `sensitivity axis: exit cap rate ${(xv * 100).toFixed(1)}%`, xv));
+      if (shockIn.size !== ys.length) for (const y of ys) shockCells.set(y, axisCell(`rtc:sens:y:${y}`, `sensitivity axis: sales price shock ${yLabel(y)}`, y));
+      if (capIn.size !== xs.length) for (const xv of xs) capCells.set(xv, axisCell(`rtc:sens:x:${xv}`, `sensitivity axis: exit cap rate ${(xv * 100).toFixed(1)}%`, xv));
       for (const y of ys) {
         const rk = `${SE}${yLabel(y)}`;
         if (!has(`${rk}|0`)) continue;
         xs.forEach((xv, i) => {
-          const yc = (): string => sc3(shockCells.get(y)!), xc = (): string => sc3(capCells.get(xv)!);
+          const yc = (): string => (shockIn.get(y) !== undefined ? w.ref(`sensin:price:${ys.indexOf(y)}`) : sc3(shockCells.get(y)!));
+          const xc = (): string => (capIn.get(xv) !== undefined ? w.ref(`sensin:cap:${i}`) : sc3(capCells.get(xv)!));
           const tag = `${yLabel(y)} / ${(xv * 100).toFixed(1)}%`;
           const eq = cellS(`rtc:sens:eq:${y}:${xv}`, `sensitivity ${tag}: terminal equity plus cash released`,
             () => `MAX(0,MAX(0,${atA(noi, M)}*(1+${yc()})/${xc()})-MAX(0,${atA(debt, X)}))+${sc3(held)}`);
@@ -620,6 +645,21 @@ export const stage7Returns: LiveLayer = {
             (s) => `${w.refP(C(sbFe, sc(s)), RET)}+${yc()}*${w.refP(C(sbCfo, sc(s)), RET)}+${exitAt(s)}*${sc3(eq)}`);
           gridCell(rk, i, () => `IFERROR(${irrOf(rngS(st))},"n/a")`);
         });
+      }
+      // The grid's own labels follow the axes typed on Inputs.
+      if (shockIn.size === ys.length && capIn.size === xs.length) {
+        let firstRow: number | undefined;
+        ys.forEach((y, j) => {
+          const rk = `${SE}${yLabel(y)}`;
+          if (!has(rk)) return;
+          const a = w.addr(rk);
+          if (firstRow === undefined) firstRow = a.row;
+          writes.push(() => { const ref = w.ref(`sensin:price:${j}`); w.fA(a, `IF(${ref}>=0,"+","")&TEXT(${ref},"0%")`); });
+        });
+        if (firstRow !== undefined) {
+          const hr = firstRow - 1;
+          xs.forEach((_, i) => writes.push(() => { const ref = w.ref(`sensin:cap:${i}`); w.fA({ sheet: RET, row: hr, col: OPEN_COL + i }, `TEXT(${ref},"0.0%")`); }));
+        }
       }
       void sbEx;
       void sbFf;

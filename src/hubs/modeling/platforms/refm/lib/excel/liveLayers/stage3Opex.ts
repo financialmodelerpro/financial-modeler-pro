@@ -177,9 +177,9 @@ export const stage3Opex: LiveLayer = {
     ordered.forEach((h, i) => {
       const k = dpoKeys[i], ik = `oxin|dpo|${h.id}`;
       if (!has(k) || !has(ik) || !dpoDefaultIn) return;
-      const eff = at(ik, 2), ov = at(ik, 3);
-      w.fA(eff, `IF(ISNUMBER(${w.refA(ov, 'Inputs')}),${w.refA(ov, 'Inputs')},${w.refA(w.addr(dpoDefaultIn), 'Inputs')})`);
-      w.f(k, w.refA(eff), { col: TOTAL_COL });
+      // The days in force: the line's override typed on Inputs, a blank taking the project default.
+      const ov = at(ik, 2);
+      w.f(k, `IF(ISNUMBER(${w.refA(ov)}),${w.refA(ov)},${w.refA(w.addr(dpoDefaultIn))})`, { col: TOTAL_COL });
       w.f(k, `IF(ISNUMBER(${w.refA(ov)}),${w.refA(ov)},"inherit")`, { col: OPEN_COL });
       dpoCard.set(h.id, k);
     });

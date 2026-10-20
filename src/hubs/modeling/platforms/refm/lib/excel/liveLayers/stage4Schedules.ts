@@ -44,6 +44,7 @@ import { disposalContextOf } from '../../reports/disposalSchedules';
 import { buildBsFeederTables } from '../../reports/m4Reports';
 import { planReportLines, poolMapByLine } from '../../reports/lineRows';
 import type { Asset, CostLine, Phase } from '../../state/module1-types';
+import { usefulLifeCategory } from '../inputsSheetSections';
 
 const SCH = 'Schedules';
 
@@ -53,9 +54,11 @@ const SCH = 'Schedules';
  * reader of the life uses (this layer and the financing solve).
  */
 export function lifeInForce(w: LiveWriter, host: Asset, here?: string): string {
-  const dflt = resolveUsefulLifeYears({ ...host, usefulLifeYears: undefined } as Asset);
   const a = w.addr(`fain:${host.id}`);
   const life = w.refA({ sheet: a.sheet, row: a.row, col: PERIOD_COLS.TOTAL_COL }, here);
+  // The table's cell IS the life in force (written from Inputs below); no default is typed in a formula.
+  if (w.has(`falife:${host.id}`)) return life;
+  const dflt = resolveUsefulLifeYears({ ...host, usefulLifeYears: undefined } as Asset);
   return `IF(N(${life})>0,N(${life}),${dflt})`;
 }
 
@@ -234,6 +237,12 @@ export const stage4Schedules: LiveLayer = {
         // The life, and the year index of the first operating year.
         const Lf = (): string => lifeInForce(w, host, here);
         const inputs = w.addr(`fain:${host.id}`);
+        // The life in force: the life typed on Inputs, a blank taking its category's default there.
+        const dk = `fadefault:${usefulLifeCategory(host)}`;
+        if (w.has(`falife:${host.id}`) && w.has(dk)) {
+          const ov = w.ref(`falife:${host.id}`);
+          w.fA({ sheet: SCH, row: inputs.row, col: TOTAL_COL }, `IF(N(${ov})>0,N(${ov}),${w.ref(dk)})`);
+        }
         w.fA({ sheet: SCH, row: inputs.row, col: OPEN_COL }, `IF(${Lf()}>0,1/${Lf()},0)`);
         // Each year's addition depreciates from the later of its own year and the first operating year.
         const vintageDep = (addKey: string) => (t: number): string => vintageDepF(w.rangeA(SCH, w.addr(addKey).row, pc(0), pc(N - 1)), Lf(), firstOperatingIdx(w, p0.id), idxAll(), idxRow(t));

@@ -142,8 +142,13 @@ export const stage1LandArea: LiveLayer = {
     yearCols.forEach((c, i) => w.f(`tl:year:${c}`, i === 0 ? `${R('project:axisYear')}-1` : `${colLetter(yearCols[i - 1])}$${reg.need(`tl:year:${c}`).row}+1`));
     for (const ph of state.phases) {
       const t = (x: string): string => `tl:phase:${ph.id}:${x}`, p = (x: string): string => R(`phase:${ph.id}:${x}`);
-      w.f(t('cs'), p('start'), 'mmm yyyy'); w.f(t('ce'), p('cEnd'), 'mmm yyyy');
-      w.f(t('os'), p('oStart'), 'mmm yyyy'); w.f(t('oe'), p('oEnd'), 'mmm yyyy');
+      // In the live layout the end dates are worked out on these very cells (one key, two names).
+      const same = (x: string, y: string): boolean => { const A = reg.need(t(x)), B = reg.need(`phase:${ph.id}:${y}`); return A.sheet === B.sheet && A.row === B.row && A.col === B.col; };
+      w.f(t('cs'), p('start'), 'mmm yyyy');
+      if (!same('ce', 'cEnd')) w.f(t('ce'), p('cEnd'), 'mmm yyyy');
+      if (!same('os', 'oStart')) w.f(t('os'), p('oStart'), 'mmm yyyy');
+      if (!same('oe', 'oEnd')) w.f(t('oe'), p('oEnd'), 'mmm yyyy');
+      if (w.has(`phase:${ph.id}:sx`) && w.has(t('sx'))) w.f(t('sx'), p('sx'));
       w.f(t('cp'), p('cp')); w.f(t('op'), p('op'));
     }
     w.f('tl:project:start', `MIN(${state.phases.map((ph) => R(`phase:${ph.id}:start`)).join(',')})`, 'mmm yyyy');
@@ -155,7 +160,8 @@ export const stage1LandArea: LiveLayer = {
     // ── Inputs: plots (value = area x rate, cash / in-kind at the plot's split) ──
     for (const pa of state.parcels as Parcel[]) {
       const k = (x: string): string => `parcel:${pa.id}:${x}`;
-      w.f(k('value'), `MAX(0,${R(k('area'))})*MAX(0,${R(k('rate'))})`);
+      if (w.has(k('areaEcho'))) { w.f(k('areaEcho'), R(k('area'))); w.f(k('rateEcho'), R(k('rate'))); }
+      w.f(k('value'), w.has(k('areaEcho')) ? `MAX(0,${R(k('areaEcho'))})*MAX(0,${R(k('rateEcho'))})` : `MAX(0,${R(k('area'))})*MAX(0,${R(k('rate'))})`);
       w.f(k('cashValue'), `${R(k('value'))}*MAX(0,${R(k('cash'))})`);
       w.f(k('inkindValue'), `${R(k('value'))}*MAX(0,${R(k('inkind'))})`);
     }
@@ -310,6 +316,8 @@ export const stage1LandArea: LiveLayer = {
       const members = (g.assets as unknown as Asset[]).filter((m) => w.has(`chain:${m.id}:land`) && assetHasSubstance(m, state.subUnits as SubUnit[]));
       if (members.length === 0 || !w.has(`${prefix}:land`)) continue;
       writeTotals(prefix, members.map((m) => `chain:${m.id}`), []);
+      // The plots the line pools: counted, never typed.
+      if (w.has(`${prefix}:plots`)) w.f(`${prefix}:plots`, `COUNT(${members.map((m) => R(`chain:${m.id}:land`)).join(',')})`);
     }
     // Retail strips on the line table: land carved, and their hosts' retail figures.
     for (const s of strips) {
@@ -318,6 +326,7 @@ export const stage1LandArea: LiveLayer = {
       const hs = (s.retailHostAssetIds ?? []).filter((id) => w.has(`chain:${id}:land`));
       const mine = pieceKeys.filter((k) => k.split(':').slice(2).join(':') === s.name).map((k) => R(k));
       w.f(`${prefix}:land`, mine.length ? `SUM(${mine.join(',')})` : '0');
+      if (w.has(`${prefix}:hosts`) && mine.length) w.f(`${prefix}:hosts`, `COUNT(${mine.join(',')})`);
       const sumHost = (f: string): string => (hs.length ? `SUM(${hs.map((id) => R(`chain:${id}:${f}`)).join(',')})` : '0');
       w.f(`${prefix}:ret`, sumHost('ret')); w.f(`${prefix}:tg`, R(`${prefix}:ret`)); w.f(`${prefix}:nsa`, R(`${prefix}:ret`));
       w.f(`${prefix}:rslots`, sumHost('rslots')); w.f(`${prefix}:rparea`, sumHost('rparea')); w.f(`${prefix}:tparea`, R(`${prefix}:rparea`));
