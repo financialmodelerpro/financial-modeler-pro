@@ -122,7 +122,12 @@ export const stage7cChecks: LiveLayer = {
       const r = rng();
       if (!r) { w.reset(); return false; }
       const a = w.addr(key);
-      w.fA(a, `IFERROR(${irrOf(r)},"n/a")`, { numFmt: NUMFMT.pct2 });
+      // A choice of stream (net where a fee is charged) is made once, outside the IRR, so the
+      // formula does not repeat it in every guess (2026-10-20).
+      const choice = /^IF\((.+),(.+),(.+)\)$/.exec(r);
+      w.fA(a, choice && !choice[2].includes(',') && !choice[3].includes(',')
+        ? `IF(${choice[1]},IFERROR(${irrOf(choice[2])},"n/a"),IFERROR(${irrOf(choice[3])},"n/a"))`
+        : `IFERROR(${irrOf(r)},"n/a")`, { numFmt: NUMFMT.pct2 });
       w.reset();
       const r2 = rng()!;
       w.fA({ sheet: CHK, row: a.row, col: a.col + 1 }, moic(r2), { numFmt: NUMFMT.mult });
@@ -141,6 +146,15 @@ export const stage7cChecks: LiveLayer = {
       const feeTotal = `SUM(${w.rangeA(RET, f.row, OPEN_COL, OPEN_COL + N)})`;
       return `IF(${feeTotal}>0,${net},${gross})`;
     }));
+    // The gross row is the next one: where no fee is charged the net row reads it (a shorter formula).
+    {
+      const nk = 'chk|ret|Distributed Equity IRR (net of performance fee)', gk = 'chk|ret|Distributed Equity IRR (gross)';
+      const net = stream(NET);
+      if (has(nk) && has(gk) && net && FEE && has(FEE)) {
+        const f = w.addr(FEE);
+        w.fA(w.addr(nk), `IF(SUM(${w.rangeA(RET, f.row, OPEN_COL, OPEN_COL + N)})>0,IFERROR(${irrOf(net)},"n/a"),${w.refA(w.addr(gk), CHK)})`, { numFmt: NUMFMT.pct2 });
+      }
+    }
     retOk.push(pair('Distributed Equity IRR (gross)', () => stream(DDM)));
     const returnsLive = retOk.every(Boolean);
 

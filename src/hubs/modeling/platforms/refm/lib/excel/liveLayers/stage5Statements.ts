@@ -609,7 +609,8 @@ export const stage5Statements: LiveLayer = {
         if (tot === 'first') w.fA(T, w.refA({ sheet, row: r, col: pc(0) }, sheet));
         else if (tot === 'last') w.fA(T, w.refA({ sheet, row: r, col: pc(N - 1) }, sheet));
         else if (tot === 'maxabs') w.fA(T, `MAX(ABS(MAX(${rng})),ABS(MIN(${rng})))`);
-        else if (tot === 'sum') w.fA(T, `SUM(${rng})+N(${w.refA({ sheet, row: r, col: OPEN_COL }, sheet)})`);
+        // The opening column inside the sum (a blank or text there reads as nothing, as N did).
+        else if (tot === 'sum') w.fA(T, `SUM(${w.rangeA(sheet, r, OPEN_COL, pc(N - 1))})`);
       }
     };
     apply(plWrites);

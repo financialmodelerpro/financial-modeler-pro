@@ -332,7 +332,9 @@ export const stage7bMetrics: LiveLayer = {
         const occ = (): string => `(${lk.map((k) => `SUM(${occRng(k)})`).join('+')})`;
         const revL = (): string => `(${lk.map((k) => rv(`rvc:${k}:rev`)).join('+')})`;
         kpi(LS, 'Total GLA', () => intT(lk.map(glaCell).join('+')));
-        kpi(LS, 'Avg Occupancy', () => ratioT(occ(), `(${glaYears()})`));
+        // The area-years let and the area-years available, working cells (2026-10-20), so the card stays short.
+        const occW = cellS('rtm:lease:occ', 'Area let, sqm-years', occ), glaW = cellS('rtm:lease:gla', 'Area available while letting, sqm-years', glaYears);
+        kpi(LS, 'Avg Occupancy', () => ratioT(w.refA(C(occW, TOTAL_COL), RET), w.refA(C(glaW, TOTAL_COL), RET)));
         kpi(LS, 'Rent per Leased sqm', () => rateT(revL(), occ()));
         kpi(LS, 'Total Lease Revenue', () => moneyT(revL()));
       }

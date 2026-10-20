@@ -207,16 +207,16 @@ type Snap = LiveExportInputs['snapshot'] & Record<string, any>;
 /** A module-sheet formula that only restates an Inputs cell (through a link conversion). */
 function isInputsEcho(sheet: string, f: string): boolean {
   if (sheet === 'Inputs') return false;
-  // An Inputs reference, column absolute or column relative (a strip of year inputs echoes as one formula across its row).
-  return /^N\((?:'Inputs'|Inputs)!\$?[A-Z]+\$\d+\)(-N\((?:'Inputs'|Inputs)!\$?[A-Z]+\$\d+\))?$/.test(f)
-    || /^(?:'Inputs'|Inputs)!\$?[A-Z]+\$\d+$/.test(f)
-    || /^IF\(N\((?:'Inputs'|Inputs)!\$?[A-Z]+\$\d+\)=[01],/.test(f)
-    // A door that may be blank: the number when there is one, else the module's own word for none.
-    || /^IF\(ISNUMBER\(((?:'Inputs'|Inputs)!\$?[A-Z]+\$\d+)\),\1,"[^"]*"\)$/.test(f)
-    // A door whose blank takes a default worked out live (2026-10-20): the typed figure when
-    // there is one, else the default (a useful life's category default, a start year after construction).
-    || /^IF\(ISNUMBER\(((?:'Inputs'|Inputs)!\$?[A-Z]+\$\d+)\),\1,/.test(f)
-    || /^IF\(N\(((?:'Inputs'|Inputs)!\$?[A-Z]+\$\d+)\)>0,N\(\1\),/.test(f);
+  // An Inputs reference, column absolute or column relative (a strip of year inputs echoes as one
+  // formula across its row), with or without the N() a numeric cell no longer needs (2026-10-20).
+  const R = String.raw`(?:'Inputs'|Inputs)!\$?[A-Z]+\$\d+`;
+  const NR = String.raw`(?:N\(${R}\)|${R})`;
+  const t = (re: string): boolean => new RegExp(re).test(f);
+  return t(String.raw`^${NR}(-${NR})?$`)
+    || t(String.raw`^IF\(${NR}=[01],`)
+    // A door that may be blank: the number when there is one, else a word or a default worked out live.
+    || t(String.raw`^IF\(ISNUMBER\((${R})\),\1,`)
+    || t(String.raw`^IF\(N\((${R})\)>0,N\(\1\),`) || t(String.raw`^IF\((${R})>0,\1,`);
 }
 function inputsDoor(wb: ExcelJS.Workbook, a: { sheet: string; row: number; col: number }, value: number): { at: { sheet: string; row: number; col: number }; value: number } {
   const v = wb.getWorksheet(a.sheet)?.getCell(a.row, a.col).value as unknown as { formula?: string } | null;
@@ -226,7 +226,7 @@ function inputsDoor(wb: ExcelJS.Workbook, a: { sheet: string; row: number; col: 
   if (!isInputsEcho(a.sheet, f) || !refs.length) return { at: a, value };
   const col = (s: string): number => s.split('').reduce((n, ch) => n * 26 + ch.charCodeAt(0) - 64, 0);
   const at = { sheet: 'Inputs', row: Number(refs[0][2]), col: col(refs[0][1]) };
-  if (refs.length > 1 && /\)-N\(/.test(f)) {
+  if (refs.length > 1 && /^(?:N\()?(?:'Inputs'|Inputs)!\$?[A-Z]+\$\d+\)?-/.test(f)) {
     const ax = wb.getWorksheet('Inputs')!.getCell(Number(refs[1][2]), col(refs[1][1])).value as unknown;
     const axv = ax && typeof ax === 'object' && 'result' in (ax as object) ? Number((ax as { result: unknown }).result) : Number(ax);
     return { at, value: value + axv };
@@ -1171,11 +1171,13 @@ function formulaCells(wb: ExcelJS.Workbook): Map<string, { formula: string; resu
       check('D1 no cell anywhere in the workbook shows an Excel error', errs.length === 0, errs.slice(0, 6).join(', '));
       const top = rd.cells.get(cellKey('Revenue', 1, 4));
       check('D2 the warning at the top of the Revenue sheet appears', typeof top === 'string' && top.startsWith('WARNING'), JSON.stringify(top));
-      const warns = [...rd.cells].filter(([k, v]) => k.startsWith('Revenue!') && typeof v === 'string' && v.startsWith('WARNING:') && v.includes('Typed '));
+      // (2026-10-20: one short line, the share outside the years, else OK; the Guide explains it.)
+      const warns = [...rd.cells].filter(([k, v]) => k.startsWith('Revenue!') && typeof v === 'string' && /^WARNING: \d[\d.]*% of typed velocity is outside the model years$/.test(v));
       check(`D3 the velocity check names the share outside the model, beside the typed figure (${warns.length} line${warns.length === 1 ? '' : 's'})`, warns.length > 0, '');
-      const okBefore = [...rec.cells].filter(([k, v]) => k.startsWith('Revenue!') && typeof v === 'string' && (v.startsWith('WARNING') || v.startsWith('OK: all')));
-      check('D4 before the change every line reads OK and the top warning is blank', okBefore.every(([, v]) => String(v).startsWith('OK: all')) && okBefore.length > 0 && rec.cells.get(cellKey('Revenue', 1, 4)) === undefined,
-        okBefore.filter(([, v]) => !String(v).startsWith('OK')).map(([k]) => k).join(', '));
+      // The velocity check lines are the cells that read a warning after the change.
+      const okBefore = warns.map(([k]) => [k, rec.cells.get(k)] as const);
+      check('D4 before the change every line reads OK and the top warning is blank', okBefore.every(([, v]) => v === 'OK') && okBefore.length > 0 && rec.cells.get(cellKey('Revenue', 1, 4)) === undefined,
+        okBefore.filter(([, v]) => v !== 'OK').map(([k]) => k).join(', '));
     }
 
     // THE LIVE CHECKS FIRE (2026-09-28, stage 7c): a status that can only read OK

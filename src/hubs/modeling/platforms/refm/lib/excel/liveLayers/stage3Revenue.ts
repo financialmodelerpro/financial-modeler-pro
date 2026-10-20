@@ -491,7 +491,8 @@ export const stage3Revenue: LiveLayer = {
         w.fA({ sheet: REV, row: fr, col: TOTAL_COL }, inRows.length ? inRows.map((r) => `SUM(${span(r)})`).join('+') : '0', { numFmt: NUMFMT.pct2 });
         w.fA({ sheet: REV, row: fr, col: OPEN_COL }, `SUM(${span(rowOf(vk))})`, { numFmt: NUMFMT.pct2 });
         const typed = AR(fr, TOTAL_COL), inside = AR(fr, OPEN_COL);
-        w.fA({ sheet: REV, row: fr, col: 2 }, `IF(${inside}<${typed}-1E-9,"WARNING: "&TEXT(${typed}-${inside},"0.00%")&" of the typed velocity falls in years this workbook does not have (a phase change needs more years than were exported), so it is not sold here and stays in closing inventory. Typed "&TEXT(${typed},"0.00%")&", inside the model "&TEXT(${inside},"0.00%")&". Re-export from the platform to include those years.","OK: all "&TEXT(${typed},"0.00%")&" of the typed velocity falls inside the model's years.")`);
+        // One short line (2026-10-20): the share outside the years, else OK; the Guide explains it.
+        w.fA({ sheet: REV, row: fr, col: 2 }, `IF(${inside}<${typed}-1E-9,"WARNING: "&TEXT(${typed}-${inside},"0.00%")&" of typed velocity is outside the model years","OK")`);
         warnCells.push(`${inside}<${typed}-1E-9`);
         rv.addConditionalFormatting({ ref: `B${fr}`, rules: [{ type: 'expression', priority: 1, formulae: [`LEFT(B${fr},7)="WARNING"`], style: { font: { bold: true, color: { argb: 'FFC00000' } }, fill: { type: 'pattern', pattern: 'solid', bgColor: { argb: 'FFFDE9E7' } } } }] } as unknown as Parameters<typeof rv.addConditionalFormatting>[0]);
         fr += 1;

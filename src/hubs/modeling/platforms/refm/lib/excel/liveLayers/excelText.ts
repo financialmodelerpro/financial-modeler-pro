@@ -26,7 +26,8 @@ export const multT = (e: string): string => `TEXT(${e},"0.00")&"x"`;
 export const moicOf = (r: string): string => `IF(-SUMIF(${r},"<0")>0,SUMIF(${r},">0")/-SUMIF(${r},"<0"),0)`;
 /** retMoney: millions, one decimal, "(x)" when negative, "-" when it rounds to nothing. */
 export const moneyT = (cur: string) => (e: string): string =>
-  `"${cur} "&IF(ROUND(ABS(${e})/1000000,1)=0,"-",IF(${e}<0,"("&TEXT(ABS(${e})/1000000,"#,##0.0")&")",TEXT(ABS(${e})/1000000,"#,##0.0")))&" m"`;
+  // One TEXT with a negative and a zero section (2026-10-20): "(x)" when negative, "-" when it rounds to nothing.
+  `"${cur} "&TEXT(ROUND((${e})/1000000,1),"#,##0.0;(#,##0.0);-")&" m"`;
 /** safeRatio then retPct: "n/a" unless the denominator is positive. */
 export const ratioT = (num: string, den: string, d = 1): string => `IF(${den}>0,${pctT(`(${num})/(${den})`, d)},"n/a")`;
 /** A ratio over a series whose unmeasured years print "-": "n/a" when no year is measured. */
@@ -40,6 +41,6 @@ export const accT = (e: string, scale: 'full' | 'thousands' | 'millions', d: num
   const div = scale === 'millions' ? 1000000 : scale === 'thousands' ? 1000 : 1;
   const unit = scale === 'millions' ? ' m' : scale === 'thousands' ? ' k' : '';
   const fmt = d > 0 ? `#,##0.${'0'.repeat(d)}` : '#,##0';
-  const a = div === 1 ? `ABS(${e})` : `ABS(${e})/${div}`;
-  return `IF(ROUND(${a},${d})=0,"-",IF(${e}<0,"("&TEXT(${a},"${fmt}")&")",TEXT(${a},"${fmt}")))${unit ? `&"${unit}"` : ''}`;
+  // One TEXT with a negative and a zero section (2026-10-20): "(x)" when negative, "-" when it rounds to nothing.
+  return `TEXT(ROUND(${div === 1 ? e : `(${e})/${div}`},${d}),"${fmt};(${fmt});-")${unit ? `&"${unit}"` : ''}`;
 };

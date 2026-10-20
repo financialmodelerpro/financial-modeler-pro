@@ -290,7 +290,52 @@ export function simplifyFormula(f: string, opts: { sumChains?: boolean } = {}): 
  * never started), on single cells as much as on ranges; every other rewrite there
  * recalculates exactly. So sum chains are left alone on that one sheet.
  */
-export const CIRCULAR_SHEETS = new Set(['Financing Calc']);
+export const CIRCULAR_SHEETS = new Set(['Financing Calc', 'Financing']);
+
+/**
+ * N() ONLY WHERE A CELL CAN BE TEXT OR BLANK (founder, 2026-10-20). N(x) reads a text or a
+ * blank as 0; on a cell that always holds a number it does nothing, so it goes. A cell always
+ * holds a number when it is a typed number, or a formula with no text in it (no quoted string,
+ * so it cannot return one). A blank, a text, or a formula that can return text keeps its N().
+ * Exact: the same numbers are read, so every cell recalculates to the same value.
+ */
+const N_REF = /(^|[^A-Za-z0-9_.])N\(((?:'(?:[^']|'')+'|[A-Za-z_][A-Za-z0-9_.]*)!)?(\$?)([A-Z]{1,3})(\$?)(\d+)\)/g;
+export function dropNumberWrappers(wb: ExcelJS.Workbook): number {
+  const kind = new Map<string, 'num' | 'other'>();
+  const key = (sheet: string, col: string, row: string): string => `${sheet}\u0000${col}${row}`;
+  for (const ws of wb.worksheets) ws.eachRow((row) => row.eachCell((cell) => {
+    const v = cell.value as unknown;
+    const isNum = typeof v === 'number'
+      || (!!v && typeof v === 'object' && typeof (v as { formula?: unknown }).formula === 'string' && !(v as { formula: string }).formula.includes('"')
+        && (typeof (v as { result?: unknown }).result === 'number' || (v as { result?: unknown }).result === undefined || (v as { result?: unknown }).result === null));
+    kind.set(key(ws.name, cell.address.replace(/\d+$/, ''), String(cell.row)), isNum ? 'num' : 'other');
+  }));
+  let changed = 0;
+  for (const ws of wb.worksheets) ws.eachRow((row) => row.eachCell((cell) => {
+    const v = cell.value as unknown as { formula?: string; result?: unknown } | null;
+    if (!v || typeof v !== 'object' || typeof v.formula !== 'string' || !v.formula.includes('N(')) return;
+    if (cell.isMerged && cell.master.address !== cell.address) return;
+    const parts = v.formula.split('"');
+    const out = parts.map((p, i) => (i % 2 === 1 ? p : p.replace(N_REF, (whole, pre: string, sh: string | undefined, d1: string, col: string, d2: string, r: string) => {
+      const sheet = sh ? sh.slice(0, -1).replace(/^'|'$/g, '').replace(/''/g, "'") : ws.name;
+      return kind.get(key(sheet, col, r)) === 'num' ? `${pre}${sh ?? ''}${d1}${col}${d2}${r}` : whole;
+    }))).join('"');
+    if (out !== v.formula) { cell.value = { formula: out, result: v.result } as unknown as ExcelJS.CellValue; changed++; }
+  }));
+  return changed;
+}
+
+const quoteSheetName = (name: string): string => (/^[A-Za-z_][A-Za-z0-9_.]*$/.test(name) ? name : `'${name.replace(/'/g, "''")}'`);
+/** Each piece of a formula outside quoted text, rewritten by `fn`. */
+const codeOnly = (f: string, fn: (code: string) => string): string => f.split('"').map((p, i) => (i % 2 === 0 ? fn(p) : p)).join('"');
+/** A bare absolute reference ($X$1, or the start of $X$1:$Y$2) given this tab's name. */
+const qualifyBare = (f: string, own: string): string => codeOnly(f, (c) => c.replace(/(^|[^A-Za-z0-9_!:$'.])(\$[A-Z]{1,3}\$\d+)/g, `$1${own.replace(/\$/g, '$$$$')}!$2`));
+/** Drop this tab's own name from its references. */
+function stripOwnSheet(f: string, name: string): string {
+  const esc = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const re = new RegExp(`(^|[^A-Za-z0-9_.'])(?:'${esc.replace(/'/g, "''")}'|${/^[A-Za-z_][A-Za-z0-9_.]*$/.test(name) ? esc : '(?!)'})!`, 'g');
+  return codeOnly(f, (c) => c.replace(re, '$1'));
+}
 
 /** Apply `simplifyFormula` to every formula cell of the workbook. Returns how many changed. */
 export function simplifyWorkbook(wb: ExcelJS.Workbook): number {
@@ -301,7 +346,10 @@ export function simplifyWorkbook(wb: ExcelJS.Workbook): number {
       const v = cell.value as unknown as { formula?: string; result?: unknown } | null;
       if (!v || typeof v !== 'object' || typeof v.formula !== 'string') return;
       if (cell.isMerged && cell.master.address !== cell.address) return;
-      const s = simplifyFormula(v.formula, { sumChains: sumChainsHere });
+      // A same-tab reference is simplified as if qualified (the passes read "Sheet!$X$1"), then
+      // every own-tab qualifier is dropped (2026-10-20): a reference to this tab carries no sheet name.
+      const own = quoteSheetName(ws.name);
+      const s = stripOwnSheet(simplifyFormula(qualifyBare(v.formula, own), { sumChains: sumChainsHere }), ws.name);
       if (s !== v.formula) { cell.value = { formula: s, result: v.result } as unknown as ExcelJS.CellValue; changed++; }
     }));
   }

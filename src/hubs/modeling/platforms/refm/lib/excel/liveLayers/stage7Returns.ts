@@ -373,8 +373,12 @@ export const stage7Returns: LiveLayer = {
         // performance fee is charged at all, equal while none arises.
         const nr = netRng, pt = perfTotal;
         const split = has('ft:Performance fee on the excess') ? `N(${w.ref('ft:Performance fee on the excess')})>0` : `${pt()}>0`;
+        // The multiples and the gross IRR are working cells (2026-10-20), so the card's words stay short.
+        const mNet = cellS('rtw:moic:dnet', 'MOIC, distributions net of the performance fee', () => moicOf(nr()));
+        const mGross = cellS('rtw:moic:dgross', 'MOIC, distributions before the fee', () => moicOf(DDM()));
+        const iGross = cellS('rtw:irr:dgross', 'IRR, distributions before the fee', () => `IFERROR(${irrOf(DDM())},"n/a")`);
         kpi('Headline Returns', label, () => `IF(${split},${irrT(nr())},${irrT(DDM())})`,
-          () => `IF(${split},"MOIC "&${multT(moicOf(nr()))}&" · gross "&${irrT(DDM())}&" / MOIC "&${multT(moicOf(DDM()))},"MOIC "&${multT(moicOf(DDM()))})`);
+          () => `IF(${split},"MOIC "&${multT(sc3(mNet))}&" · gross "&IF(ISNUMBER(${sc3(iGross)}),${pctT(sc3(iGross))},"n/a")&" / MOIC "&${multT(sc3(mGross))},"MOIC "&${multT(sc3(mGross))})`);
       } else kpi('Headline Returns', label, () => irrT(DDM()), () => `"MOIC "&${multT(moicOf(DDM()))}`);
     }
     kpi('Headline Returns', 'Equity Multiple (distributions)', () => multT(`IF(${invested()}>0,${distTotal()}/${invested()},0)`));
@@ -404,8 +408,14 @@ export const stage7Returns: LiveLayer = {
       const pctCell = (k: string, j: number): string => `MAX(0,MIN(1,N(${w.ref(`${EP}${k}|${j + 1}`)})))`;
       // The time-weighted shareholding: each partner's capital-years over everyone's.
       const capYears = (r: number): string => `SUMPRODUCT(${w.rangeA(RET, r, pc(0), pc(N - 1))},COLUMNS(${w.rangeA(RET, r, pc(0), pc(N - 1))})-(COLUMN(${w.rangeA(RET, r, pc(0), pc(N - 1))})-COLUMN(${w.refA(C(r, pc(0)), RET)})))`;
-      const capT = (j: number): string => `(IF(${cashT()}>0,${pctCell('% share', j)},0)*${capYears(eqCash)}+IF(${kindT()}>0,${pctCell('% share~1', j)},0)*${capYears(inKind)})`;
-      const totCapT = (): string => Array.from({ length: n }, (_, j) => capT(j)).join('+');
+      // Each piece is a working cell below (2026-10-20), so the share's formula stays short.
+      const cyCash = cellS('rtw:cy:cash', 'Capital-years, new cash equity', () => capYears(eqCash));
+      const cyKind = cellS('rtw:cy:kind', 'Capital-years, in-kind equity', () => capYears(inKind));
+      const cyJ = Array.from({ length: n }, (_, j) => cellS(`rtw:cy:p${j}`, `Capital-years, ${String((effective[j] as { name?: string }).name ?? `partner ${j + 1}`)}`,
+        () => `IF(${cashT()}>0,${pctCell('% share', j)},0)*${sc3(cyCash)}+IF(${kindT()}>0,${pctCell('% share~1', j)},0)*${sc3(cyKind)}`));
+      const cyAll = cellS('rtw:cy:all', 'Capital-years, all partners', () => cyJ.map(sc3).join('+') || '0');
+      const capT = (j: number): string => sc3(cyJ[j]);
+      const totCapT = (): string => sc3(cyAll);
       const investedJ = (j: number): string => `(MAX(0,${cellA(w.addr(`${EP}New Cash Equity|${j + 1}`).row, OPEN_COL + j + 1)})+MAX(0,${cellA(w.addr(`${EP}In-Kind Equity (land)|${j + 1}`).row, OPEN_COL + j + 1)}))`;
       const projEq = (): string => `(MAX(0,${cashT()})+MAX(0,${kindT()}))`;
       gridCell(`${EP}Total Invested`, 0, projEq);

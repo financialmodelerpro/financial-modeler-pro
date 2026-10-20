@@ -76,7 +76,40 @@ export const stage7dSummary: LiveLayer = {
     const { perAsset, misses: areaMisses } = liveAssetAreas(tools, state, visible);
     type Row = AreaRow;
     const areasLive = areaMisses.length === 0;
-    const sumOver = (ids: string[], k: keyof Row): X => add(ids.map((id) => perAsset.get(id)![k]));
+    // A SUM OF MANY CELLS IS ONE HELPER CELL (2026-10-20): a card reads it, so no card's formula
+    // repeats it (formulas stay under 400 characters). The helpers sit in a workings block at the
+    // foot of the tab, each storing the platform's own figure.
+    const sws = wb.getWorksheet(SUM)!;
+    let helperRow = 0;
+    const helperOf = new Map<string, X>();
+    const helper = (label: string, x: X): X => {
+      if (x.f.length <= 80) return x;
+      const hit = helperOf.get(x.f); if (hit) return hit;
+      if (!helperRow) {
+        helperRow = sws.rowCount + 2;
+        const h = sws.getCell(helperRow, 1); h.value = 'Workings (totals the cards above read)'; h.font = { name: 'Calibri', size: 10, bold: true };
+        helperRow += 1;
+      }
+      const r = helperRow++;
+      sws.getCell(r, 1).value = label;
+      w.reset();
+      w.fA({ sheet: SUM, row: r, col: 2 }, x.f, { cached: x.v, numFmt: '#,##0' });
+      const out: X = { f: w.refA({ sheet: SUM, row: r, col: 2 }, SUM), v: x.v };
+      w.reset();
+      helperOf.set(x.f, out);
+      return out;
+    };
+    const SUM_LABEL: Partial<Record<string, string>> = { bua: 'Total GFA (sqm)', gfa: 'Total BUA (sqm)', nsa: 'Saleable area (sqm)', units: 'Units', keys: 'Keys', leasable: 'Area let (sqm)' };
+    const sumOver = (ids: string[], k: keyof Row): X => {
+      const label = `${SUM_LABEL[String(k)] ?? String(k)}${ids.length < visible.length ? `, ${ids.length} asset${ids.length === 1 ? '' : 's'}` : ''}`;
+      const parts = ids.map((id) => perAsset.get(id)![k]);
+      const whole = add(parts);
+      if (whole.f.length <= 380 || parts.length < 2) return helper(label, whole);
+      // Too long for one cell: halves, each its own helper, then their sum.
+      const mid = Math.ceil(parts.length / 2);
+      const a = helper(`${label}, part 1`, add(parts.slice(0, mid))), b = helper(`${label}, part 2`, add(parts.slice(mid)));
+      return helper(label, add([a, b]).f.length > 80 ? add([a, b]) : { f: `${a.f}+${b.f}`, v: a.v + b.v });
+    };
     const ids = visible.map((a) => a.id);
 
     // ── Words, the overview's formatters as formulas ─────────────────────────

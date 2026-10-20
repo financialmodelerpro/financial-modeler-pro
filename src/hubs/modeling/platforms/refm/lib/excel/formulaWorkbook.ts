@@ -48,7 +48,7 @@ import { stage7dSummary } from './liveLayers/stage7dSummary';
 import { stage8Schedules, stage8FundFees } from './liveLayers/stage8Schedules';
 import { stage8Capex7 } from './liveLayers/stage8Capex7';
 import { stage9InputLinks } from './liveLayers/stage9InputLinks';
-import { simplifyWorkbook } from './liveLayers/simplify';
+import { simplifyWorkbook, dropNumberWrappers } from './liveLayers/simplify';
 import { linkPeriodHeaders } from './liveLayers/foundations';
 
 export type SheetStatus = 'live' | 'partial' | 'values' | 'values-by-design' | 'front';
@@ -157,6 +157,8 @@ export function buildFormulaWorkbook(opts: BuildModelOptions): FormulaWorkbookRe
   // SIMPLE FORMULAS (founder, 2026-10-11): sum chains become SUM over ranges and terms
   // that add nothing go, the arithmetic unchanged (liveLayers/simplify.ts).
   simplifyWorkbook(wb);
+  // N() only where a cell can be text or blank (2026-10-20).
+  dropNumberWrappers(wb);
   // A CIRCULAR CELL NEEDS A STARTING VALUE (the financing loop runs through Financing, Schedules
   // and the statements): Excel iterates from each cell's cached result, and a formula with none
   // enters the loop with nothing to start from and never recovers. Run last, after every rewrite.
