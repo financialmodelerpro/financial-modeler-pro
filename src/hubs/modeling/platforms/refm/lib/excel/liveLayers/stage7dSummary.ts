@@ -316,12 +316,9 @@ export const stage7dSummary: LiveLayer = {
       put(R(6), `${ph.name} capex`, figure(capex, ph.capex), () => T(capex!.f));
       const rev = cellX(`pl|${ph.id}||Total Revenue`, TOTAL_COL), ebitda = cellX(`pl|${ph.id}||EBITDA`, TOTAL_COL);
       put(R(7), `${ph.name} revenue`, figure(rev, ph.revenue), () => T(rev!.f));
-      // The overview's phase EBITDA is its lines' revenue less their cost of sales and opex (no HQ or
-      // selling costs, which the P&L files at project level): the phase view's rows that carry them.
-      const parts = [rev, ...['Residential cost of sales', 'Hospitality operating expenses', 'Retail operating expenses'].map((l) => cellX(`pl|${ph.id}||${l}`, TOTAL_COL))].filter((x): x is X => !!x);
-      const phEbitda = rev ? add(parts) : null;
-      void ebitda;
-      put(R(8), `${ph.name} EBITDA`, figure(phEbitda, ph.ebitda), () => T(phEbitda!.f));
+      // THE PHASE P&L'S OWN EBITDA ROW (2026-10-25): the overview reads the phase statement's figure, its
+      // own marketing included, so the Summary links to that row and adds no rows of its own.
+      put(R(8), `${ph.name} EBITDA`, figure(ebitda, ph.ebitda), () => T(ebitda!.f));
     }
 
     // ── Exit and cash ────────────────────────────────────────────────────────

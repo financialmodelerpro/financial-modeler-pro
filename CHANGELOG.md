@@ -4,6 +4,15 @@
 
 Entries are grouped by their most recent date. Fuller per-day narrative for REFM platform work lives in [CLAUDE-REFM.md](CLAUDE-REFM.md); per-route and migration detail in [CLAUDE-ROUTES.md](CLAUDE-ROUTES.md) and [CLAUDE-DB.md](CLAUDE-DB.md); the general lessons in [docs/TRAPS.md](docs/TRAPS.md); fund-layer standing rules in [docs/FUND_LAYER_GUIDELINE.md](docs/FUND_LAYER_GUIDELINE.md). This file is loaded on demand only and has no size limit.
 
+## 2026-10-25
+
+- **A PHASE CARRIES ONLY ITS OWN COSTS** (founder; platform defect, every surface). The phase P&L and phase Direct cash flow (`buildPLRows` / `buildDirectCFRows` in `lib/reports/m4Reports.ts`) read the PROJECT selling and marketing and HQ series, tagged "(project)", so every phase deducted the whole project's marketing. Marina Gate: 61.0m in each phase where Phase 1's lines spent 37.0m and Phase 2's 24.0m; phase EBITDA 435.9m + 421.5m = 857.5m against 918.5m project EBITDA before fund fees. A third figure sat beside them: `overviewReport` summed per-asset EBITDA, which carries no marketing at all (497.0m / 482.5m on the Overview, the PDF, the hardcoded overview and the formula Summary).
+  - **Engine (additive):** `CapexAggregate.expensedByPhase` (capex.ts, same placement rule, sums to `expensedPerPeriod`), surfaced as `pl.sellingExpenseByPhase`.
+  - **One rule:** `phaseSellingExpense` and `phaseEbitdaPerPeriod` (read off the phase P&L itself) in m4Reports. A phase view shows no HQ; the overview and Summary read the phase P&L's EBITDA.
+  - **Reconciliation:** `buildPhaseEbitdaReconciliationRows` (phases + HQ + fund fees = project EBITDA, difference row) on the Module 4 P&L screen, PDF, hardcoded Excel and live workbook (formulas off the rows above); `PHASE_EBITDA_CHECK_LABEL` on Checks in all three exports.
+  - **Measured (Marina Gate):** phase EBITDA 435.9m / 421.5m to 459.9m / 458.6m, sum 918.5m; reconciliation difference 0.00 every year; phase CFO 1,019.5m / 781.9m to 1,043.5m / 818.9m (the other phase's marketing out); Summary 497.0m / 482.5m to 459.9m / 458.6m. Project EBITDA 868.1m, PAT, net cash, cash and every IRR / MOIC / NPV byte-identical before and after. `verify-formula-workbook` 198 / 0.
+  - **Left alone, reported:** the dividend waterfall still caps each phase's dividends at per-asset EBITDA (no marketing); changing it could move dividends and returns.
+
 ## 2026-10-20
 
 - **THE LIVE WORKBOOK, FOUNDER'S ELEVEN-ITEM REVIEW CLOSED** (live layout only; the hardcoded export unchanged, `verify-excel-export` 363 / 0 after every group). Six commits, each proved in real Excel (`verify-formula-workbook`), `verify-excel-export` and `verify-report-readability`:

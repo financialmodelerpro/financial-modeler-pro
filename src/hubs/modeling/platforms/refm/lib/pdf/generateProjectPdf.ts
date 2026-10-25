@@ -83,7 +83,7 @@ import {
 } from '../financials-resolvers';
 import { computeReturnsSnapshot, computeReturnsSensitivity, type ReturnsSnapshot } from '../returns-resolvers';
 import { getFinancialLabels, defaultTerminologyForCountry } from '@/src/core/calculations/financials';
-import { buildPLRows, buildDirectCFRows, buildIndirectCFRows, buildBSRows, buildBsFeederTables, buildBsReconciliationRows, buildFundFeeBasisRows, buildFundCapitalRows, fundFeeBasisText, totalColumnHeading, totalColumnNote, resolveTotalColumnKind, TOTAL_COLUMN_HEADINGS, FUND_CAPITAL_BASES_TITLE, FUND_CAPITAL_BASES_NOTE, type M4FeederCtx } from '../reports/m4Reports';
+import { buildPLRows, buildPhaseEbitdaReconciliationRows, phaseEbitdaFooting, buildDirectCFRows, buildIndirectCFRows, buildBSRows, buildBsFeederTables, buildBsReconciliationRows, buildFundFeeBasisRows, buildFundCapitalRows, fundFeeBasisText, totalColumnHeading, totalColumnNote, resolveTotalColumnKind, TOTAL_COLUMN_HEADINGS, FUND_CAPITAL_BASES_TITLE, FUND_CAPITAL_BASES_NOTE, type M4FeederCtx } from '../reports/m4Reports';
 import { buildOpexReport, OPEX_AP_BASIS, OPEX_AP_TOTAL_BASIS } from '../reports/opexReports';
 import { buildFcffBuildup, buildFcfeBuildup, buildDividendBuildup, distributedTieNote } from '../reports/streamReports';
 import { buildDisposalWorking } from '../reports/disposalReport';
@@ -933,7 +933,7 @@ function checksTable(
   fmt: Fmt,
   state?: FinancialsResolverState,
 ): { table: PdfTable; notes: string[] } {
-  const checks = buildIntegrityChecks(snap);
+  const checks = buildIntegrityChecks(snap, state ? { phaseEbitda: phaseEbitdaFooting(snap, state) } : {});
   // 2026-08-16: cash-basis advisories ride in the same table but as NOTE, never
   // OK or CHECK. They are not identities: a gap between cash collected and
   // gross sale value is legitimate model state, so failing the model over it
@@ -3374,6 +3374,8 @@ function buildModule4(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
       const rows = buildPLRows(m4ctx(ph.id));
       if (hasData(rows)) items.push(tTable(tab, 'outputs', m4RowsToPeriodTable(`${labels.incomeStatementTitle}: ${ph.name}`, py, yl, rows)));
     }
+    // Each phase carries only its own costs (2026-10-25); this foots them to the project EBITDA.
+    items.push(tTable(tab, 'outputs', m4RowsToPeriodTable('Phase EBITDA Reconciliation', py, yl, buildPhaseEbitdaReconciliationRows(m4ctx('__all__')))));
   }
 
   // ── Tab 3: Cash Flow ───────────────────────────────────────────────────────

@@ -25,7 +25,8 @@
 import type { LayerContext, LiveLayer } from '../formulaWorkbook';
 import { LiveWriter } from './writer';
 import { PERIOD_COLS } from '../buildModelWorkbook';
-import { CHECK_REL_TOL } from '../../reports/checksReport';
+import { CHECK_REL_TOL, PHASE_EBITDA_CHECK_LABEL } from '../../reports/checksReport';
+import { PHASE_RECON, PHASE_RECON_LINE } from '../../reports/m4Reports';
 import { irrOf, accT } from './excelText';
 import { NUMFMT } from '../styles';
 import { computeFinancialsSnapshot } from '../../financials-resolvers';
@@ -44,7 +45,8 @@ export const stage7cChecks: LiveLayer = {
     const N = computeFinancialsSnapshot(ctx.opts.state).axisLength;
     const { OPEN_COL } = PERIOD_COLS;
     const pc = (t: number): number => OPEN_COL + 1 + t;
-    const pbtLabel = getFinancialLabels(ctx.opts.state.project.financialTerminology ?? defaultTerminologyForCountry(ctx.opts.state.project.country)).pbt;
+    const finLabels = getFinancialLabels(ctx.opts.state.project.financialTerminology ?? defaultTerminologyForCountry(ctx.opts.state.project.country));
+    const pbtLabel = finLabels.pbt;
     const isFormula = (sheet: string, row: number, col: number): boolean => {
       const v = wb.getWorksheet(sheet)?.findRow(row)?.findCell(col)?.value as unknown;
       return !!v && typeof v === 'object' && 'formula' in (v as object);
@@ -65,6 +67,8 @@ export const stage7cChecks: LiveLayer = {
       { label: 'Balance sheet reconciliation bridge, unexplained', a: 'bsr|__all__||Unexplained (must be 0)', b: null, mag: 'bs|__all__||TOTAL ASSETS' },
       // The financing loop solves its tax on its own profit before tax: it must be the P&L's, every year.
       { label: LOOP_PBT_CHECK, a: 'fin|Profit before tax inside the financing loop|= Profit before tax', b: `pl|__all__||${pbtLabel}`, mag: `pl|__all__||${pbtLabel}` },
+      // The phases foot to the project EBITDA (2026-10-25): the reconciliation under the phase P&Ls.
+      { label: PHASE_EBITDA_CHECK_LABEL, a: `pl|${PHASE_RECON_LINE}||${PHASE_RECON.sum}`, b: `pl|__all__||${finLabels.ebitda}`, mag: `pl|__all__||${finLabels.ebitda}` },
     ];
     const tol = CHECK_REL_TOL.toExponential().toUpperCase().replace('E+', 'E');
     const liveIds: string[] = [], valueIds: string[] = [];

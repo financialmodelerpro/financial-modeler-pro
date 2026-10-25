@@ -45,7 +45,7 @@ import { getFinancialLabels, defaultTerminologyForCountry } from '@/src/core/cal
 import { computeFinancialsSnapshot } from '../../financials-resolvers';
 import { FEE_BASE_LABELS, FUND_FEE_SPECS } from '../../fundTerms';
 import { planRevenueLines, lineForAsset } from '../../revenueLines';
-import { buildPLRows, buildDirectCFRows, buildIndirectCFRows, buildBSRows, SELLING_EXPENSE_LABEL } from '../../reports/m4Reports';
+import { buildPLRows, buildDirectCFRows, buildIndirectCFRows, buildBSRows, SELLING_EXPENSE_LABEL, PHASE_RECON, PHASE_RECON_LINE } from '../../reports/m4Reports';
 import { planReportLines, lineRowLabel } from '../../reports/lineRows';
 import { hospitalityStatementsByLine, hospitalityRevenueParts, hospitalityCostParts, HOSPITALITY_COST_GROUPS } from '../../reports/hospitalityStatement';
 import { revenueBySection } from '../../reports/revenueSections';
@@ -130,7 +130,13 @@ export const stage5Statements: LiveLayer = {
     const assetOpex = (a: Asset): F => keyF(`oxo:${a.id}:total`);
     const hq: F = keyF('oxo:hq:total');
     const expensedKeys = w.reg.keys().filter((k) => k.startsWith('cxe:') && k.split(':').length === 3);
-    const sellingExp: F = (t) => expensedKeys.map((k) => R(k, t)).join('+') || '0';
+    // A phase charges only the marketing its own plots spent (2026-10-25, m4Reports phaseSellingExpense):
+    // the `cxe:<asset>:<line>` rows of the assets in that phase; the project view takes them all.
+    const phaseOfAsset = new Map(state.assets.map((a) => [a.id, a.phaseId] as const));
+    const sellingExpOf = (phaseId: string): F => {
+      const ks = phaseId === ALL ? expensedKeys : expensedKeys.filter((k) => phaseOfAsset.get(k.split(':')[1]) === phaseId);
+      return (t) => ks.map((k) => R(k, t)).join('+') || '0';
+    };
     const projDep: F = (t) => `-${R('schv:__project__:dep', t)}`;
     const disposed: F = (t) => `-(${['schv:__project__:landDisp', 'schv:__project__:disp'].filter(has).map((k) => R(k, t)).join('+') || '0'})`;
     const feeIdx = FUND_FEE_SPECS.map((_, i) => i).filter((i) => has(`fnc:fee:${i}`));
@@ -251,7 +257,7 @@ export const stage5Statements: LiveLayer = {
           memberKeys.set(g, [...(memberKeys.get(g) ?? []), key]);
         } else if (L === 'Total Revenue') f = revHeads.length ? sumKeysF([...revHeads]) : totalRev;
         else if (L.startsWith('HQ Expenses')) { f = neg(hq); opexRows.push(key); }
-        else if (L.startsWith(SELLING_EXPENSE_LABEL)) { f = neg(sellingExp); opexRows.push(key); }
+        else if (L.startsWith(SELLING_EXPENSE_LABEL)) { f = neg(sellingExpOf(phaseId)); opexRows.push(key); }
         else if (L === 'Total Operating Expenses') { const rs = [...opexRows]; f = (t) => rs.map((k) => R(k, t)).join('+') || '0'; }
         else if (L === labels.ebitda && phaseFiltered) f = (t) => `${cell('Total Revenue')(t)}+${has(K('Residential cost of sales')) ? cell('Residential cost of sales')(t) : `-(${cosTotal(t)})`}+${cell('Total Operating Expenses')(t)}`;
         else if (!phaseFiltered) {
@@ -290,6 +296,27 @@ export const stage5Statements: LiveLayer = {
     doView(ALL);
     for (const ph of state.phases) if (!refused && w.reg.keys().some((k) => k.startsWith(`pl|${ph.id}||`))) doView(ph.id);
     if (refused) return [{ sheet: PL, status: 'values' as const, formulas: 0, note: `The P&L could not be made live for this model: ${refused}.` }];
+    // THE PHASE EBITDA RECONCILIATION (2026-10-25): each phase's EBITDA row, the project's HQ and fund fees,
+    // their sum, the project EBITDA row and the difference, all read off the rows above.
+    {
+      const RK = (label: string): string => `pl|${PHASE_RECON_LINE}||${label}`;
+      const sumKeys: string[] = [];
+      const put = (label: string, f: F, inSum: boolean): void => {
+        if (!has(RK(label))) return;
+        writes.push([PL, RK(label), f, 'sum']);
+        if (inSum) sumKeys.push(RK(label));
+      };
+      for (const ph of state.phases) {
+        const k = `pl|${ph.id}||${labels.ebitda}`;
+        put(PHASE_RECON.phase(ph.name), has(k) ? keyF(k) : () => '0', true);
+      }
+      put(PHASE_RECON.hq, neg(hq), true);
+      const feeTotal = `pl|${ALL}||Total Fund Management Fee`;
+      put(PHASE_RECON.fees, has(feeTotal) ? keyF(feeTotal) : neg(feesF), true);
+      put(PHASE_RECON.sum, sumKeysF([...sumKeys]), false);
+      put(PHASE_RECON.project, keyF(`pl|${ALL}||${labels.ebitda}`), false);
+      put(PHASE_RECON.diff, (t) => `${R(RK(PHASE_RECON.sum), t)}-${R(RK(PHASE_RECON.project), t)}`, false);
+    }
     const plWrites = writes.splice(0);
     const out: Array<{ sheet: string; status: 'live' | 'partial' | 'values'; note: string; formulas: number }> = [];
 
@@ -435,15 +462,15 @@ export const stage5Statements: LiveLayer = {
         else if (L === 'Less: Inaccessible Funds Locked') f = phaseFiltered ? neg(phaseEscrow('held')) : neg(keyF(escB('Total Additions')));
         else if (L === 'Add: Release of Inaccessible Funds') f = phaseFiltered ? phaseEscrow('release') : neg(keyF(escB('Less: Release of Locked Funds')));
         else if (L.startsWith('HQ Expenses')) f = neg(hqPaid);
-        else if (L.startsWith(SELLING_EXPENSE_LABEL)) f = neg(sellingExp);
+        else if (L.startsWith(SELLING_EXPENSE_LABEL)) f = neg(sellingExpOf(phaseId));
         // A class's contribution: its revenue received and its opex paid, the rows above.
         // (A residential line pays no operating cost of its own, so it is its collections.)
         else if (L === '= Residential Cash Collection') f = headKey.has('cf-rev-res') && resNoOpex ? sumKeysF(headOf('cf-rev-res')) : (t) => `${sumF(res.map(revRcv))(t)}-(${sumF(res.map(opexPaid))(t)})`;
         else if (L === '= Hospitality EBITDA') f = headKey.has('cf-rev-hosp') ? sumKeysF([...headOf('cf-rev-hosp'), ...headOf('cf-opex-hosp')]) : (t) => `${sumF(hosp.map(revRcv))(t)}-(${sumF(hosp.map(opexPaid))(t)})`;
         else if (L === '= Retail NOI') f = headKey.has('cf-rev-ret') ? sumKeysF([...headOf('cf-rev-ret'), ...headOf('cf-opex-ret')]) : (t) => `${sumF(ret.map(revRcv))(t)}-(${sumF(ret.map(opexPaid))(t)})`;
         else if (L === 'Total Operating Expenses Paid') {
-          const parts = [...headOf('cf-opex-hosp'), ...headOf('cf-opex-ret'), ...[`HQ Expenses${phaseFiltered ? ' (project)' : ''}`, `${SELLING_EXPENSE_LABEL}${phaseFiltered ? ' (project)' : ''}`].map(K).filter(has)];
-          f = resNoOpex ? sumKeysF(parts) : (t) => `-(${sumF(all.map(opexPaid))(t)})-${hqPaid(t)}-(${sellingExp(t)})`;
+          const parts = [...headOf('cf-opex-hosp'), ...headOf('cf-opex-ret'), ...['HQ Expenses', SELLING_EXPENSE_LABEL].map(K).filter(has)];
+          f = resNoOpex ? sumKeysF(parts) : (t) => `-(${sumF(all.map(opexPaid))(t)})${phaseFiltered ? '' : `-${hqPaid(t)}`}-(${sellingExpOf(phaseId)(t)})`;
         }
         else if (L === 'Fund Management and Other Expenses') f = neg(feesF);
         else if (L === labels.taxPaid) f = neg(keyF('fnc:taxpaid'));

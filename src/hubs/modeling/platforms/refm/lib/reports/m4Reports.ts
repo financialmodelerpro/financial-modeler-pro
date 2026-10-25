@@ -20,7 +20,7 @@
 import { lineReceivableDays } from '../receivableDays';
 import { hospitalityStatementsByLine, hospitalityRevenueParts, hospitalityCostParts } from './hospitalityStatement';
 import type { ProjectFinancialsSnapshot, FinancialsResolverState } from '../financials-resolvers';
-import { getFinancialLabels } from '@/src/core/calculations/financials';
+import { getFinancialLabels, defaultTerminologyForCountry } from '@/src/core/calculations/financials';
 import type { M4Row } from '../../components/modules/_shared/m4Table';
 import type { FundFeeSchedule } from '../fundFees';
 import { FEE_BASE_LABELS, FEE_TIMING_LABELS } from '../fundTerms';
@@ -55,6 +55,85 @@ export interface M4ReportCtx {
 }
 
 const ALL = '__all__';
+
+// ── A phase's own figures (2026-10-25) ─────────────────────────────────────
+//
+// A phase P&L deducted the WHOLE project's selling and marketing and its HQ, so
+// every phase carried the other phases' marketing (Marina Gate: 61.0m in each,
+// where Phase 1 spent 37.0m and Phase 2 24.0m) and the phases summed to more
+// cost than the project has. A phase now charges the marketing its own cost
+// lines spent and no HQ; the reconciliation below adds HQ and the fund fees back
+// once, so the phases foot to the project EBITDA.
+
+/** The selling and marketing a phase's own cost lines expensed, on the project axis. */
+export function phaseSellingExpense(snap: ProjectFinancialsSnapshot, phaseId: string): number[] {
+  const N = snap.axisLength;
+  const series = snap.pl.sellingExpenseByPhase?.[phaseId] ?? [];
+  return Array.from({ length: N }, (_, t) => series[t] ?? 0);
+}
+
+/**
+ * A phase's EBITDA, read off the phase P&L itself, so every surface that prints
+ * one (the overview, the Summary) shows the statement's figure and no surface
+ * holds a second rule for it.
+ */
+export function phaseEbitdaPerPeriod(snap: ProjectFinancialsSnapshot, state: FinancialsResolverState, phaseId: string): number[] {
+  const labels = getFinancialLabels(state.project.financialTerminology ?? defaultTerminologyForCountry(state.project.country));
+  const rows = buildPLRows({ snap, state, labels, filterPhaseId: phaseId, fmt: (v) => String(v) });
+  const last = rows[rows.length - 1];
+  return last && last.label === labels.ebitda ? last.values.slice(0, snap.axisLength) : new Array<number>(snap.axisLength).fill(0);
+}
+
+/** The workbook's register line for the reconciliation rows (keys `pl|__phaserecon__||<label>`). */
+export const PHASE_RECON_LINE = '__phaserecon__';
+
+/** Labels of the reconciliation rows, shared by every surface that prints it and by the live workbook. */
+export const PHASE_RECON = {
+  section: 'PHASE EBITDA RECONCILIATION',
+  hq: 'Less: HQ Expenses (project level)',
+  fees: 'Less: Total Fund Management Fee (project level)',
+  sum: 'Project EBITDA, from the phases',
+  project: 'Project EBITDA, per the P&L',
+  diff: 'Difference (should be zero)',
+  phase: (name: string) => `${name} EBITDA`,
+} as const;
+
+/**
+ * Each phase's EBITDA, then the project-level HQ and fund fees, footing to the
+ * project EBITDA, with the difference to the P&L as a check row.
+ */
+export function buildPhaseEbitdaReconciliationRows(ctx: M4ReportCtx): M4Row[] {
+  const { snap, state } = ctx;
+  const N = snap.axisLength;
+  const p = snap.pl;
+  const neg = (a: number[] | undefined): number[] => Array.from({ length: N }, (_, t) => -(a?.[t] ?? 0));
+  const rows: M4Row[] = [{ label: PHASE_RECON.section, values: [], isSection: true }];
+  const sum = new Array<number>(N).fill(0);
+  for (const ph of state.phases) {
+    const v = phaseEbitdaPerPeriod(snap, state, ph.id);
+    rows.push({ label: PHASE_RECON.phase(ph.name), values: v, indent: 1 });
+    for (let t = 0; t < N; t++) sum[t] += v[t] ?? 0;
+  }
+  const hq = neg(p.hqOpexPerPeriod);
+  const fees = neg(p.fundFeesPerPeriod);
+  rows.push({ label: PHASE_RECON.hq, values: hq, indent: 1 });
+  // The fee row only where the P&L shows its fee block (a standalone project carries none).
+  if (ctx.allRows === true || fees.some((v) => v !== 0)) rows.push({ label: PHASE_RECON.fees, values: fees, indent: 1 });
+  for (let t = 0; t < N; t++) sum[t] += (hq[t] ?? 0) + (fees[t] ?? 0);
+  rows.push({ label: PHASE_RECON.sum, values: sum, isSubtotal: true });
+  const project = p.ebitdaPerPeriod.slice(0, N);
+  rows.push({ label: PHASE_RECON.project, values: project, indent: 1 });
+  rows.push({ label: PHASE_RECON.diff, values: sum.map((v, t) => v - (project[t] ?? 0)), indent: 1 });
+  return rows;
+}
+
+/** The two sides of the reconciliation, for the Checks tab (checksReport `buildIntegrityChecks`). */
+export function phaseEbitdaFooting(snap: ProjectFinancialsSnapshot, state: FinancialsResolverState): { fromPhases: number[]; project: number[] } {
+  const labels = getFinancialLabels(state.project.financialTerminology ?? defaultTerminologyForCountry(state.project.country));
+  const rows = buildPhaseEbitdaReconciliationRows({ snap, state, labels, filterPhaseId: ALL, fmt: (v) => String(v) });
+  const pick = (l: string): number[] => rows.find((r) => r.label === l)?.values ?? [];
+  return { fromPhases: pick(PHASE_RECON.sum), project: pick(PHASE_RECON.project) };
+}
 
 // ── The leading column's heading ──────────────────────────────────────────
 //
@@ -161,8 +240,6 @@ export function buildPLRows(ctx: M4ReportCtx): M4Row[] {
   const hospitalityAssets = visibleAssets.filter((a) => a.strategy === 'Operate' && matchesPhase(a));
   const retailAssets = visibleAssets.filter((a) => a.strategy === 'Lease' && matchesPhase(a));
   const phaseFiltered = filterPhaseId !== ALL;
-  const projTag = phaseFiltered ? ' (project)' : '';
-
   const zerosN = (): number[] => new Array<number>(N).fill(0);
   const sumAssetsSeries = (
     assets: Array<{ id: string }>,
@@ -184,9 +261,11 @@ export function buildPLRows(ctx: M4ReportCtx): M4Row[] {
   const cosTotal = phaseFiltered ? sumAssetsSeries(residentialAssets, 'cosPerPeriod') : p.cosPerPeriod;
   const hospOpex = phaseFiltered ? sumAssetsSeries(hospitalityAssets, 'opexPerPeriod') : p.hospitalityOpexPerPeriod;
   const retailOpex = phaseFiltered ? sumAssetsSeries(retailAssets, 'opexPerPeriod') : p.retailOpexPerPeriod;
-  const hqOpex = p.hqOpexPerPeriod;
-  // Selling and marketing, expensed as incurred (2026-10-08, sellingExpense.ts): project level, like HQ.
-  const sellingExp = p.sellingExpensePerPeriod ?? hqOpex.map(() => 0);
+  // A PHASE CARRIES ONLY ITS OWN COSTS (2026-10-25). HQ is project level, so a phase view leaves it out
+  // (the reconciliation under the phases adds it back once); selling and marketing belong to the phase
+  // whose cost lines spent them (phaseSellingExpense). Both read in full in both phases until today.
+  const hqOpex = phaseFiltered ? zerosN() : p.hqOpexPerPeriod;
+  const sellingExp = phaseFiltered ? phaseSellingExpense(snap, filterPhaseId) : (p.sellingExpensePerPeriod ?? zerosN());
   // THE ENGINE'S OWN SUBTOTAL where it has one (TRAPS 7.51): a recomputed total cannot see a row added above
   // it. Only the phase filter, which the engine does not total, sums here.
   const totalOpex = phaseFiltered ? hospOpex.map((v, i) => v + retailOpex[i] + hqOpex[i] + (sellingExp[i] ?? 0)) : p.totalOpexPerPeriod;
@@ -332,11 +411,11 @@ export function buildPLRows(ctx: M4ReportCtx): M4Row[] {
     rows.push({ label: 'Retail operating expenses', values: negArr(retailOpex), isSection: true, collapseGroup: 'pl-opex-ret', collapseRole: 'header', defaultCollapsed: false });
     pushLinesPL(retailAssets, 'opexPerPeriod', 'pl-opex-ret', -1);
   }
-  if ((all || hqOpex.some((v) => v !== 0))) {
-    rows.push({ label: `HQ Expenses${projTag}`, values: negArr(hqOpex), indent: 1 });
+  if (!phaseFiltered && (all || hqOpex.some((v) => v !== 0))) {
+    rows.push({ label: 'HQ Expenses', values: negArr(hqOpex), indent: 1 });
   }
   if ((all || sellingExp.some((v) => v !== 0))) {
-    rows.push({ label: `${SELLING_EXPENSE_LABEL}${projTag}`, values: negArr(sellingExp), indent: 1 });
+    rows.push({ label: SELLING_EXPENSE_LABEL, values: negArr(sellingExp), indent: 1 });
   }
   rows.push({ label: 'Total Operating Expenses', values: negArr(totalOpex), isSubtotal: true });
 
@@ -908,12 +987,11 @@ export function buildDirectCFRows(ctx: M4ReportCtx): M4Row[] {
   // from Operations (Marina Gate Phase 1: lines 1,086,064,329 under a total of
   // 2,162,708,165). Under a filter every operating figure is now struck from the
   // phase's assets, the same rows printed above it. HQ is project level and is
-  // shown and counted with a "(project)" tag, exactly as the phase P&L carries it;
+  // left out of a phase (2026-10-25), and a phase pays only its own marketing;
   // fund fees and tax are project level with no phase allocation, so a phase view
   // leaves them out, as the phase P&L stops before them. The project view is
   // unchanged: it still reads the engine's own series.
   const phaseFiltered = filterPhaseId !== ALL;
-  const projTag = phaseFiltered ? ' (project)' : '';
   const phaseAssets = [...residentialAssets, ...hospitalityAssets, ...retailAssets];
   const sumEscrow = (key: 'heldPerPeriod' | 'releasePerPeriod'): number[] => {
     const out = new Array<number>(N).fill(0);
@@ -976,12 +1054,17 @@ export function buildDirectCFRows(ctx: M4ReportCtx): M4Row[] {
       pushLineRows(retailAssets, 'opexPaidPerPeriod', 'cf-opex-ret', -1);
     }
   }
-  if ((all || d.hqOpexPaidPerPeriod.some((v) => v !== 0))) {
-    rows.push({ label: `HQ Expenses${projTag}`, values: d.hqOpexPaidPerPeriod, indent: 1 });
+  // A phase pays only its own costs (2026-10-25), as its P&L charges them: no HQ, its own marketing
+  // (paid as incurred, so the paid series is the charge negated).
+  const hqPaid = phaseFiltered ? d.hqOpexPaidPerPeriod.map(() => 0) : d.hqOpexPaidPerPeriod;
+  if (!phaseFiltered && (all || hqPaid.some((v) => v !== 0))) {
+    rows.push({ label: 'HQ Expenses', values: hqPaid, indent: 1 });
   }
-  const sellingPaid = d.sellingExpensePaidPerPeriod ?? d.hqOpexPaidPerPeriod.map(() => 0);
+  const sellingPaid = phaseFiltered
+    ? phaseSellingExpense(snap, filterPhaseId).map((v) => -v)
+    : (d.sellingExpensePaidPerPeriod ?? d.hqOpexPaidPerPeriod.map(() => 0));
   if ((all || sellingPaid.some((v) => v !== 0))) {
-    rows.push({ label: `${SELLING_EXPENSE_LABEL}${projTag}`, values: sellingPaid, indent: 1 });
+    rows.push({ label: SELLING_EXPENSE_LABEL, values: sellingPaid, indent: 1 });
   }
 
   // ITEM E (2026-08-18b): PER-CLASS CONTRIBUTION, struck from the rows above.
@@ -1022,7 +1105,7 @@ export function buildDirectCFRows(ctx: M4ReportCtx): M4Row[] {
       for (const c of contribution) rows.push({ label: c.label, values: c.series, isSubtotal: true });
     }
   }
-  const totalOpexPaid = opexPaid.map((v, i) => v + (d.hqOpexPaidPerPeriod[i] ?? 0) + (sellingPaid[i] ?? 0));
+  const totalOpexPaid = opexPaid.map((v, i) => v + (hqPaid[i] ?? 0) + (sellingPaid[i] ?? 0));
   rows.push({ label: 'Total Operating Expenses Paid', values: totalOpexPaid, isSubtotal: true });
 
   // Fund fees paid (2026-08-05). They were ALWAYS inside cash from operations

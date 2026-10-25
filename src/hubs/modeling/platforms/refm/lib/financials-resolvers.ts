@@ -143,6 +143,8 @@ export interface ProjectPL {
   hqOpexPerPeriod: number[];
   /** Selling and marketing expensed as incurred (2026-10-08, sellingExpense.ts); inside totalOpexPerPeriod. */
   sellingExpensePerPeriod: number[];
+  /** The same per phase id (2026-10-25, capex `expensedByPhase`): a phase P&L charges its OWN marketing. */
+  sellingExpenseByPhase: Record<string, number[]>;
   totalOpexPerPeriod: number[];
   // Profit waterfall
   /** EBITDA, struck AFTER the fund fees (2026-08-05, reference alignment).
@@ -2074,6 +2076,12 @@ function computeFinancialsSnapshotOnce(
   // paid in the period it is charged (no payables days), exactly as the fund fees are.
   const sellingExpense = (financing.capex.expensedPerPeriod ?? []).slice(0, N);
   while (sellingExpense.length < N) sellingExpense.push(0);
+  const sellingExpenseByPhase: Record<string, number[]> = {};
+  for (const [phaseId, series] of Object.entries(financing.capex.expensedByPhase ?? {})) {
+    const s = series.slice(0, N);
+    while (s.length < N) s.push(0);
+    sellingExpenseByPhase[phaseId] = s;
+  }
   const totalOpex = zeros(N);
   for (let t = 0; t < N; t++) totalOpex[t] = hospOpex[t] + retailOpex[t] + hqOpex[t] + sellingExpense[t];
 
@@ -2158,6 +2166,7 @@ function computeFinancialsSnapshotOnce(
     retailOpexPerPeriod: retailOpex,
     hqOpexPerPeriod: hqOpex,
     sellingExpensePerPeriod: sellingExpense,
+    sellingExpenseByPhase,
     totalOpexPerPeriod: totalOpex,
     ebitdaPerPeriod: ebitda,
     ebitdaBeforeFundFeesPerPeriod: ebitdaBeforeFundFees,

@@ -27,7 +27,7 @@ import { currencyHeaderLine, type DisplayScale, type DisplayDecimals } from '@/s
 import { makeFmt } from './_shared/numberFmt';
 import { PhaseSection } from './_shared/PhaseSection';
 import { M4PeriodTable } from './_shared/m4Table';
-import { buildPLRows, buildFundFeeBasisRows, buildFundCapitalRows, taxBasisNote } from '../../lib/reports/m4Reports';
+import { buildPLRows, buildFundFeeBasisRows, buildFundCapitalRows, taxBasisNote, buildPhaseEbitdaReconciliationRows } from '../../lib/reports/m4Reports';
 import { FundFeeBasisTable } from './_shared/FundFeeBasisTable';
 import { OverrideBadge } from './_shared/OverrideBadge';
 import { TabComments, FieldComment } from '../collab/FieldComments';
@@ -264,6 +264,18 @@ export default function Module4PL(): React.JSX.Element {
         priorYearLabel={snap.projectStartYear - 1}
         showPhaseColumn
         rows={filteredRows.length > 0 ? filteredRows : [{ label: 'No data for this selection', values: new Array<number>(N).fill(0) }]}
+      />
+
+      {/* Each phase carries only its own costs (2026-10-25); HQ and the fund fees are project level.
+          This foots the phases to the project EBITDA, from the same builder the PDF and both
+          workbooks print. */}
+      <M4PeriodTable
+        title="Phase EBITDA Reconciliation"
+        yearLabels={yearLabels}
+        currency={currency}
+        fmt={fmt}
+        priorYearLabel={snap.projectStartYear - 1}
+        rows={buildPhaseEbitdaReconciliationRows({ snap, state, labels, filterPhaseId: '__all__', fmt })}
       />
 
       {/* Fund layer (2026-08-05): what each fund fee is charged on. Renders

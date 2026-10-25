@@ -3206,6 +3206,23 @@ rule agreed by coincidence, and an export-time equality check can only ever see 
 included. **A guard that compares a shortcut with the rule on today's values proves today's values. Prove the
 shortcut under a change, or build the rule.**
 
+### 7.67 A phase view that reads a project series charges every phase the whole project's cost
+
+**Symptom (2026-10-25):** on FMP - MARINA GATE each phase P&L and phase cash flow deducted 61.0m of selling and
+marketing, where Phase 1's lines spent 37.0m and Phase 2's 24.0m; phase EBITDA summed to 857.5m against a project
+918.5m before fund fees. HQ did the same, hidden only because it was zero. The overview printed a third figure
+(497.0m / 482.5m) by summing per-asset EBITDA, which carries no marketing at all.
+
+**Mechanism:** the engine values marketing per asset, but published only a project total; the phase builders read
+that total under a "(project)" tag. Each phase looked plausible on its own, and no check added the phases back up.
+
+**Fix:** the engine publishes `expensedByPhase` (`pl.sellingExpenseByPhase`); a phase charges its own marketing
+and no HQ; every phase EBITDA on any surface is read off the phase P&L (`phaseEbitdaPerPeriod`); a reconciliation
+(phases + HQ + fund fees = project EBITDA) is printed under the phase P&Ls and checked on Checks.
+
+**The trap to avoid:** a phase or segment view that borrows a project-level row. Either allocate it or leave it out
+and add it back once, and foot the segments to the whole in a check, or the overstatement never shows.
+
 ## 8. Registries and two-step registration
 
 ### 8.1 A template registered in one place and not the other fails silently and permanently

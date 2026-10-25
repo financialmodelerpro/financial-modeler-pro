@@ -57,6 +57,8 @@ export interface CapexAggregate {
    * incurred and the cash flow pays it then. Optional for the same reason as the fields above.
    */
   expensedPerPeriod?: number[];
+  /** The same series per phase id (2026-10-25): a phase P&L charges its OWN marketing. Sums to `expensedPerPeriod`. */
+  expensedByPhase?: Record<string, number[]>;
 }
 
 export interface CapexLandByPhase {

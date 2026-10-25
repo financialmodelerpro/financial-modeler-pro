@@ -29,6 +29,7 @@ import { resolveAssetKeys, resolveAssetLeasableSqm } from '../revenue-resolvers'
 import { revenueBySection } from './revenueSections';
 import { planReportLines, type LineState } from './lineRows';
 import { buildCapexReport } from './capexReports';
+import { phaseEbitdaPerPeriod } from './m4Reports';
 import type { ProjectFinancialsSnapshot, FinancialsResolverState } from '../financials-resolvers';
 import type { ReturnsSnapshot } from '../returns-resolvers';
 import type { Asset } from '../state/module1-types';
@@ -250,11 +251,13 @@ export function buildOverviewReport(
   const phases: PhaseRow[] = state.phases.map((ph) => {
     const members = visible.filter((a) => a.phaseId === ph.id);
     const timeline = computePhaseTimeline(ph, state.project);
-    let revenue = 0; let ebitda = 0; let phaseLand = 0; let phaseGfa = 0; let phaseCapex = 0;
+    // THE PHASE P&L'S OWN EBITDA (2026-10-25): its lines' EBITDA less the marketing its cost lines
+    // spent. Summing per-asset EBITDA left marketing out, a third figure beside the P&L and the Summary.
+    const ebitda = sum(phaseEbitdaPerPeriod(snap, state, ph.id));
+    let revenue = 0; let phaseLand = 0; let phaseGfa = 0; let phaseCapex = 0;
     for (const a of members) {
       const pl = snap.perAssetPL.get(a.id);
       revenue += sum(pl?.revenuePerPeriod);
-      ebitda += sum(pl?.ebitdaPerPeriod);
       phaseLand += computeAssetLandBreakdown(a, state.parcels, visible, state.subUnits, state.landAllocationMode).landSqm;
       phaseGfa += areaTiers(metricsOf(a)).totalGfaSqm;
       phaseCapex += capexOf(a.id);

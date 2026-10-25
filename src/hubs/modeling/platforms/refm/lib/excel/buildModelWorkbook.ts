@@ -48,7 +48,7 @@ import { buildCostOfSalesReport } from '../reports/cosReports';
 import { buildOpexReport, OPEX_AP_BASIS, OPEX_AP_TOTAL_BASIS } from '../reports/opexReports';
 import { planCapexSpread } from './liveLayers/capexSpread';
 import { isParcelDrivenLandLine, resolvePhasingSource } from '@/src/core/calculations/capexPhasing';
-import { buildPLRows, taxBasisNote, buildDirectCFRows, buildIndirectCFRows, buildBSRows, buildBsReconciliationRows, buildBsFeederTables, BS_FEEDER_SECTIONS, BS_RECONCILIATION_CAPTION, buildFundFeeBasisRows, buildFundCapitalRows, fundFeeBasisBaseCell, totalColumnHeading, totalColumnNote, TOTAL_COLUMN_HEADINGS, TOTAL_COLUMN_NOTES, FUND_CAPITAL_BASES_TITLE, FUND_CAPITAL_BASES_NOTE, FUND_CAPITAL_BASE_TAG, type M4ReportCtx, type FundFeeBasisRow } from '../reports/m4Reports';
+import { buildPLRows, buildPhaseEbitdaReconciliationRows, phaseEbitdaFooting, PHASE_RECON_LINE, taxBasisNote, buildDirectCFRows, buildIndirectCFRows, buildBSRows, buildBsReconciliationRows, buildBsFeederTables, BS_FEEDER_SECTIONS, BS_RECONCILIATION_CAPTION, buildFundFeeBasisRows, buildFundCapitalRows, fundFeeBasisBaseCell, totalColumnHeading, totalColumnNote, TOTAL_COLUMN_HEADINGS, TOTAL_COLUMN_NOTES, FUND_CAPITAL_BASES_TITLE, FUND_CAPITAL_BASES_NOTE, FUND_CAPITAL_BASE_TAG, type M4ReportCtx, type FundFeeBasisRow } from '../reports/m4Reports';
 import { buildFixedAssetReport, idcRowIsHeld, type FixedAssetTable } from '../reports/fixedAssetReports';
 import { buildCaseComparisonReport, caseOverridesNote, type CaseComparisonInput, type CaseComparisonReport, type CaseKpiKind } from '../reports/caseComparisonReport';
 import { buildCaseYoYReport, YOY_DRIVER_NOTE, YOY_RECONCILIATION_TITLE, YOY_RECONCILIATION_NOTE, yoyAloneLabel, yoyReconLabels, type CaseYoYReport } from '../reports/caseYoYReport';
@@ -4757,6 +4757,11 @@ function addProfitLoss(ctx: EmitCtx): void {
     E.emitTable(rows);
     E.setRegScope(null);
   }
+  // Each phase carries only its own costs (2026-10-25); this foots them to the project EBITDA.
+  E.gap(); E.section('Phase EBITDA Reconciliation');
+  E.setRegScope('pl'); E.setRegLine(PHASE_RECON_LINE);
+  E.emitTable(buildPhaseEbitdaReconciliationRows(mk('__all__')).filter((r) => !r.isSection));
+  E.setRegScope(null);
 }
 
 // ── Cash Flow (full detailed mirror: Direct + Indirect + per-phase) ───────────
@@ -5800,7 +5805,7 @@ function addChecks(ctx: EmitCtx, capexAddrs: CapexAddrs, retLinks: RetLinks): vo
   const checkMoney = (v: number): string => `${formatAccounting(Math.abs(v), 'millions', 1)} m`;
   // The four integrity identities, named as the platform names them; the
   // fourth is the Balance Sheet's reconciliation bridge (one builder with the PDF).
-  for (const c of buildIntegrityChecks(snap)) {
+  for (const c of buildIntegrityChecks(snap, { phaseEbitda: phaseEbitdaFooting(snap, ctx.state) })) {
     // THE LIVE WORDS (2026-10-15): the residue is float noise that Excel and the engine land on
     // differently, so the live sentence states the verdict and the peak, never the ratio.
     const where = c.where ? ` ${c.where}` : '';

@@ -206,7 +206,14 @@ export function worstDivergence(
  * builder, so the report printed the bridge and not the check on it. Its
  * Unexplained row must be zero, judged against peak total assets.
  */
-export function buildIntegrityChecks(snap: ChecksSource): IntegrityCheck[] {
+/** The phases footing to the project EBITDA (2026-10-25): each phase's EBITDA, plus HQ and the fund fees. */
+export const PHASE_EBITDA_CHECK_LABEL = 'Phase EBITDA reconciles to project EBITDA';
+
+export function buildIntegrityChecks(
+  snap: ChecksSource,
+  /** From `phaseEbitdaFooting` (m4Reports); the check is added only where a caller passes it. */
+  extra: { phaseEbitda?: { fromPhases: number[]; project: number[] } } = {},
+): IntegrityCheck[] {
   const n = snap.axisLength;
   const bs = snap.bs;
   const lPlusE = bs.totalLiabilitiesPerPeriod.map((v, i) => v + (bs.totalEquityPerPeriod[i] ?? 0));
@@ -221,6 +228,10 @@ export function buildIntegrityChecks(snap: ChecksSource): IntegrityCheck[] {
     mk('Direct cash flow == Indirect cash flow', snap.directCF.netCashFlowPerPeriod, snap.indirectCF.netCashFlowPerPeriod, snap.directCF.netCashFlowPerPeriod, 'net cash flow'),
     mk(BRIDGE_CHECK_LABEL, unexplained, unexplained.map(() => 0), bs.totalAssetsPerPeriod, 'unexplained',
       'The "Unexplained (must be 0)" row of the reconciliation bridge on the Balance Sheet.'),
+    ...(extra.phaseEbitda
+      ? [mk(PHASE_EBITDA_CHECK_LABEL, extra.phaseEbitda.fromPhases, extra.phaseEbitda.project, extra.phaseEbitda.project, 'EBITDA',
+        'The Phase EBITDA Reconciliation under the phase P&Ls.')]
+      : []),
   ];
 }
 
