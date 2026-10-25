@@ -2,6 +2,19 @@
 
 > Forward-looking only: active follow-ups, in-progress work, backlog, legacy reference. Completed phase narratives live in **CLAUDE-FEATURES.md** (archive) and `git log` (authoritative). Do not re-add "Recently Completed" sections here when closing a phase, write the closure into CLAUDE-FEATURES.md instead.
 
+## START HERE 2026-10-25 (session end): THE LIVE WORKBOOK, TAB BY TAB; NEXT IS WHAT IS OPEN ON INPUTS, THEN TIMELINE
+
+Done today (CHANGELOG 2026-10-25): phase P&L / CF carry their own costs; the dividend cap is the phase P&L EBITDA; Inputs holds only what the model reads (duplicates, derived values and platform-only defaults off, grids keyed by year of the phase, no start year at export, input blue, plain labels, the unread-input check); hotel and lease receivable days live and guarded.
+
+OPEN, in order (tab by tab, Inputs first):
+1. **NPV on Returns is text** ("USD 189.9 m"), so the discount rate (Inputs, Returns Assumptions) drives nothing in the live workbook. On `INERT_INPUTS.discountRate` until NPV is a formula; take it off the list when it is.
+2. **The fee-free shadow solve on Financing** (the whole fee-free loop at the foot of the tab, `stage6Loop` FEE_FREE): review whether it stays, and how it reads.
+3. **The exit workings are fixed to columns P and Q** on Returns and Financing: they should follow the exit year, not sit in fixed columns.
+4. **Phase disposal proceeds are typed =0 on Cash Flow** (the phase cash flows): a typed zero where a formula belongs.
+5. **Capex, Phase 1 marketing x0 (S152)**: a multiply-by-zero in the formula; find why and fix the rule, not the cell.
+6. **The dead switches still listed** (`DEAD_SWITCHES` in `liveLayers/inputAudit.ts`): fee distribution matrix (Returns); facility opening balance, IDC capitalise, interest start year, origination year (Financing); zakat payment days (Financing); statutory reserve cap (Balance Sheet). Each comes off the list when its tab reads it.
+7. The other `INERT_INPUTS` (each allowed only while its condition holds): repayment periods under a cash sweep, facility upfront and commitment fees (the platform charges neither), opening land and building of a phase not operating at the start, growth g under a typed exit cap rate.
+
 ## START HERE 2026-10-11: THE FORMULA-LINKED WORKBOOK IS UNPARKED AND LIVE ON EVERY OPEN PROJECT
 
 **Working document: [docs/FORMULA_EXCEL_GUIDELINE.md](docs/FORMULA_EXCEL_GUIDELINE.md)** (status, rules, step log, what is open). Done
