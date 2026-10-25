@@ -28,7 +28,7 @@ import { writeFileSync, mkdirSync } from 'node:fs';
 import type ExcelJS from 'exceljs';
 import { buildModelWorkbook, PERIOD_COLS } from '../src/hubs/modeling/platforms/refm/lib/excel/buildModelWorkbook';
 import { buildFormulaWorkbook, enableFormulaIteration, exportShapeProblems, backwardReads, deadSwitchCells, TAB_ORDER } from '../src/hubs/modeling/platforms/refm/lib/excel/formulaWorkbook';
-import { readCells, shadedCells, isShaded, isLegendSwatch, cellId, inputsUnreadProblems, DEAD_SWITCHES } from '../src/hubs/modeling/platforms/refm/lib/excel/liveLayers/inputAudit';
+import { readCells, shadedCells, isShaded, isLegendSwatch, cellId, inputsUnreadProblems, receivableDaysProblems, DEAD_SWITCHES } from '../src/hubs/modeling/platforms/refm/lib/excel/liveLayers/inputAudit';
 import { loadLiveExportInputs } from './fixtures/liveExportInputs';
 import { multiPlotVariant } from './fixtures/multiPlotVariant';
 import { groupAssetsForConsolidation } from '../src/core/calculations/consolidation';
@@ -502,14 +502,22 @@ function perturbations(input: LiveExportInputs, reg: CellRegistry): Perturbation
   const ga = opexLine(hotA, (l) => l.mode === 'pct_of_total_rev' && l.value > 0 && !l.disabled);
   if (hotA && ga) out.push({ movesRevenue: false, label: `hotel opex, ${ga.l.name} +5 points of total revenue`, cell: cardKey(hotA, ga.l.name), col: RC.OPEN + 1, value: ga.l.value + 0.05, edit: setLine(hotA.id, ga.i, ga.l.value + 0.05) });
   else out.push({ label: 'a hotel opex share of revenue', skip: 'none' });
-  // 2026-10-11: a hotel line's OWN receivable days (receivableDays.ts). On a copy where
-  // the hotel states 60 days, they move to 90 at the line's door.
-  const arKey = hotL ? reg.keys().find((k) => k.startsWith(`revin|${hotL.key}|`) && k.endsWith('|Accounts Receivable Days')) : undefined;
-  if (hotL && arKey) {
-    const ids = (hotL.members as any[]).map((m) => m.id);
-    const own = (d: number) => (s: Snap): void => { for (const q of s.assets as any[]) if (ids.includes(q.id) && q.revenue?.operate) q.revenue.operate.dso = d; };
-    out.push({ movesRevenue: false, label: 'the hotel line\'s own receivable days 60 to 90 (on a copy where the line states its own)', cell: arKey, col: RC.TOTAL, value: 90, edit: own(90), variant: own(60) });
-  } else out.push({ label: 'a hotel line\'s own receivable days', skip: 'no hotel line card with receivable days' });
+  // HOTEL AND LEASE RECEIVABLE DAYS ARE LIVE INPUTS (2026-10-25, founder): typed on Inputs, a
+  // line's own days move its operating receivable and so its cash, never its revenue. Each is
+  // typed into the line's Inputs cell on the model as it is (where the line states none and
+  // collects on the project DSO), and again on a copy where the hotel states its own.
+  const arIn = (l: any): string | undefined => (l && reg.get(`rxin|${l.key}|arDays`) ? `rxin|${l.key}|arDays` : undefined);
+  const setDays = (l: any, form: 'operate' | 'lease', d: number) => (s: Snap): void => {
+    const ids = (l.members as any[]).map((m) => m.id);
+    for (const q of s.assets as any[]) if (ids.includes(q.id) && q.revenue?.[form]) q.revenue[form][form === 'operate' ? 'dso' : 'arDays'] = d;
+  };
+  if (hotL && arIn(hotL)) {
+    out.push({ movesRevenue: false, label: 'hotel receivable days typed on Inputs (the line states none, so the project DSO until now) to 45', cell: arIn(hotL)!, col: 2, value: 45, edit: setDays(hotL, 'operate', 45) });
+    out.push({ movesRevenue: false, label: 'hotel receivable days 60 to 90 (on a copy where the line states its own)', cell: arIn(hotL)!, col: 2, value: 90, edit: setDays(hotL, 'operate', 90), variant: setDays(hotL, 'operate', 60) });
+  } else out.push({ label: 'hotel receivable days', skip: 'no hotel line with receivable days on Inputs' });
+  const leaseAr = lines.find((l) => l.form === 'lease' && earner(l)?.revenue?.lease && arIn(l));
+  if (leaseAr) out.push({ movesRevenue: false, label: `lease receivable days typed on Inputs (${leaseAr.label}, the line states none) to 60`, cell: arIn(leaseAr)!, col: 2, value: 60, edit: setDays(leaseAr, 'lease', 60) });
+  else out.push({ label: 'lease receivable days', skip: 'no lease line with receivable days on Inputs' });
   const inc = opexLine(hotA, (l) => l.mode === 'pct_of_gop' && !l.disabled);
   if (hotA && inc) out.push({ movesRevenue: false, label: `hotel opex, ${inc.l.name} (on GOP) ${inc.l.value} to ${inc.l.value + 0.08}`, cell: cardKey(hotA, inc.l.name), col: RC.OPEN + 1, value: inc.l.value + 0.08, edit: setLine(hotA.id, inc.i, inc.l.value + 0.08) });
   else out.push({ label: 'a hotel opex line on GOP', skip: 'none' });
@@ -583,17 +591,9 @@ function perturbations(input: LiveExportInputs, reg: CellRegistry): Perturbation
   } else out.push({ label: 'useful life of a held line', skip: 'no held line on the inputs table' });
   const dso = st.project.operatingAr?.dsoDays ?? 0;
   out.push({ movesRevenue: false, label: `operating receivables DSO ${dso} to ${dso + 30} days`, cell: 'project:dso', value: dso + 30,
-    // 2026-10-06 (re-aimed): where lines state their own receivable days the engine
-    // reads those, and the workbook's one door sets EVERY line (inputsSheetSections
-    // says so on the row), so the platform edit is the same: the project figure and
-    // every stated line together. Typing the project figure alone moves nothing there.
-    edit: (s) => {
-      s.project.operatingAr = { ...(s.project.operatingAr ?? {}), dsoDays: dso + 30 };
-      for (const a of s.assets as any[]) {
-        if (a.strategy === 'Operate' && typeof a.revenue?.operate?.dso === 'number') a.revenue.operate.dso = dso + 30;
-        if (a.strategy === 'Lease' && typeof a.revenue?.lease?.arDays === 'number') a.revenue.lease.arDays = dso + 30;
-      }
-    } });
+    // 2026-10-25 (re-aimed again): each line's own days are their own input now, so the project
+    // DSO moves the lines that state none (0 or blank), exactly as on the platform.
+    edit: (s) => { s.project.operatingAr = { ...(s.project.operatingAr ?? {}), dsoDays: dso + 30 }; } });
 
   // Returns (stage 7): the exit cap rate (the terminal value, the disposal, every
   // stream, the sensitivity), the hurdle (the waterfall and the net returns), a
@@ -917,8 +917,9 @@ function formulaCells(wb: ExcelJS.Workbook): Map<string, { formula: string; resu
     // switches apart, and the check fires on a planted unread value.
     {
       const allowedCells = deadSwitchCells(registry);
-      const unread = inputsUnreadProblems(wb, allowedCells);
-      check('A12j every typed value on Inputs is read by a formula, the named dead switches apart', unread.length === 0, unread.slice(0, 4).join('; '));
+      // STRICT here (the reference project, every sheet the inputs feed live): each value DRIVES the model.
+      const unread = inputsUnreadProblems(wb, allowedCells, { strict: true });
+      check('A12j every typed value on Inputs drives the model (read by a formula that is itself read, or that computes), the named allowances apart', unread.length === 0, unread.slice(0, 4).join('; '));
       const names = new Set(registry.keys().filter((k) => k.startsWith('deadswitch:')).map((k) => k.slice(11, k.indexOf('|'))));
       check(`A12k every allowed unread cell is a named dead switch (${names.size} names)`, [...names].every((n) => (Object.values(DEAD_SWITCHES) as string[]).includes(n)), [...names].join('; '));
       const plant = buildModelWorkbook({ ...opts, liveLayout: true });
@@ -941,6 +942,26 @@ function formulaCells(wb: ExcelJS.Workbook): Map<string, { formula: string; resu
       const codes: string[] = [];
       inp.eachRow((row, r) => row.eachCell((cell, c) => { if (c > 1 && typeof cell.value === 'string' && /^[a-z]+(_[a-z]+)+$/.test(cell.value)) codes.push(`R${r}C${c} ${cell.value}`); }));
       check('A12p no code name is printed on Inputs (snake_case values)', codes.length === 0, codes.slice(0, 4).join('; '));
+      // HOTEL AND LEASE RECEIVABLE DAYS ARE LIVE, AND THE CHECK PROTECTS THEM (2026-10-25): no
+      // allowance covers them, each line's cell is read by its Schedules receivable row, and
+      // cutting that wiring on a copy (the card's copy left reading it) fails the check.
+      const arCells = registry.keys().filter((k) => /^rxin\|.+\|arDays$/.test(k)).map((k) => registry.need(k));
+      const arAllowed = arCells.filter((a) => allowedCells.has(cellId(a.sheet, a.row, a.col)));
+      const readsIn = (book: ExcelJS.Workbook, sheet: string, ref: string): boolean => { let hit = false; book.getWorksheet(sheet)!.eachRow((row) => row.eachCell((cell) => { const v = cell.value as unknown as { formula?: string } | null; if (v && typeof v === 'object' && String(v.formula ?? '').includes(ref)) hit = true; })); return hit; };
+      const refOf = (a: { row: number; col: number }): string => `Inputs!$${colLetterOf(a.col)}$${a.row}`;
+      const schedReads = arCells.filter((a) => readsIn(wb, 'Schedules', refOf(a)));
+      check(`A12r every hotel and lease line's receivable days (${arCells.length}) are on no allowance and drive its Schedules receivable`, arCells.length > 0 && arAllowed.length === 0 && schedReads.length === arCells.length, `allowed ${arAllowed.length}, read by Schedules ${schedReads.length}`);
+      if (arCells.length) {
+        const cut = buildFormulaWorkbook(opts).wb;
+        const a = arCells[0], ref = refOf(a);
+        cut.getWorksheet('Schedules')!.eachRow((row) => row.eachCell((cell) => {
+          const v = cell.value as unknown as { formula?: string; result?: unknown } | null;
+          if (v && typeof v === 'object' && String(v.formula ?? '').includes(ref)) cell.value = { formula: String(v.formula).split(`IF(N(${ref})>0,N(${ref}),`).join('(').split(ref).join('0'), result: v.result } as never;
+        }));
+        check('A12s the input check fires when a line\'s receivable days stop driving Schedules (its Revenue card copy still reads them)',
+          !readsIn(cut, 'Schedules', ref) && readsIn(cut, 'Revenue', ref) && inputsUnreadProblems(cut, allowedCells, { strict: true }).some((x) => x.startsWith(`Inputs!${colLetterOf(a.col)}${a.row} `))
+          && receivableDaysProblems(cut, [a], true).length === 1 && receivableDaysProblems(wb, arCells, true).length === 0, '');
+      }
     }
     {
       const readNow = readCells(wb);

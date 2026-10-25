@@ -236,9 +236,15 @@ export const stage3Cos: LiveLayer = {
         if (!has(revKey)) continue;
         // THE LINE'S RECEIVABLE AT THE CLOSE IS ITS ROW IN THE RECEIVABLES FEED: its revenue at
         // its own days where the line card states them, else the project DSO (receivableDays.ts).
+        // LIVE (2026-10-25): the line's own days on Inputs where it types a positive figure, else the
+        // project DSO, worked out here for every hotel and lease line, so typing either moves the cash.
         const own = statedLineReceivableDays(l.host);
+        const arIn = `rxin|${l.key}|arDays`;
         const daysKey = own !== undefined ? w.reg.keys().find((k) => k.startsWith(`revin|${l.key}|`) && k.endsWith('|Accounts Receivable Days')) : undefined;
-        const days = (): string => (daysKey ? fx(daysKey, TOTAL_COL) : w.refA(w.addr('project:dso'), here));
+        const dso = (): string => w.refA(w.addr('project:dso'), here);
+        const days = (): string => (has(arIn)
+          ? `IF(N(${w.refA(w.addr(arIn, 2), here)})>0,N(${w.refA(w.addr(arIn, 2), here)}),N(${dso()}))`
+          : daysKey ? fx(daysKey, TOTAL_COL) : dso());
         feeds.push({
           key: l.key, name, section: l.section,
           revenue: (t) => p(revKey, t),

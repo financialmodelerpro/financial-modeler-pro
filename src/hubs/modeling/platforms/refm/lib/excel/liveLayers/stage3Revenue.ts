@@ -408,6 +408,16 @@ export const stage3Revenue: LiveLayer = {
         const ov = w.ref(ovKey, 2), sy = `MAX(${w.ref('project:axisYear')},YEAR(${w.ref(`phase:${p.id}:start`)}))`;
         w.fA(at(startKey, TOTAL_COL), `IF(ISNUMBER(${ov}),MAX(${sy},${ov}),${sy}+MAX(1,${w.ref(`phase:${p.id}:cp`)}))`);
       }
+      // THE CARD'S RECEIVABLE DAYS ARE THE DAYS IN FORCE (2026-10-25): the line's own on Inputs where
+      // positive, else the project DSO, the rule Schedules collects this line's revenue on.
+      {
+        const arCard = reg.keys().find((k) => k.startsWith(`revin|${l.key}|`) && k.endsWith('|Accounts Receivable Days'));
+        const arIn = `rxin|${l.key}|arDays`;
+        if (arCard && has(arIn) && has('project:dso')) {
+          const own = w.ref(arIn, 2);
+          w.fA(at(arCard, TOTAL_COL), `IF(N(${own})>0,N(${own}),N(${w.ref('project:dso')}))`);
+        }
+      }
       const ioK = O(l, '1.', 'In operations (1 = yes)');
       row(ioK, (t) => { const s = A(startKey, TOTAL_COL); return `(${yr(t)}>=${s})*(${yr(t)}<=MAX(${s},${TL(p, 'ly')}))`; });
       const IO = (t: number): string => P(ioK, t);

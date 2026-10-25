@@ -21,7 +21,7 @@ import ExcelJS from 'exceljs';
 import { buildSaleCohortTermsBlock, saleCohortRuleText, buildSaleCohortGrid, saleCohortGridCaption } from '../reports/saleCohortReports';
 import JSZip from 'jszip';
 import { registerCell, resetRegisteredRows } from './cellRegistry';
-import { DEAD_SWITCHES, deadSwitchKey } from './liveLayers/inputAudit';
+import { DEAD_SWITCHES, deadSwitchKey, INERT_INPUTS, inertKey } from './liveLayers/inputAudit';
 import { computeFinancialsSnapshot, computeFeeFreeSnapshot, computeFundingGap, type FinancialsResolverState } from '../financials-resolvers';
 import { buildCapexReport, type CapexReport } from '../reports/capexReports';
 import { poolMapByLine, poolCapexByLine, poolResults, lineHosts, fixHospitalityRates, fixLeaseRates, poolRevenueBasisByLine, poolSaleCohortByLine, planReportLines, lineTitle } from '../reports/lineRows';
@@ -1127,6 +1127,9 @@ function addAssumptions(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFin
       setInput(ws.getCell(`L${r}`), (t.facilitySharePct ?? 0) / 100, NUMFMT.pct);
       // Held, read by nothing yet (DEAD_SWITCHES): wired in when the Financing tab is fixed.
       ([[3, DEAD_SWITCHES.openingBalance], [8, DEAD_SWITCHES.idcCapitalise], [10, DEAD_SWITCHES.interestStart], [11, DEAD_SWITCHES.originationYear]] as const).forEach(([col, name]) => registerCell(deadSwitchKey(name, 'Inputs', r, col), ws, ws.getCell(r, col)));
+      // Inert under this model's settings (INERT_INPUTS), each only where its condition holds.
+      if (t.repaymentMethod === 'cash_sweep') registerCell(inertKey(INERT_INPUTS.repayPeriods, 'Inputs', r, 7), ws, ws.getCell(r, 7));
+      if (isLiveLayout()) for (const col of [16, 17]) registerCell(inertKey(INERT_INPUTS.facilityFees, 'Inputs', r, col), ws, ws.getCell(r, col));
       {
         // The Financing sheet states the facility's rate as interbank plus spread; the
         // combined rate here is its echo. Terms the live solve is not built for are fixed.

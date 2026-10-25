@@ -30,8 +30,9 @@ import {
   buildStandardsView, buildAssetAreaTables, buildSubUnitLines, type ViewCell, type AssetAreaTables,
 } from '../../components/modules/_shared/assetInputsView';
 import { registerCell } from './cellRegistry';
-import { DEAD_SWITCHES, deadSwitchKey } from './liveLayers/inputAudit';
+import { DEAD_SWITCHES, deadSwitchKey, INERT_INPUTS, inertKey } from './liveLayers/inputAudit';
 import { normaliseAssetTypeId, resolveRetailSlotTypeId } from '../state/assetTypeStandards';
+import { phaseHasModelCapex } from '@/src/core/calculations/modelCapex';
 import { hqOpexLinesInForce, normalizeOpexIndexation } from '@/src/core/calculations/opex';
 import { planRevenueLines, groupRevenueLines, lineForAsset, type RevenueLine } from '../revenueLines';
 import { revenueLineName } from '../reports/revenueOutputReports';
@@ -542,6 +543,8 @@ export function emitDepreciationSection(c: SheetCursor, state: FinancialsResolve
       setInput(c.ws.getCell(c.r, 7), openingBldg, NUMFMT.money);
       registerCell(`inp=fain:${host.id}@6`, c.ws, c.ws.getCell(c.r, 6));
       registerCell(`inp=fain:${host.id}@7`, c.ws, c.ws.getCell(c.r, 7));
+      const phase = state.phases.find((p) => p.id === host.phaseId);
+      if (openingLand === 0 && openingBldg === 0 && phaseHasModelCapex(phase)) for (const col of [6, 7]) registerCell(inertKey(INERT_INPUTS.openingFixedAssets, c.sheetName, c.r, col), c.ws, c.ws.getCell(c.r, col));
     } else {
       derived(c.ws.getCell(c.r, 6), openingLand > 0 ? openingLand : '-', openingLand > 0 ? NUMFMT.money : '@');
       derived(c.ws.getCell(c.r, 7), openingBldg > 0 ? openingBldg : '-', openingBldg > 0 ? NUMFMT.money : '@');
@@ -579,7 +582,7 @@ export function emitStatementInputsSection(c: SheetCursor, state: FinancialsReso
   // the days EVERY such line collects on (the live layers refuse a model whose
   // lines differ from it), and it says so; typing it moves every line.
   const ownDays = state.assets.some((a) => a.visible !== false && statedLineReceivableDays(a) !== undefined);
-  kv(c, ownDays ? 'Operating receivables, days (every hotel and lease line)' : 'Operating receivables, DSO (days)', p.operatingAr?.dsoDays ?? 0, NUMFMT.int, true, 'DsoDays', undefined, 'project:dso');
+  kv(c, isLiveLayout() ? 'Operating receivables, project DSO (days; a hotel or lease line with no days of its own)' : ownDays ? 'Operating receivables, days (every hotel and lease line)' : 'Operating receivables, DSO (days)', p.operatingAr?.dsoDays ?? 0, NUMFMT.int, true, 'DsoDays', undefined, 'project:dso');
   c.r += 1;
 }
 
@@ -593,11 +596,15 @@ export function emitReturnsSection(c: SheetCursor, state: FinancialsResolverStat
   const cfg = resolveReturnsConfig(state.project, snap.axisLength);
   const stored = state.project.returns ?? {};
   setSectionHeader(c.ws.getRow(c.r), 'Returns Assumptions', 3); c.r += 1;
-  kv(c, 'Discount Rate (%)', cfg.discountRate, NUMFMT.pct, stored.discountRate !== undefined, 'DiscountRate', undefined, 'inp=ret|Discount Rate (%)@4');
+  const drRow = kv(c, 'Discount Rate (%)', cfg.discountRate, NUMFMT.pct, stored.discountRate !== undefined, 'DiscountRate', undefined, 'inp=ret|Discount Rate (%)@4');
+  if (isLiveLayout()) registerCell(inertKey(INERT_INPUTS.discountRate, c.sheetName, drRow, 2), c.ws, c.ws.getCell(drRow, 2));
   kv(c, 'Exit Year', snap.projectStartYear + cfg.exitYearOffset, NUMFMT.year, stored.exitYearOffset !== undefined, 'ExitYear', undefined, 'inp=ret|Exit Year@4');
   kv(c, 'Terminal Value Method', TERMINAL_METHOD_LABELS[cfg.terminalMethod] ?? cfg.terminalMethod, '@', stored.terminalMethod !== undefined);
   if (cfg.terminalMethod === 'exit_multiple') kv(c, 'Exit Multiple (x stabilised NOI)', cfg.exitMultiple, NUMFMT.mult, stored.exitMultiple !== undefined, 'ExitMultiple', undefined, 'inp=ret|Exit Multiple (x stabilised NOI)@4');
-  if (cfg.terminalMethod === 'perpetuity' || cfg.terminalMethod === 'cap_rate') kv(c, 'Growth g (%)', cfg.perpetuityGrowth, NUMFMT.pct2, stored.perpetuityGrowth !== undefined, 'PerpetuityGrowth', undefined, 'inp=ret|Growth g (%)@4');
+  if (cfg.terminalMethod === 'perpetuity' || cfg.terminalMethod === 'cap_rate') {
+    const gRow = kv(c, 'Growth g (%)', cfg.perpetuityGrowth, NUMFMT.pct2, stored.perpetuityGrowth !== undefined, 'PerpetuityGrowth', undefined, 'inp=ret|Growth g (%)@4');
+    if (isLiveLayout() && cfg.terminalMethod === 'cap_rate' && cfg.capRateSource === 'manual' && !cfg.applyGrowthToTerminal) registerCell(inertKey(INERT_INPUTS.growthG, c.sheetName, gRow, 2), c.ws, c.ws.getCell(gRow, 2));
+  }
   if (cfg.terminalMethod !== 'none') {
     kv(c, 'Terminal value basis', cfg.terminalValueBasis === 'exit_year' ? 'Exit year' : 'Year before exit', '@', stored.terminalValueBasis !== undefined);
   }
@@ -911,10 +918,18 @@ function opsStartRow(c: SheetCursor, line: RevenueLine, w: LineWindow, snap: Sna
   if (override == null) markInput(c.ws.getCell(r, 2));
 }
 
-/** A line's receivable days: a dead switch until the Revenue tab reads it (DEAD_SWITCHES). */
-function arRow(...args: Parameters<typeof kv>): void {
-  const r = kv(...args);
-  registerCell(deadSwitchKey(DEAD_SWITCHES.receivableDays, args[0].sheetName, r, 2), args[0].ws, args[0].ws.getCell(r, 2));
+/**
+ * A HOTEL OR LEASE LINE'S RECEIVABLE DAYS (live layout, 2026-10-25, founder: a live input).
+ * The cell holds the line's OWN days, the platform's rule (receivableDays.ts): a positive
+ * figure is the line's, a blank (or 0) collects on the project DSO. Schedules builds the
+ * line's operating receivable, and so its cash timing, from it (`rxin|<line>|arDays`).
+ * The hardcoded export prints the days in force, as before.
+ */
+function arRow(c: SheetCursor, line: RevenueLine, own: number | undefined, ...legacy: Parameters<typeof kv> extends [SheetCursor, ...infer R] ? R : never): void {
+  if (!isLiveLayout()) { kv(c, ...legacy); return; }
+  const stated = typeof own === 'number' && Number.isFinite(own) && own > 0 ? own : undefined;
+  const r = kv(c, 'Accounts Receivable Days (blank = the project DSO)', stated, NUMFMT.int, true, undefined, 'Days after which this line\'s revenue is collected; blank or 0 collects on the project DSO.', `rxin|${line.key}|arDays`);
+  if (stated === undefined) { const cell = c.ws.getCell(r, 2); markInput(cell); cell.numFmt = NUMFMT.int; }
 }
 
 function emitOperateLine(c: SheetCursor, line: RevenueLine, w: LineWindow, snap: Snap, projectDso: number): void {
@@ -932,7 +947,7 @@ function emitOperateLine(c: SheetCursor, line: RevenueLine, w: LineWindow, snap:
   kv(c, 'Average guests per occupied room night', op?.guestsPerOccupiedRoom ?? 1.5, NUMFMT.rate, op?.guestsPerOccupiedRoom !== undefined, undefined, undefined, L('Average guests per occupied room night'));
   ancillaryRows(c, 'F&B Revenue', op?.fb, L('F&B Revenue, F&B %'));
   ancillaryRows(c, 'Other Revenue', op?.otherRevenue, L('Other Revenue, Other %'));
-  arRow(c, op?.dso !== undefined ? 'Accounts Receivable Days (set on this line)' : 'Accounts Receivable Days (the project DSO; this line states none)', op?.dso ?? Math.max(0, projectDso), NUMFMT.int, op?.dso !== undefined, undefined, undefined, L('Accounts Receivable Days'));
+  arRow(c, line, op?.dso, op?.dso !== undefined ? 'Accounts Receivable Days (set on this line)' : 'Accounts Receivable Days (the project DSO; this line states none)', op?.dso ?? Math.max(0, projectDso), NUMFMT.int, op?.dso !== undefined, undefined, undefined, L('Accounts Receivable Days'));
 }
 
 function emitLeaseLine(c: SheetCursor, line: RevenueLine, w: LineWindow, snap: Snap, projectDso: number): void {
@@ -947,7 +962,7 @@ function emitLeaseLine(c: SheetCursor, line: RevenueLine, w: LineWindow, snap: S
   opsStartRow(c, line, w, snap, lease?.operationsStartYearOverride, L('Operations start year'));
   if (isLiveLayout()) phaseYearStrip(c, 'Occupancy', w.operations, (idx) => lease?.occupancyPerPeriodByPhase?.[idx - w.phaseOffset] ?? lease?.occupancyPerPeriod?.[idx], 'Occupancy ramp, by year of the phase', (idx) => idx - w.phaseOffset + 1, `${line.key}|occ`);
   else yearStrip(c, 'Occupancy', w.operations, (idx) => lease?.occupancyPerPeriod?.[idx], NUMFMT.pct, true, snap, 'Occupancy ramp', (idx) => `revin|${line.key}|*|Occupancy ramp@${axisCol(idx)}`);
-  arRow(c, lease?.arDays !== undefined ? 'Accounts Receivable Days (set on this line)' : 'Accounts Receivable Days (the project DSO; this line states none)', lease?.arDays ?? Math.max(0, projectDso), NUMFMT.int, lease?.arDays !== undefined, undefined, undefined, L('Accounts Receivable Days'));
+  arRow(c, line, lease?.arDays, lease?.arDays !== undefined ? 'Accounts Receivable Days (set on this line)' : 'Accounts Receivable Days (the project DSO; this line states none)', lease?.arDays ?? Math.max(0, projectDso), NUMFMT.int, lease?.arDays !== undefined, undefined, undefined, L('Accounts Receivable Days'));
 }
 
 export function emitEscrowInputs(c: SheetCursor, state: FinancialsResolverState, snap: Snap): void {

@@ -1310,6 +1310,13 @@ switches (`DEAD_SWITCHES`), each registered on its cell by the builder.
 Count the values themselves, allow exceptions by name only, and plant one to prove the check fires.
 `verify-formula-workbook` A12j to A12p.
 
+**The same day, the replacement proxy failed too:** "read by a formula" passed the hotel and lease receivable days,
+whose only reader was a copy on the Revenue card that nothing read; Schedules took the project DSO directly unless a
+line had stated its own days at export, so typing one moved no cash. A read is evidence only if the reader is itself
+read, or computes. The strict rule runs in the proof (A12j); the export keeps "read" plus a targeted rule for the
+receivable days (`receivableDaysProblems`), because on a model whose Schedules is still values the strict rule fails
+dozens of cells and would block a user's export. A12s cuts the wiring on a copy and both must catch it.
+
 ## 4. PDF export (pdf-lib)
 
 ### 4.1 PDF text is glyph ids, so a naive grep returns nothing

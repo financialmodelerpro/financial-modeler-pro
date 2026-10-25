@@ -53,7 +53,7 @@ import { storeComputedValues } from './liveLayers/evaluate';
 import { computedCells } from './liveLayers/writer';
 import { collapseSpaces } from './liveFrontMatter';
 import { linkPeriodHeaders } from './liveLayers/foundations';
-import { inputsUnreadProblems, cellId } from './liveLayers/inputAudit';
+import { inputsUnreadProblems, receivableDaysProblems, cellId } from './liveLayers/inputAudit';
 
 export type SheetStatus = 'live' | 'partial' | 'values' | 'values-by-design' | 'front';
 
@@ -185,6 +185,10 @@ export function buildFormulaWorkbook(opts: BuildModelOptions): FormulaWorkbookRe
   // EVERY TYPED VALUE ON INPUTS DRIVES THE MODEL (2026-10-25, founder): the named dead switches apart.
   const unread = inputsUnreadProblems(wb, deadSwitchCells(registry));
   if (unread.length) throw new Error(`The live workbook failed its input check: ${unread.slice(0, 6).join('; ')}${unread.length > 6 ? ` and ${unread.length - 6} more` : ''}.`);
+  const arDays = registry.keys().filter((k) => /^rxin\|.+\|arDays$/.test(k)).map((k) => registry.need(k));
+  const sched = status.get('Schedules')?.status;
+  const ar = receivableDaysProblems(wb, arDays, sched === 'live' || sched === 'partial');
+  if (ar.length) throw new Error(`The live workbook failed its receivable days check: ${ar.join('; ')}.`);
   return { wb, registry, status, pending };
 }
 
@@ -389,9 +393,9 @@ function writeLoopLinks(wb: ExcelJS.Workbook): void {
   }
 }
 
-/** The cells the builder registered as named dead switches (inputAudit DEAD_SWITCHES). */
+/** The cells the builder allowed by name: dead switches (DEAD_SWITCHES) and inputs inert under this model (INERT_INPUTS). */
 export function deadSwitchCells(reg: CellRegistry): Set<string> {
   const out = new Set<string>();
-  for (const k of reg.keys()) if (k.startsWith('deadswitch:')) { const a = reg.get(k)!; out.add(cellId(a.sheet, a.row, a.col)); }
+  for (const k of reg.keys()) if (k.startsWith('deadswitch:') || k.startsWith('inert:')) { const a = reg.get(k)!; out.add(cellId(a.sheet, a.row, a.col)); }
   return out;
 }
