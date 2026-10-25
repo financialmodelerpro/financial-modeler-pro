@@ -205,9 +205,18 @@ function orderTabs(wb: ExcelJS.Workbook): void {
  * sales and the held lines' additions; Capex: Table 7). Every other formula reads only the tabs
  * before it. The working sheets the rebuild moved onto the visible tabs are all gone, so no tab
  * may be hidden.
+ * AND ONE MORE, ROW BY ROW (2026-10-25, founder): each phase's dividend cap on Financing links to
+ * that phase's EBITDA row on the P&L, so the cap is the figure the phase P&L prints and is never
+ * rebuilt. Only the cap rows may read the P&L; any other Financing row that does still fails.
  */
-export const LOOP_LINKS: ReadonlyArray<{ from: string; to: string }> = [{ from: 'Schedules', to: 'Financing' }, { from: 'Capex', to: 'Financing' }];
-const isLoopLink = (from: string, to: string): boolean => LOOP_LINKS.some((x) => x.from === from && x.to === to);
+export const LOOP_LINKS: ReadonlyArray<{ from: string; to: string; fromRow?: RegExp }> = [
+  { from: 'Schedules', to: 'Financing' },
+  { from: 'Capex', to: 'Financing' },
+  { from: 'Financing', to: 'P&L', fromRow: /: EBITDA \(per the phase P&L\)$/ },
+];
+const rowLabel = (wb: ExcelJS.Workbook, sheet: string, row: number): string => String(wb.getWorksheet(sheet)?.getCell(row, 1).value ?? '').trim();
+const isLoopLink = (wb: ExcelJS.Workbook, b: { from: string; to: string; row: number }): boolean =>
+  LOOP_LINKS.some((x) => x.from === b.from && x.to === b.to && (!x.fromRow || x.fromRow.test(rowLabel(wb, b.from, b.row))));
 
 /**
  * THE SHAPE CHECK (2026-10-14, founder): the export fails rather than ship a
@@ -237,8 +246,8 @@ export function exportShapeProblems(wb: ExcelJS.Workbook): string[] {
       }
     }));
   }
-  // A read of a later tab is a problem unless it is the loop's own link.
-  for (const b of backwardReads(wb)) if (!isLoopLink(b.from, b.to)) out.push(`${b.from} row ${b.row} reads ${b.to}, a later tab`);
+  // A read of a later tab is a problem unless it is one of the loop's named links.
+  for (const b of backwardReads(wb)) if (!isLoopLink(wb, b)) out.push(`${b.from} row ${b.row} reads ${b.to}, a later tab`);
   return out;
 }
 
@@ -353,7 +362,7 @@ function writeLoopLinks(wb: ExcelJS.Workbook): void {
   const guide = wb.getWorksheet('Guide');
   if (!guide) return;
   const label = (sheet: string, row: number): string => String(wb.getWorksheet(sheet)?.getCell(row, 1).value ?? '').trim();
-  const links = backwardReads(wb).filter((x) => isLoopLink(x.from, x.to));
+  const links = backwardReads(wb).filter((x) => isLoopLink(wb, x));
   if (!links.length) return;
   const uniq = new Map<string, [string, string]>();
   for (const x of links) {
@@ -366,7 +375,7 @@ function writeLoopLinks(wb: ExcelJS.Workbook): void {
   head.font = { name: 'Calibri', size: 11, bold: true };
   r += 1;
   const note = guide.getCell(r, 1);
-  note.value = 'Every other formula reads only the tabs before it. The financing loop solves the capitalised interest, which Schedules (cost of sales and the held lines\' additions) and Capex (Table 7) read back; Excel iterates the loop to the platform\'s fixed point.';
+  note.value = 'Every other formula reads only the tabs before it. The financing loop solves the capitalised interest, which Schedules (cost of sales and the held lines\' additions) and Capex (Table 7) read back, and each phase\'s dividend cap reads that phase\'s EBITDA on the P&L; Excel iterates the loop to the platform\'s fixed point.';
   note.font = { name: 'Calibri', size: 9, italic: true };
   r += 1;
   for (const [a, b] of [...uniq.values()].sort((x, y) => x[0].localeCompare(y[0]))) {

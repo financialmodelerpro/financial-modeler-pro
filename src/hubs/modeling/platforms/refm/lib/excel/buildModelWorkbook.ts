@@ -3687,13 +3687,15 @@ function addFinancing(ctx: EmitCtx): FinLinks {
   // THE FEE-FREE SOLVE (live layout, a fund project on Method 3): the platform's own fee-free pass
   // (computeFeeFreeSnapshot), the solve the fund fees are sized on, row by row so Excel solves it
   // too. Only what moves without the fees is here; everything else reads the rows above.
-  /** A phase's EBITDA (revenue less cost of sales less opex) where no dividend policy printed one. */
+  /** A phase's P&L EBITDA (revenue less cost of sales, opex and its own marketing) where no dividend policy printed one. */
   const phaseEbitdaOf = (sn: typeof snap, phaseId: string): number[] => {
     const v = zeros();
     for (const a of state.assets.filter((x) => x.visible !== false && x.phaseId === phaseId)) {
       const p = sn.perAssetPL.get(a.id);
       if (p) for (let t = 0; t < N; t++) v[t] += (p.revenuePerPeriod[t] ?? 0) - (p.cosPerPeriod[t] ?? 0) - (p.opexPerPeriod[t] ?? 0);
     }
+    const own = sn.pl.sellingExpenseByPhase?.[phaseId] ?? [];
+    for (let t = 0; t < N; t++) v[t] -= own[t] ?? 0;
     return v;
   };
   const emitFeeFreeSolve = (): void => {
@@ -3771,7 +3773,7 @@ function addFinancing(ctx: EmitCtx): FinLinks {
     const rowsP = [...ff.dividends.beforeSweepPhases, ...ff.dividends.afterSweepPhases];
     for (const p of state.phases) {
       const rp = rowsP.find((x) => x.phaseId === p.id);
-      emitM4({ label: `${p.name}: EBITDA (revenue less cost of sales less opex)`, values: rp ? sl(rp.phaseEbitdaPerPeriod) : phaseEbitdaOf(ff, p.id), indent: 1, priorValue: 0 }, 'Its lines\' revenue, this solve\'s cost of sales and opex');
+      emitM4({ label: `${p.name}: EBITDA (per the phase P&L)`, values: rp ? sl(rp.phaseEbitdaPerPeriod) : phaseEbitdaOf(ff, p.id), indent: 1, priorValue: 0 }, 'The phase P&L EBITDA, on this solve\'s cost of sales');
       emitM4({ label: `${p.name}: dividend`, values: sl(rp?.dividendsPerPeriod), indent: 1, priorValue: 0 }, 'Payout of the cash above the minimum, capped at the phase\'s EBITDA to date');
     }
     emitM4({ label: '(-) Dividends paid', values: neg(sl(ff.dividends.totalDividendsPerPeriod)), indent: 1, priorValue: 0 }, 'The phases\' dividends, and in the exit year all the cash above the minimum');
@@ -3958,7 +3960,7 @@ function addFinancing(ctx: EmitCtx): FinLinks {
       subTitle('Dividends by phase');
       for (const p of state.phases) {
         const rp = rowsP.find((x) => x.phaseId === p.id);
-        emitM4({ label: `${p.name}: EBITDA (revenue less cost of sales less opex)`, values: rp ? sl(rp.phaseEbitdaPerPeriod) : phaseEbitdaOf(snap, p.id), priorValue: 0 }, 'Its lines\' revenue, cost of sales and opex');
+        emitM4({ label: `${p.name}: EBITDA (per the phase P&L)`, values: rp ? sl(rp.phaseEbitdaPerPeriod) : phaseEbitdaOf(snap, p.id), priorValue: 0 }, 'The phase P&L EBITDA: its revenue less cost of sales, opex and its own marketing');
         emitM4({ label: `${p.name}: dividend`, values: sl(rp?.dividendsPerPeriod), indent: 1, priorValue: 0 }, 'Payout of the cash above the minimum, capped at the phase\'s EBITDA to date');
       }
       const exitP = zeros();

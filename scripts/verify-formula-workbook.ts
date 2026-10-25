@@ -27,7 +27,7 @@
 import { writeFileSync, mkdirSync } from 'node:fs';
 import type ExcelJS from 'exceljs';
 import { buildModelWorkbook, PERIOD_COLS } from '../src/hubs/modeling/platforms/refm/lib/excel/buildModelWorkbook';
-import { buildFormulaWorkbook, enableFormulaIteration, exportShapeProblems, TAB_ORDER } from '../src/hubs/modeling/platforms/refm/lib/excel/formulaWorkbook';
+import { buildFormulaWorkbook, enableFormulaIteration, exportShapeProblems, backwardReads, TAB_ORDER } from '../src/hubs/modeling/platforms/refm/lib/excel/formulaWorkbook';
 import { readCells, shadedCells, isShaded, isLegendSwatch, cellId } from '../src/hubs/modeling/platforms/refm/lib/excel/liveLayers/inputAudit';
 import { loadLiveExportInputs } from './fixtures/liveExportInputs';
 import { multiPlotVariant } from './fixtures/multiPlotVariant';
@@ -886,7 +886,7 @@ function formulaCells(wb: ExcelJS.Workbook): Map<string, { formula: string; resu
   // row or column, no formula reading a tab that does not exist. The build throws on any; here
   // it must pass on the export AND fire on a copy with one of each planted.
   {
-    check('A12 the shape check passes, with no allowance: no hidden tab, row or column, and no read of a later tab but the loop\'s capitalised interest', exportShapeProblems(wb).length === 0, exportShapeProblems(wb).slice(0, 4).join('; '));
+    check('A12 the shape check passes, with no allowance: no hidden tab, row or column, and no read of a later tab but the loop\'s named links (its capitalised interest, and each phase dividend cap reading its P&L EBITDA)',exportShapeProblems(wb).length === 0, exportShapeProblems(wb).slice(0, 4).join('; '));
     const hiddenNow = wb.worksheets.filter((x) => x.state === 'hidden' || x.state === 'veryHidden').map((x) => x.name);
     check('A12b no tab is hidden (every working sheet is gone)', hiddenNow.length === 0, `hidden ${hiddenNow.join(', ')}`);
     const copy = buildModelWorkbook({ ...opts, liveLayout: true });
@@ -898,6 +898,16 @@ function formulaCells(wb: ExcelJS.Workbook): Map<string, { formula: string; resu
     copy.getWorksheet('Inputs')!.getCell(2, 9).value = { formula: 'Returns!F20+1', result: 0 } as unknown as ExcelJS.CellValue;
     const p = exportShapeProblems(copy);
     check('A12c the shape check fires: a hidden row, a hidden column, a hidden tab, a read of a missing tab, an empty bracket and a read of a later tab are each caught', p.length === 6 && p.some((x) => x.includes('empty bracket')) && p.some((x) => x.includes('row 10')) && p.some((x) => x.includes('column 9')) && p.some((x) => x.includes('"Scenarios" is hidden')) && p.some((x) => x.includes('No Such Tab')) && p.some((x) => x.includes('Inputs row 2 reads Returns')), p.join('; '));
+    // The dividend cap's allowance is ROW-SCOPED (2026-10-25): the cap rows read the P&L, and a
+    // Financing row that is not a cap row reading the P&L is still caught.
+    const capReads = backwardReads(wb).filter((x) => x.from === 'Financing' && x.to === 'P&L');
+    const capLabels = new Set(capReads.map((x) => String(wb.getWorksheet('Financing')!.getCell(x.row, 1).value ?? '').trim()));
+    check('A12h each phase dividend cap links to the phase P&L EBITDA, and only the cap rows read the P&L',
+      capReads.length > 0 && [...capLabels].every((l) => /: EBITDA \(per the phase P&L\)$/.test(l)), [...capLabels].join('; '));
+    const copy2 = buildModelWorkbook({ ...opts, liveLayout: true });
+    copy2.getWorksheet('Financing')!.getCell(2, 9).value = { formula: "'P&L'!F20+1", result: 0 } as unknown as ExcelJS.CellValue;
+    const p2 = exportShapeProblems(copy2);
+    check('A12i a Financing row that is not a dividend cap reading the P&L is caught', p2.some((x) => x.includes('Financing row 2 reads P&L')), p2.join('; '));
     const order = wb.worksheets.map((x) => x.name).filter((n) => TAB_ORDER.includes(n));
     check('A12d the tabs run in the order the model flows', order.join('|') === TAB_ORDER.filter((n) => wb.getWorksheet(n)).join('|'), order.join(', '));
     // ONE PERIOD, ONE COLUMN: every live period tab's year and index header reads the Timeline's same column.

@@ -3218,7 +3218,10 @@ that total under a "(project)" tag. Each phase looked plausible on its own, and 
 
 **Fix:** the engine publishes `expensedByPhase` (`pl.sellingExpenseByPhase`); a phase charges its own marketing
 and no HQ; every phase EBITDA on any surface is read off the phase P&L (`phaseEbitdaPerPeriod`); a reconciliation
-(phases + HQ + fund fees = project EBITDA) is printed under the phase P&Ls and checked on Checks.
+(phases + HQ + fund fees = project EBITDA) is printed under the phase P&Ls and checked on Checks. The same day
+the dividend cap per phase moved to that figure too (it summed per-asset EBITDA, a fourth reader of the old
+rule); in the live workbook it links to the phase P&L row. A cap that binds moves cash between phases or to the
+exit payout, so total dividends and returns stayed identical while the per-phase split moved.
 
 **The trap to avoid:** a phase or segment view that borrows a project-level row. Either allocate it or leave it out
 and add it back once, and foot the segments to the whole in a check, or the overstatement never shows.

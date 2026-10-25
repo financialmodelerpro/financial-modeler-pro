@@ -36,6 +36,7 @@
  *
  * No em dashes in this file.
  */
+import { getFinancialLabels, defaultTerminologyForCountry } from '@/src/core/calculations/financials';
 import type ExcelJS from 'exceljs';
 import type { LayerContext, LiveLayer } from '../formulaWorkbook';
 import { LiveWriter } from './writer';
@@ -97,6 +98,7 @@ export const stage6Loop: LiveLayer = {
     const w = new LiveWriter(wb, reg, ctx.pending);
     const has = (k: string): boolean => w.has(k);
     const project = state.project;
+    const labels = getFinancialLabels(project.financialTerminology ?? defaultTerminologyForCountry(project.country));
     const phases = state.phases as Phase[];
     const visible = state.assets.filter((a) => a.visible !== false);
     const lines = planRevenueLines(state.assets, state.subUnits, state.phases, project);
@@ -605,15 +607,16 @@ export const stage6Loop: LiveLayer = {
     put(kCwForDiv, (t) => `${P(kCash, t)}+${P(kCwPaid!, t)}`, 'last');
     why(kCwForDiv, 'Not a SUM: the cash available less the principal paid (the memos and the per-facility lines between are not added again).');
     const excess = (t: number): string => `IF(${P(kCwForDiv!, t)}-${MIN()}<0.005,0,${P(kCwForDiv!, t)}-${MIN()})`;
-    // Dividends by phase: EBITDA from its lines, a payout of the cash above the minimum capped at its EBITDA to date.
+    // Dividends by phase: a payout of the cash above the minimum capped at the phase's EBITDA to date,
+    // LINKED to the phase P&L's EBITDA row (its own marketing charged, no HQ), never rebuilt here.
     const phaseDiv: string[] = [];
     const cosLine = (l: { key: string }): string => `cosc:${l.key}:cos`;
     for (const p of phases) {
-      const kEb = `fin|Dividends by phase|${p.name}: EBITDA (revenue less cost of sales less opex)`, kDiv = `fin|Dividends by phase|${p.name}: dividend`;
+      const kEb = `fin|Dividends by phase|${p.name}: EBITDA (per the phase P&L)`, kDiv = `fin|Dividends by phase|${p.name}: dividend`;
+      const kPlEb = `pl|${p.id}||${labels.ebitda}`;
       if (!has(kEb) || !has(kDiv)) return values(`The financing could not be made live for this model: ${p.name} has no dividend rows.`);
-      const pa = visible.filter((a) => a.phaseId === p.id);
-      const pl = lines.filter((l) => l.phaseId === p.id && has(cosLine(l)));
-      put(kEb, (t) => `${pa.map((a) => assetRev(a)(t)).join('+') || '0'}-(${pl.map((l) => P(cosLine(l), t)).join('+') || '0'})-(${pa.map((a) => assetOpex(a)(t)).join('+') || '0'})`);
+      if (!has(kPlEb)) return values(`The financing could not be made live for this model: ${p.name} has no EBITDA row on its P&L.`);
+      put(kEb, (t) => P(kPlEb, t));
       const before = [...phaseDiv];
       put(kDiv, (t) => {
         const ex = `(${excess(t)}${before.map((k) => `-${P(k, t)}`).join('')})`;
@@ -853,11 +856,12 @@ export const stage6Loop: LiveLayer = {
       // Dividends by phase, as above, on this solve's cash and cost of sales.
       const phaseDivF: string[] = [];
       for (const p of phases) {
-        const kEbP = W0(`${p.name}: EBITDA (revenue less cost of sales less opex)`), kDivP = W0(`${p.name}: dividend`);
-        if (!has(kEbP) || !has(kDivP)) return values(`The financing could not be made live for this model: the fee-free solve has no dividend rows for ${p.name}.`);
-        const pa = visible.filter((a) => a.phaseId === p.id);
-        const pl = lines.filter((l) => l.phaseId === p.id && cosF.has(l.key));
-        put(kEbP, (t) => `${pa.map((a) => assetRev(a)(t)).join('+') || '0'}-(${pl.map((l) => P(cosF.get(l.key)!, t)).join('+') || '0'})-(${pa.map((a) => assetOpex(a)(t)).join('+') || '0'})`);
+        const kEbP = W0(`${p.name}: EBITDA (per the phase P&L)`), kDivP = W0(`${p.name}: dividend`);
+        const kPlEb = `pl|${p.id}||${labels.ebitda}`;
+        if (!has(kEbP) || !has(kDivP) || !has(kPlEb)) return values(`The financing could not be made live for this model: the fee-free solve has no dividend rows for ${p.name}.`);
+        // The phase P&L EBITDA, with this solve's cost of sales in place of the P&L's.
+        const pl = lines.filter((l) => l.phaseId === p.id && cosF.has(l.key) && has(cosLine(l)));
+        put(kEbP, (t) => `${P(kPlEb, t)}${pl.map((l) => `+${P(cosLine(l), t)}-${P(cosF.get(l.key)!, t)}`).join('')}`);
         const before = [...phaseDivF];
         put(kDivP, (t) => {
           const ex = `(${excessF(t)}${before.map((k) => `-${P(k, t)}`).join('')})`;

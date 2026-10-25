@@ -2566,8 +2566,9 @@ function computeFinancialsSnapshotOnce(
   if (disposalBooked) {
     for (const arr of facilityOutstandingForSweep.values()) for (let t = exitIdx; t < N; t++) arr[t] = 0;
   }
-  // M4 Pass 2T-Fix (2026-05-24): per-phase EBITDA = sum across assets in
-  // the phase. Caps cumulative dividends per phase at cumulative EBITDA.
+  // M4 Pass 2T-Fix (2026-05-24): caps cumulative dividends per phase at cumulative
+  // EBITDA. Since 2026-10-25 that is the PHASE P&L's EBITDA: its assets' EBITDA less
+  // the phase's own marketing (expensed as incurred), the figure the phase P&L prints.
   const phaseEbitdaForWaterfall = new Map<string, number[]>();
   for (const phase of phases) {
     const phaseAssets = assets.filter((a) => a.phaseId === phase.id && a.visible !== false);
@@ -2577,6 +2578,8 @@ function computeFinancialsSnapshotOnce(
       if (!pl) continue;
       for (let t = 0; t < N; t++) ebitdaArr[t] += pl.ebitdaPerPeriod[t] ?? 0;
     }
+    const ownMarketing = financing.capex.expensedByPhase?.[phase.id] ?? [];
+    for (let t = 0; t < N; t++) ebitdaArr[t] -= ownMarketing[t] ?? 0;
     phaseEbitdaForWaterfall.set(phase.id, ebitdaArr);
   }
   const waterfall = computeCashWaterfall({
