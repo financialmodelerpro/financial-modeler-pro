@@ -82,3 +82,53 @@ export function fixAtExport(ws: ExcelJS.Worksheet, row: number, col: number, why
   cell.font = { ...(cell.font ?? {}), color: { argb: ARGB.formula } };
   cell.note = { texts: [{ text: why ? `${FIXED_AT_EXPORT_NOTE} ${why}` : FIXED_AT_EXPORT_NOTE }], margins: { insetmode: 'auto' } } as unknown as ExcelJS.Comment;
 }
+
+/**
+ * THE DEAD SWITCHES (2026-10-25, founder): inputs the live workbook holds but no formula
+ * reads YET, each to be wired in when its own tab is fixed. They are the ONLY typed
+ * values on Inputs allowed to go unread, and each is allowed BY NAME: the builder
+ * registers the cell `deadswitch:<name>|<where>`, and `inputsUnreadProblems` fails on
+ * any other unread value. Remove a name here when its tab reads it.
+ */
+export const DEAD_SWITCHES = {
+  feeMatrix: 'fee distribution matrix (Returns)',
+  openingBalance: 'facility opening balance (Financing)',
+  idcCapitalise: 'facility IDC capitalise (Financing)',
+  interestStart: 'facility interest start year (Financing)',
+  originationYear: 'facility origination year (Financing)',
+  zakatDays: 'zakat payment days (Financing)',
+  reserveCap: 'statutory reserve cap (Balance Sheet)',
+  receivableDays: 'receivable days (Revenue)',
+} as const;
+export type DeadSwitch = typeof DEAD_SWITCHES[keyof typeof DEAD_SWITCHES];
+export const deadSwitchKey = (name: DeadSwitch, sheet: string, row: number, col: number): string => `deadswitch:${name}|${sheet}!R${row}C${col}`;
+
+/**
+ * A TYPED VALUE ON INPUTS (the founder's count): a cell right of the label column that
+ * holds a number, or a shaded text choice, and is not a formula. Unshaded text is a
+ * header, a label or a note.
+ */
+export function typedInputsCells(wb: ExcelJS.Workbook): Array<{ row: number; col: number; value: unknown }> {
+  const ws = wb.getWorksheet('Inputs');
+  if (!ws) return [];
+  const out: Array<{ row: number; col: number; value: unknown }> = [];
+  ws.eachRow((row, r) => row.eachCell((cell, c) => {
+    if (c === 1) return;
+    const v = cell.value as unknown;
+    if (v === null || v === undefined || v === '') return;
+    if (typeof v === 'object' && 'formula' in (v as object)) return;
+    if (typeof v === 'string' && !isShaded(cell)) return;
+    if (typeof v === 'object') return;
+    out.push({ row: r, col: c, value: v });
+  }));
+  return out;
+}
+
+/** THE EXPORT CHECK: every typed value on Inputs is read by a formula, the named dead switches apart. */
+export function inputsUnreadProblems(wb: ExcelJS.Workbook, allowed: ReadonlySet<string>): string[] {
+  const read = readCells(wb);
+  const colL = (n: number): string => { let s = ''; while (n > 0) { const m = (n - 1) % 26; s = String.fromCharCode(65 + m) + s; n = Math.floor((n - 1) / 26); } return s; };
+  return typedInputsCells(wb)
+    .filter((x) => !read.has(cellId('Inputs', x.row, x.col)) && !allowed.has(cellId('Inputs', x.row, x.col)))
+    .map((x) => `Inputs!${colL(x.col)}${x.row} (${JSON.stringify(x.value).slice(0, 24)}) is read by no formula`);
+}

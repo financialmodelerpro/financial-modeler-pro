@@ -28,7 +28,7 @@ import type ExcelJS from 'exceljs';
 import type { LayerContext, LiveLayer } from '../formulaWorkbook';
 import { LiveWriter } from './writer';
 import { ARGB, colLetter } from '../styles';
-import { readCells, shadedCells, fixAtExport, isShaded, isLegendSwatch, cellId } from './inputAudit';
+import { readCells, shadedCells, fixAtExport, isShaded, isLegendSwatch, cellId, typedInputsCells } from './inputAudit';
 
 const INPUTS = 'Inputs';
 
@@ -250,6 +250,57 @@ export const stage9InputLinks: LiveLayer = {
       const cell = wb.getWorksheet(sh)!.getCell(r, c);
       if (isShaded(cell)) { fixAtExport(wb.getWorksheet(sh)!, r, c); fixed++; }
     }
+
+    // ── INPUTS HOLDS ONLY WHAT THE MODEL READS (2026-10-25, founder) ──
+    // A number on Inputs that no formula reads, and that is not a named dead switch
+    // (DEAD_SWITCHES), is a platform default this model does not rely on (a type's
+    // massing where every plot states its own): it is removed, not shown fixed. Only
+    // what the build has PROVED unread goes, so a default another project inherits stays.
+    const allowed = new Set<string>();
+    for (const k of reg.keys()) if (k.startsWith('deadswitch:')) { const a = reg.get(k)!; allowed.add(cellId(a.sheet, a.row, a.col)); }
+    const inputsWs = wb.getWorksheet(INPUTS);
+    let removed = 0;
+    if (inputsWs) {
+      const emptied = new Set<number>();
+      const headerRowAbove = (row: number, col: number): number | undefined => {
+        for (let r = row - 1; r >= Math.max(1, row - 40); r--) {
+          const cell = inputsWs.getCell(r, col);
+          if (typeof cell.value === 'string' && (cell.fill as { fgColor?: { argb?: string } } | undefined)?.fgColor?.argb === ARGB.grey) return r;
+        }
+        return undefined;
+      };
+      for (const x of typedInputsCells(wb)) {
+        const id = cellId(INPUTS, x.row, x.col);
+        if (read.has(id) || allowed.has(id) || typeof x.value !== 'number') continue;
+        const cell = inputsWs.getCell(x.row, x.col);
+        cell.value = null; cell.fill = { type: 'pattern', pattern: 'none' } as ExcelJS.Fill; cell.border = {}; delete (cell as unknown as { _comment?: unknown })._comment;
+        removed++;
+        // Recorded, so a proof comparing Inputs with the hardcoded export knows the cell was taken out on purpose.
+        w.claim(`inputs-removed:${x.row}:${x.col}`, INPUTS, x.row, x.col);
+        const h = headerRowAbove(x.row, x.col);
+        if (h !== undefined) emptied.add(h * 1000 + x.col);
+      }
+      // A column header whose column is now empty, to the next blank row, goes with it.
+      for (const hc of emptied) {
+        const h = Math.floor(hc / 1000), col = hc % 1000;
+        let empty = true;
+        for (let r = h + 1; r <= inputsWs.rowCount; r++) {
+          if (inputsWs.getRow(r).actualCellCount === 0) break;
+          const v = inputsWs.getCell(r, col).value;
+          if ((v !== null && v !== undefined && v !== '') || isShaded(inputsWs.getCell(r, col))) { empty = false; break; }
+        }
+        if (empty) { const hcell = inputsWs.getCell(h, col); hcell.value = null; hcell.fill = { type: 'pattern', pattern: 'none' } as ExcelJS.Fill; hcell.border = {}; }
+      }
+    }
+    // EVERY TYPED INPUT IN INPUT BLUE (2026-10-25, founder), on the navy-pale input fill.
+    for (const s of shadedCells(wb)) {
+      const cell = wb.getWorksheet(s.sheet)!.getCell(s.row, s.col);
+      cell.font = { ...(cell.font ?? {}), color: { argb: ARGB.inputText } };
+    }
+    for (const ws of wb.worksheets) ws.eachRow((row) => row.eachCell((cell) => {
+      if (isShaded(cell) && (cell.value === null || cell.value === undefined)) cell.font = { ...(cell.font ?? {}), color: { argb: ARGB.inputText } };
+    }));
+    void removed;
 
     return [{
       sheet: INPUTS, status: 'partial' as const, formulas: w.formulas.get(INPUTS) ?? 0,

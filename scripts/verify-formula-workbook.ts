@@ -27,8 +27,8 @@
 import { writeFileSync, mkdirSync } from 'node:fs';
 import type ExcelJS from 'exceljs';
 import { buildModelWorkbook, PERIOD_COLS } from '../src/hubs/modeling/platforms/refm/lib/excel/buildModelWorkbook';
-import { buildFormulaWorkbook, enableFormulaIteration, exportShapeProblems, backwardReads, TAB_ORDER } from '../src/hubs/modeling/platforms/refm/lib/excel/formulaWorkbook';
-import { readCells, shadedCells, isShaded, isLegendSwatch, cellId } from '../src/hubs/modeling/platforms/refm/lib/excel/liveLayers/inputAudit';
+import { buildFormulaWorkbook, enableFormulaIteration, exportShapeProblems, backwardReads, deadSwitchCells, TAB_ORDER } from '../src/hubs/modeling/platforms/refm/lib/excel/formulaWorkbook';
+import { readCells, shadedCells, isShaded, isLegendSwatch, cellId, inputsUnreadProblems, DEAD_SWITCHES } from '../src/hubs/modeling/platforms/refm/lib/excel/liveLayers/inputAudit';
 import { loadLiveExportInputs } from './fixtures/liveExportInputs';
 import { multiPlotVariant } from './fixtures/multiPlotVariant';
 import { groupAssetsForConsolidation } from '../src/core/calculations/consolidation';
@@ -431,6 +431,7 @@ function perturbations(input: LiveExportInputs, reg: CellRegistry): Perturbation
   const lines = planRevenueLines(st.assets, st.subUnits, st.phases, st.project) as any[];
   const earner = (l: any): any => l.members.find((m: any) => (st.subUnits as any[]).some((u) => u.assetId === m.id && u.category !== 'Support'));
   const offOf = (l: any): number => Number(String(ph.find((q) => q.id === l.phaseId).startDate).slice(0, 4)) - psy;
+  // The Inputs grids are keyed by year of the phase (2026-10-25): phase-local index k is Year k + 1.
   const sellL = lines.find((l) => l.form === 'sell' && earner(l)?.revenue?.sell);
   if (sellL) {
     const a = earner(sellL); const su = (st.subUnits as any[]).find((u) => u.assetId === a.id && u.category !== 'Support');
@@ -440,11 +441,11 @@ function perturbations(input: LiveExportInputs, reg: CellRegistry): Perturbation
     const vrow = a.revenue.sell.subUnits.find((x: any) => x.subUnitId === su.id);
     const k = (vrow.preSalesVelocityByPhase as number[]).findIndex((v) => v > 0);
     const v = vrow.preSalesVelocityByPhase[k] + 0.05;
-    out.push({ movesRevenue: true, label: `a pre-sales velocity (${su.name}, phase year ${k + 1}) +5 points`, cell: `revin|${sellL.key}|Pre-Sales velocity|${su.name}`, col: pcol(offOf(sellL) + k), value: v,
+    out.push({ movesRevenue: true, label: `a pre-sales velocity (${su.name}, phase year ${k + 1}) +5 points`, cell: `rxgrid|${sellL.key}|pre|${su.name}@${k + 1}`, value: v,
       edit: (s) => { const x = (s.assets as any[]).find((q) => q.id === a.id).revenue.sell.subUnits.find((q: any) => q.subUnitId === su.id); x.preSalesVelocityByPhase[k] = v; if (x.preSalesVelocity) x.preSalesVelocity[offOf(sellL) + k] = v; } });
     const dk = (a.revenue.sell.downpaymentByPhase as any[]).findIndex((d) => typeof d === 'number');
     const dv = a.revenue.sell.downpaymentByPhase[dk] + 0.1;
-    out.push({ movesRevenue: true, label: `a sale year's downpayment (phase year ${dk + 1}) +10 points`, cell: `revin|${sellL.key}|Sale cohort terms|Downpayment %`, col: pcol(offOf(sellL) + dk), value: dv,
+    out.push({ movesRevenue: true, label: `a sale year's downpayment (phase year ${dk + 1}) +10 points`, cell: `rxgrid|${sellL.key}|dp@${dk + 1}`, value: dv,
       edit: (s) => { (s.assets as any[]).find((q) => q.id === a.id).revenue.sell.downpaymentByPhase[dk] = dv; } });
     out.push({ movesRevenue: true, label: 'instalment years after sale 3 to 2', cell: `revin|${sellL.key}|Sale cohort terms|Max instalment years after sale`, col: RC.TOTAL, value: 2,
       edit: (s) => { (s.assets as any[]).find((q) => q.id === a.id).revenue.sell.maxInstalmentYears = 2; } });
@@ -457,7 +458,7 @@ function perturbations(input: LiveExportInputs, reg: CellRegistry): Perturbation
     const a = earner(hotL); const op = a.revenue.operate; const off = offOf(hotL);
     const k = (op.occupancyPerPeriodByPhase as number[]).findIndex((v) => v > 0);
     const v = op.occupancyPerPeriodByPhase[k] + 0.05;
-    out.push({ movesRevenue: true, label: `hotel occupancy (phase year ${k + 1}) +5 points`, cell: `revin|${hotL.key}|ADR Indexation|Occupancy ramp`, col: pcol(off + k), value: v,
+    out.push({ movesRevenue: true, label: `hotel occupancy (phase year ${k + 1}) +5 points`, cell: `rxgrid|${hotL.key}|occ@${k + 1}`, value: v,
       edit: (s) => { const o = (s.assets as any[]).find((q) => q.id === a.id).revenue.operate; o.occupancyPerPeriodByPhase[k] = v; if (o.occupancyPerPeriod) o.occupancyPerPeriod[off + k] = v; } });
     out.push({ movesRevenue: true, label: 'hotel F&B share of rooms +5 points', cell: `revin|${hotL.key}|ADR Indexation|F&B Revenue, F&B %`, col: RC.TOTAL, value: (op.fb.percentOfRooms ?? 0) + 0.05,
       edit: (s) => { (s.assets as any[]).find((q) => q.id === a.id).revenue.operate.fb.percentOfRooms = (op.fb.percentOfRooms ?? 0) + 0.05; } });
@@ -477,7 +478,7 @@ function perturbations(input: LiveExportInputs, reg: CellRegistry): Perturbation
     const a = earner(leaseL); const le = a.revenue.lease; const off = offOf(leaseL);
     const k = (le.occupancyPerPeriodByPhase as number[]).findIndex((v) => v > 0);
     const v = le.occupancyPerPeriodByPhase[k] + 0.05;
-    out.push({ movesRevenue: true, label: `lease occupancy (${leaseL.label}, phase year ${k + 1}) +5 points`, cell: `revin|${leaseL.key}|Rent Indexation|Occupancy ramp`, col: pcol(off + k), value: v,
+    out.push({ movesRevenue: true, label: `lease occupancy (${leaseL.label}, phase year ${k + 1}) +5 points`, cell: `rxgrid|${leaseL.key}|occ@${k + 1}`, value: v,
       edit: (s) => { const o = (s.assets as any[]).find((q) => q.id === a.id).revenue.lease; o.occupancyPerPeriodByPhase[k] = v; if (o.occupancyPerPeriod) o.occupancyPerPeriod[off + k] = v; } });
     const sy = (le.rentIndexation?.startYear ?? 0) + 1;
     // Inputs states the start as a calendar year.
@@ -866,12 +867,16 @@ function formulaCells(wb: ExcelJS.Workbook): Map<string, { formula: string; resu
   const plain = buildModelWorkbook({ ...opts, liveLayout: true });
   const oracle = numbers(plain);
   const { wb, registry, status, pending: buildPending } = buildFormulaWorkbook(opts);
+  // A VALUE THE BUILD PROVED UNREAD IS REMOVED FROM INPUTS (2026-10-25, stage 9), on purpose: it is no
+  // figure of the platform's live model, so it leaves the comparison, and A12q proves each one was unread.
+  const removedInputs = registry.keys().filter((k) => k.startsWith('inputs-removed:')).map((k) => registry.need(k));
   const built = numbers(wb);
   const formulas = formulaCells(wb);
   const plainAgain = numbers(buildModelWorkbook({ ...opts, liveLayout: true }));
   let differs = 0;
   for (const [k, n] of oracle) if (plainAgain.get(k)?.v !== n.v) differs++;
   check('A1 the hardcoded export is unchanged and deterministic (built twice, every number equal)', differs === 0 && plainAgain.size === oracle.size, `${differs} differ`);
+  for (const a of removedInputs) oracle.delete(cellKey(a.sheet, a.row, a.col));
   check('A2 the hardcoded export contains no formula at all', formulaCells(plain).size === 0);
   // THE HARDCODED EXPORT NEVER TAKES THE LIVE LAYOUT (2026-10-14): built as the Export dialog
   // builds it, it is deterministic and carries none of the rows the formula export adds.
@@ -908,6 +913,40 @@ function formulaCells(wb: ExcelJS.Workbook): Map<string, { formula: string; resu
     copy2.getWorksheet('Financing')!.getCell(2, 9).value = { formula: "'P&L'!F20+1", result: 0 } as unknown as ExcelJS.CellValue;
     const p2 = exportShapeProblems(copy2);
     check('A12i a Financing row that is not a dividend cap reading the P&L is caught', p2.some((x) => x.includes('Financing row 2 reads P&L')), p2.join('; '));
+    // EVERY TYPED VALUE ON INPUTS DRIVES THE MODEL (2026-10-25, founder): the named dead
+    // switches apart, and the check fires on a planted unread value.
+    {
+      const allowedCells = deadSwitchCells(registry);
+      const unread = inputsUnreadProblems(wb, allowedCells);
+      check('A12j every typed value on Inputs is read by a formula, the named dead switches apart', unread.length === 0, unread.slice(0, 4).join('; '));
+      const names = new Set(registry.keys().filter((k) => k.startsWith('deadswitch:')).map((k) => k.slice(11, k.indexOf('|'))));
+      check(`A12k every allowed unread cell is a named dead switch (${names.size} names)`, [...names].every((n) => (Object.values(DEAD_SWITCHES) as string[]).includes(n)), [...names].join('; '));
+      const plant = buildModelWorkbook({ ...opts, liveLayout: true });
+      const free = plant.getWorksheet('Inputs')!.getCell(2, 9);
+      free.value = 123;
+      check('A12l the input check fires: a planted number no formula reads is caught', inputsUnreadProblems(plant, new Set()).some((x) => x.startsWith('Inputs!I2 ')), '');
+      // No grid is laid out by calendar year, and nothing shifts typed years after a move.
+      const inp = wb.getWorksheet('Inputs')!;
+      const calendarLabels: string[] = [];
+      inp.eachRow((row, r) => { const a = String(row.getCell(1).value ?? ''); if (/(velocity|Sales During Operation|Occupancy ramp|Sale cohort terms)/i.test(a) && /\b20\d\d\b/.test(a)) calendarLabels.push(`A${r} ${a}`); });
+      const gridHeads = registry.keys().filter((k) => k.startsWith('rxgrid|')).map((k) => { const a = registry.need(k); return String(inp.getCell(a.row - 1, a.col).value ?? ''); });
+      const firstRows = new Set(registry.keys().filter((k) => k.startsWith('rxgrid|')).map((k) => registry.need(k).row));
+      check(`A12m the velocity, downpayment and occupancy grids are keyed by phase year (${firstRows.size} grids), never a calendar year`,
+        firstRows.size > 0 && calendarLabels.length === 0 && gridHeads.every((h) => /^Year \d+$/.test(h) || h === ''), [...calendarLabels, ...gridHeads.filter((h) => !/^Year \d+$/.test(h) && h !== '')].slice(0, 4).join('; '));
+      const shiftLeft: string[] = [];
+      for (const ws of wb.worksheets) ws.eachRow((row, r) => row.eachCell((cell, c) => { if (typeof cell.value === 'string' && /start year at export|years moved since export/i.test(cell.value)) shiftLeft.push(`${ws.name}!R${r}C${c}`); }));
+      check('A12n no "start year at export" or "years moved" cell is left (Inputs, Timeline)', shiftLeft.length === 0 && !registry.keys().some((k) => /:sx$|:mv$/.test(k)), shiftLeft.join(', '));
+      const notBlue = shadedCells(wb).filter((s) => wb.getWorksheet(s.sheet)!.getCell(s.row, s.col).font?.color?.argb !== 'FF0000FF');
+      check('A12o every typed input is in input blue (#0000FF) on the input fill', notBlue.length === 0 && shadedCells(wb).length > 0, notBlue.slice(0, 4).map((s) => `${s.sheet}!R${s.row}C${s.col}`).join(', '));
+      const codes: string[] = [];
+      inp.eachRow((row, r) => row.eachCell((cell, c) => { if (c > 1 && typeof cell.value === 'string' && /^[a-z]+(_[a-z]+)+$/.test(cell.value)) codes.push(`R${r}C${c} ${cell.value}`); }));
+      check('A12p no code name is printed on Inputs (snake_case values)', codes.length === 0, codes.slice(0, 4).join('; '));
+    }
+    {
+      const readNow = readCells(wb);
+      const stillThere = removedInputs.filter((a) => { const v = wb.getWorksheet(a.sheet)!.getCell(a.row, a.col).value; return v !== null && v !== undefined; });
+      check(`A12q each value removed from Inputs (${removedInputs.length}) is gone and no formula reads its cell`, stillThere.length === 0 && removedInputs.every((a) => !readNow.has(cellId(a.sheet, a.row, a.col))), stillThere.map((a) => `R${a.row}C${a.col}`).join(', '));
+    }
     const order = wb.worksheets.map((x) => x.name).filter((n) => TAB_ORDER.includes(n));
     check('A12d the tabs run in the order the model flows', order.join('|') === TAB_ORDER.filter((n) => wb.getWorksheet(n)).join('|'), order.join(', '));
     // ONE PERIOD, ONE COLUMN: every live period tab's year and index header reads the Timeline's same column.
@@ -1147,14 +1186,8 @@ function formulaCells(wb: ExcelJS.Workbook): Map<string, { formula: string; resu
       pt.edit(snap);
       const pOpts = { ...opts, state: platformAfterEdit(snap as never) as typeof input.state };
       const pPlain = buildModelWorkbook({ ...pOpts, liveLayout: true });
-      // "MOVED SINCE EXPORT" IS RELATIVE TO THE EXPORT (Timeline, per phase): a fresh export
-      // reads 0 by definition, so the platform's figure for the workbook under test is the
-      // start year the edit gives less the start year this workbook was exported with.
-      for (const k of base.registry.keys().filter((x) => /^tl:phase:.+:mv$/.test(x))) {
-        const m = base.registry.need(k), sx = base.registry.need(k.replace(/:mv$/, ':sx'));
-        const yr = (wbk: ExcelJS.Workbook): number => Number(wbk.getWorksheet(sx.sheet)!.getCell(sx.row, sx.col).value);
-        pPlain.getWorksheet(m.sheet)!.getCell(m.row, m.col).value = yr(pPlain) - yr(base.plain);
-      }
+      // (2026-10-25: no "years moved since export" cell any more: the Inputs grids are keyed by
+      // phase year, so a moved phase carries its typed years with it and nothing is relative to the export.)
       const a0 = base.registry.need(pt.cell);
       const aMod = { ...a0, col: pt.col ?? a0.col };
       // INPUTS IS THE ONE PLACE A USER TYPES (stage9InputLinks, 2026-09-28): where the

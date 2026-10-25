@@ -30,6 +30,8 @@ import {
   buildStandardsView, buildAssetAreaTables, buildSubUnitLines, type ViewCell, type AssetAreaTables,
 } from '../../components/modules/_shared/assetInputsView';
 import { registerCell } from './cellRegistry';
+import { DEAD_SWITCHES, deadSwitchKey } from './liveLayers/inputAudit';
+import { normaliseAssetTypeId, resolveRetailSlotTypeId } from '../state/assetTypeStandards';
 import { hqOpexLinesInForce, normalizeOpexIndexation } from '@/src/core/calculations/opex';
 import { planRevenueLines, groupRevenueLines, lineForAsset, type RevenueLine } from '../revenueLines';
 import { revenueLineName } from '../reports/revenueOutputReports';
@@ -146,8 +148,8 @@ export function emitPhasesSection(c: SheetCursor, state: FinancialsResolverState
   // THE LIVE LAYOUT HOLDS TYPED VALUES ONLY (2026-10-20): the phase end dates and the axis
   // year are worked out on the Timeline, which reads these cells.
   const live = isLiveLayout();
-  setSectionHeader(c.ws.getRow(c.r), 'Phases', live ? 6 : 8); c.r += 1;
-  headers(c, live ? ['Phase Name', 'Phase Start Date', 'Construction (years)', 'Operations (years)', 'Status', 'Start year at export']
+  setSectionHeader(c.ws.getRow(c.r), 'Phases', live ? 5 : 8); c.r += 1;
+  headers(c, live ? ['Phase Name', 'Phase Start Date', 'Construction (years)', 'Operations (years)', 'Status']
     : ['Phase Name', 'Phase Start Date', 'Construction (years)', 'Operations (years)', 'Construction End', 'Operations Start', 'Operations End', 'Status']);
   for (const ph of state.phases) {
     if (live) {
@@ -157,12 +159,7 @@ export function emitPhasesSection(c: SheetCursor, state: FinancialsResolverState
       setInput(c.ws.getCell(c.r, 4), ph.operationsPeriods ?? 0, NUMFMT.int);
       (['start', 'cp', 'op'] as const).forEach((k, i) => registerCell(`phase:${ph.id}:${k}`, c.ws, c.ws.getCell(c.r, 2 + i)));
       setInput(c.ws.getCell(c.r, 5), phaseStatusLabel(ph.status), '@');
-      // The year the phase started at export: the input cards lay their years out for it.
-      const sx = c.ws.getCell(c.r, 6);
-      sx.value = utcYear(ph.startDate as string, snap.projectStartYear); sx.numFmt = NUMFMT.year;
-      sx.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } };
-      registerCell(`phase:${ph.id}:sx`, c.ws, sx);
-      setNote(sx, 'Fixed at export: the year this phase started when the workbook was exported. The input cards lay their years out for it.');
+      // No "start year at export" (2026-10-25): the input grids are keyed by phase year, so they move with the phase.
       c.r += 1;
       continue;
     }
@@ -193,11 +190,19 @@ export function emitPhasesSection(c: SheetCursor, state: FinancialsResolverState
 export function emitStandardsSection(c: SheetCursor, state: FinancialsResolverState): void {
   const v = buildStandardsView(state);
   const currency = state.project.currency ?? '';
+  // THE LIVE WORKBOOK SHOWS ONLY TYPES THE MODEL USES (2026-10-25, founder): a type no visible
+  // asset is of (and not the type the retail parking ratio is read from) is read by nothing.
+  const live = isLiveLayout();
+  const visibleAssets = state.assets.filter((a) => a.visible !== false);
+  const usedTypes = new Set<string>(visibleAssets.map((a) => normaliseAssetTypeId(a.assetTypeId ?? '')).filter(Boolean));
+  { const slot = resolveRetailSlotTypeId(state.project, visibleAssets); if (slot) usedTypes.add(slot); }
+  const typeShown = (id: string | undefined): boolean => !live || id === undefined || usedTypes.has(normaliseAssetTypeId(id));
+  const types = v.types.filter((t) => typeShown(t.id));
   setSectionHeader(c.ws.getRow(c.r), 'Asset types and values', 10); c.r += 1;
-  if (v.types.length === 0) { note(c, 'No asset types in this project.'); c.r += 1; }
+  if (types.length === 0) { note(c, 'No asset types in this project.'); c.r += 1; }
   else {
     headers(c, ['Asset type', 'Category', 'Strategy for new assets', 'Avg unit size (sqm)', 'Parking ratio', 'Ratio basis', 'Utilisation %', 'Coverage %', 'FAR', 'Service %']);
-    for (const t of v.types) {
+    for (const t of types) {
       setLabel(c.ws.getCell(c.r, 1), t.label);
       (['unit', 'ratio', 'basis', 'util', 'cov', 'far', 'svc'] as const).forEach((k, i) => registerCell(`type:${t.id}:${k}`, c.ws, c.ws.getCell(c.r, 4 + i)));
       setInput(c.ws.getCell(c.r, 2), t.category || '-', '@');
@@ -213,7 +218,7 @@ export function emitStandardsSection(c: SheetCursor, state: FinancialsResolverSt
       for (const col of [4, 5, 7, 8, 9, 10]) fixedHere(c, c.r, col, 'A type default applies only where a plot or sub-unit of this type states none, and in this model none relies on it.');
       c.r += 1;
     }
-    note(c, 'A blank value is not set, never zero. Utilisation, coverage, FAR and service are defaults a plot inherits where it states none on Table 2.');
+    note(c, live ? 'A blank value is not set, never zero. A type default shows only where a plot or sub-unit of the type states none and inherits it.' : 'A blank value is not set, never zero. Utilisation, coverage, FAR and service are defaults a plot inherits where it states none on Table 2.');
     c.r += 1;
   }
   setSectionHeader(c.ws.getRow(c.r), 'Parking and cost escalation', 3); c.r += 1;
@@ -230,11 +235,15 @@ export function emitStandardsSection(c: SheetCursor, state: FinancialsResolverSt
     v.escalationPct === undefined && !escLive ? undefined : 'inp=cx:esc@3');
   c.r += 1;
 
-  const standardsTable = (title: string, rows: typeof v.construction, construction: boolean): void => {
-    setSectionHeader(c.ws.getRow(c.r), title, construction ? 9 : 5); c.r += 1;
+  // THE LIVE WORKBOOK SHOWS NO TYPE PRICES (2026-10-25): every price it reads is the sub-unit's own
+  // Table 5 rate, so a type's sale price, ADR or rent here would be a second, unread copy.
+  const prices = !live;
+  const standardsTable = (title: string, rows0: typeof v.construction, construction: boolean): void => {
+    const rows = rows0.filter((row) => typeShown(row.assetTypeId));
+    setSectionHeader(c.ws.getRow(c.r), title, construction ? (prices ? 9 : 5) : 5); c.r += 1;
     const multiPhase = state.phases.length > 1;
     headers(c, construction
-      ? ['Item', 'Applies to', 'Basis', `Rate (${v.baseYear} money)`, 'By phase', 'Price per unit', 'Price per unit reads as', 'Price per sqm', 'Price per sqm reads as']
+      ? ['Item', 'Applies to', 'Basis', `Rate (${v.baseYear} money)`, 'By phase', ...(prices ? ['Price per unit', 'Price per unit reads as', 'Price per sqm', 'Price per sqm reads as'] : [])]
       : ['Item', 'Basis', `Rate (${v.baseYear} money)`, 'By phase']);
     for (const row of rows) {
       setLabel(c.ws.getCell(c.r, 1), row.label);
@@ -248,7 +257,7 @@ export function emitStandardsSection(c: SheetCursor, state: FinancialsResolverSt
         setInput(c.ws.getCell(c.r, col), row.byPhase.map((b) => `${b.phaseName} ${row.isPercent ? `${b.rate}%` : b.rate.toLocaleString('en-US')}`).join('; '), '@');
       }
       col += 1;
-      if (construction) {
+      if (construction && prices) {
         for (const pr of [row.pricePerUnit, row.pricePerSqm]) {
           if (pr === null) { derived(c.ws.getCell(c.r, col), '-', '@'); col += 2; continue; }
           if (pr === undefined) { col += 2; continue; }
@@ -261,9 +270,9 @@ export function emitStandardsSection(c: SheetCursor, state: FinancialsResolverSt
     }
     c.r += 1;
   };
-  standardsTable('Cost standards: construction cost, sale price and ADR', v.construction, true);
+  standardsTable(prices ? 'Cost standards: construction cost, sale price and ADR' : 'Cost standards: construction cost', v.construction, true);
   standardsTable('Cost standards: soft costs', v.soft, false);
-  note(c, 'Defaults only: a rate typed on a Capex phase line wins, a phase rate here wins over the row rate in that phase, and a type price applies to every Table 5 row of that type with no price of its own.');
+  note(c, live ? 'Defaults only: a rate typed on a Capex phase line wins, and a phase rate here wins over the row rate in that phase.' : 'Defaults only: a rate typed on a Capex phase line wins, a phase rate here wins over the row rate in that phase, and a type price applies to every Table 5 row of that type with no price of its own.');
   c.r += 1;
 }
 
@@ -322,11 +331,13 @@ export function emitAssetEntrySection(c: SheetCursor, tables: AssetAreaTables, s
     if (!a) return undefined;
     return { stated: Math.max(0, a.sellableBuaSqm ?? 0), used: resolveAssetAreaMetrics(a, state.project, state.parcels, visible, state.subUnits, state.landAllocationMode).nsa };
   };
-  setSectionHeader(c.ws.getRow(c.r), 'Assets by plot, what you enter', 11); c.r += 1;
-  headers(c, ['Type', 'Strategy', 'Plot Area (sqm)', 'Land Utilisation %', 'Ground Coverage %', 'FAR', 'Max Floors', 'Retail % (ground floor)', 'Service %', 'Stated NSA (sqm)', isLiveLayout() ? 'NSA used: Land & Area' : 'NSA used (sqm)']);
+  // MAX FLOORS IS NOT IN THE LIVE WORKBOOK (2026-10-25): a planning note nothing reads, on the platform either.
+  const floors = !isLiveLayout(), sh = floors ? 0 : 1;
+  setSectionHeader(c.ws.getRow(c.r), 'Assets by plot, what you enter', 11 - sh); c.r += 1;
+  headers(c, ['Type', 'Strategy', 'Plot Area (sqm)', 'Land Utilisation %', 'Ground Coverage %', 'FAR', ...(floors ? ['Max Floors'] : []), 'Retail % (ground floor)', 'Service %', 'Stated NSA (sqm)', isLiveLayout() ? 'NSA used: Land & Area' : 'NSA used (sqm)']);
   let inherited = false, whole = false;
   for (const g of tables.plots) {
-    band(c, `${g.plotLabel}${g.phaseName ? `, ${g.phaseName}` : ''}. ${g.check}`, 11);
+    band(c, `${g.plotLabel}${g.phaseName ? `, ${g.phaseName}` : ''}. ${g.check}`, 11 - sh);
     if (g.entries.length === 0) { note(c, 'No assets drawing from this plot yet.'); continue; }
     for (const e of g.entries) {
       setLabel(c.ws.getCell(c.r, 1), e.typeLabel, { indent: 1 });
@@ -335,21 +346,26 @@ export function emitAssetEntrySection(c: SheetCursor, tables: AssetAreaTables, s
       viewCell(c.ws.getCell(c.r, 4), e.utilisationPct, NUMFMT.pct2, 100);
       viewCell(c.ws.getCell(c.r, 5), e.coveragePct, NUMFMT.pct2, 100);
       viewCell(c.ws.getCell(c.r, 6), e.far, NUMFMT.rate);
-      viewCell(c.ws.getCell(c.r, 7), e.maxFloors, NUMFMT.int);
-      fixedHere(c, c.r, 7, 'Max floors is a planning note: nothing in the model reads it, on the platform either.');
-      viewCell(c.ws.getCell(c.r, 8), e.retailPct, NUMFMT.pct2, 100);
-      viewCell(c.ws.getCell(c.r, 9), e.servicePct, NUMFMT.pct2, 100);
-      (['plot', 'util', 'cov', 'far', 'floors', 'retail', 'svc'] as const).forEach((k, i) => registerCell(`entry:${e.assetId}:${k}`, c.ws, c.ws.getCell(c.r, 3 + i)));
+      if (floors) {
+        viewCell(c.ws.getCell(c.r, 7), e.maxFloors, NUMFMT.int);
+        fixedHere(c, c.r, 7, 'Max floors is a planning note: nothing in the model reads it, on the platform either.');
+      }
+      viewCell(c.ws.getCell(c.r, 8 - sh), e.retailPct, NUMFMT.pct2, 100);
+      viewCell(c.ws.getCell(c.r, 9 - sh), e.servicePct, NUMFMT.pct2, 100);
+      (['plot', 'util', 'cov', 'far', 'floors', 'retail', 'svc'] as const).forEach((k, i) => {
+        if (k === 'floors' && !floors) return;
+        registerCell(`entry:${e.assetId}:${k}`, c.ws, c.ws.getCell(c.r, 3 + i - (i > 4 ? sh : 0)));
+      });
       const nsa = nsaOf(e.assetId);
       if (nsa) {
         // A blank states none (the platform stores 0 and the rule reads it as nothing).
-        const sc = c.ws.getCell(c.r, 10);
+        const sc = c.ws.getCell(c.r, 10 - sh);
         if (nsa.stated > 0) setInput(sc, nsa.stated, NUMFMT.int); else { markInput(sc); sc.numFmt = NUMFMT.int; }
         registerCell(`entry:${e.assetId}:nsa`, c.ws, sc);
         // The live workbook works it out on Land & Area (it reads the sub-units' areas there).
         if (!isLiveLayout()) {
-          derived(c.ws.getCell(c.r, 11), nsa.used, NUMFMT.int);
-          registerCell(`entry:${e.assetId}:nsaUsed`, c.ws, c.ws.getCell(c.r, 11));
+          derived(c.ws.getCell(c.r, 11 - sh), nsa.used, NUMFMT.int);
+          registerCell(`entry:${e.assetId}:nsaUsed`, c.ws, c.ws.getCell(c.r, 11 - sh));
         }
       }
       if ([e.utilisationPct, e.coveragePct, e.far, e.servicePct].some((x) => x.note === 'from the type')) inherited = true;
@@ -372,11 +388,13 @@ export function emitSubUnitSection(c: SheetCursor, state: FinancialsResolverStat
   const lines = buildSubUnitLines(state);
   if (lines.length === 0) return;
   const cur = state.project.currency ?? 'SAR';
-  setSectionHeader(c.ws.getRow(c.r), 'Sub-units, under the merged line', 10); c.r += 1;
-  headers(c, ['Sub-unit', 'Category', 'NSA Share %', 'Area (sqm)', 'Average Unit Size (sqm)', 'Units or Keys', `Rate (${cur})`, 'Rate Basis', 'Rate, other basis', 'Other basis']);
   const live = isLiveLayout();
+  // THE OTHER BASIS IS NOT IN THE LIVE WORKBOOK (2026-10-25): a row sells, lets or operates on its
+  // own basis, and the price it would carry on the other one is read by nothing.
+  setSectionHeader(c.ws.getRow(c.r), 'Sub-units, under the merged line', live ? 8 : 10); c.r += 1;
+  headers(c, ['Sub-unit', 'Category', 'NSA Share %', 'Area (sqm)', 'Average Unit Size (sqm)', 'Units or Keys', `Rate (${cur})`, 'Rate Basis', ...(live ? [] : ['Rate, other basis', 'Other basis'])]);
   for (const line of lines) {
-    band(c, live ? line.title : `${line.title}. ${line.check}`, 10);
+    band(c, live ? line.title : `${line.title}. ${line.check}`, live ? 8 : 10);
     for (const u of line.rows) {
       setLabel(c.ws.getCell(c.r, 1), u.plot ? `${u.name} (${u.plot})` : u.name, { indent: 1 });
       setInput(c.ws.getCell(c.r, 2), u.category, '@');
@@ -396,7 +414,7 @@ export function emitSubUnitSection(c: SheetCursor, state: FinancialsResolverStat
       (live ? (['unit', 'rate'] as const) : (['share', 'area', 'unit', 'units', 'rate'] as const)).forEach((k) => registerCell(`su:${u.id}:${k}`, c.ws, c.ws.getCell(c.r, 3 + ['share', 'area', 'unit', 'units', 'rate'].indexOf(k))));
       setInput(c.ws.getCell(c.r, 7), u.rate, NUMFMT.rate);
       setLabel(c.ws.getCell(c.r, 8), u.rateBasis);
-      if (u.otherRate) {
+      if (live) { /* no other basis */ } else if (u.otherRate) {
         if (u.otherRate.value !== undefined) { setInput(c.ws.getCell(c.r, 9), u.otherRate.value, NUMFMT.rate); fixedHere(c, c.r, 9, 'The row sells on the other basis; this price is kept for a switch, not used.'); }
         setLabel(c.ws.getCell(c.r, 10), u.otherRate.basis);
       } else if (u.otherNote) setLabel(c.ws.getCell(c.r, 10), u.otherNote);
@@ -549,10 +567,12 @@ export function emitStatementInputsSection(c: SheetCursor, state: FinancialsReso
   const lag = (p.tax?.paymentDays ?? 0) > 0;
   const payRow = kv(c, `${zakat ? 'Zakat' : 'Tax'} payment (days)`, p.tax?.paymentDays ?? 0, NUMFMT.int, true, undefined, undefined, lag ? 'project:taxDays' : undefined);
   if (!lag) fixedHere(c, payRow, 2, `Days after the year end it is paid; 0 pays it in the year it is charged. A lag stated at export is live.`);
+  registerCell(deadSwitchKey(DEAD_SWITCHES.zakatDays, c.sheetName, payRow, 2), c.ws, c.ws.getCell(payRow, 2));
   kv(c, 'Basis', (p.tax?.basis ?? 'zakat') === 'cit' ? 'Corporate income tax (losses carried forward, 25% cap)' : 'Zakat (net worth; no loss carry-forward)', '@', true);
   kv(c, 'Statutory reserve transfer (% of PAT)', p.statutoryReserve?.transferRate ?? 0, NUMFMT.pct, true, undefined, undefined, 'project:reserveRate');
   const capRow = kv(c, 'Statutory reserve cap (% share capital)', p.statutoryReserve?.capOfShareCapital ?? 0, NUMFMT.pct, true, undefined, undefined, 'project:reserveCap');
   fixedHere(c, capRow, 2, 'A cap of zero at export applies no cap; a cap stated at export is live.');
+  registerCell(deadSwitchKey(DEAD_SWITCHES.reserveCap, c.sheetName, capRow, 2), c.ws, c.ws.getCell(capRow, 2));
   kv(c, 'Share capital (explicit, 0 = auto)', p.shareCapital ?? 0, NUMFMT.money, true, undefined, undefined, 'project:shareCapital');
   // 2026-10-06: where hotel and lease lines state their OWN receivable days
   // (receivableDays.ts), the engine collects them on those, so this one door is
@@ -716,6 +736,29 @@ function yearStrip(c: SheetCursor, label: string, years: number[], values: (idx:
   c.r += 1;
 }
 
+/**
+ * A STRIP KEYED BY PHASE YEAR (live layout, 2026-10-25, founder): the columns are
+ * Year 1, Year 2... of the phase, counted from its first year, never a calendar
+ * year, so a phase that moves carries its typed years with it and no "start year
+ * at export" shift is needed. It is the count the platform stores these arrays in
+ * (index 0 = the phase's first year, `expandPhaseLocalToAxis`), so a change of
+ * construction years moves nothing the platform would not move either.
+ * `yearOf(idx)` turns the axis year a column holds today into its phase year. Each cell is registered
+ * `rxgrid|<grid>@<phase year>`, which the Revenue tab reads by phase year.
+ */
+function phaseYearStrip(c: SheetCursor, label: string, idxs: number[], values: (idx: number) => number | undefined, headerLabel: string, yearOf: (idx: number) => number, grid: string): void {
+  if (idxs.length === 0) return;
+  setColHeader(c.ws.getCell(c.r, 1), headerLabel, 'left');
+  idxs.forEach((idx, i) => setColHeader(c.ws.getCell(c.r, 2 + i), `Year ${yearOf(idx)}`, 'right'));
+  c.r += 1;
+  setLabel(c.ws.getCell(c.r, 1), label, { indent: 1 });
+  idxs.forEach((idx, i) => {
+    setInput(c.ws.getCell(c.r, 2 + i), values(idx) ?? 0, NUMFMT.pct);
+    registerCell(`rxgrid|${grid}@${yearOf(idx)}`, c.ws, c.ws.getCell(c.r, 2 + i));
+  });
+  c.r += 1;
+}
+
 /** The module sheets' year columns: the axis year idx sits in column 6 + idx (PERIOD_COLS). */
 const axisCol = (idx: number): number => 6 + idx;
 
@@ -794,12 +837,22 @@ function emitSellLine(c: SheetCursor, line: RevenueLine, w: LineWindow, snap: Sn
   }
   const velLink = (table: string, row: { revRow?: string }) => (idx: number): string | undefined =>
     row.revRow ? `revin|${line.key}|${table}|${row.revRow}@${axisCol(idx)}` : undefined;
-  if (w.construction.length > 0) {
+  if (isLiveLayout()) {
+    // Keyed by year of the phase (phaseYearStrip), the count the platform stores velocity in.
+    const cy = (idx: number): number => idx - w.phaseOffset + 1;
+    for (const [i, row] of velocityRows.entries()) {
+      phaseYearStrip(c, row.label, w.construction, row.pre, i === 0 ? 'Pre-Sales velocity, by year of the phase' : '', cy, `${line.key}|pre|${row.revRow ?? row.label}`);
+    }
+    for (const [i, row] of velocityRows.entries()) {
+      phaseYearStrip(c, row.label, w.operations, row.post, i === 0 ? 'Sales During Operation, by year of the phase' : '', cy, `${line.key}|post|${row.revRow ?? row.label}`);
+    }
+  }
+  if (!isLiveLayout() && w.construction.length > 0) {
     for (const [i, row] of velocityRows.entries()) {
       yearStrip(c, row.label, w.construction, row.pre, NUMFMT.pct, true, snap, i === 0 ? `Pre-Sales velocity, ${snap.projectStartYear + w.construction[0]} to ${snap.projectStartYear + w.construction[w.construction.length - 1]}` : '', velLink('Pre-Sales velocity', row));
     }
   }
-  if (w.operations.length > 0) {
+  if (!isLiveLayout() && w.operations.length > 0) {
     for (const [i, row] of velocityRows.entries()) {
       yearStrip(c, row.label, w.operations, row.post, NUMFMT.pct, true, snap, i === 0 ? `Sales During Operation, ${snap.projectStartYear + w.operations[0]} to ${snap.projectStartYear + w.operations[w.operations.length - 1]}` : '', velLink('Sales During Operation', row));
     }
@@ -818,7 +871,16 @@ function emitSellLine(c: SheetCursor, line: RevenueLine, w: LineWindow, snap: Sn
   // SALE COHORT TERMS PRINT ON EVERY SELL LINE, handover recognition included:
   // they drive collections whatever the recognition method is.
   const block = buildSaleCohortTermsBlock(host, phase, Number(snap.yearLabels[0]) || 0);
-  if (block && block.downpayments.length) {
+  if (block && block.downpayments.length && isLiveLayout()) {
+    // Keyed by the construction year of the sale (phaseYearStrip), not the calendar year.
+    const phaseStartYear = utcYear(phase?.startDate, snap.projectStartYear);
+    const byIdx = new Map(block.downpayments.map((d) => [d.year - snap.projectStartYear, d.value]));
+    phaseYearStrip(c, 'Downpayment % by sale year', [...byIdx.keys()], (idx) => byIdx.get(idx), 'Sale cohort terms, by year of the phase the sale falls in',
+      (idx) => idx + snap.projectStartYear - phaseStartYear + 1, `${line.key}|dp`);
+    kv(c, 'Max instalment years after sale', block.instalmentYears, NUMFMT.int, true, undefined, undefined, `inp=revin|${line.key}|Sale cohort terms|Max instalment years after sale@4`);
+    kv(c, 'Instalments', block.stopAtHandover ? 'Stop at handover' : 'May run past handover', '@', true);
+    note(c, saleCohortRuleText(block));
+  } else if (block && block.downpayments.length) {
     setColHeader(c.ws.getCell(c.r, 1), 'Sale cohort terms', 'left');
     block.downpayments.forEach((d, i) => setColHeader(c.ws.getCell(c.r, 2 + i), String(d.year), 'right'));
     c.r += 1;
@@ -849,33 +911,43 @@ function opsStartRow(c: SheetCursor, line: RevenueLine, w: LineWindow, snap: Sna
   if (override == null) markInput(c.ws.getCell(r, 2));
 }
 
+/** A line's receivable days: a dead switch until the Revenue tab reads it (DEAD_SWITCHES). */
+function arRow(...args: Parameters<typeof kv>): void {
+  const r = kv(...args);
+  registerCell(deadSwitchKey(DEAD_SWITCHES.receivableDays, args[0].sheetName, r, 2), args[0].ws, args[0].ws.getCell(r, 2));
+}
+
 function emitOperateLine(c: SheetCursor, line: RevenueLine, w: LineWindow, snap: Snap, projectDso: number): void {
   const op = line.host.revenue?.operate;
   // THE ADR THE ENGINE SELLS AT: the first positive of the row's stored ADR and
   // its Table 5 price (resolveSubUnitAdr). A stored 0 never shadows a price.
-  for (const u of line.subUnits) kv(c, `Starting ADR, ${u.name || 'sub-unit'} (per room per night, Table 5)`, resolveSubUnitAdr(u), NUMFMT.rate, false);
+  // The live workbook reads the ADR where it is typed, the sub-unit's Table 5 rate: no second copy here.
+  if (!isLiveLayout()) for (const u of line.subUnits) kv(c, `Starting ADR, ${u.name || 'sub-unit'} (per room per night, Table 5)`, resolveSubUnitAdr(u), NUMFMT.rate, false);
   const L = (label: string, col = 4): string => `inp=revin|${line.key}|*|${label}@${col}`;
   indexationRows(c, 'ADR indexation', op?.adrIndexation, snap, line.key);
   opsStartRow(c, line, w, snap, op?.operationsStartYearOverride, L('Operations start year'));
-  yearStrip(c, 'Occupancy', w.operations, (idx) => op?.occupancyPerPeriod?.[idx], NUMFMT.pct, true, snap, 'Occupancy ramp', (idx) => `revin|${line.key}|*|Occupancy ramp@${axisCol(idx)}`);
+  if (isLiveLayout()) phaseYearStrip(c, 'Occupancy', w.operations, (idx) => op?.occupancyPerPeriodByPhase?.[idx - w.phaseOffset] ?? op?.occupancyPerPeriod?.[idx], 'Occupancy ramp, by year of the phase', (idx) => idx - w.phaseOffset + 1, `${line.key}|occ`);
+  else yearStrip(c, 'Occupancy', w.operations, (idx) => op?.occupancyPerPeriod?.[idx], NUMFMT.pct, true, snap, 'Occupancy ramp', (idx) => `revin|${line.key}|*|Occupancy ramp@${axisCol(idx)}`);
   if (isLiveLayout()) kv(c, 'Days per year', op?.daysPerYear ?? 365, NUMFMT.int, true, undefined, 'Available room nights = keys x days per year.', `rxin|${line.key}|days`);
   kv(c, 'Average guests per occupied room night', op?.guestsPerOccupiedRoom ?? 1.5, NUMFMT.rate, op?.guestsPerOccupiedRoom !== undefined, undefined, undefined, L('Average guests per occupied room night'));
   ancillaryRows(c, 'F&B Revenue', op?.fb, L('F&B Revenue, F&B %'));
   ancillaryRows(c, 'Other Revenue', op?.otherRevenue, L('Other Revenue, Other %'));
-  kv(c, op?.dso !== undefined ? 'Accounts Receivable Days (set on this line)' : 'Accounts Receivable Days (the project DSO; this line states none)', op?.dso ?? Math.max(0, projectDso), NUMFMT.int, op?.dso !== undefined, undefined, undefined, L('Accounts Receivable Days'));
+  arRow(c, op?.dso !== undefined ? 'Accounts Receivable Days (set on this line)' : 'Accounts Receivable Days (the project DSO; this line states none)', op?.dso ?? Math.max(0, projectDso), NUMFMT.int, op?.dso !== undefined, undefined, undefined, L('Accounts Receivable Days'));
 }
 
 function emitLeaseLine(c: SheetCursor, line: RevenueLine, w: LineWindow, snap: Snap, projectDso: number): void {
   const lease = line.host.revenue?.lease;
   // THE RENT THE ENGINE LETS AT: the Table 5 price, else the line's stored base rate.
-  for (const u of line.subUnits) {
+  // The live workbook reads the rent where it is typed, the sub-unit's Table 5 rate: no second copy here.
+  if (!isLiveLayout()) for (const u of line.subUnits) {
     kv(c, `Rent, ${u.name || 'sub-unit'} (per sqm per year, Table 5)`, (u.unitPrice ?? 0) > 0 ? (u.unitPrice as number) : (lease?.baseRate ?? 0), NUMFMT.rate, false);
   }
   const L = (label: string, col = 4): string => `inp=revin|${line.key}|*|${label}@${col}`;
   indexationRows(c, 'Rent indexation', lease?.rentIndexation, snap, line.key);
   opsStartRow(c, line, w, snap, lease?.operationsStartYearOverride, L('Operations start year'));
-  yearStrip(c, 'Occupancy', w.operations, (idx) => lease?.occupancyPerPeriod?.[idx], NUMFMT.pct, true, snap, 'Occupancy ramp', (idx) => `revin|${line.key}|*|Occupancy ramp@${axisCol(idx)}`);
-  kv(c, lease?.arDays !== undefined ? 'Accounts Receivable Days (set on this line)' : 'Accounts Receivable Days (the project DSO; this line states none)', lease?.arDays ?? Math.max(0, projectDso), NUMFMT.int, lease?.arDays !== undefined, undefined, undefined, L('Accounts Receivable Days'));
+  if (isLiveLayout()) phaseYearStrip(c, 'Occupancy', w.operations, (idx) => lease?.occupancyPerPeriodByPhase?.[idx - w.phaseOffset] ?? lease?.occupancyPerPeriod?.[idx], 'Occupancy ramp, by year of the phase', (idx) => idx - w.phaseOffset + 1, `${line.key}|occ`);
+  else yearStrip(c, 'Occupancy', w.operations, (idx) => lease?.occupancyPerPeriod?.[idx], NUMFMT.pct, true, snap, 'Occupancy ramp', (idx) => `revin|${line.key}|*|Occupancy ramp@${axisCol(idx)}`);
+  arRow(c, lease?.arDays !== undefined ? 'Accounts Receivable Days (set on this line)' : 'Accounts Receivable Days (the project DSO; this line states none)', lease?.arDays ?? Math.max(0, projectDso), NUMFMT.int, lease?.arDays !== undefined, undefined, undefined, L('Accounts Receivable Days'));
 }
 
 export function emitEscrowInputs(c: SheetCursor, state: FinancialsResolverState, snap: Snap): void {
@@ -895,24 +967,33 @@ export function emitEscrowInputs(c: SheetCursor, state: FinancialsResolverState,
   const revLines = planRevenueLines(state.assets, state.subUnits, state.phases, state.project);
   const lines = planReportLines({ assets, phases: state.phases, parcels: state.parcels }, (a) => snap.escrow.byAsset.has(a.id));
   if (lines.length > 0) {
-    headers(c, ['Asset', 'Effective Held %', 'Held % Override', 'Effective Held Until', 'Held Until Override', 'Effective Release Year', 'Release Year Override']);
+    // THE LIVE WORKBOOK HOLDS THE OVERRIDES ONLY (2026-10-25): the effective figures are worked out on
+    // Revenue's escrow table, the tab that uses them, so no derived value sits among the inputs.
+    headers(c, liveEsc ? ['Asset', 'Held % Override', 'Held Until Override', 'Release Year Override']
+      : ['Asset', 'Effective Held %', 'Held % Override', 'Effective Held Until', 'Held Until Override', 'Effective Release Year', 'Release Year Override']);
     for (const line of lines) {
       const host = snap.escrow.byAsset.get(line.assetIds[0]);
       const a = assets.find((x) => x.id === line.assetIds[0]);
       const esc = a?.revenue?.sell?.escrow;
       setLabel(c.ws.getCell(c.r, 1), lineTitle(line, { assets, phases: state.phases, parcels: state.parcels }));
-      derived(c.ws.getCell(c.r, 2), host?.effectiveHeldPct ?? 0, NUMFMT.pct2);
+      if (!liveEsc) derived(c.ws.getCell(c.r, 2), host?.effectiveHeldPct ?? 0, NUMFMT.pct2);
       const ovCell = (col: number, v: number | undefined, fmt: string, modCol: number): void => {
         const cell = c.ws.getCell(c.r, col);
         if (v !== undefined) setInput(cell, v, fmt); else if (liveEsc) { markInput(cell); cell.numFmt = fmt; }
         const rl = a ? lineForAsset(revLines, a.id) : undefined;
         if (liveEsc && rl) registerCell(`inp=esc|||${revenueLineName(rl)}@${modCol}#blank`, c.ws, cell);
       };
-      ovCell(3, esc?.heldPctOverride, NUMFMT.pct2, 5);
-      derived(c.ws.getCell(c.r, 4), host?.effectiveHeldUntilYear, NUMFMT.year);
-      ovCell(5, esc?.heldUntilYearOverride, NUMFMT.year, 7);
-      derived(c.ws.getCell(c.r, 6), host?.effectiveReleaseYear, NUMFMT.year);
-      ovCell(7, esc?.releaseYearOverride, NUMFMT.year, 9);
+      if (liveEsc) {
+        ovCell(2, esc?.heldPctOverride, NUMFMT.pct2, 5);
+        ovCell(3, esc?.heldUntilYearOverride, NUMFMT.year, 7);
+        ovCell(4, esc?.releaseYearOverride, NUMFMT.year, 9);
+      } else {
+        ovCell(3, esc?.heldPctOverride, NUMFMT.pct2, 5);
+        derived(c.ws.getCell(c.r, 4), host?.effectiveHeldUntilYear, NUMFMT.year);
+        ovCell(5, esc?.heldUntilYearOverride, NUMFMT.year, 7);
+        derived(c.ws.getCell(c.r, 6), host?.effectiveReleaseYear, NUMFMT.year);
+        ovCell(7, esc?.releaseYearOverride, NUMFMT.year, 9);
+      }
       c.r += 1;
     }
   }

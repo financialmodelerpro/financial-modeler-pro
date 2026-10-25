@@ -36,6 +36,7 @@ import { notifyRowsInserted } from './cellRegistry';
 // FAST palette (Excel-canonical), ARGB.
 export const ARGB = {
   input: 'FF0070C0',     // blue (legacy; inputs now use the navy-pale shading below)
+  inputText: 'FF0000FF', // the live workbook's typed inputs: input blue on the shading (2026-10-25)
   // FAST input cell shading: navy-pale fill + navy text + light border, matching
   // the on-screen FAST_INPUT cells and the PDF input shading, so an assumption
   // reads at a glance without a coloured font. Deliberately distinct from the

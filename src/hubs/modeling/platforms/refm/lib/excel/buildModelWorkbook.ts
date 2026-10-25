@@ -21,6 +21,7 @@ import ExcelJS from 'exceljs';
 import { buildSaleCohortTermsBlock, saleCohortRuleText, buildSaleCohortGrid, saleCohortGridCaption } from '../reports/saleCohortReports';
 import JSZip from 'jszip';
 import { registerCell, resetRegisteredRows } from './cellRegistry';
+import { DEAD_SWITCHES, deadSwitchKey } from './liveLayers/inputAudit';
 import { computeFinancialsSnapshot, computeFeeFreeSnapshot, computeFundingGap, type FinancialsResolverState } from '../financials-resolvers';
 import { buildCapexReport, type CapexReport } from '../reports/capexReports';
 import { poolMapByLine, poolCapexByLine, poolResults, lineHosts, fixHospitalityRates, fixLeaseRates, poolRevenueBasisByLine, poolSaleCohortByLine, planReportLines, lineTitle } from '../reports/lineRows';
@@ -102,7 +103,7 @@ import type { IndexationConfig } from '@/src/core/calculations/revenue/types';
 import { assetPlotLabel } from '@/src/core/calculations/assetName';
 import { deriveCostStage, isLandValueLine } from '@/src/core/calculations';
 import { expensedRowsOf } from './expensedRows';
-import { CAPEX_PHASING_SOURCE_LABELS, FUNDING_METHOD_DESCRIPTIONS, REPAYMENT_METHOD_LABELS, DEFAULT_PROJECT_FINANCING_CONFIG } from '../state/module1-types';
+import { CAPEX_PHASING_SOURCE_LABELS, FUNDING_METHOD_DESCRIPTIONS, REPAYMENT_METHOD_LABELS, DRAWDOWN_METHOD_LABELS, DEFAULT_PROJECT_FINANCING_CONFIG } from '../state/module1-types';
 import { landSplitCellText, buildIdcAllocationTables, buildFinancingSummary, FINANCING_SUMMARY_CAPTIONS, operatingInflowClasses, phaseLandSplit, landFundingNote } from '../reports/financingReports';
 import { CAPITALISED_INTEREST_RULE } from '@/src/core/calculations/capitalisedInterest';
 import { computeFundingBasis } from '../reports/fundingBasis';
@@ -831,7 +832,7 @@ function addAssumptions(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFin
         setInput(ws.getCell(`B${r}`), m.commissionPct ?? 0, NUMFMT.pct2);
         setInput(ws.getCell(`C${r}`), m.developerFeePct ?? 0, NUMFMT.pct2);
         setInput(ws.getCell(`D${r}`), m.performanceFeePct ?? 0, NUMFMT.pct2);
-        for (const col of [2, 3, 4]) fixedAt(r, col, 'How the fees are shared among earners is built in at export.');
+        for (const col of [2, 3, 4]) { fixedAt(r, col, 'How the fees are shared among earners is built in at export.'); registerCell(deadSwitchKey(DEAD_SWITCHES.feeMatrix, 'Inputs', r, col), ws, ws.getCell(r, col)); }
         r += 1;
       }
       r += 1;
@@ -1043,31 +1044,37 @@ function addAssumptions(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFin
   // default (0% debt, 100% equity) as derived, not as a typed input.
   const landByPhase = fin.capex.landByPhase ?? [];
   if (landByPhase.length) {
-    setSectionHeader(ws.getRow(r), 'Land Funding (per phase, from the Capex results)', 5); r += 1;
-    ['Phase', 'Land Cash (Capex Table 5)', 'Land In-Kind (Capex Table 5)', 'Debt %', 'Equity %'].forEach((h, i) => setColHeader(ws.getCell(r, i + 1), h, i === 0 ? 'left' : 'right'));
+    // THE LIVE WORKBOOK HOLDS THE SPLIT ONLY (2026-10-25): the land cash and in-kind are Capex results,
+    // worked out on Financing (Land Funding), the tab that uses them, never typed here.
+    const liveLand = isLiveLayout();
+    const LC = (col: string): string => (liveLand ? String.fromCharCode(col.charCodeAt(0) - 2) : col);
+    setSectionHeader(ws.getRow(r), liveLand ? 'Land Funding, the debt and equity split per phase' : 'Land Funding (per phase, from the Capex results)', liveLand ? 3 : 5); r += 1;
+    (liveLand ? ['Phase', 'Debt %', 'Equity %'] : ['Phase', 'Land Cash (Capex Table 5)', 'Land In-Kind (Capex Table 5)', 'Debt %', 'Equity %']).forEach((h, i) => setColHeader(ws.getCell(r, i + 1), h, i === 0 ? 'left' : 'right'));
     r += 1;
     const parcelFunding = p.financing?.parcelFunding ?? [];
     for (const lp of landByPhase) {
       const split = phaseLandSplit(state.parcels.filter((pa) => pa.phaseId === lp.phaseId).map((pa) => pa.id), parcelFunding);
       const { debtPct, equityPct, mixed } = split;
       setLabel(ws.getCell(`A${r}`), `${lp.phaseName}${mixed ? ' (mixed split across its plots)' : ''}`);
-      setFormula(ws.getCell(`B${r}`), fcell('0', lp.landCashTotal), NUMFMT.money);
-      setFormula(ws.getCell(`C${r}`), fcell('0', lp.landInKindTotal), NUMFMT.money);
+      if (!liveLand) {
+        setFormula(ws.getCell(`B${r}`), fcell('0', lp.landCashTotal), NUMFMT.money);
+        setFormula(ws.getCell(`C${r}`), fcell('0', lp.landInKindTotal), NUMFMT.money);
+      }
       const notUsed = landSplitCellText(fin.funding, p.financing?.fundingMethod);
       if (notUsed) {
         // Read by nothing under this method (2026-10-07): no input, no stored value printed as if it applied.
-        setLabel(ws.getCell(`D${r}`), notUsed);
-        setLabel(ws.getCell(`E${r}`), notUsed);
-        setLabel(ws.getCell(`F${r}`), landFundingNote(fin.funding, p.financing?.fundingMethod, false) ?? '');
+        setLabel(ws.getCell(`${LC('D')}${r}`), notUsed);
+        setLabel(ws.getCell(`${LC('E')}${r}`), notUsed);
+        setLabel(ws.getCell(`${LC('F')}${r}`), landFundingNote(fin.funding, p.financing?.fundingMethod, false) ?? '');
       } else if (split.stated) {
-        setInput(ws.getCell(`D${r}`), debtPct / 100, NUMFMT.pct);
-        setInput(ws.getCell(`E${r}`), equityPct / 100, NUMFMT.pct);
-        registerCell(`inp=${FIN('4. Land Funding (per phase, from the Capex results)', `${lp.phaseName}, Debt %`)}`, ws, ws.getCell(`D${r}`));
-        registerCell(`inp=${FIN('4. Land Funding (per phase, from the Capex results)', `${lp.phaseName}, Equity %`)}`, ws, ws.getCell(`E${r}`));
+        setInput(ws.getCell(`${LC('D')}${r}`), debtPct / 100, NUMFMT.pct);
+        setInput(ws.getCell(`${LC('E')}${r}`), equityPct / 100, NUMFMT.pct);
+        registerCell(`inp=${FIN('4. Land Funding (per phase, from the Capex results)', `${lp.phaseName}, Debt %`)}`, ws, ws.getCell(`${LC('D')}${r}`));
+        registerCell(`inp=${FIN('4. Land Funding (per phase, from the Capex results)', `${lp.phaseName}, Equity %`)}`, ws, ws.getCell(`${LC('E')}${r}`));
       } else {
-        setFormula(ws.getCell(`D${r}`), fcell(String(debtPct / 100), debtPct / 100), NUMFMT.pct);
-        setFormula(ws.getCell(`E${r}`), fcell(String(equityPct / 100), equityPct / 100), NUMFMT.pct);
-        setLabel(ws.getCell(`F${r}`), landFundingNote(fin.funding, p.financing?.fundingMethod, true) ?? '');
+        setFormula(ws.getCell(`${LC('D')}${r}`), fcell(String(debtPct / 100), debtPct / 100), NUMFMT.pct);
+        setFormula(ws.getCell(`${LC('E')}${r}`), fcell(String(equityPct / 100), equityPct / 100), NUMFMT.pct);
+        setLabel(ws.getCell(`${LC('F')}${r}`), landFundingNote(fin.funding, p.financing?.fundingMethod, true) ?? '');
       }
       r += 1;
     }
@@ -1106,8 +1113,9 @@ function addAssumptions(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFin
       setInput(ws.getCell(`B${r}`), String(t.origin ?? 'new'), '@');
       setInput(ws.getCell(`C${r}`), t.openingBalance ?? 0, NUMFMT.money);
       setInput(ws.getCell(`D${r}`), rate / 100, NUMFMT.pct2);
-      setInput(ws.getCell(`E${r}`), String(t.drawdownMethod ?? '-'), '@');
-      setInput(ws.getCell(`F${r}`), String(t.repaymentMethod ?? '-'), '@');
+      // Plain words in the live workbook (2026-10-25), the platform's own labels, never the stored code.
+      setInput(ws.getCell(`E${r}`), isLiveLayout() ? ((DRAWDOWN_METHOD_LABELS as Record<string, string>)[String(t.drawdownMethod)] ?? String(t.drawdownMethod ?? '-')) : String(t.drawdownMethod ?? '-'), '@');
+      setInput(ws.getCell(`F${r}`), isLiveLayout() ? ((REPAYMENT_METHOD_LABELS as Record<string, string>)[String(t.repaymentMethod)] ?? String(t.repaymentMethod ?? '-')) : String(t.repaymentMethod ?? '-'), '@');
       // An existing loan's periods are its REMAINING ones, as the Financing sheet and the engine read them.
       setInput(ws.getCell(`G${r}`), (t.origin === 'existing' ? t.remainingRepaymentPeriods : t.repaymentPeriods) ?? 0, NUMFMT.int);
       setInput(ws.getCell(`H${r}`), t.idcCapitalize ? 1 : 0, NUMFMT.int);
@@ -1117,6 +1125,8 @@ function addAssumptions(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFin
       setInput(ws.getCell(`J${r}`), t.interestStartYear ?? 0, NUMFMT.year);
       setInput(ws.getCell(`K${r}`), t.originationYear ?? 0, NUMFMT.year);
       setInput(ws.getCell(`L${r}`), (t.facilitySharePct ?? 0) / 100, NUMFMT.pct);
+      // Held, read by nothing yet (DEAD_SWITCHES): wired in when the Financing tab is fixed.
+      ([[3, DEAD_SWITCHES.openingBalance], [8, DEAD_SWITCHES.idcCapitalise], [10, DEAD_SWITCHES.interestStart], [11, DEAD_SWITCHES.originationYear]] as const).forEach(([col, name]) => registerCell(deadSwitchKey(name, 'Inputs', r, col), ws, ws.getCell(r, col)));
       {
         // The Financing sheet states the facility's rate as interbank plus spread; the
         // combined rate here is its echo. Terms the live solve is not built for are fixed.
@@ -1333,7 +1343,7 @@ function addPhaseTimeline(ws: ExcelJS.Worksheet, snap: ReturnType<typeof compute
   // ── 1. Phase schedule (real dates) ──────────────────────────────────────────
   setSectionHeader(ws.getRow(r), 'Phase schedule (dated)', last, ARGB.sectionDark); r += 1;
   const HEADS = ['Phase', 'Status', 'Construction start', 'Construction end', 'Operations start', 'Operations end', 'Construction (yrs)', 'Operations (yrs)',
-    ...(isLiveLayout() ? ['Handover year', 'Last operating year', 'Start year at export', 'Years moved since export'] : [])];
+    ...(isLiveLayout() ? ['Handover year', 'Last operating year'] : [])];
   HEADS.forEach((h, i) => setColHeader(ws.getCell(r, 1 + i), h, i === 0 || i === 1 ? 'left' : 'right'));
   r += 1;
   for (const { phase, tl } of lines) {
@@ -1355,17 +1365,16 @@ function addPhaseTimeline(ws: ExcelJS.Worksheet, snap: ReturnType<typeof compute
     if (isLiveLayout()) (['cEnd', 'oStart', 'oEnd'] as const).forEach((k, i) => registerCell(`phase:${phase.id}:${k}`, ws, ws.getCell(r, 4 + i)));
     if (isLiveLayout()) {
       // THE PHASE IN YEARS (live layout, 2026-10-15): the handover (the last construction
-      // year, never before the first model year), the last operating year, and the year the
-      // phase started at export, which the input cards' year columns are laid out for.
+      // year, never before the first model year) and the last operating year. The input grids
+      // are keyed by phase year (2026-10-25), so no "start year at export" shift is needed.
       const sy = yr(phase.startDate as string);
       const hy = Math.max(snap.projectStartYear, sy + Math.max(0, phase.constructionPeriods ?? 0) - 1);
-      const vals: Array<[string, number]> = [['hy', hy], ['ly', hy + Math.max(0, phase.operationsPeriods ?? 0)], ['sx', sy], ['mv', 0]];
+      const vals: Array<[string, number]> = [['hy', hy], ['ly', hy + Math.max(0, phase.operationsPeriods ?? 0)]];
       vals.forEach(([k, v], i) => {
         const cell = ws.getCell(r, 9 + i); cell.value = v; cell.numFmt = NUMFMT.year;
         cell.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } }; cell.alignment = { horizontal: 'right' };
         registerCell(`tl:phase:${phase.id}:${k}`, ws, cell);
       });
-      setNote(ws.getCell(r, 11), 'Fixed at export: the year this phase started when the workbook was exported. The input cards lay their years out for it, so a phase that moves reads its typed years shifted by the years moved.');
     }
     r += 1;
   }

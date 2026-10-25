@@ -5,8 +5,10 @@
  * 2026-10-14). There is no working sheet. The engine's rules, row by row:
  *
  *   SELL, per sub-unit. "Velocity in force" is the velocity typed on Inputs at
- *     the years it applies to now (a phase that moves since export reads its
- *     typed years shifted by the years it moved, Timeline). The engine sells the
+ *     the years it applies to now: Inputs keys each grid by PHASE YEAR (Year 1 of
+ *     construction for pre-sales and the downpayment, Year 1 of operations for the
+ *     rest and for occupancy, 2026-10-25), so a phase that moves carries its typed
+ *     years with it. The engine sells the
  *     pre-sales years first, then the operation years, which is the order of the
  *     years, so one "sqm sold" row carries both passes: each year sells the
  *     velocity share of the inventory rounded to whole sqm, capped at what is
@@ -105,7 +107,7 @@ export const stage3Revenue: LiveLayer = {
       if (earners.length > 1) refuse.push(`${name}: revenue sits on more than one plot`);
       const a = earners[0] ?? l.host;
       if (earners.length && (p.constructionPeriods ?? 0) < 1) refuse.push(`${name}: its phase has no construction years`);
-      if (!has(`tl:phase:${p.id}:hy`) || !has(`tl:phase:${p.id}:mv`) || !has('tl:horizon')) refuse.push(`${name}: the Timeline's phase years are not live`);
+      if (!has(`tl:phase:${p.id}:hy`) || !has('tl:horizon')) refuse.push(`${name}: the Timeline's phase years are not live`);
       const ix = idxOf(l, a);
       if (!IDX_METHODS.has(ix?.method ?? 'none')) refuse.push(`${name}: indexation ${ix?.method}`);
       if ((ix?.method ?? 'none') !== 'none' && earners.length && (!has(`rxin|${l.key}|rate`) || !has(`rxin|${l.key}|from`))) refuse.push(`${name}: its indexation has no rate on Inputs`);
@@ -209,12 +211,25 @@ export const stage3Revenue: LiveLayer = {
     const cur = state.project.currency ?? 'SAR';
     const TL = (p: Phase, k: string): string => w.ref(`tl:phase:${p.id}:${k}`);
     const HZ = (): string => w.ref('tl:horizon', TOTAL_COL);
-    /** A typed card year read at the year it applies to now: the card's column less the years the phase moved. */
-    const shifted = (cardRow: number, p: Phase, t: number, clamp01 = false): string => {
-      const k = `${ix(t)}-${TL(p, 'mv')}`;
-      const v = `INDEX(${span(cardRow)},${k})`;
-      return `IF(AND(${k}>=1,${k}<=${HZ()}),${clamp01 ? `MIN(1,MAX(0,${v}))` : v},0)`;
+    /**
+     * AN INPUTS GRID READ BY PHASE YEAR (2026-10-25). Inputs registers each cell
+     * `rxgrid|<grid>@<phase year>`; the year a column applies to is worked out here, from
+     * the phase's start, so the grid follows the phase wherever its start is typed.
+     */
+    const gridOf = (grid: string): { k0: number; n: number; range: string } | undefined => {
+      const ks = reg.keys().filter((k) => k.startsWith(`rxgrid|${grid}@`)).map((k) => Number(k.slice(k.lastIndexOf('@') + 1))).sort((x, y) => x - y);
+      if (!ks.length) return undefined;
+      const first = w.addr(`rxgrid|${grid}@${ks[0]}`), last = w.addr(`rxgrid|${grid}@${ks[ks.length - 1]}`);
+      for (const k of ks) w.refA(w.addr(`rxgrid|${grid}@${k}`), REV);
+      return { k0: ks[0], n: ks.length, range: `${w.refA(first, REV)}:$${colLetter(last.col)}$${last.row}` };
     };
+    const atYear = (g: { k0: number; n: number; range: string } | undefined, y: string, clamp01 = false): string => {
+      if (!g) return '0';
+      const v = `INDEX(${g.range},${y}${g.k0 === 1 ? '' : `-${g.k0 - 1}`})`;
+      return `IF(AND(${y}>=${g.k0},${y}<=${g.k0 + g.n - 1}),${clamp01 ? `MIN(1,MAX(0,${v}))` : v},0)`;
+    };
+    /** Year t's year of the phase (1 = the phase's first year), the count every grid is keyed by. */
+    const phaseYear = (p: Phase, yearCell: string): string => `(${yearCell}-YEAR(${w.ref(`phase:${p.id}:start`)})+1)`;
     /** The indexation factor of the line for year t, from the rate and start year on Inputs. */
     const factorF = (l: RevenueLine, idx: Idx, t: number): string => {
       const m = idx?.method ?? 'none';
@@ -252,10 +267,14 @@ export const stage3Revenue: LiveLayer = {
         const idx = a.revenue.sell.indexation as Idx;
         const nm = (u: SubUnit): string => u.name || 'sub-unit';
         const area = (u: SubUnit): string => w.ref(`su:${u.id}:area`);
-        // 0. Velocity in force, each year: the pre-sales and the operation velocity shifted with the phase.
+        // 0. Velocity in force, each year: the pre-sales velocity and the
+        //    velocity during operation, each at its year of the phase, read from Inputs; the card shows them.
         for (const u of units) {
-          const pre = K(l, 'Pre-Sales velocity', nm(u)), post = K(l, 'Sales During Operation', nm(u));
-          row(O(l, '0.', nm(u)), (t) => [pre, post].filter(has).map((k) => shifted(rowOf(k), p, t)).join('+') || '0');
+          const gPre = gridOf(`${l.key}|pre|${nm(u)}`), gPost = gridOf(`${l.key}|post|${nm(u)}`);
+          const preF = (t: number): string => atYear(gPre, phaseYear(p, yr(t))), postF = (t: number): string => atYear(gPost, phaseYear(p, yr(t)));
+          linkShown(K(l, 'Pre-Sales velocity', nm(u)), preF);
+          linkShown(K(l, 'Sales During Operation', nm(u)), postF);
+          row(O(l, '0.', nm(u)), (t) => [gPre ? preF(t) : '', gPost ? postF(t) : ''].filter(Boolean).join('+') || '0');
         }
         // 1b. Sold per sub-unit: the share of the inventory, capped at what is unsold; the exact remainder once the typed velocity reaches 100%.
         for (const u of units) {
@@ -326,7 +345,9 @@ export const stage3Revenue: LiveLayer = {
         row(recPost, (t) => P(postRev, t));
         row(O(l, '3b.', 'Total Revenue Recognised'), (t) => `${P(recPre, t)}+${P(recPost, t)}`);
         // 4a. The cohorts: the sale-year table holds each year's down %, instalment years and sale value.
-        const dpRow = has(K(l, 'Sale cohort terms', 'Downpayment %')) ? rowOf(K(l, 'Sale cohort terms', 'Downpayment %')) : undefined;
+        // The downpayment of a sale year: Inputs, at the year of the phase the sale falls in (the card shows it).
+        const gDp = gridOf(`${l.key}|dp`);
+        linkShown(K(l, 'Sale cohort terms', 'Downpayment %'), (t) => atYear(gDp, phaseYear(p, yr(t))));
         const maxInst = (): string => w.ref(K(l, 'Sale cohort terms', 'Max instalment years after sale'), TOTAL_COL);
         const cohortRows: number[] = [];
         for (let s = 0; s < N; s++) {
@@ -336,8 +357,8 @@ export const stage3Revenue: LiveLayer = {
           const cr = rowOf(ck), sy = AR(3, pc(s)), sx = AR(4, pc(s));
           const B = AR(cr, 2), D = AR(cr, 4), Nn = AR(cr, 7);
           w.fA({ sheet: REV, row: cr, col: 7 }, `IF(${sy}>=${TL(p, 'hy')},0,MIN(INT(${maxInst()}),${TL(p, 'hy')}-${sy}))`);
-          const k = `${sx}-${TL(p, 'mv')}`;
-          const dp = dpRow !== undefined ? `IF(AND(${k}>=1,${k}<=${HZ()}),MIN(1,MAX(0,INDEX(${span(dpRow)},${k}))),0)` : '0';
+          const dp = atYear(gDp, phaseYear(p, sy), true);
+          void sx;
           w.fA({ sheet: REV, row: cr, col: 2 }, `IF(${sy}>=${TL(p, 'hy')},1,${dp})`);
           w.fA({ sheet: REV, row: cr, col: 4 }, AR(rowOf(allRev), pc(s)));
           const pre = AR(rowOf(preRev), pc(s)), post = AR(rowOf(postRev), pc(s));
@@ -391,7 +412,9 @@ export const stage3Revenue: LiveLayer = {
       row(ioK, (t) => { const s = A(startKey, TOTAL_COL); return `(${yr(t)}>=${s})*(${yr(t)}<=MAX(${s},${TL(p, 'ly')}))`; });
       const IO = (t: number): string => P(ioK, t);
       const idx = idxOf(l, a);
-      const occCard = rowOf(K(l, isOp ? 'ADR Indexation' : 'Rent Indexation', 'Occupancy ramp'));
+      // Occupancy: Inputs, at the year of the phase (the card shows it where it shows a year).
+      const gOcc = gridOf(`${l.key}|occ`);
+      linkShown(K(l, isOp ? 'ADR Indexation' : 'Rent Indexation', 'Occupancy ramp'), (t) => atYear(gOcc, phaseYear(p, yr(t))));
       if (isOp && a.revenue?.operate) {
         const u = units[0];
         // The card's keys: the sub-unit's area over the unit size (the sub-unit's own size first, the type's second).
@@ -410,7 +433,7 @@ export const stage3Revenue: LiveLayer = {
         const arnR = O(l, '1.', 'Available Room Nights'), ornR = O(l, '1.', 'Occupied Room Nights');
         row(keyR, (t) => `${IO(t)}*${keys()}`, () => keys());
         row(daysR, (t) => `${IO(t)}*${days()}`, () => days());
-        row(occR, (t) => `${IO(t)}*${shifted(occCard, p, t, true)}`, () => avgPos(rowOf(occR)));
+        row(occR, (t) => `${IO(t)}*${atYear(gOcc, phaseYear(p, yr(t)), true)}`, () => avgPos(rowOf(occR)));
         row(facR, (t) => `${IO(t)}*${factorF(l, idx, t)}`, () => lastPos(rowOf(facR)));
         const base = u ? A(K(l, '', u.name || 'sub-unit'), TOTAL_COL) : '0';
         row(adrR, (t) => `${P(facR, t)}*${base}`, () => lastPos(rowOf(adrR)));
@@ -439,7 +462,7 @@ export const stage3Revenue: LiveLayer = {
         const glaSum = (): string => units.map((u) => w.ref(`su:${u.id}:area`)).join('+') || '0';
         const glaR = O(l, '1.', 'Total Gross Lease Area (sqm)'), occR = O(l, '1.', 'Occupancy %'), facR = O(l, '1.', 'Rent Indexation Factor');
         const occTot = O(l, '1.', 'Total Occupied Lease Area (sqm)'), revTot = O(l, '2.', 'Total Lease Revenue');
-        row(occR, (t) => `${IO(t)}*${shifted(occCard, p, t, true)}`, () => avgPos(rowOf(occR)));
+        row(occR, (t) => `${IO(t)}*${atYear(gOcc, phaseYear(p, yr(t)), true)}`, () => avgPos(rowOf(occR)));
         row(facR, (t) => `${IO(t)}*${factorF(l, idx, t)}`, () => lastPos(rowOf(facR)));
         const occRows: number[] = [], revRowsL: number[] = [];
         for (const u of l.subUnits) {
@@ -487,8 +510,9 @@ export const stage3Revenue: LiveLayer = {
         const vk = O(l, '0.', nm);
         if (!has(vk)) continue;
         setLabel(rv.getCell(fr, 1), `${revenueLineName(l)} / ${nm}`, { indent: 1 });
-        const inRows = [K(l, 'Pre-Sales velocity', nm), K(l, 'Sales During Operation', nm)].filter(has).map(rowOf);
-        w.fA({ sheet: REV, row: fr, col: TOTAL_COL }, inRows.length ? inRows.map((r) => `SUM(${span(r)})`).join('+') : '0', { numFmt: NUMFMT.pct2 });
+        // Typed: the whole grid on Inputs (every year of the phase typed there, inside the model's years or not).
+        const typedGrids = [gridOf(`${l.key}|pre|${nm}`), gridOf(`${l.key}|post|${nm}`)].filter((g): g is NonNullable<typeof g> => !!g);
+        w.fA({ sheet: REV, row: fr, col: TOTAL_COL }, typedGrids.length ? typedGrids.map((g) => `SUM(${g.range})`).join('+') : '0', { numFmt: NUMFMT.pct2 });
         w.fA({ sheet: REV, row: fr, col: OPEN_COL }, `SUM(${span(rowOf(vk))})`, { numFmt: NUMFMT.pct2 });
         const typed = AR(fr, TOTAL_COL), inside = AR(fr, OPEN_COL);
         // One short line (2026-10-20): the share outside the years, else OK; the Guide explains it.

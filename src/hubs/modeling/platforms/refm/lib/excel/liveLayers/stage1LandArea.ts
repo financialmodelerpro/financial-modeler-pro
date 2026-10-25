@@ -445,11 +445,10 @@ function livePeriodFlags(w: Writer, reg: CellRegistry, phaseIds: string[], yearC
   const prevRange = (k: string, c: number): string => `SUM($${colLetter(yearCols[0])}$${rowOf(k)}:${colLetter(c - 1)}$${rowOf(k)})`;
   for (const id of phaseIds) {
     // The phase in years: the handover (the last construction year, never before the first
-    // model year), the last operating year, and how far the start has moved since export.
+    // model year) and the last operating year.
     if (w.has(`tl:phase:${id}:hy`)) {
       w.f(`tl:phase:${id}:hy`, `MAX(${R('project:axisYear')},YEAR(${R(`phase:${id}:start`)})+${R(`phase:${id}:cp`)}-1)`);
       w.f(`tl:phase:${id}:ly`, `${R(`tl:phase:${id}:hy`)}+${R(`phase:${id}:op`)}`);
-      w.f(`tl:phase:${id}:mv`, `YEAR(${R(`phase:${id}:start`)})-${R(`tl:phase:${id}:sx`)}`);
     }
     const con = `tl:flag:${id}:con`, hand = `tl:flag:${id}:hand`, ops = `tl:flag:${id}:ops`;
     if (!w.has(con) || !w.has(hand) || !w.has(ops)) continue;

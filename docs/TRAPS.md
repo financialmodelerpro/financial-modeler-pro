@@ -1287,6 +1287,29 @@ divides by it: `x/a+b`. Marina Gate's area fits one helper, so the join never ra
 divides, multiplies or negates. Bracket a composed term where it is made, and prove a split on a model big enough
 to need it (`verify-formula-workbook --variant multiplot`).
 
+### 3.35 Unshading a dead input kept the audit green and left the number on the sheet
+
+**Symptom (2026-10-25):** the shaded-cell audit (3.31) passed, yet 118 typed values on the live workbook's Inputs
+tab were read by no formula: duplicate prices (a type's ADR and rents beside the sub-unit rates the model reads),
+derived figures printed as inputs (land cash and in-kind, escrow effective years), platform-only defaults (type
+massing, Max Floors, an asset type no asset used) and the calendar-year headers of the velocity, downpayment and
+occupancy grids. A user who changed any of them saw nothing happen.
+
+**Mechanism:** "fixed at export" unshaded a value nothing read and added a note, which satisfied the audit (it
+counts SHADED cells) but left the number where a user types. The grids were laid out by calendar year, so a moved
+phase needed a "start year at export" cell and a shift column on the Timeline to read them, two more figures that
+existed only to undo the layout.
+
+**Fix:** Inputs holds only what the model reads. A value the build proves unread is removed, not unshaded (stage 9),
+derived figures are worked out on the tab that uses them, duplicates are not printed, and the grids are keyed by
+phase year (`phaseYearStrip`, read through `gridOf` / `atYear` on Revenue), so the shift went. The export fails
+(`inputsUnreadProblems`, called in `buildFormulaWorkbook`) on any unread typed value except the named dead
+switches (`DEAD_SWITCHES`), each registered on its cell by the builder.
+
+**The trap to avoid:** a check that measures a proxy (the shading) for the promise (the value drives the model).
+Count the values themselves, allow exceptions by name only, and plant one to prove the check fires.
+`verify-formula-workbook` A12j to A12p.
+
 ## 4. PDF export (pdf-lib)
 
 ### 4.1 PDF text is glyph ids, so a naive grep returns nothing

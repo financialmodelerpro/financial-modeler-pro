@@ -110,6 +110,8 @@ export interface CostStandardView {
    *  the unit its strategy reads it in, or null when the strategy uses none. */
   pricePerUnit?: { value?: number; unit: string } | null;
   pricePerSqm?: { value?: number; unit: string } | null;
+  /** Construction type rows only: the type the row prices. */
+  assetTypeId?: string;
 }
 
 export interface StandardsView {
@@ -167,6 +169,7 @@ export function buildStandardsView(state: InputsViewState): StandardsView {
       isPercent: false,
       byPhase: phaseRates(row.byPhase),
       ...(typeId !== undefined ? {
+        assetTypeId: typeId,
         pricePerUnit: cols.unit === null ? null : { value: tv?.pricePerUnit, unit: cols.unit },
         pricePerSqm: cols.sqm === null ? null : { value: tv?.pricePerSqm, unit: cols.sqm },
       } : {}),
