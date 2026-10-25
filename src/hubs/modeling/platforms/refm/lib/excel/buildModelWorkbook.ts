@@ -20,7 +20,7 @@ import { buildReceivablesRollForward, buildUnearnedRollForward } from '../report
 import ExcelJS from 'exceljs';
 import { buildSaleCohortTermsBlock, saleCohortRuleText, buildSaleCohortGrid, saleCohortGridCaption } from '../reports/saleCohortReports';
 import JSZip from 'jszip';
-import { registerCell } from './cellRegistry';
+import { registerCell, resetRegisteredRows } from './cellRegistry';
 import { computeFinancialsSnapshot, computeFeeFreeSnapshot, computeFundingGap, type FinancialsResolverState } from '../financials-resolvers';
 import { buildCapexReport, type CapexReport } from '../reports/capexReports';
 import { poolMapByLine, poolCapexByLine, poolResults, lineHosts, fixHospitalityRates, fixLeaseRates, poolRevenueBasisByLine, poolSaleCohortByLine, planReportLines, lineTitle } from '../reports/lineRows';
@@ -109,6 +109,7 @@ import { computeFundingBasis } from '../reports/fundingBasis';
 import { buildPartiesTable, PARTIES_TITLE, PARTIES_EMPTY_TEXT } from '../reports/partiesReport';
 import type { Party } from '../parties';
 import { projectLocationLabel } from '@/src/core/countries';
+import { buildLiveCover, buildLiveGuide, liveUnitsLine, dropNoteRows, collapseSpaces, shortenTexts } from './liveFrontMatter';
 
 export interface BuildModelOptions {
   state: FinancialsResolverState;
@@ -204,6 +205,7 @@ export function buildModelWorkbook(opts: BuildModelOptions): ExcelJS.Workbook {
   // NOT recalculate, the user re-exports from the platform after changing inputs.
   setStaticMode(true);
   setLiveLayout(opts.liveLayout === true);
+  resetRegisteredRows();
   try { return buildModelWorkbookInner(opts); } finally { setLiveLayout(false); }
 }
 
@@ -306,10 +308,32 @@ function buildModelWorkbookInner(opts: BuildModelOptions): ExcelJS.Workbook {
   // as they go, so the Cover and Guide, built last, link to the corrected rows.
   setSectionSink(null);
   const guides = workbookGuides({ fundOn: opts.state.project.fundTerms?.enabled === true, caseComparison: hasCaseComparison(opts.caseComparison) });
-  const guideRows = applyTabGuides(wb, sectionReg, guides);
-  applyTabSubToc(wb, sectionReg, guideRows, guides);
-  buildCoverContent(coverWs, snap, opts, sectionReg);
-  buildGuideContent(guideWs, snap, opts, sectionReg, guides);
+  if (isLiveLayout()) {
+    // THE LIVE WORKBOOK IS SHORT (founder, 2026-10-20): a title, one units line, then the tables;
+    // the explanations are on the Guide, one paragraph per tab; the Cover is the project's identity.
+    const cur = opts.state.project.currency ?? 'SAR';
+    for (const ws of wb.worksheets) {
+      if (ws === coverWs || ws === guideWs) continue;
+      setLabel(ws.getCell('A2'), liveUnitsLine(ws.name, cur, opts.displayScale ?? 'full'));
+      ws.getCell('A2').note = undefined as never;
+      ws.getCell('A1').note = undefined as never;
+      // Inputs keeps its rows (its named cells do not move); every other tab loses its sentence rows.
+      if (ws.name !== SHEETS.assumptions) dropNoteRows(ws, ws.name === SHEETS.timeline ? 14 : 5);
+      if (ws.name !== SHEETS.summary) shortenTexts(ws);
+    }
+    buildLiveCover(coverWs, {
+      name: opts.projectName, date: opts.dateLabel, currency: cur,
+      location: projectLocationLabel(opts.state.project.location, opts.state.project.country) || '',
+      horizon: `${snap.axisLength}-year horizon (${snap.projectStartYear} to ${snap.projectStartYear + snap.axisLength - 1})`,
+    });
+    buildLiveGuide(guideWs, markInput);
+    for (const ws of wb.worksheets) collapseSpaces(ws);
+  } else {
+    const guideRows = applyTabGuides(wb, sectionReg, guides);
+    applyTabSubToc(wb, sectionReg, guideRows, guides);
+    buildCoverContent(coverWs, snap, opts, sectionReg);
+    buildGuideContent(guideWs, snap, opts, sectionReg, guides);
+  }
 
   // Workbook-wide DISPLAY scale: re-format magnitude money cells (display only;
   // stored values + formulas stay in full units). Applied last so every sheet's
@@ -317,7 +341,7 @@ function buildModelWorkbookInner(opts: BuildModelOptions): ExcelJS.Workbook {
   const scale = opts.displayScale ?? 'full';
   const decimals = opts.displayDecimals ?? defaultDecimals(scale);
   scaleMoneyFormats(wb, scale, decimals);
-  const note = scaleNote(scale, opts.state.project.currency ?? 'SAR');
+  const note = isLiveLayout() ? '' : scaleNote(scale, opts.state.project.currency ?? 'SAR');
   if (note) {
     for (const name of [SHEETS.landArea, SHEETS.capex, SHEETS.revenue, SHEETS.opex, SHEETS.financing, SHEETS.schedules, SHEETS.pl, SHEETS.cashflow, SHEETS.balsheet, SHEETS.scenarios]) {
       const ws = wb.getWorksheet(name); if (!ws) continue;
@@ -1951,7 +1975,7 @@ function addCapex(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancial
         const slots = (ph.constructionPeriods ?? 0) + (ph.operationsPeriods ?? 0) + 2;
         const inside = zeros();
         for (let t = 0; t < N; t++) { const i = t - off + 1; if (i >= 1 && i < slots) inside[t] = Math.max(0, cash[t] ?? 0); }
-        setLabel(ws.getCell(r, C_LBL), `${sp.label}, inside the phase's years`, { indent: 1 });
+        setLabel(ws.getCell(r, C_LBL), `${sp.label}, as collected`, { indent: 1 });
         registerCell(`cxwc:${sp.key}`, ws, ws.getCell(r, C_LBL));
         for (let t = 0; t < N; t++) put(r, cP(t), inside[t]);
         put(r, C_TOT, sumN(inside));
@@ -1962,7 +1986,7 @@ function addCapex(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancial
         const dist = a?.capexPhasing?.distribution ?? [];
         const typed = zeros();
         for (let i = sp.start; i <= sp.end; i++) { const t = yearOfLocal(i, off); if (t >= 0 && t < N) typed[t] += Math.max(0, dist[i] ?? 0); }
-        setLabel(ws.getCell(r, C_LBL), `Typed curve in the window: ${sp.label}`, { indent: 1 });
+        setLabel(ws.getCell(r, C_LBL), `${sp.label}, as typed`, { indent: 1 });
         registerCell(`cxwc:${sp.key}`, ws, ws.getCell(r, C_LBL));
         for (let t = 0; t < N; t++) put(r, cP(t), typed[t], NUMFMT.rate);
         put(r, C_TOT, sumN(typed), NUMFMT.rate);
@@ -5420,7 +5444,7 @@ function addReturns(ctx: EmitCtx, revLinks: RevLinks, opexLinks: OpexLinks, fin:
       return {
         label: cov.label, input: true,
         cells: [
-          { v: `${metricName(cov.metric)}${ev.basisLabel ? ` (${ev.basisLabel})` : ''}`, input: true },
+          { v: `${metricName(cov.metric)}${ev.basisLabel && !isLiveLayout() ? ` (${ev.basisLabel})` : ''}`, input: true },
           { v: cov.operator === 'min' ? 'min ≥' : 'max ≤', input: true },
           { v: cov.threshold, fmt: covFmt(unit), input: true },
           ev.worst == null ? '-' : { v: ev.worst, fmt: covFmt(unit), bold: true },
@@ -5758,7 +5782,8 @@ function addChecks(ctx: EmitCtx, capexAddrs: CapexAddrs, retLinks: RetLinks): vo
   r += 1;
 
   setSectionHeader(ws.getRow(r), liveChk ? 'Verification (recomputed live from the statements in this workbook)' : 'Platform verification snapshot (results as of export)', 4); r += 1;
-  ['Check', 'Status', 'Residue', 'Detail'].forEach((h, i) => setColHeader(ws.getCell(r, i + 1), h, 'left')); r += 1;
+  (liveChk ? ['Check', 'Status', 'Residue', 'Detail', 'Worst year'] : ['Check', 'Status', 'Residue', 'Detail']).forEach((h, i) => setColHeader(ws.getCell(r, i + 1), h, 'left')); r += 1;
+  if (liveChk) ws.getColumn(5).width = 11;
   // TOLERANCE IS RELATIVE (checksReport.CHECK_REL_TOL): a residue is judged
   // against the peak of the quantity it reconciles, so an iterative solver's
   // round-off passes and a genuine break still shows its measured gap.
@@ -5779,28 +5804,28 @@ function addChecks(ctx: EmitCtx, capexAddrs: CapexAddrs, retLinks: RetLinks): vo
     // THE LIVE WORDS (2026-10-15): the residue is float noise that Excel and the engine land on
     // differently, so the live sentence states the verdict and the peak, never the ratio.
     const where = c.where ? ` ${c.where}` : '';
-    const liveDetail = (): string => {
-      const body = c.magnitude === 0 ? 'every year: nothing to reconcile' : c.ok ? `every year within tolerance of the peak ${checkMoney(c.magnitude)}` : `worst year ${snap.yearLabels[c.atIndex] ?? c.atIndex}: ${checkMoney(c.residue)} against a peak of ${checkMoney(c.magnitude)}`;
-      return where ? `${body}.${where}` : body;
-    };
+    // ONE LINE (2026-10-20): the verdict, and where it fails the residue; the year in its own column.
+    const liveDetail = (): string => (c.magnitude === 0 ? 'Nothing to reconcile' : c.ok ? 'Within tolerance' : `Out by ${checkMoney(c.residue)}`);
+    void where;
     checkRow(c.label, c.ok ? 'OK' : 'CHECK', c.residue, liveChk ? liveDetail() : checkDetail(c, snap.yearLabels, checkMoney), `chk|id|${c.label}`);
+    if (liveChk && !c.ok && c.magnitude !== 0) { const y = ws.getCell(`E${r - 1}`); y.value = Number(snap.yearLabels[c.atIndex] ?? c.atIndex); y.numFmt = '0'; }
   }
   // THE FINANCING LOOP'S OWN PROFIT BEFORE TAX (live layout): the loop solves its tax on it, so it must
   // equal the P&L's every year; the residue is the worst year's difference.
-  if (isLiveLayout()) checkRow(LOOP_PBT_CHECK, 'OK', 0, 'Every year: the profit before tax the financing loop solves with (Financing) less the P&L figure. The loop reads only the tabs before it, so this proves it repeats the statement exactly.', `chk|id|${LOOP_PBT_CHECK}`);
+  if (isLiveLayout()) checkRow(LOOP_PBT_CHECK, 'OK', 0, 'Loop profit before tax less the P&L', `chk|id|${LOOP_PBT_CHECK}`);
   // Advisories: NOTE, never OK or CHECK. A gap between cash collected and gross
   // sale value, or a sale with no downpayment stated, is legitimate model state,
   // not a broken identity, so the residue beside a NOTE is the size of the gap it
   // describes and is expected to be non-zero.
   for (const a of poolRevenueBasisByLine(buildRevenueBasisAdvisoriesFor(ctx.state.assets, snap.revenue), ctx.state)) {
-    checkRow(`Revenue basis, ${a.assetName}`, 'NOTE', a.collections - a.gross, `${revenueBasisAdvisoryText(a, checkMoney)} Advisory, not a failure: the residue is the collections less the recognised sale value.`);
+    checkRow(`Revenue basis, ${a.assetName}`, 'NOTE', a.collections - a.gross, liveChk ? 'Collections less recognised sale value' : `${revenueBasisAdvisoryText(a, checkMoney)} Advisory, not a failure: the residue is the collections less the recognised sale value.`);
   }
   for (const a of poolSaleCohortByLine(buildSaleCohortAdvisories(ctx.state.assets, ctx.state.project.saleCohortDefaults?.downpayment, snap.revenue), ctx.state)) {
-    checkRow(`Downpayment not stated, ${a.assetName}`, 'NOTE', a.saleValue, `${saleCohortAdvisoryText(a, checkMoney)} Advisory, not a failure: the residue is the sale value the missing input applies to.`);
+    checkRow(`Downpayment not stated, ${a.assetName}`, 'NOTE', a.saleValue, liveChk ? 'No downpayment stated; residue is the sale value' : `${saleCohortAdvisoryText(a, checkMoney)} Advisory, not a failure: the residue is the sale value the missing input applies to.`);
   }
   // An input left at zero (2026-10-05): a NOTE, never a CHECK; the export goes ahead.
   for (const a of buildEmptyInputAdvisories(ctx.state)) {
-    checkRow(`Input at zero, ${a.item}`, 'NOTE', 0, `${emptyInputAdvisoryText(a)} Advisory, not a failure: the model charges nothing for it.`);
+    checkRow(`Input at zero, ${a.item}`, 'NOTE', 0, liveChk ? 'Left at zero; the model charges nothing for it' : `${emptyInputAdvisoryText(a)} Advisory, not a failure: the model charges nothing for it.`);
   }
   // A typed performance fee column short of 100% (2026-10-06): a NOTE with the amount.
   if (ctx.state.project.fundTerms?.enabled) {
@@ -5808,7 +5833,7 @@ function addChecks(ctx: EmitCtx, capexAddrs: CapexAddrs, retLinks: RetLinks): vo
     try { feeReturns = computeReturnsSnapshot(snap, ctx.state.project); } catch { feeReturns = null; }
     const g = performanceFeeShortfall(feeReturns);
     const text = fundPerformanceFeeShortfallNote(feeReturns, checkMoney);
-    if (g && text) checkRow('Performance fee unallocated', 'NOTE', g.unallocated, `${text} Advisory, not a failure.`, 'chk|note|perf');
+    if (g && text) checkRow('Performance fee unallocated', 'NOTE', g.unallocated, liveChk ? `${((1 - g.sharesTotal) * 100).toFixed(1)}% of the performance fee goes to no earner` : `${text} Advisory, not a failure.`, 'chk|note|perf');
   }
   setLabel(ws.getCell(`A${r}`), 'OK and CHECK rows are identities that must reconcile to zero within the relative tolerance. NOTE rows are advisories: the model is internally consistent, and the figure beside them measures the situation the note describes.');
   ws.getCell(`A${r}`).font = { name: 'Calibri', size: 8.5, italic: true, color: { argb: ARGB.navyDark } };
@@ -6456,7 +6481,7 @@ function addSummary(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinanci
     sub: x.preFeeIrr !== undefined ? `IRR and MOIC after the performance fee; pre-fee ${pct(x.preFeeIrr)} and ${mult(x.preFeeMoic ?? null)}` : 'IRR and MOIC',
   })), 3);
   registerCell('sum|note|investor', ws, ws.getCell(r, L));
-  noteLine(`Investor summary for the open project. Money in ${currency} millions; exit year ${rs.exitYearLabel}.`);
+  noteLine(isLiveLayout() ? `Money in ${currency} millions; exit year ${rs.exitYearLabel}` : `Investor summary for the open project. Money in ${currency} millions; exit year ${rs.exitYearLabel}.`);
   r += 1;
 
   // ── Cost per sqm (full units, the way a developer quotes it) ──

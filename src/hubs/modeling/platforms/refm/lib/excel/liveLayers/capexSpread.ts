@@ -121,11 +121,11 @@ export function planCapexSpread(
   const evenRow = (line: CostLine, p: Phase, a?: Asset): string => {
     const win = windowOf(line, p, a);
     const key = `even|${p.id}|${winTag(line, win, a)}`;
-    const owner = win.win === 'plot' && a ? `${assetLabel(a, names)}'s own window for ${line.name}` : `${line.name}'s window`;
     if (!rows.has(key)) rows.set(key, {
       key, phaseId: p.id, kind: 'even', start: win.start, end: Math.max(win.start, win.end), win: win.win, follows: win.follows, lineId: line.id, baseId: deriveLineBaseId(line.id),
       assetId: win.win === 'plot' ? a?.id : undefined,
-      label: `Even over ${state.phases.length > 1 ? `${p.name}'s ` : ''}phase periods ${win.start} to ${Math.max(win.start, win.end)}${win.follows ? ' (from the construction years)' : ` (${owner})`}`,
+      // Short labels (2026-10-20): the spread and its window in phase periods; the Guide explains them.
+      label: `Even${state.phases.length > 1 ? `, ${p.name}` : ''}, P${win.start} to P${Math.max(win.start, win.end)}${win.follows ? '' : `, ${win.win === 'plot' && a ? `${assetLabel(a, names)} ` : ''}${line.name}`}`,
       shares: toAxis(evenLocal(win.start, win.end), offsetOf(p)),
     });
     return key;
@@ -142,7 +142,7 @@ export function planCapexSpread(
       slice.forEach((v, k) => { local[win.start + k] = v / sum; });
       rows.set(key, {
         key, phaseId: p.id, kind: 'curve', start: win.start, end: Math.max(win.start, win.end), win: win.win, follows: win.follows, lineId: line.id, baseId: deriveLineBaseId(line.id), assetId: a.id,
-        label: `Spend curve of ${assetLabel(a, names)}, phase periods ${win.start} to ${Math.max(win.start, win.end)}`,
+        label: `Curve, ${assetLabel(a, names)}, P${win.start} to P${Math.max(win.start, win.end)}`,
         shares: toAxis(local, offsetOf(p)),
       });
     }
@@ -157,7 +157,7 @@ export function planCapexSpread(
     const key = `coll|${a.id}|${winTag(line, win, a)}`;
     if (!rows.has(key)) rows.set(key, {
       key, phaseId: p.id, kind: 'collections', start: win.start, end: Math.max(win.start, win.end), win: win.win, follows: win.follows, lineId: line.id, baseId: deriveLineBaseId(line.id), assetId: a.id,
-      label: `Sales collections of ${assetLabel(a, names)}`,
+      label: `Collections, ${assetLabel(a, names)}`,
       shares: toAxis(pos.map((v) => v / sum), offsetOf(p)),
     });
     return key;

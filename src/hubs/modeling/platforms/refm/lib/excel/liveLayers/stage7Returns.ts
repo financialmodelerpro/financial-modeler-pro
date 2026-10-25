@@ -93,7 +93,7 @@ export const stage7Returns: LiveLayer = {
     // column. A row is one formula across its years; the exit year is the Timeline's flag.
     const cs = wb.getWorksheet(RET)!;
     let cr = cs.rowCount + 3;
-    cs.getCell(cr - 1, 1).value = 'Workings: the streams\' components by year, the exit values and the sensitivity streams, each read by a figure above';
+    cs.getCell(cr - 1, 1).value = 'Workings (the streams, exit values and sensitivity)';
     cs.getCell(cr - 1, 1).font = { bold: true };
     const C = (r: number, c: number) => ({ sheet: RET, row: r, col: c });
     const at = (r: number, t: number): string => w.refP(C(r, pc(t)), RET);

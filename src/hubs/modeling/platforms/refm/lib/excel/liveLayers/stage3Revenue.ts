@@ -473,7 +473,7 @@ export const stage3Revenue: LiveLayer = {
     // and a visible warning says so, typed and in-model figures side by side.
     const rv = wb.getWorksheet(REV)!;
     let fr = rv.rowCount + 3;
-    setLabel(rv.getCell(fr, 1), 'Velocity check: does every typed sales velocity fall inside this workbook\'s years?', { bold: true });
+    setLabel(rv.getCell(fr, 1), 'Velocity check (typed velocity inside the model years)', { bold: true });
     fillRange(rv, fr, 1, fr, OPEN_COL + N, ARGB.subtotal);
     fr += 1;
     setLabel(rv.getCell(fr, 1), 'Line / sub-unit', { bold: true }); setLabel(rv.getCell(fr, 2), 'Result', { bold: true });

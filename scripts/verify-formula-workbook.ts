@@ -1044,7 +1044,7 @@ function formulaCells(wb: ExcelJS.Workbook): Map<string, { formula: string; resu
     // a step shown "-") read the same in Excel: a date formula shows that month.
     {
       const cmp = compareLive(plain, plain, wb, rec);
-      const bad = [...cmp.bad.filter((x) => x.kind === 'text'), ...cmp.layout.map((a) => ({ addr: a, kind: 'text' as const, msg: `${a}: layout moved on unchanged inputs` }))];
+      const bad = [...cmp.bad.filter((x) => x.kind === 'text'), ...cmp.layout.map((a) => ({ addr: a, kind: 'text' as const, msg: `${a}: layout moved on unchanged inputs (Excel ${JSON.stringify(rec.cells.get(a.replace(/C[0-9]+$/, "C1")))})` }))];
       let n = 0;
       for (const ws of wb.worksheets) ws.eachRow((row, r) => row.eachCell((cell, c) => {
       if (isMergedSlave(cell)) return;

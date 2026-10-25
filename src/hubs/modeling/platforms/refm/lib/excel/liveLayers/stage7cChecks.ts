@@ -95,7 +95,10 @@ export const stage7cChecks: LiveLayer = {
         const a0 = w.addr(id.a);
         const years = w.rangeA(a0.sheet, 3, pc(0), pc(N - 1));
         const st = w.refA({ sheet: CHK, row: res.row, col: res.col - 1 });
-        w.fA(det, `IF(${peak}=0,"every year: nothing to reconcile"${W},IF(${st}="OK","every year within tolerance of the peak "&${accT(peak, 'millions', 1)}${W},"worst year "&TEXT(INDEX(${years},MATCH(MAX(${absDiff}),${absDiff},0)),"0")&": "&${accT(`ABS(${w.refA(res)})`, 'millions', 1)}&" against a peak of "&${accT(peak, 'millions', 1)}${W}))`);
+        // One line (2026-10-20): the verdict, and where it fails the residue; the worst year beside it.
+        void W;
+        w.fA(det, `IF(${peak}=0,"Nothing to reconcile",IF(${st}="OK","Within tolerance","Out by "&${accT(`ABS(${w.refA(res)})`, 'millions', 1)}))`);
+        w.fA({ sheet: CHK, row: res.row, col: res.col + 2 }, `IF(OR(${peak}=0,${st}="OK"),"",INDEX(${years},MATCH(MAX(${absDiff}),${absDiff},0)))`, { numFmt: '0' });
       }
       liveIds.push(id.label);
     }
@@ -168,7 +171,7 @@ export const stage7cChecks: LiveLayer = {
         const S = `(${shareKeys.map((k) => `MAX(0,IFERROR(VALUE(${w.ref(k)}),0))`).join('+')})`;
         const a = w.addr('chk|note|perf');
         w.fA(a, `MAX(0,${tot}-${S}*${tot})`);
-        w.fA({ sheet: CHK, row: a.row, col: a.col + 1 }, `"Performance fee shares in the fee distribution matrix total "&TEXT(${S},"0.0%")&", so "&${accT(w.refA(a), 'millions', 1)}&" ("&TEXT(1-${S},"0.0%")&") of the performance fee is allocated to no one. It is still taken from investors by the waterfall. Type the remaining share in Module 1, Fund Terms. Advisory, not a failure."`);
+        w.fA({ sheet: CHK, row: a.row, col: a.col + 1 }, `TEXT(1-${S},"0.0%")&" of the performance fee goes to no earner"`);
       }
     }
 

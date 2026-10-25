@@ -1201,6 +1201,20 @@ ONE row there is no `+`: the count is the boolean FALSE, and Excel compares a bo
 **The trap to avoid:** building an Excel count or flag from a list of comparisons joined by `+`: the one-element
 case is a different type. A JavaScript twin cannot see it (JS coerces), only Excel can. `verify-formula-workbook` B2.
 
+**Recurred 2026-10-20, from the other side:** a sign clean-up in `liveLayers/simplify.ts` dropped a leading `0+`
+(`(0+x` to `(x`) as a term that adds nothing, which is exactly the coercion this fix put there; the same three
+Summary key cells read #DIV/0! in real Excel. The clean-up now keeps `0+` and turns a leading `-(0)+` into `0+`, never
+into nothing. A rewrite that removes a zero is exact for numbers only: next to a comparison it is a type change.
+
+### 3.30b The circular-sheet list named a sheet that no longer existed
+
+**Symptom (2026-10-20):** `CIRCULAR_SHEETS` in `liveLayers/simplify.ts` (the sheets whose `+` chains are kept, 3.33)
+still read `Financing Calc` after the solve moved onto the visible Financing tab and the working sheet was deleted.
+Nothing failed only because the loop's own references carried no sheet name, which the chain rule did not match.
+
+**Fix:** the list names `Financing`. **The trap to avoid:** a list of names a rename leaves behind protects nothing,
+and passes quietly. A guard keyed by name needs a check that the name still exists.
+
 ### 3.31 A shaded cell that nothing reads: the live workbook's inputs lived twice, and users type into the wrong copy
 
 **Symptom (2026-09-28):** every figure in the formula-linked workbook matched the platform and responded to its
@@ -1260,6 +1274,18 @@ every other rewrite there (dead `+0` terms, brackets, SUMs the layers already wr
 
 **The trap to avoid:** "an algebraically equal formula is safe to swap" holds for a normal sheet, not inside an
 iterated circle. Prove a rewrite of a circular block in real Excel, per sheet, before trusting it.
+
+### 3.34 A helper sum without its brackets divides by its first term only
+
+**Symptom (2026-10-20):** on the multi-plot proof copy the Summary's cost per sqm read 73,433 in real Excel against
+the platform's 14,314; on Marina Gate it was exact.
+
+**Mechanism:** a long area sum is split into two helper cells and joined as `a+b`, with no brackets. A card then
+divides by it: `x/a+b`. Marina Gate's area fits one helper, so the join never ran there.
+
+**Fix:** the join is `(a+b)`. **The trap to avoid:** building an expression by text that a caller then
+divides, multiplies or negates. Bracket a composed term where it is made, and prove a split on a model big enough
+to need it (`verify-formula-workbook --variant multiplot`).
 
 ## 4. PDF export (pdf-lib)
 

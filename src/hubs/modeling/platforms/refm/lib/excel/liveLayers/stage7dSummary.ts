@@ -108,7 +108,7 @@ export const stage7dSummary: LiveLayer = {
       // Too long for one cell: halves, each its own helper, then their sum.
       const mid = Math.ceil(parts.length / 2);
       const a = helper(`${label}, part 1`, add(parts.slice(0, mid))), b = helper(`${label}, part 2`, add(parts.slice(mid)));
-      return helper(label, add([a, b]).f.length > 80 ? add([a, b]) : { f: `${a.f}+${b.f}`, v: a.v + b.v });
+      return helper(label, add([a, b]).f.length > 80 ? add([a, b]) : { f: `(${a.f}+${b.f})`, v: a.v + b.v });
     };
     const ids = visible.map((a) => a.id);
 
@@ -141,7 +141,7 @@ export const stage7dSummary: LiveLayer = {
     const yearsOk = figure(startY, rs.yearLabels[0]) && figure(exitY, rs.exitYearLabel);
     put('sum|fact|Horizon', 'the horizon years', yearsOk, () => `"${N} yrs ("&${yearW(startY!)}&" to "&TEXT(${startY!.f}+${N - 1},"0")&")"`);
     put('sum|fact|Exit year', 'the exit year', yearsOk, () => yearW(exitY!));
-    put('sum|note|investor', 'the exit year in the investor note', yearsOk, () => `"Investor summary for the open project. Money in ${cur} millions; exit year "&${yearW(exitY!)}&"."`);
+    put('sum|note|investor', 'the exit year in the investor note', yearsOk, () => `"Money in ${cur} millions; exit year "&${yearW(exitY!)}`);
     put('sum|tile|Start year', 'the start year', yearsOk, () => yearW(startY!));
     put('sum|tilesub|Model horizon', 'the exit year under the horizon', yearsOk, () => `"to "&${yearW(exitY!)}`);
     put('sum|tile|Exit year', 'the exit year', yearsOk, () => yearW(exitY!));

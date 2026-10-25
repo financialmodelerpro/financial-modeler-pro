@@ -615,7 +615,13 @@ export const stage5Statements: LiveLayer = {
     };
     apply(plWrites);
     // The labels that carry a figure.
-    for (const l of labelWrites) w.fA({ sheet: l.sheet, row: w.addr(l.key).row, col: LBL_COL }, l.formula);
+    // A label the twin printed short (over 60 characters, its bracket cut) stays the twin's words (2026-10-20).
+    for (const l of labelWrites) {
+      const at = { sheet: l.sheet, row: w.addr(l.key).row, col: LBL_COL };
+      const now = wb.getWorksheet(l.sheet)!.getCell(at.row, at.col).value;
+      if (typeof now === 'string' && !now.includes('(')) continue;
+      w.fA(at, l.formula);
+    }
     out.push({ sheet: PL, status: 'live', formulas: w.formulas.get(PL) ?? 0,
       note: 'Live: the income statement, project and per phase, every row one formula across the years over Revenue, Schedules, Opex, Capex and the financing loop, down to profit after tax; the fee and tax labels are formulas too.' });
     if (cfRefused) out.push({ sheet: CF, status: 'values' as const, formulas: 0, note: `The Cash Flow could not be made live for this model: ${cfRefused}.` });

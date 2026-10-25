@@ -51,6 +51,7 @@ import { stage9InputLinks } from './liveLayers/stage9InputLinks';
 import { simplifyWorkbook, dropNumberWrappers } from './liveLayers/simplify';
 import { storeComputedValues } from './liveLayers/evaluate';
 import { computedCells } from './liveLayers/writer';
+import { collapseSpaces } from './liveFrontMatter';
 import { linkPeriodHeaders } from './liveLayers/foundations';
 
 export type SheetStatus = 'live' | 'partial' | 'values' | 'values-by-design' | 'front';
@@ -174,6 +175,8 @@ export function buildFormulaWorkbook(opts: BuildModelOptions): FormulaWorkbookRe
   // A layer's hidden working sheet is not a tab the reader sees, so it gets no status line.
   for (const ws of wb.worksheets) if (ws.state !== 'visible' && ws.state !== undefined) status.delete(ws.name);
   relabel(wb, status);
+  // Labels a layer wrote read with single spaces too ("Branded  Villas", 2026-10-20).
+  for (const ws of wb.worksheets) collapseSpaces(ws);
   orderTabs(wb);
   writeLoopLinks(wb);
   const problems = exportShapeProblems(wb);

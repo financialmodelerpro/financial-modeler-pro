@@ -33,6 +33,23 @@ let shiftSink: ShiftSink | null = null;
 /** Start (a function) or stop (null) recording. Only the formula export sets it. */
 export function setCellSink(fn: Sink | null, onShift: ShiftSink | null = null): void { sink = fn; shiftSink = fn ? onShift : null; }
 
+/** The rows that carry a registered cell, per sheet, in the build under way, recorded whether or not the
+ *  sink is (so the platform twin and the live workbook keep the same rows: dropNoteRows). */
+const registeredRows = new Map<string, Set<number>>();
+/** Start of a build: forget the last one's rows. */
+export function resetRegisteredRows(): void { registeredRows.clear(); }
+export function rowIsRegistered(sheet: string, row: number): boolean { return registeredRows.get(sheet)?.has(row) ?? false; }
+const shiftRows = (sheet: string, atRow: number, count: number): void => {
+  const set = registeredRows.get(sheet); if (!set) return;
+  const next = new Set<number>(); for (const r of set) next.add(r >= atRow ? r + count : r); registeredRows.set(sheet, next);
+};
+/** ROWS WERE DELETED on a finished sheet (live layout, dropNoteRows): every recorded row below moves up. */
+export function notifyRowsDeleted(sheet: string, atRow: number, count: number): void {
+  if (count <= 0) return;
+  if (shiftSink) shiftSink(sheet, atRow + count, -count);
+  shiftRows(sheet, atRow + count, -count);
+}
+
 /**
  * ROWS WERE INSERTED ON A FINISHED SHEET (the per-tab contents block is added
  * after the sheets are written), so every recorded row at or below the insert
@@ -41,11 +58,15 @@ export function setCellSink(fn: Sink | null, onShift: ShiftSink | null = null): 
  * holds for a cell below the block would point at the wrong row.
  */
 export function notifyRowsInserted(sheet: string, atRow: number, count: number): void {
-  if (shiftSink && count > 0) shiftSink(sheet, atRow, count);
+  if (count <= 0) return;
+  if (shiftSink) shiftSink(sheet, atRow, count);
+  shiftRows(sheet, atRow, count);
 }
 
 /** Record that `cell` on `ws` holds quantity `key`. A no-op outside the formula export. */
 export function registerCell(key: string, ws: ExcelJS.Worksheet, cell: ExcelJS.Cell): void {
+  if (!registeredRows.has(ws.name)) registeredRows.set(ws.name, new Set());
+  registeredRows.get(ws.name)!.add(Number(cell.row));
   if (!sink) return;
   sink(key, { sheet: ws.name, row: Number(cell.row), col: Number(cell.col) });
 }
