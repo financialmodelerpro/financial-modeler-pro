@@ -32,7 +32,24 @@ export interface FigureTools {
   add: (xs: X[]) => X;
   all: <T>(xs: Array<T | null>) => T[] | null;
   near: (a: number, b: number) => boolean;
+  /** A registered cell's plain reference, or null when it is not on the sheet. */
+  ref: (key: string) => string | null;
 }
+
+/**
+ * AN ASSET'S NSA USED, STATED ONCE (2026-10-26; resolveAssetAreaMetrics): the larger of its Sellable,
+ * Operable and Leasable sub-units' area and its Stated NSA on Inputs Table 2. Land & Area adds it per
+ * line; the Summary, Capex Table 7 and the RE metrics read it per asset through this one expression.
+ * Null when a row it needs is not on the sheet.
+ */
+export function nsaUsedFormula(assetId: string, subUnits: readonly SubUnit[], ref: (key: string) => string | null): string | null {
+  const stated = ref(`entry:${assetId}:nsa`);
+  if (!stated) return null;
+  const areas = subUnits.filter((u) => u.assetId === assetId && NSA_CATEGORIES.has(String(u.category))).map((u) => ref(`su:${u.id}:area`));
+  if (areas.some((x) => !x)) return null;
+  return `MAX(${areas.length ? `SUM(${areas.join(',')})` : '0'},MAX(0,N(${stated})))`;
+}
+const NSA_CATEGORIES = new Set(['Sellable', 'Operable', 'Leasable']);
 
 export function figureTools(wb: ExcelJS.Workbook, w: LiveWriter): FigureTools {
   const has = (k: string): boolean => w.has(k);
@@ -57,7 +74,8 @@ export function figureTools(wb: ExcelJS.Workbook, w: LiveWriter): FigureTools {
     const add = (xs: X[]): X => ({ f: xs.length ? `(${xs.map((x) => x.f).join('+')})` : '0', v: xs.reduce((s, x) => s + x.v, 0) });
     const all = <T>(xs: Array<T | null>): T[] | null => (xs.every((x) => x !== null) ? (xs as T[]) : null);
     const near = (a: number, b: number): boolean => Math.abs(a - b) <= Math.max(0.005, 1e-9 * Math.max(Math.abs(a), Math.abs(b)));
-  return { isFormula, pv, cellX, add, all, near };
+  const ref = (key: string): string | null => (has(key) ? w.refA(w.addr(key)) : null);
+  return { isFormula, pv, cellX, add, all, near, ref };
 }
 
 export type AreaRow = { land: X; landValue: X; gfa: X; bua: X; nsa: X; units: X; keys: X; leasable: X };
@@ -92,7 +110,11 @@ export function liveAssetAreas(tools: FigureTools, state: Pick<FinancialsResolve
           bua = { f: `MAX(0,${tg.f}-${ret.f})`, v: Math.max(0, tg.v - ret.v) };
           gfa = { f: `(${bua.f}+${park.f})`, v: bua.v + park.v };
         }
-        nsa = cellX(`entry:${a.id}:nsaUsed`);
+        const f = nsaUsedFormula(a.id, subUnits, tools.ref);
+        if (f) {
+          const t5 = subUnits.filter((u) => u.assetId === a.id && NSA_CATS.has(u.category)).reduce((s, u) => s + (su(u, 'area')?.v ?? 0), 0);
+          nsa = { f, v: Math.max(t5, Math.max(0, cellX(`entry:${a.id}:nsa`)?.v ?? 0)) };
+        }
       }
       // Units: rows stated in units; keys: the Table 5 count per row; leasable: the revenue rows' area.
       const sell = a.strategy === 'Sell' || a.strategy === 'Sell + Manage';

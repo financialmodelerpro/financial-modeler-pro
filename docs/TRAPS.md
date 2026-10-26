@@ -3283,6 +3283,20 @@ both retail ramps open at 45% in 2032, sales during operation start in 2032, eve
 **The trap to avoid:** keying a series by a count that is only coincidentally equal to the one it means. Ask what
 the value is the Nth year OF, and store it by that.
 
+### 7.69 A total that re-sums the source rows cannot show that the rows above it do not add
+
+**Symptom (2026-10-26):** on the live workbook's Land & Area, the "Merged by line" TOTAL equalled the plot total
+in every column, yet the line rows above it added to 113,670 sqm of BUA against 105,940: a host villa line still
+carried the retail GFA and retail parking that its retail strip's own line also showed.
+
+**Mechanism:** the TOTAL row summed the PLOT rows, not the line rows above it, so it agreed with the plot table by
+construction and said nothing about the lines. Two tables that "agree" on totals proved only that one total was a
+copy of the other.
+
+**Fix:** each TOTAL is `SUM` of the rows above it; a host line leaves out what its strip carries, so the lines add
+up and the line total equals the plot total for a reason. **Proof:** both totals in real Excel, every area column
+(BUA 105,940, land 37,000, NSA 68,093.28), and five land edits agreeing with the re-run engine.
+
 ## 8. Registries and two-step registration
 
 ### 8.1 A template registered in one place and not the other fails silently and permanently

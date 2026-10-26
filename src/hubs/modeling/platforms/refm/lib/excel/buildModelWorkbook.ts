@@ -1624,6 +1624,23 @@ function addLandArea(wb: ExcelJS.Workbook, state: FinancialsResolverState, refs:
         revenue: '0',
       });
       r += 1;
+      // A RETAIL STRIP ON SEVERAL PLOTS (live layout, 2026-10-26): one row per plot under it, each
+      // area x that plot's rate like every other row; the strip's row is their sum.
+      const pieces = isLiveLayout() ? tables.plots.flatMap((g) => g.retailPieces.filter((x) => x.name === a.name).map((x) => ({ g, x }))) : [];
+      if (pieces.length > 1) {
+        for (const { g, x } of pieces) {
+          const pa = state.parcels.find((q) => q.id === g.key);
+          const rate = Math.max(0, pa?.rate ?? 0), v = x.sqm * rate;
+          setLabel(ws.getCell(r, 1), `from ${g.plotLabel}`, { indent: 2 });
+          setFormula(ws.getCell(r, 2), fcell('0', x.sqm), NUMFMT.int);
+          setFormula(ws.getCell(r, 3), fcell('0', rate), NUMFMT.rate);
+          setFormula(ws.getCell(r, 4), fcell('0', v), NUMFMT.money);
+          setFormula(ws.getCell(r, 5), fcell('0', v * Math.max(0, pa?.cashPct ?? 0) / 100), NUMFMT.money);
+          setFormula(ws.getCell(r, 6), fcell('0', v * Math.max(0, pa?.inKindPct ?? 0) / 100), NUMFMT.money);
+          (['sqm', 'rate', 'value', 'cash', 'inkind'] as const).forEach((k, i) => registerCell(`landpiece:${g.key}:${a.name}:${k}`, ws, ws.getCell(r, 2 + i)));
+          r += 1;
+        }
+      }
     }
     setLabel(ws.getCell(r, 1), `Total ${cat}`, { bold: true });
     const sum = (pick: (x: typeof rows[number]) => number): number => rows.reduce((s, x) => s + pick(x), 0);
@@ -1648,7 +1665,9 @@ function addLandArea(wb: ExcelJS.Workbook, state: FinancialsResolverState, refs:
   if (isLiveLayout()) { cursor.r = r + 1; emitSubUnitAreas(cursor, state, tables); r = cursor.r; }
 
   // ── Basis / Calculation legend (per column) ────────────────────────────────
+  // The live workbook explains the columns on the Guide (2026-10-26); the tab keeps its tables.
   let lr = r + 1;
+  if (!isLiveLayout()) {
   setSectionHeader(ws.getRow(lr), 'Basis / Calculation (per column)', 8); lr += 1;
   const COL_BASIS: Array<[string, string]> = [
     ['Plot Area (sqm)', 'The sqm the asset draws from its plot on Table 2 (a blank draws the whole plot). A retail strip\'s share is carved from its hosts: retail GFA over the host\'s total GFA, at that plot\'s rate.'],
@@ -1676,6 +1695,7 @@ function addLandArea(wb: ExcelJS.Workbook, state: FinancialsResolverState, refs:
     setLabel(ws.getCell(lr, 1), colName, { bold: true });
     const bc = ws.getCell(lr, 2); bc.value = basisText; bc.font = { name: 'Calibri', size: BODY_SIZE, italic: true, color: { argb: ARGB.navyDark } };
     lr += 1;
+  }
   }
 
   // ── Structural zeros ────────────────────────────────────────────────────────

@@ -29,7 +29,7 @@
  *
  * STRUCTURAL, stated on the sheets: which plot an asset draws from, the
  * parking ratio basis, and which assets host which retail strip are fixed at
- * export; a figure that was blank ("-") at export stays text until re-export.
+ * export. A figure the chain cannot derive is 0, never a "-" (2026-10-26), so no formula guards text.
  *
  * No em dashes in this file.
  */
@@ -45,7 +45,9 @@ import {
   resolveAssetTypeKey, resolveAssetTypeValues, resolveRetailSlotArea, resolveRetailSlotTypeId, normaliseAssetTypeId,
 } from '../../state/assetTypeStandards';
 import { assetHasSubstance } from '../../../components/modules/_shared/assetTableModel';
-import { buildSubUnitLines, buildAssetLandView } from '../../../components/modules/_shared/assetInputsView';
+import { buildSubUnitLines, buildAssetLandView, buildAssetAreaTables } from '../../../components/modules/_shared/assetInputsView';
+import { nsaUsedLines } from '../inputsSheetSections';
+import { nsaUsedFormula } from './liveAreas';
 import type { Asset, Parcel, SubUnit } from '../../state/module1-types';
 
 const EXCEL_EPOCH = Date.UTC(1899, 11, 30);
@@ -171,14 +173,16 @@ export const stage1LandArea: LiveLayer = {
     // ── Inputs: plots (value = area x rate, cash / in-kind at the plot's split) ──
     for (const pa of state.parcels as Parcel[]) {
       const k = (x: string): string => `parcel:${pa.id}:${x}`;
-      if (w.has(k('areaEcho'))) { w.f(k('areaEcho'), R(k('area'))); w.f(k('rateEcho'), R(k('rate'))); }
+      if (w.has(k('areaEcho'))) { w.f(k('areaEcho'), `MAX(0,${R(k('area'))})`); w.f(k('rateEcho'), R(k('rate'))); }
       w.f(k('value'), w.has(k('areaEcho')) ? `MAX(0,${R(k('areaEcho'))})*MAX(0,${R(k('rateEcho'))})` : `MAX(0,${R(k('area'))})*MAX(0,${R(k('rate'))})`);
       w.f(k('cashValue'), `${R(k('value'))}*MAX(0,${R(k('cash'))})`);
       w.f(k('inkindValue'), `${R(k('value'))}*MAX(0,${R(k('inkind'))})`);
     }
     const plotsCol = (x: string): string => (state.parcels as Parcel[]).map((pa) => R(`parcel:${pa.id}:${x}`)).join(',');
     if (w.has('parcels:total:area')) {
-      w.f('parcels:total:area', `${(state.parcels as Parcel[]).map((pa) => `MAX(0,${R(`parcel:${pa.id}:area`)})`).join('+')}`);
+      w.f('parcels:total:area', (state.parcels as Parcel[]).every((pa) => w.has(`parcel:${pa.id}:areaEcho`))
+        ? `SUM(${plotsCol('areaEcho')})`
+        : `${(state.parcels as Parcel[]).map((pa) => `MAX(0,${R(`parcel:${pa.id}:area`)})`).join('+')}`);
       w.f('parcels:total:value', `SUM(${plotsCol('value')})`);
       w.f('parcels:total:rate', `IF(${R('parcels:total:area')}>0,${R('parcels:total:value')}/${R('parcels:total:area')},0)`);
       w.f('parcels:total:cashValue', `SUM(${plotsCol('cashValue')})`);
@@ -231,18 +235,33 @@ export const stage1LandArea: LiveLayer = {
       const draw = resolveAssetPlotDraw(a, state.parcels as Parcel[], visible);
       return draw?.source === 'typed' ? R(`entry:${a.id}:plot`) : R(`parcel:${a.landAllocation?.parcelId}:area`);
     };
+    // THE RETAIL CARVE-OUT IS ITS OWN ROW (2026-10-26; retailCarveContext / carveRetailLand): what a
+    // strip takes from a host is the host's GROSS land x retail GFA / total GFA on the bare chain,
+    // which is gross x coverage x retail % / FAR (the land and utilisation cancel), at most the gross.
+    // The plot table's carve-out row adds it over the plot's hosts; a host's land is its gross less it.
+    const carveOf = (h: Asset): string => {
+      const e = (x: string): string => R(`entry:${h.id}:${x}`);
+      const G = grossRef(h);
+      return `IF(${G}*${e('util')}*${e('far')}>0,MIN(${G},${G}*${e('cov')}*N(${e('retail')})/${e('far')}),0)`;
+    };
+    const pieceKeys = reg.keys().filter((k) => k.startsWith('piece:'));
+    /** The hosts a carve-out row adds: the strip's hosts drawing from that plot. */
+    const pieceHosts = (pk: string): Asset[] => {
+      const [, parcelId, ...nameParts] = pk.split(':'); const name = nameParts.join(':');
+      const strip = strips.find((s) => s.name === name);
+      return (strip?.retailHostAssetIds ?? []).map((id) => hosts.find((h) => h.id === id)).filter((h): h is Asset => !!h && h.landAllocation?.parcelId === parcelId);
+    };
     for (const a of hosts) {
       const ch = (x: string): string => `chain:${a.id}:${x}`;
       if (!w.has(ch('land'))) continue;
       const e = (x: string): string => R(`entry:${a.id}:${x}`);
       const G = grossRef(a);
-      // Carve (retailCarveContext): the bare chain on the GROSS land, the plot's own utilisation.
       let L = `MAX(0,${G})`;
-      if (hostOf.has(a.id)) {
-        // Coverage and FAR here are the plot's, else the type's: the Table 2 cells, which inherit by formula.
-        const cov = e('cov'), far = e('far'), ret = `N(${e('retail')})`;
-        const retail = `(${G}*${e('util')}*${cov}*${ret})`, total = `(${G}*${e('util')}*${far})`;
-        L = `MAX(0,${G}-IF(${total}>0,${G}*${retail}/${total},0))`;
+      const strip = hostOf.get(a.id);
+      if (strip) {
+        const pk = `piece:${a.landAllocation?.parcelId}:${strip.name}`;
+        const alone = w.has(pk) && pieceHosts(pk).length === 1;
+        L = `MAX(0,${G}-${alone ? R(pk) : carveOf(a)})`;
       }
       w.f(ch('land'), L);
       const util = e('util'), cov = e('cov'), far = e('far'), svc = e('svc'), ret = `N(${e('retail')})`;
@@ -256,116 +275,140 @@ export const stage1LandArea: LiveLayer = {
       w.f(ch('tg'), `${R(ch('nda'))}*${far}`);
       w.f(ch('main'), `${R(ch('tg'))}-${R(ch('ret'))}-${R(ch('lob'))}`);
       w.f(ch('nsa'), `${R(ch('main'))}*(1-N(${svc}))`);
-      // Unit size (resolveAvgUnitSize): the sub-units' stated sizes first, the type's as the fallback.
+      // NO "-" IN A NUMBER CELL (2026-10-26): a figure the chain cannot derive is 0, so every step is a
+      // plain formula. Unit size (resolveAvgUnitSize): the sub-units' stated sizes first, the type's as the fallback.
       const sized = (suByAsset.get(a.id) ?? []).filter((u) => w.has(`su:${u.id}:unit`)).map((u) => R(`su:${u.id}:unit`));
       const typeUnit = typeRef(a, 'unit');
-      const fallback = typeUnit ? `IF(ISNUMBER(${typeUnit}),${typeUnit},"-")` : '"-"';
+      const fallback = typeUnit ?? '0';
       const cnt = sized.map((x) => `COUNTIF(${x},">0")`).join('+'), sm = sized.map((x) => `SUMIF(${x},">0")`).join('+');
-      w.f(ch('usize'), sized.length ? `IF(${cnt}>0,(${sm})/(${cnt}),${fallback})` : fallback);
+      if (sized.length || typeUnit) w.f(ch('usize'), sized.length ? `IF(${cnt}>0,(${sm})/(${cnt}),${fallback})` : fallback);
       // Units: a sub-unit count wins, else NSA / unit size rounded.
       const countUnits = computeAssetUnitCount(a, state.subUnits as SubUnit[]) > 0;
       const unitCells = (suByAsset.get(a.id) ?? []).filter((u) => u.category !== 'Support' && w.has(`su:${u.id}:units`)).map((u) => R(`su:${u.id}:units`));
       w.f(ch('units'), countUnits && unitCells.length
         ? `ROUND(SUM(${unitCells.join(',')}),0)`
-        : `IF(AND(ISNUMBER(${R(ch('usize'))}),N(${R(ch('usize'))})>0),ROUND(${R(ch('nsa'))}/${R(ch('usize'))},0),"-")`);
+        : `IF(${R(ch('usize'))}>0,ROUND(${R(ch('nsa'))}/${R(ch('usize'))},0),0)`);
       const ratio = typeRef(a, 'ratio');
-      w.f(ch('ratio'), ratio ? `IF(ISNUMBER(${ratio}),${ratio},"-")` : '"-"');
+      if (ratio) w.f(ch('ratio'), ratio);
       const basis = resolveAssetTypeValues(a, project.assetTypeValues)?.parkingRatioBasis;
       w.f(ch('slots'), basis === 'sqm_per_slot'
-        ? `IF(ISNUMBER(${R(ch('ratio'))}),IF(${R(ch('ratio'))}>0,ROUND(${R(ch('main'))}/${R(ch('ratio'))},0),0),"-")`
-        : `IF(AND(ISNUMBER(${R(ch('ratio'))}),ISNUMBER(${R(ch('units'))})),ROUND(${R(ch('units'))}*${R(ch('ratio'))},0),"-")`);
-      w.f(ch('rslots'), slotRef ? `IF(${R(ch('ret'))}>0,IF(${slotRef}>0,ROUND(${R(ch('ret'))}/${slotRef},0),"-"),"-")` : '"-"');
-      w.f(ch('tslots'), `IF(AND(NOT(ISNUMBER(${R(ch('slots'))})),NOT(ISNUMBER(${R(ch('rslots'))}))),"-",N(${R(ch('slots'))})+N(${R(ch('rslots'))}))`);
-      w.f(ch('parea'), perSlot ? `IF(AND(ISNUMBER(${R(ch('slots'))}),ISNUMBER(${perSlot})),${R(ch('slots'))}*${perSlot},"-")` : '"-"');
-      w.f(ch('rparea'), perSlot ? `IF(AND(ISNUMBER(${R(ch('rslots'))}),ISNUMBER(${perSlot})),${R(ch('rslots'))}*${perSlot},"-")` : '"-"');
-      w.f(ch('tparea'), `IF(AND(NOT(ISNUMBER(${R(ch('parea'))})),NOT(ISNUMBER(${R(ch('rparea'))}))),"-",N(${R(ch('parea'))})+N(${R(ch('rparea'))}))`);
-      w.f(ch('bua'), `${R(ch('tg'))}+N(${R(ch('tparea'))})`);
+        ? `IF(${R(ch('ratio'))}>0,ROUND(${R(ch('main'))}/${R(ch('ratio'))},0),0)`
+        : `ROUND(${R(ch('units'))}*${R(ch('ratio'))},0)`);
+      if (slotRef) w.f(ch('rslots'), `IF(${slotRef}>0,ROUND(${R(ch('ret'))}/${slotRef},0),0)`);
+      w.f(ch('tslots'), `${R(ch('slots'))}+${R(ch('rslots'))}`);
+      if (perSlot) {
+        w.f(ch('parea'), `${R(ch('slots'))}*${perSlot}`);
+        w.f(ch('rparea'), `${R(ch('rslots'))}*${perSlot}`);
+      }
+      w.f(ch('tparea'), `${R(ch('parea'))}+${R(ch('rparea'))}`);
+      w.f(ch('bua'), `${R(ch('tg'))}+${R(ch('tparea'))}`);
     }
 
-    // Retail pieces: what each strip carved from each plot = sum over its hosts there of gross - net.
-    const pieceKeys = reg.keys().filter((k) => k.startsWith('piece:'));
+    // The carve-out rows: what each strip takes from each plot, added over its hosts there.
     for (const pk of pieceKeys) {
       const [, parcelId, ...nameParts] = pk.split(':'); const name = nameParts.join(':');
-      const strip = strips.find((s) => s.name === name);
-      const hs = (strip?.retailHostAssetIds ?? []).map((id) => hosts.find((h) => h.id === id)).filter((h): h is Asset => !!h && h.landAllocation?.parcelId === parcelId);
-      w.f(pk, hs.length ? hs.map((h) => `(${grossRef(h)}-${R(`chain:${h.id}:land`)})`).join('+') : '0');
+      const hs = pieceHosts(pk);
+      w.f(pk, hs.length ? hs.map(carveOf).join('+') : '0');
       // Its NSA on this plot (retailStripNsaByParcel): the retail GFA its hosts carry here, the strip's
       // NSA being its hosts' retail GFA (its row on the line table reads the same).
       const nk = `piecensa:${parcelId}:${name}`;
       if (w.has(nk)) w.f(nk, hs.length ? `SUM(${hs.map((h) => R(`chain:${h.id}:ret`)).join(',')})` : '0');
     }
 
-    // Totals (totalsFromRows): sums, with the three ratios from the sums.
+    // TOTALS ADD THE ROWS ABOVE THEM (2026-10-26; totalsFromRows): each column of a TOTAL row is the
+    // sum of its table's rows (a band row holds no number, and a carve-out or strip row leaves the
+    // columns that are not its own blank), with the three ratios from the sums.
+    const SUMMED = ['land', 'nda', 'fp', 'ls', 'ret', 'lob', 'tg', 'main', 'nsa', 'units', 'slots', 'rslots', 'tslots', 'parea', 'rparea', 'tparea', 'bua'];
     const chainRows = hosts.filter((a) => w.has(`chain:${a.id}:land`)).map((a) => `chain:${a.id}`);
     const sumOf = (rows: string[], f: string): string => rows.map((r) => R(`${r}:${f}`)).join(',');
-    const SUMMED = ['nda', 'fp', 'ls', 'ret', 'lob', 'tg', 'main', 'nsa', 'units', 'slots', 'rslots', 'tslots', 'parea', 'rparea', 'tparea', 'bua'];
-    // totalsFromRows: a companion adds its land AND its NSA (no host row carries its lettable area);
-    // the average unit size stays the units' own NSA.
-    const writeTotals = (prefix: string, rows: string[], extraLand: string[], extraNsa: string[] = []): void => {
-      if (!w.has(`${prefix}:land`)) return;
-      w.f(`${prefix}:land`, `SUM(${[...rows.map((r) => R(`${r}:land`)), ...extraLand].join(',')})`);
+    const writeColumnTotals = (prefix: string, rowKeys: string[], unitNsaRows: string[]): void => {
+      if (!w.has(`${prefix}:land`) || !rowKeys.length) return;
+      const rowsAt = rowKeys.map((k) => reg.need(k).row);
+      const r0 = Math.min(...rowsAt), r1 = Math.max(...rowsAt);
       for (const f of SUMMED) {
         if (!w.has(`${prefix}:${f}`)) continue;
-        const cells = f === 'nsa' ? [sumOf(rows, f), ...extraNsa].filter(Boolean).join(',') : sumOf(rows, f);
-        if (typeof w.cell(`${prefix}:${f}`).value === 'string') w.f(`${prefix}:${f}`, `IF(COUNT(${cells})=0,"-",SUM(${cells}))`);
-        else w.f(`${prefix}:${f}`, `SUM(${cells})`);
+        const col = colLetter(reg.need(`${prefix}:${f}`).col);
+        w.f(`${prefix}:${f}`, `SUM($${col}$${r0}:$${col}$${r1})`);
       }
-      w.f(`${prefix}:lsPct`, `IF(N(${R(`${prefix}:nda`)})>0,N(${R(`${prefix}:ls`)})/${R(`${prefix}:nda`)},"-")`);
-      w.f(`${prefix}:usize`, `IF(N(${R(`${prefix}:units`)})>0,SUM(${sumOf(rows, 'nsa')})/${R(`${prefix}:units`)},"-")`);
-      w.f(`${prefix}:ratio`, `IF(N(${R(`${prefix}:units`)})>0,N(${R(`${prefix}:slots`)})/${R(`${prefix}:units`)},"-")`);
+      const T = (f: string): string => R(`${prefix}:${f}`);
+      w.f(`${prefix}:lsPct`, `IF(${T('nda')}>0,${T('ls')}/${T('nda')},0)`);
+      w.f(`${prefix}:usize`, `IF(${T('units')}>0,SUM(${unitNsaRows.map((r) => R(`${r}:nsa`)).join(',')})/${T('units')},0)`);
+      w.f(`${prefix}:ratio`, `IF(${T('units')}>0,${T('slots')}/${T('units')},0)`);
     };
-    const pieceRefs = pieceKeys.map((k) => R(k));
-    const pieceNsaRefs = reg.keys().filter((k) => k.startsWith('piecensa:')).map((k) => R(k));
-    const compNsaRefs = strips.filter((s) => w.has(`chaincomp:${s.name}:nsa`)).map((s) => R(`chaincomp:${s.name}:nsa`));
-    writeTotals('chaintot:plots', chainRows, pieceRefs, pieceNsaRefs);
-    writeTotals('chaintot:lines', chainRows, pieceRefs, compNsaRefs);
+    writeColumnTotals('chaintot:plots', [...chainRows.map((r) => `${r}:land`), ...pieceKeys], chainRows);
 
-    // Lines (groupAssetsForConsolidation; a member without substance is not pooled).
+    // Lines (groupAssetsForConsolidation; a member without substance is not pooled): the sums of their
+    // plots' rows, and a host line LEAVES OUT THE RETAIL its strip carries (the strip's line shows it).
     const groups = groupAssetsForConsolidation(visible as unknown as Parameters<typeof groupAssetsForConsolidation>[0], state.phases.map((p) => p.id), normaliseAssetTypeId);
+    const lineRows: string[] = [];
     for (const g of groups) {
       const prefix = `chainline:${g.key}`;
       const members = (g.assets as unknown as Asset[]).filter((m) => w.has(`chain:${m.id}:land`) && assetHasSubstance(m, state.subUnits as SubUnit[]));
       if (members.length === 0 || !w.has(`${prefix}:land`)) continue;
-      writeTotals(prefix, members.map((m) => `chain:${m.id}`), []);
+      lineRows.push(prefix);
+      const rows = members.map((m) => `chain:${m.id}`);
+      for (const f of ['land', 'nda', 'fp', 'ls', 'lob', 'main', 'nsa', 'units', 'slots', 'parea']) w.f(`${prefix}:${f}`, `SUM(${sumOf(rows, f)})`);
+      // Retail GFA, retail parking slots and area stay 0 here: they are the strip's.
+      w.f(`${prefix}:tg`, `SUM(${sumOf(rows, 'tg')})-SUM(${sumOf(rows, 'ret')})`);
+      w.f(`${prefix}:tslots`, R(`${prefix}:slots`));
+      w.f(`${prefix}:tparea`, R(`${prefix}:parea`));
+      w.f(`${prefix}:bua`, `${R(`${prefix}:tg`)}+${R(`${prefix}:tparea`)}`);
+      w.f(`${prefix}:lsPct`, `IF(${R(`${prefix}:nda`)}>0,${R(`${prefix}:ls`)}/${R(`${prefix}:nda`)},0)`);
+      w.f(`${prefix}:usize`, `IF(${R(`${prefix}:units`)}>0,${R(`${prefix}:nsa`)}/${R(`${prefix}:units`)},0)`);
+      w.f(`${prefix}:ratio`, `IF(${R(`${prefix}:units`)}>0,${R(`${prefix}:slots`)}/${R(`${prefix}:units`)},0)`);
       // The plots the line pools: counted, never typed.
       if (w.has(`${prefix}:plots`)) w.f(`${prefix}:plots`, `COUNT(${members.map((m) => R(`chain:${m.id}:land`)).join(',')})`);
     }
-    // Retail strips on the line table: land carved, and their hosts' retail figures.
+    // Retail strips on the line table: the land carved, and the retail its hosts' rows carry.
+    const compRows: string[] = [];
     for (const s of strips) {
       const prefix = `chaincomp:${s.name}`;
       if (!w.has(`${prefix}:land`)) continue;
+      compRows.push(prefix);
       const hs = (s.retailHostAssetIds ?? []).filter((id) => w.has(`chain:${id}:land`));
       const mine = pieceKeys.filter((k) => k.split(':').slice(2).join(':') === s.name).map((k) => R(k));
       w.f(`${prefix}:land`, mine.length ? `SUM(${mine.join(',')})` : '0');
       if (w.has(`${prefix}:hosts`) && mine.length) w.f(`${prefix}:hosts`, `COUNT(${mine.join(',')})`);
       const sumHost = (f: string): string => (hs.length ? `SUM(${hs.map((id) => R(`chain:${id}:${f}`)).join(',')})` : '0');
       w.f(`${prefix}:ret`, sumHost('ret')); w.f(`${prefix}:tg`, R(`${prefix}:ret`)); w.f(`${prefix}:nsa`, R(`${prefix}:ret`));
-      w.f(`${prefix}:rslots`, sumHost('rslots')); w.f(`${prefix}:rparea`, sumHost('rparea')); w.f(`${prefix}:tparea`, R(`${prefix}:rparea`));
-      w.f(`${prefix}:bua`, `${R(`${prefix}:ret`)}+N(${R(`${prefix}:tparea`)})`);
+      w.f(`${prefix}:rslots`, sumHost('rslots')); w.f(`${prefix}:tslots`, R(`${prefix}:rslots`));
+      w.f(`${prefix}:rparea`, sumHost('rparea')); w.f(`${prefix}:tparea`, R(`${prefix}:rparea`));
+      w.f(`${prefix}:bua`, `${R(`${prefix}:ret`)}+${R(`${prefix}:tparea`)}`);
     }
+    writeColumnTotals('chaintot:lines', [...lineRows, ...compRows].map((r) => `${r}:land`), lineRows);
 
-    // Land by asset (resolveAssetAreaMetrics).
+    // Land by asset (resolveAssetAreaMetrics): area x the plot's rate, cash and in-kind at its split.
     const landView = buildAssetLandView(state);
     const pRef = (pid: string | undefined, f: string): string => R(`parcel:${pid}:${f}`);
+    /** One land row: area x rate, the cash and in-kind halves at the plot's split. */
+    const landRow = (k: (x: string) => string, sqm: string, pid: string | undefined): void => {
+      w.f(k('sqm'), sqm);
+      w.f(k('rate'), `MAX(0,${pRef(pid, 'rate')})`);
+      w.f(k('value'), `${R(k('sqm'))}*${R(k('rate'))}`);
+      w.f(k('cash'), `${R(k('value'))}*MAX(0,${pRef(pid, 'cash')})`);
+      w.f(k('inkind'), `${R(k('value'))}*MAX(0,${pRef(pid, 'inkind')})`);
+    };
     for (const lv of landView) {
       const k = (x: string): string => `land:${lv.assetId}:${x}`;
       if (!w.has(k('sqm'))) continue;
       const a = visible.find((x) => x.id === lv.assetId)!;
       if (isRetailCompanion(a)) {
         const pieces = pieceKeys.filter((pk) => pk.split(':').slice(2).join(':') === a.name).map((pk) => ({ pk, parcel: pk.split(':')[1] }));
-        w.f(k('sqm'), pieces.length ? `SUM(${pieces.map((p) => R(p.pk)).join(',')})` : '0');
-        w.f(k('value'), pieces.length ? pieces.map((p) => `${R(p.pk)}*MAX(0,${pRef(p.parcel, 'rate')})`).join('+') : '0');
-        w.f(k('rate'), `IF(${R(k('sqm'))}>0,${R(k('value'))}/${R(k('sqm'))},0)`);
-        w.f(k('cash'), pieces.length ? pieces.map((p) => `${R(p.pk)}*MAX(0,${pRef(p.parcel, 'rate')})*MAX(0,${pRef(p.parcel, 'cash')})`).join('+') : '0');
-        w.f(k('inkind'), pieces.length ? pieces.map((p) => `${R(p.pk)}*MAX(0,${pRef(p.parcel, 'rate')})*MAX(0,${pRef(p.parcel, 'inkind')})`).join('+') : '0');
-      } else {
-        const pid = a.landAllocation?.parcelId;
-        w.f(k('sqm'), R(`chain:${a.id}:land`));
-        w.f(k('rate'), `MAX(0,${pRef(pid, 'rate')})`);
-        w.f(k('value'), `${R(k('sqm'))}*${R(k('rate'))}`);
-        w.f(k('cash'), `${R(k('value'))}*MAX(0,${pRef(pid, 'cash')})`);
-        w.f(k('inkind'), `${R(k('value'))}*MAX(0,${pRef(pid, 'inkind')})`);
-      }
+        const lp = (p: { parcel: string }) => (x: string): string => `landpiece:${p.parcel}:${a.name}:${x}`;
+        if (pieces.length === 1) landRow(k, R(pieces[0].pk), pieces[0].parcel);
+        else if (pieces.length > 1 && pieces.every((p) => w.has(lp(p)('sqm')))) {
+          // A strip on several plots: a row per plot (area x that plot's rate), the strip's row their sum.
+          for (const p of pieces) landRow(lp(p), R(p.pk), p.parcel);
+          for (const f of ['sqm', 'value', 'cash', 'inkind']) w.f(k(f), `SUM(${pieces.map((p) => R(lp(p)(f))).join(',')})`);
+          w.f(k('rate'), `IF(${R(k('sqm'))}>0,${R(k('value'))}/${R(k('sqm'))},0)`);
+        } else {
+          w.f(k('sqm'), pieces.length ? `SUM(${pieces.map((p) => R(p.pk)).join(',')})` : '0');
+          w.f(k('value'), pieces.length ? pieces.map((p) => `${R(p.pk)}*MAX(0,${pRef(p.parcel, 'rate')})`).join('+') : '0');
+          w.f(k('rate'), `IF(${R(k('sqm'))}>0,${R(k('value'))}/${R(k('sqm'))},0)`);
+          w.f(k('cash'), pieces.length ? pieces.map((p) => `${R(p.pk)}*MAX(0,${pRef(p.parcel, 'rate')})*MAX(0,${pRef(p.parcel, 'cash')})`).join('+') : '0');
+          w.f(k('inkind'), pieces.length ? pieces.map((p) => `${R(p.pk)}*MAX(0,${pRef(p.parcel, 'rate')})*MAX(0,${pRef(p.parcel, 'inkind')})`).join('+') : '0');
+        }
+      } else landRow(k, R(`chain:${a.id}:land`), a.landAllocation?.parcelId);
     }
     const cats = [...new Set(landView.map((x) => x.category))];
     for (const cat of cats) {
@@ -412,23 +455,22 @@ export const stage1LandArea: LiveLayer = {
       }
     }
 
-    // ── Inputs Table 2: the NSA used, the LARGER of Table 5 and the stated NSA ─
-    // resolveAssetAreaMetrics: nsa = max(the Sellable, Operable and Leasable
-    // rows' area, asset.sellableBuaSqm). A row Table 5 does not show leaves the
-    // figure the platform's value rather than a sum that misses it.
-    const NSA_CATS = new Set(['Sellable', 'Operable', 'Leasable']);
-    for (const a of state.assets) {
-      if (!w.has(`entry:${a.id}:nsaUsed`) || !w.has(`entry:${a.id}:nsa`)) continue;
-      const rows = (state.subUnits as SubUnit[]).filter((u) => u.assetId === a.id && NSA_CATS.has(u.category));
-      if (rows.some((u) => !w.has(`su:${u.id}:area`))) continue;
-      const table5 = rows.length ? `SUM(${rows.map((u) => R(`su:${u.id}:area`)).join(',')})` : '0';
-      w.f(`entry:${a.id}:nsaUsed`, `MAX(${table5},MAX(0,N(${R(`entry:${a.id}:nsa`)})))`);
+    // ── Land & Area: the NSA used per line, each asset's larger of Table 5 and its stated NSA ─
+    // resolveAssetAreaMetrics: nsa = max(the Sellable, Operable and Leasable rows' area,
+    // asset.sellableBuaSqm), added over the line's assets (nsaUsedFormula, the one expression).
+    // A row Table 5 does not show leaves the line the platform's value.
+    for (const l of nsaUsedLines(state, buildAssetAreaTables(state))) {
+      const key = `nsaline:${l.key}`;
+      if (!w.has(key)) continue;
+      const terms = l.assetIds.map((id) => nsaUsedFormula(id, state.subUnits as SubUnit[], (x) => (w.has(x) ? R(x) : null)));
+      if (terms.some((t) => !t)) continue;
+      w.f(key, terms.join('+'));
     }
 
     const counts = w.formulas;
     return [
       { sheet: 'Timeline', status: 'live' as const, formulas: counts.get('Timeline') ?? 0, note: 'The one source of timing: the phase table reads each phase\'s start, construction and operations years and status on Inputs, and the model years, the dated schedule, the Gantt (conditional formatting), the period flags and the construction and operating year counters read that table; every other tab reads its timing here. The axis length is fixed at export.' },
-      { sheet: 'Land & Area', status: 'live' as const, formulas: counts.get('Land & Area') ?? 0, note: 'The chain per plot, merged by line, the retail carve and the land by asset follow Inputs. Which plot an asset draws, the parking ratio basis and which assets host a retail strip are fixed at export; a step shown "-" at export stays "-".' },
+      { sheet: 'Land & Area', status: 'live' as const, formulas: counts.get('Land & Area') ?? 0, note: 'The chain per plot, merged by line, the retail carve and the land by asset follow Inputs. Which plot an asset draws, the parking ratio basis and which assets host a retail strip are fixed at export. A step the chain cannot derive reads 0.' },
       { sheet: 'Inputs', status: 'partial' as const, formulas: counts.get('Inputs') ?? 0, note: 'Live on this sheet: the phase dates, the model axis year, the plot values, Table 2 figures drawn from a whole plot or inherited from a type, the NSA used (the larger of the sub-units\' area and the Stated NSA), and the sub-unit areas, shares and unit counts.' },
     ];
   },

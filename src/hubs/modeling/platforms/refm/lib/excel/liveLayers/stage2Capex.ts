@@ -155,7 +155,7 @@ export const stage2Capex: LiveLayer = {
           case 'rate_x_main_asset_gfa': base = strip ? { kind: 'zero' } : { kind: 'ref', key: `chain:${a.id}:main` }; break;
           case 'rate_x_parking_area':
             // The chain's figure wins; a typed area is read only where the chain derives none (resolveAssetAreaMetrics).
-            if (!strip && (a.parkingArea ?? 0) > 0 && (!w.has(`chain:${a.id}:parea`) || typeof w.platformValue(w.addr(`chain:${a.id}:parea`)) !== 'number')) refuse.push(`${a.name} types a parking area the chain does not replace`);
+            if (!strip && (a.parkingArea ?? 0) > 0 && (!w.has(`chain:${a.id}:parea`) || !Number.isFinite(a.derivedAreas?.parkingAreaSqm))) refuse.push(`${a.name} types a parking area the chain does not replace`);
             base = strip ? { kind: 'zero' } : { kind: 'ref', key: `chain:${a.id}:parea`, ifNumber: true }; break;
           case 'rate_x_landscape_area': base = strip ? { kind: 'zero' } : { kind: 'ref', key: `chain:${a.id}:ls`, ifNumber: true }; break;
           case 'rate_x_retail_gfa': base = strip ? { kind: 'ref', key: `chaincomp:${a.name}:ret` } : { kind: 'zero' }; break;

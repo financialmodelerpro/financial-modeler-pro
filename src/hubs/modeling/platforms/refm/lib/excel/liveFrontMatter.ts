@@ -35,6 +35,33 @@ export const LIVE_TAB_GUIDE: Array<[string, string]> = [
   ['Checks', 'The identities that prove the model holds together, and the headline returns recomputed. OK means an identity holds; CHECK means it does not; NOTE is an advisory.'],
 ];
 
+/** What each Land & Area column is (2026-10-26): moved off the tab, which keeps its tables only. */
+export const LAND_AREA_COLUMNS: Array<[string, string]> = [
+  ['Plot Area', "The sqm the asset draws from its plot on Inputs Table 2 (a blank draws the whole plot), less the retail carve-out."],
+  ['Retail carve-out', "The land a retail strip takes from its host on a plot: the plot area x coverage x retail % / FAR, which is the plot area x retail GFA / total GFA."],
+  ['Net Developable Area', "Plot Area x Land Utilisation %."],
+  ['Building Footprint', "Net Developable Area x Ground Coverage %."],
+  ['Landscape %', "1 - Ground Coverage %."],
+  ['Landscape and Open Area', "Net Developable Area x Landscape %."],
+  ['Retail GFA', "Building Footprint x Retail % (ground floor). On the plot table it sits on the host; on the line table it is the retail strip's line."],
+  ['Lobby and Circulation GFA', "Building Footprint - Retail GFA (none when there is no retail)."],
+  ['Total GFA', "Net Developable Area x FAR. On the line table a host line leaves out the retail GFA, which its strip's line shows."],
+  ['Main Asset GFA', "Total GFA - Retail GFA - Lobby and Circulation GFA; the whole Total GFA when there is no retail."],
+  ['NSA or GLA', "Main Asset GFA x (1 - Service %). A retail strip's NSA is its retail GFA."],
+  ['Average Unit Size', "The sub-units' unit sizes first, the asset type's size as the fallback."],
+  ['Units or Keys', "NSA / Average Unit Size, rounded to whole units (a sub-unit count wins)."],
+  ['Parking Ratio', "The asset type's ratio: slots per unit, or sqm of GFA per slot."],
+  ['Parking Slots', "Units x ratio (slots per unit) or Main Asset GFA / ratio (sqm per slot), whole slots."],
+  ['Retail Parking Slots', "Retail GFA / the retail type's sqm per slot, whole slots. On the line table it is the strip's."],
+  ['Parking Area', "Parking Slots x the parking area per slot (Inputs, asset types)."],
+  ['Retail Parking Area', "Retail Parking Slots x the parking area per slot."],
+  ['Total BUA', "Total GFA + Total Parking Area, everything built."],
+  ['TOTAL rows', "Each table's total adds the rows above it, and the two tables' totals agree: the line table groups the plot rows."],
+  ['Land value', "Land (sqm) x the plot's rate; land is allocated by sqm only. A strip on several plots has a row per plot."],
+  ['Cash land / In-kind land', "Land value x the plot's Cash % / In-Kind %."],
+  ['NSA used', "Per line: each asset's larger of its sub-units' area and the Stated NSA on Inputs Table 2, added."],
+];
+
 /** The Cover: project name, date, currency, location and horizon. */
 export function buildLiveCover(ws: ExcelJS.Worksheet, d: { name: string; date: string; currency: string; location: string; horizon: string }): void {
   ws.getColumn(1).width = 3; ws.getColumn(2).width = 60;
@@ -61,6 +88,14 @@ export function buildLiveGuide(ws: ExcelJS.Worksheet, markInput: (c: ExcelJS.Cel
     ws.getRow(r).height = Math.max(15, Math.ceil(text.length / 110) * 15);
     r += 1;
   }
+  r += 1;
+  head('Land & Area, column by column');
+  for (const [col, text] of LAND_AREA_COLUMNS) {
+    setLabel(ws.getCell(r, 2), col, { bold: true });
+    const b = ws.getCell(r, 3); b.value = text; b.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } }; b.alignment = { wrapText: true, vertical: 'top' };
+    ws.getRow(r).height = Math.max(15, Math.ceil(text.length / 110) * 15);
+    r += 1;
+  }
 }
 
 /** The units line under each model tab's title. */
@@ -69,7 +104,8 @@ export function liveUnitsLine(sheet: string, currency: string, scale: DisplaySca
   switch (sheet) {
     case 'Inputs': return `${currency}; areas in sqm`;
     case 'Timeline': return 'Years';
-    case 'Land & Area': return `Areas in sqm; land values in ${money}`;
+    // Land values are full currency units, whatever the money scale elsewhere (2026-10-26).
+    case 'Land & Area': return `Areas in sqm; land values in ${currency}`;
     case 'Summary': return `${currency} millions`;
     default: return money;
   }

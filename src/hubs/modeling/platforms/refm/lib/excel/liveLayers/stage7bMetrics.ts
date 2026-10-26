@@ -23,6 +23,7 @@
 import type { LayerContext, LiveLayer } from '../formulaWorkbook';
 import { LOOP_NEGATIVE } from './stage6Loop';
 import { LiveWriter } from './writer';
+import { nsaUsedFormula } from './liveAreas';
 import { irrOf, pctT, irrT, multT, moicOf, moneyT as moneyWords, ratioT, seriesT, workingLabel } from './excelText';
 import { PERIOD_COLS } from '../buildModelWorkbook';
 import { terminalValueFormula } from './terminal';
@@ -315,9 +316,11 @@ export const stage7bMetrics: LiveLayer = {
             .flatMap((u) => w.reg.keys().filter((k) => k.startsWith('rvc:') && k.includes(`:${u.id}:`) && /:(pre|post):(area|units)$/.test(k)));
           return ks.length ? ks.map(rv).join('+') : null;
         };
-        if (sellAssets.length && sellAssets.every((id) => has(`entry:${id}:nsaUsed`))) {
+        const nsaRef = (k: string): string | null => (has(k) ? w.ref(k) : null);
+        const nsaOf = new Map(sellAssets.map((id) => [id, nsaUsedFormula(id, state.subUnits as never, nsaRef)] as const));
+        if (sellAssets.length && sellAssets.every((id) => nsaOf.get(id))) {
           // An asset with no sale rows on the sheet sold nothing, so it adds nothing.
-          const area = (): string => `(${sellAssets.map((id) => { const s = soldOf(id); return s ? `IF((${s})>0,N(${w.ref(`entry:${id}:nsaUsed`)}),0)` : '0'; }).join('+')})`;
+          const area = (): string => `(${sellAssets.map((id) => { const s = soldOf(id); return s ? `IF((${s})>0,${nsaOf.get(id)},0)` : '0'; }).join('+')})`;
           kpi(RS, 'Avg Sale Price / sqm', () => rateT(sale(), area()));
         }
         kpi(RS, 'Pre-Sales %', () => ratioT(pre(), sale()));

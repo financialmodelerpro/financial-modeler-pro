@@ -398,7 +398,8 @@ export function emitSubUnitSection(c: SheetCursor, state: FinancialsResolverStat
   for (const line of lines) {
     band(c, live ? line.title : `${line.title}. ${line.check}`, live ? 8 : 10);
     for (const u of line.rows) {
-      setLabel(c.ws.getCell(c.r, 1), u.plot ? `${u.name} (${u.plot})` : u.name, { indent: 1 });
+      // Live layout: a share is of the whole line's NSA, so the row is named without a plot.
+      setLabel(c.ws.getCell(c.r, 1), u.plot && (!live || u.plot === 'no asset' || line.rows.filter((x) => x.name === u.name).length > 1) ? `${u.name} (${u.plot})` : u.name, { indent: 1 });
       setInput(c.ws.getCell(c.r, 2), u.category, '@');
       if (live) {
         // THE LIVE WORKBOOK: only the stated half of each pair is here; the rest follows the line's
@@ -439,42 +440,52 @@ export function emitSubUnitSection(c: SheetCursor, state: FinancialsResolverStat
 
 // ── LAND & AREA: SUB-UNIT AREAS AND THE NSA USED (live workbook) ──────────────
 
-/** Each sub-unit's share of its line's NSA, its area and units, the line totals, and each asset's NSA used. */
+/** The lines the NSA used table shows (live layout), each with the assets it adds: the Inputs Table 2 rows. */
+export function nsaUsedLines(state: FinancialsResolverState, tables: AssetAreaTables): Array<{ key: string; title: string; assetIds: string[] }> {
+  const entryIds = new Set(tables.plots.flatMap((g) => g.entries.map((e) => e.assetId)));
+  const ls = { assets: state.assets, phases: state.phases, parcels: state.parcels };
+  return planReportLines(ls, (a) => entryIds.has(a.id))
+    .map((l) => ({ key: l.key, title: lineTitle(l, ls), assetIds: l.assetIds.filter((id) => entryIds.has(id)) }))
+    .filter((l) => l.assetIds.length > 0);
+}
+
+/** Each sub-unit's share of its line's NSA, its area and units, and each line's NSA used. */
 export function emitSubUnitAreas(c: SheetCursor, state: FinancialsResolverState, tables: AssetAreaTables): void {
   const lines = buildSubUnitLines(state);
   if (lines.length) {
-    setSectionHeader(c.ws.getRow(c.r), 'Sub-unit areas (each sub-unit\'s share of its line\'s NSA; the share or area typed on Inputs Table 5)', 4); c.r += 1;
+    setSectionHeader(c.ws.getRow(c.r), 'Sub-unit areas', 4); c.r += 1;
     headers(c, ['Sub-unit', 'NSA Share %', 'Area (sqm)', 'Units or Keys']);
     for (const line of lines) {
       band(c, line.title, 4);
+      // A share is of the whole LINE's NSA, so a row covers the line and is named without a plot
+      // (2026-10-26). One on no asset still says so, and two rows of one name keep their plots apart.
       for (const u of line.rows) {
-        setLabel(c.ws.getCell(c.r, 1), u.plot ? `${u.name} (${u.plot})` : u.name, { indent: 1 });
+        setLabel(c.ws.getCell(c.r, 1), u.plot && (u.plot === 'no asset' || line.rows.filter((x) => x.name === u.name).length > 1) ? `${u.name} (${u.plot})` : u.name, { indent: 1 });
         if (u.sharePct.value !== undefined) derived(c.ws.getCell(c.r, 2), u.sharePct.value / 100, NUMFMT.pct2);
         derived(c.ws.getCell(c.r, 3), u.areaSqm.value ?? 0, NUMFMT.int);
         if (u.units.value !== undefined) derived(c.ws.getCell(c.r, 4), u.units.value, NUMFMT.int);
         (['share', 'area', 'units'] as const).forEach((k, i) => registerCell(`su:${u.id}:${k}`, c.ws, c.ws.getCell(c.r, 2 + i)));
         c.r += 1;
       }
-      setLabel(c.ws.getCell(c.r, 1), line.title === 'Not on a line' ? 'Total, not on a line' : 'Line total', { bold: true, indent: 1 });
-      if (line.nsaSqm > 0) derived(c.ws.getCell(c.r, 2), line.areaSqm / line.nsaSqm, NUMFMT.pct2, true);
-      derived(c.ws.getCell(c.r, 3), line.areaSqm, NUMFMT.int, true);
-      registerCell(`suline:${line.key}:share`, c.ws, c.ws.getCell(c.r, 2));
-      registerCell(`suline:${line.key}:area`, c.ws, c.ws.getCell(c.r, 3));
-      c.r += 1;
     }
     c.r += 1;
   }
+  // ONE ROW PER LINE (2026-10-26): a line's sub-units sit on one of its plots' assets but cover the
+  // whole line, so a per-plot split showed one plot holding the line and the other none. The row adds
+  // its assets' NSA used, each the larger of its sub-units' area and its Stated NSA (resolveAssetAreaMetrics).
   const visible = state.assets.filter((a) => a.visible !== false);
-  const rows = tables.plots.flatMap((g) => g.entries.map((e) => ({ e, g })));
-  if (rows.length) {
-    setSectionHeader(c.ws.getRow(c.r), 'NSA used by asset (the larger of its sub-units\' area and the Stated NSA on Inputs Table 2)', 2); c.r += 1;
-    headers(c, ['Asset', 'NSA used (sqm)']);
-    for (const { e, g } of rows) {
-      const a = visible.find((x) => x.id === e.assetId);
-      if (!a) continue;
-      setLabel(c.ws.getCell(c.r, 1), `${e.typeLabel}, ${g.plotLabel}`, { indent: 1 });
-      derived(c.ws.getCell(c.r, 2), resolveAssetAreaMetrics(a, state.project, state.parcels, visible, state.subUnits, state.landAllocationMode).nsa, NUMFMT.int);
-      registerCell(`entry:${e.assetId}:nsaUsed`, c.ws, c.ws.getCell(c.r, 2));
+  const nsaLines = nsaUsedLines(state, tables);
+  if (nsaLines.length) {
+    setSectionHeader(c.ws.getRow(c.r), 'NSA used by line', 2); c.r += 1;
+    headers(c, ['Line', 'NSA used (sqm)']);
+    for (const l of nsaLines) {
+      const nsa = l.assetIds.reduce((s, id) => {
+        const a = visible.find((x) => x.id === id);
+        return s + (a ? resolveAssetAreaMetrics(a, state.project, state.parcels, visible, state.subUnits, state.landAllocationMode).nsa : 0);
+      }, 0);
+      setLabel(c.ws.getCell(c.r, 1), l.title, { indent: 1 });
+      derived(c.ws.getCell(c.r, 2), nsa, NUMFMT.int);
+      registerCell(`nsaline:${l.key}`, c.ws, c.ws.getCell(c.r, 2));
       c.r += 1;
     }
     c.r += 1;
@@ -1138,7 +1149,10 @@ export const CHAIN_FIELDS = ['land', 'nda', 'fp', 'lsPct', 'ls', 'ret', 'lob', '
 function registerChainRow(ws: ExcelJS.Worksheet, r: number, startCol: number, prefix: string): void {
   CHAIN_FIELDS.forEach((f, i) => registerCell(`${prefix}:${f}`, ws, ws.getCell(r, startCol + i)));
 }
-function chainCells(ws: ExcelJS.Worksheet, r: number, startCol: number, landSqm: number, g: Pooled, ratios: { landscapePct?: number; unitSize?: number; slotRatio?: number }, bold = false): void {
+/** How a figure the chain did not produce is shown: the snapshot's "-", or in the live workbook a 0 (a figure
+ *  the formulas work out) or a blank (a column that does not apply to the row). */
+type Absent = 'dash' | 'zero' | 'blank';
+function chainCells(ws: ExcelJS.Worksheet, r: number, startCol: number, landSqm: number, g: Pooled, ratios: { landscapePct?: number; unitSize?: number; slotRatio?: number }, bold = false, absent: Absent = 'dash'): void {
   const vals: Array<[number | undefined, string]> = [
     [landSqm, NUMFMT.int], [g.landUtilisedSqm, NUMFMT.int], [g.footprintSqm, NUMFMT.int],
     [ratios.landscapePct === undefined ? undefined : ratios.landscapePct, NUMFMT.pct2], [g.landscapeSqm, NUMFMT.int],
@@ -1149,80 +1163,114 @@ function chainCells(ws: ExcelJS.Worksheet, r: number, startCol: number, landSqm:
   ];
   vals.forEach(([v, fmt], i) => {
     const cell = ws.getCell(r, startCol + i);
-    if (v === undefined) { cell.value = '-'; cell.alignment = { horizontal: 'right' }; cell.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } }; return; }
+    if (v === undefined) {
+      if (absent === 'blank') return;
+      if (absent === 'zero') { derived(cell, 0, fmt, bold); return; }
+      cell.value = '-'; cell.alignment = { horizontal: 'right' }; cell.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } }; return;
+    }
     derived(cell, v, fmt, bold);
   });
 }
 
+/** A host line WITHOUT the retail its strip carries (live layout, 2026-10-26): the strip's own line shows the
+ *  retail GFA, its parking and its BUA, so the lines add up to the plots instead of counting retail twice. */
+function withoutRetail(g: Pooled): Pooled {
+  const ret = g.retailGfaSqm ?? 0, rs = g.retailParkingSlots ?? 0, rp = g.retailParkingAreaSqm ?? 0;
+  const less = (x: number | undefined, d: number): number | undefined => (x === undefined ? undefined : x - d);
+  return {
+    ...g, retailGfaSqm: 0, retailParkingSlots: 0, retailParkingAreaSqm: 0,
+    totalGfaSqm: less(g.totalGfaSqm, ret), totalParkingSlots: less(g.totalParkingSlots, rs),
+    totalParkingAreaSqm: less(g.totalParkingAreaSqm, rp), totalBuaSqm: less(g.totalBuaSqm, ret + rp),
+  };
+}
+
 export function emitLandTables(c: SheetCursor, tables: AssetAreaTables): void {
   const ws = c.ws;
+  const live = isLiveLayout();
+  // ONE COLUMN LAYOUT FOR BOTH TABLES (live layout, 2026-10-26): Phase, Strategy and Plots sit on the left of
+  // both, so a measure is in the same column on the plot table and the line table.
+  const lead = live ? 3 : 0, at = 2 + lead, cols = LAND_CHAIN_COLS + lead;
+  const absent: Absent = live ? 'zero' : 'dash';
+  const lineHeads = ['Phase', 'Strategy', 'Plots'];
+  const stripOf = (name: string): { strategy: string } | undefined => tables.companions.find((s) => s.name === name);
   // TABLE 3, per plot: the chain run on each plot, never pooled.
-  setSectionHeader(ws.getRow(c.r), 'Derived areas by plot (land x utilisation x coverage / FAR)', LAND_CHAIN_COLS); c.r += 1;
-  headers(c, ['Asset', ...CHAIN_HEADS]);
+  setSectionHeader(ws.getRow(c.r), 'Derived areas by plot (land x utilisation x coverage / FAR)', cols); c.r += 1;
+  headers(c, ['Asset', ...(live ? lineHeads : []), ...CHAIN_HEADS]);
   for (const g of tables.plots) {
-    band(c, `${g.plotLabel}${g.phaseName ? `, ${g.phaseName}` : ''}`, LAND_CHAIN_COLS);
+    band(c, `${g.plotLabel}${g.phaseName ? `, ${g.phaseName}` : ''}`, cols);
     for (const row of g.chains) {
       setLabel(ws.getCell(c.r, 1), row.label, { indent: 1 });
+      if (live) {
+        setLabel(ws.getCell(c.r, 2), g.phaseName ?? '');
+        setLabel(ws.getCell(c.r, 3), g.entries.find((e) => e.assetId === row.assetId)?.strategy ?? '');
+      }
       const ch = row.chain as unknown as Pooled;
-      chainCells(ws, c.r, 2, row.landSqm, ch, {
+      chainCells(ws, c.r, at, row.landSqm, ch, {
         landscapePct: row.chain.landscapePct === undefined ? undefined : row.chain.landscapePct / 100,
         unitSize: row.unitSizeSqm,
         slotRatio: row.ratio,
-      });
-      registerChainRow(ws, c.r, 2, `chain:${row.assetId}`);
+      }, false, absent);
+      registerChainRow(ws, c.r, at, `chain:${row.assetId}`);
       c.r += 1;
     }
     for (const piece of g.retailPieces) {
       // Land and NSA, nothing else: its floor area is inside the hosts' rows, its land and its
       // lettable area are not (totalsFromRows), so the column totals foot to the rows above.
-      setLabel(ws.getCell(c.r, 1), `${piece.name} (land carved from this plot's hosts, and its NSA here)`, { indent: 1 });
-      chainCells(ws, c.r, 2, piece.sqm, { netSaleableSqm: piece.nsaSqm } as Pooled, {});
-      registerCell(`piece:${g.key}:${piece.name}`, ws, ws.getCell(c.r, 2));
-      registerCell(`piecensa:${g.key}:${piece.name}`, ws, ws.getCell(c.r, 2 + CHAIN_FIELDS.indexOf('nsa')));
+      // In the live layout this row IS the carve: the land the strip takes from this plot's hosts.
+      setLabel(ws.getCell(c.r, 1), live ? (g.retailPieces.length > 1 ? `Retail carve-out, ${piece.name}` : 'Retail carve-out') : `${piece.name} (land carved from this plot's hosts, and its NSA here)`, { indent: 1 });
+      if (live) {
+        setLabel(ws.getCell(c.r, 2), g.phaseName ?? '');
+        setLabel(ws.getCell(c.r, 3), stripOf(piece.name)?.strategy ?? '');
+      }
+      chainCells(ws, c.r, at, piece.sqm, { netSaleableSqm: piece.nsaSqm } as Pooled, {}, false, live ? 'blank' : 'dash');
+      registerCell(`piece:${g.key}:${piece.name}`, ws, ws.getCell(c.r, at));
+      registerCell(`piecensa:${g.key}:${piece.name}`, ws, ws.getCell(c.r, at + CHAIN_FIELDS.indexOf('nsa')));
       c.r += 1;
     }
   }
-  totalRow(c, 'TOTAL, all plots', tables.plotTotal, 0, 'chaintot:plots');
+  totalRow(c, 'TOTAL, all plots', tables.plotTotal, lead, 'chaintot:plots', absent);
   note(c, `Plots hold ${Math.round(tables.parcelsTotalSqm).toLocaleString('en-US')} sqm; the Plot Area column totals ${Math.round(tables.plotTotal.landSqm).toLocaleString('en-US')} sqm including the land the retail strips carved from their hosts. A dash means a step could not be derived, which is not zero.`);
   c.r += 1;
 
   // TABLE 4, per line: the same rows regrouped, areas added, ratios from the row's own sums.
   const lineCols = 3 + LAND_CHAIN_COLS;
   setSectionHeader(ws.getRow(c.r), 'Merged by line', lineCols); c.r += 1;
-  headers(c, ['Type', 'Phase', 'Strategy', 'Plots', ...CHAIN_HEADS]);
+  headers(c, ['Type', ...lineHeads, ...CHAIN_HEADS]);
   for (const l of tables.lines) {
     setLabel(ws.getCell(c.r, 1), l.typeLabel, { indent: 1 });
     setLabel(ws.getCell(c.r, 2), l.phaseName);
     setLabel(ws.getCell(c.r, 3), l.strategy);
     derived(ws.getCell(c.r, 4), l.plots, NUMFMT.int);
     registerCell(`chainline:${l.key}:plots`, ws, ws.getCell(c.r, 4));
-    chainCells(ws, c.r, 5, l.landSqm, l.pooled, { landscapePct: l.landscapePct, unitSize: l.avgUnitSize, slotRatio: l.slotsPerUnit });
+    chainCells(ws, c.r, 5, l.landSqm, live ? withoutRetail(l.pooled) : l.pooled, { landscapePct: l.landscapePct, unitSize: l.avgUnitSize, slotRatio: l.slotsPerUnit }, false, absent);
     registerChainRow(ws, c.r, 5, `chainline:${l.key}`);
     c.r += 1;
   }
   if (tables.companions.length > 0) {
-    note(c, 'Retail companions, held on Lease. Their floor area is already inside the Retail GFA above; their land is the land their hosts gave up, and their NSA is their own lettable area, which no host row carries, so the totals add their land and their NSA and nothing is counted twice.');
+    note(c, live
+      ? 'Retail strips, held on Lease. A host line leaves out the retail its strip carries (the retail GFA, its share of Total GFA, its parking and its BUA); the strip\'s line shows them, with the land its hosts gave up and its lettable area, so the lines add up to the plots.'
+      : 'Retail companions, held on Lease. Their floor area is already inside the Retail GFA above; their land is the land their hosts gave up, and their NSA is their own lettable area, which no host row carries, so the totals add their land and their NSA and nothing is counted twice.');
     for (const s of tables.companions) {
       setLabel(ws.getCell(c.r, 1), s.name, { indent: 1 });
       setLabel(ws.getCell(c.r, 2), s.phaseName);
       setLabel(ws.getCell(c.r, 3), s.strategy);
       derived(ws.getCell(c.r, 4), s.hosts, NUMFMT.int);
       registerCell(`chaincomp:${s.name}:hosts`, ws, ws.getCell(c.r, 4));
-      const g: Pooled = { retailGfaSqm: s.retailGfaSqm, totalGfaSqm: s.retailGfaSqm, netSaleableSqm: s.nsaSqm, retailParkingSlots: s.slots, retailParkingAreaSqm: s.parkingAreaSqm, totalParkingAreaSqm: s.parkingAreaSqm, totalBuaSqm: s.totalBuaSqm };
-      chainCells(ws, c.r, 5, s.landSqm, g, {});
+      const g: Pooled = { retailGfaSqm: s.retailGfaSqm, totalGfaSqm: s.retailGfaSqm, netSaleableSqm: s.nsaSqm, retailParkingSlots: s.slots, retailParkingAreaSqm: s.parkingAreaSqm, totalParkingAreaSqm: s.parkingAreaSqm, totalBuaSqm: s.totalBuaSqm, ...(live ? { totalParkingSlots: s.slots } : {}) };
+      chainCells(ws, c.r, 5, s.landSqm, g, {}, false, live ? 'blank' : 'dash');
       registerChainRow(ws, c.r, 5, `chaincomp:${s.name}`);
       c.r += 1;
     }
   }
-  totalRow(c, 'TOTAL, all lines', tables.lineTotal, 3, 'chaintot:lines');
+  totalRow(c, 'TOTAL, all lines', tables.lineTotal, 3, 'chaintot:lines', absent);
   note(c, 'The same totals as by plot: the two tables group the same rows differently, so they must agree.');
   c.r += 1;
 }
 
-function totalRow(c: SheetCursor, label: string, t: { landSqm: number; pooled: Pooled; landscapePct?: number; avgUnitSize?: number; slotsPerUnit?: number }, pad = 0, regPrefix?: string): void {
+function totalRow(c: SheetCursor, label: string, t: { landSqm: number; pooled: Pooled; landscapePct?: number; avgUnitSize?: number; slotsPerUnit?: number }, pad = 0, regPrefix?: string, absent: Absent = 'dash'): void {
   const ws = c.ws;
   setLabel(ws.getCell(c.r, 1), label, { bold: true });
-  chainCells(ws, c.r, 2 + pad, t.landSqm, t.pooled, { landscapePct: t.landscapePct, unitSize: t.avgUnitSize, slotRatio: t.slotsPerUnit }, true);
+  chainCells(ws, c.r, 2 + pad, t.landSqm, t.pooled, { landscapePct: t.landscapePct, unitSize: t.avgUnitSize, slotRatio: t.slotsPerUnit }, true, absent);
   if (regPrefix) registerChainRow(ws, c.r, 2 + pad, regPrefix);
   fillRange(ws, c.r, 1, c.r, LAND_CHAIN_COLS + pad, ARGB.subtotal);
   c.r += 1;
