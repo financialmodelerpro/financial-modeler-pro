@@ -37,7 +37,7 @@ import { hqOpexLinesInForce, normalizeOpexIndexation } from '@/src/core/calculat
 import { planRevenueLines, groupRevenueLines, lineForAsset, type RevenueLine } from '../revenueLines';
 import { revenueLineName } from '../reports/revenueOutputReports';
 import { planReportLines, lineTitle } from '../reports/lineRows';
-import { resolveRowVelocity } from '../revenue-resolvers';
+import { resolveRowVelocity, resolveLinePace, occupancyAxis } from '../revenue-resolvers';
 import { buildSaleCohortTermsBlock, saleCohortRuleText } from '../reports/saleCohortReports';
 import { OPEX_CATEGORY_LABELS, OPEX_MODE_LABELS, isFixedCostOpexMode, summarizeOpexIndexation } from '../reports/opexInputLabels';
 import { resolveReturnsConfig, computeReturnsSnapshot } from '../returns-resolvers';
@@ -160,7 +160,8 @@ export function emitPhasesSection(c: SheetCursor, state: FinancialsResolverState
       setInput(c.ws.getCell(c.r, 4), ph.operationsPeriods ?? 0, NUMFMT.int);
       (['start', 'cp', 'op'] as const).forEach((k, i) => registerCell(`phase:${ph.id}:${k}`, c.ws, c.ws.getCell(c.r, 2 + i)));
       setInput(c.ws.getCell(c.r, 5), phaseStatusLabel(ph.status), '@');
-      // No "start year at export" (2026-10-25): the input grids are keyed by phase year, so they move with the phase.
+      registerCell(`phase:${ph.id}:status`, c.ws, c.ws.getCell(c.r, 5));
+      // No "start year at export" (2026-10-25): the input grids are keyed by construction or operating year (2026-10-26), so they move with the phase.
       c.r += 1;
       continue;
     }
@@ -231,7 +232,7 @@ export function emitStandardsSection(c: SheetCursor, state: FinancialsResolverSt
   // BLANK WHEN ABSENT, NEVER 0: an absent rate is "not set" on the platform.
   // The live workbook types it here either way (0% where the platform states none); the Capex cell echoes it.
   const escLive = isLiveLayout();
-  kv(c, `Construction cost escalation (% a year, from ${v.baseYear})`, v.escalationPct === undefined ? (escLive ? 0 : undefined) : v.escalationPct / 100, NUMFMT.pct2, true,
+  kv(c, isLiveLayout() ? 'Construction cost escalation (% a year, from the first model year)' : `Construction cost escalation (% a year, from ${v.baseYear})`, v.escalationPct === undefined ? (escLive ? 0 : undefined) : v.escalationPct / 100, NUMFMT.pct2, true,
     undefined, v.escalationPct === undefined ? (escLive ? 'Not set on the platform, so 0%: rates are not escalated.' : 'Not set: rates are not escalated.') : undefined,
     v.escalationPct === undefined && !escLive ? undefined : 'inp=cx:esc@3');
   c.r += 1;
@@ -244,8 +245,8 @@ export function emitStandardsSection(c: SheetCursor, state: FinancialsResolverSt
     setSectionHeader(c.ws.getRow(c.r), title, construction ? (prices ? 9 : 5) : 5); c.r += 1;
     const multiPhase = state.phases.length > 1;
     headers(c, construction
-      ? ['Item', 'Applies to', 'Basis', `Rate (${v.baseYear} money)`, 'By phase', ...(prices ? ['Price per unit', 'Price per unit reads as', 'Price per sqm', 'Price per sqm reads as'] : [])]
-      : ['Item', 'Basis', `Rate (${v.baseYear} money)`, 'By phase']);
+      ? ['Item', 'Applies to', 'Basis', isLiveLayout() ? 'Rate (first model year money)' : `Rate (${v.baseYear} money)`, 'By phase', ...(prices ? ['Price per unit', 'Price per unit reads as', 'Price per sqm', 'Price per sqm reads as'] : [])]
+      : ['Item', 'Basis', isLiveLayout() ? 'Rate (first model year money)' : `Rate (${v.baseYear} money)`, 'By phase']);
     for (const row of rows) {
       setLabel(c.ws.getCell(c.r, 1), row.label);
       let col = 2;
@@ -688,7 +689,7 @@ const INDEX_METHOD_LABELS: Record<string, string> = {
   none: 'None', single_rate: 'Flat', yoy_compound: 'YoY Compound', yoy_per_period: 'Per-Year', step: 'Step',
 };
 
-interface LineWindow { phaseOffset: number; construction: number[]; operations: number[]; handoverIdx: number; defaultOpsIdx: number; opsIdx: number }
+interface LineWindow { phaseOffset: number; cStart: number; construction: number[]; operations: number[]; handoverIdx: number; defaultOpsIdx: number; opsIdx: number }
 
 /** The screen's own window arithmetic (Module2Revenue, the per-line card). */
 function lineWindow(host: Asset, phase: Phase | undefined, snap: Snap): LineWindow {
@@ -707,7 +708,7 @@ function lineWindow(host: Asset, phase: Phase | undefined, snap: Snap): LineWind
   const opsEnd = Math.max(opsIdx, Math.min(N - 1, defaultOpsIdx + op - 1));
   const range = (a: number, b: number): number[] => Array.from({ length: Math.max(0, b - a + 1) }, (_, k) => a + k);
   return {
-    phaseOffset,
+    phaseOffset, cStart,
     construction: cp > 0 ? range(cStart, handoverIdx) : [],
     operations: op > 0 ? range(opsIdx, opsEnd) : [],
     handoverIdx, defaultOpsIdx, opsIdx,
@@ -750,13 +751,13 @@ function yearStrip(c: SheetCursor, label: string, years: number[], values: (idx:
  * at export" shift is needed. It is the count the platform stores these arrays in
  * (index 0 = the phase's first year, `expandPhaseLocalToAxis`), so a change of
  * construction years moves nothing the platform would not move either.
- * `yearOf(idx)` turns the axis year a column holds today into its phase year. Each cell is registered
- * `rxgrid|<grid>@<phase year>`, which the Revenue tab reads by phase year.
+ * `yearOf(idx)` turns the axis year a column holds today into its construction or operating year. Each cell is registered
+ * `rxgrid|<grid>@<n>`, which the Revenue tab reads through the Timeline year counters.
  */
-function phaseYearStrip(c: SheetCursor, label: string, idxs: number[], values: (idx: number) => number | undefined, headerLabel: string, yearOf: (idx: number) => number, grid: string): void {
+function phaseYearStrip(c: SheetCursor, label: string, idxs: number[], values: (idx: number) => number | undefined, headerLabel: string, yearOf: (idx: number) => number, grid: string, head = 'Year'): void {
   if (idxs.length === 0) return;
   setColHeader(c.ws.getCell(c.r, 1), headerLabel, 'left');
-  idxs.forEach((idx, i) => setColHeader(c.ws.getCell(c.r, 2 + i), `Year ${yearOf(idx)}`, 'right'));
+  idxs.forEach((idx, i) => setColHeader(c.ws.getCell(c.r, 2 + i), `${head} ${yearOf(idx)}`, 'right'));
   c.r += 1;
   setLabel(c.ws.getCell(c.r, 1), label, { indent: 1 });
   idxs.forEach((idx, i) => {
@@ -830,10 +831,11 @@ function emitSellLine(c: SheetCursor, line: RevenueLine, w: LineWindow, snap: Sn
     arr !== undefined ? arr[idx - w.phaseOffset] : legacy?.[idx];
   const velocityRows: Array<{ label: string; revRow?: string; pre: (i: number) => number | undefined; post: (i: number) => number | undefined }> = [];
   if (sell.velocityDefault && units.length !== 1) {
-    velocityRows.push({ label: 'All sub-units (line pace)', pre: axisOf(sell.velocityDefault.preSalesVelocityByPhase, undefined), post: axisOf(sell.velocityDefault.postSalesVelocityByPhase, undefined) });
+    const pace = resolveLinePace(sell, phase ?? {});
+    velocityRows.push({ label: 'All sub-units (line pace)', pre: axisOf(pace?.pre, undefined), post: axisOf(pace?.post, undefined) });
   } else {
     for (const u of units) {
-      const v = resolveRowVelocity(sell, u.id);
+      const v = resolveRowVelocity(sell, u.id, phase ?? {});
       velocityRows.push({
         label: `${u.name || 'sub-unit'}${v.source === 'default' ? ' (line pace)' : v.source === 'none' ? ' (no velocity: sells nothing)' : ''}`,
         // The Revenue card's row for this sub-unit, the velocity the live sale passes read.
@@ -845,13 +847,15 @@ function emitSellLine(c: SheetCursor, line: RevenueLine, w: LineWindow, snap: Sn
   const velLink = (table: string, row: { revRow?: string }) => (idx: number): string | undefined =>
     row.revRow ? `revin|${line.key}|${table}|${row.revRow}@${axisCol(idx)}` : undefined;
   if (isLiveLayout()) {
-    // Keyed by year of the phase (phaseYearStrip), the count the platform stores velocity in.
+    // Pre-sales keyed by construction year, sales during operation by operating year (2026-10-26):
+    // the platform's own keys, so a longer build moves the operating grid with the opening.
     const cy = (idx: number): number => idx - w.phaseOffset + 1;
+    const oy = (idx: number): number => idx - w.opsIdx + 1;
     for (const [i, row] of velocityRows.entries()) {
-      phaseYearStrip(c, row.label, w.construction, row.pre, i === 0 ? 'Pre-Sales velocity, by year of the phase' : '', cy, `${line.key}|pre|${row.revRow ?? row.label}`);
+      phaseYearStrip(c, row.label, w.construction, row.pre, i === 0 ? 'Pre-Sales velocity, by construction year' : '', cy, `${line.key}|pre|${row.revRow ?? row.label}`);
     }
     for (const [i, row] of velocityRows.entries()) {
-      phaseYearStrip(c, row.label, w.operations, row.post, i === 0 ? 'Sales During Operation, by year of the phase' : '', cy, `${line.key}|post|${row.revRow ?? row.label}`);
+      phaseYearStrip(c, row.label, w.operations, row.post, i === 0 ? 'Sales During Operation, by operating year' : '', oy, `${line.key}|post|${row.revRow ?? row.label}`, 'Ops year');
     }
   }
   if (!isLiveLayout() && w.construction.length > 0) {
@@ -869,7 +873,7 @@ function emitSellLine(c: SheetCursor, line: RevenueLine, w: LineWindow, snap: Sn
   kv(c, 'Revenue Recognition', rec.method === 'over_time' ? 'Over-Time' : 'Point-in-Time', '@', true);
   if (rec.method !== 'over_time') {
     const pit = rec.pointInTimeYear ?? 'handover';
-    kv(c, 'Recognition year', pit === 'sale_year' ? 'At sale year' : pit === 'custom' ? `At custom year (${rec.pointInTimeCustomYear ?? snap.projectStartYear + w.handoverIdx})` : `At handover (${snap.projectStartYear + w.handoverIdx})`, '@', true);
+    kv(c, 'Recognition year', pit === 'sale_year' ? 'At sale year' : pit === 'custom' ? `At custom year (${rec.pointInTimeCustomYear ?? snap.projectStartYear + w.handoverIdx})` : isLiveLayout() ? 'At handover (the handover year on Timeline)' : `At handover (${snap.projectStartYear + w.handoverIdx})`, '@', true);
   } else {
     const pct = rec.percentagesByPhase ?? rec.percentages ?? [];
     let n = 0; for (let i = 0; i < pct.length; i++) if ((pct[i] ?? 0) !== 0) n = i + 1;
@@ -882,7 +886,7 @@ function emitSellLine(c: SheetCursor, line: RevenueLine, w: LineWindow, snap: Sn
     // Keyed by the construction year of the sale (phaseYearStrip), not the calendar year.
     const phaseStartYear = utcYear(phase?.startDate, snap.projectStartYear);
     const byIdx = new Map(block.downpayments.map((d) => [d.year - snap.projectStartYear, d.value]));
-    phaseYearStrip(c, 'Downpayment % by sale year', [...byIdx.keys()], (idx) => byIdx.get(idx), 'Sale cohort terms, by year of the phase the sale falls in',
+    phaseYearStrip(c, 'Downpayment % by sale year', [...byIdx.keys()], (idx) => byIdx.get(idx), 'Sale cohort terms, by construction year of the sale',
       (idx) => idx + snap.projectStartYear - phaseStartYear + 1, `${line.key}|dp`);
     kv(c, 'Max instalment years after sale', block.instalmentYears, NUMFMT.int, true, undefined, undefined, `inp=revin|${line.key}|Sale cohort terms|Max instalment years after sale@4`);
     kv(c, 'Instalments', block.stopAtHandover ? 'Stop at handover' : 'May run past handover', '@', true);
@@ -941,8 +945,9 @@ function emitOperateLine(c: SheetCursor, line: RevenueLine, w: LineWindow, snap:
   const L = (label: string, col = 4): string => `inp=revin|${line.key}|*|${label}@${col}`;
   indexationRows(c, 'ADR indexation', op?.adrIndexation, snap, line.key);
   opsStartRow(c, line, w, snap, op?.operationsStartYearOverride, L('Operations start year'));
-  if (isLiveLayout()) phaseYearStrip(c, 'Occupancy', w.operations, (idx) => op?.occupancyPerPeriodByPhase?.[idx - w.phaseOffset] ?? op?.occupancyPerPeriod?.[idx], 'Occupancy ramp, by year of the phase', (idx) => idx - w.phaseOffset + 1, `${line.key}|occ`);
-  else yearStrip(c, 'Occupancy', w.operations, (idx) => op?.occupancyPerPeriod?.[idx], NUMFMT.pct, true, snap, 'Occupancy ramp', (idx) => `revin|${line.key}|*|Occupancy ramp@${axisCol(idx)}`);
+  const occ = op ? occupancyAxis({ ...op, occupancyShiftPts: undefined }, w.opsIdx - w.cStart, w.phaseOffset, Math.max(1, snap.axisLength)) : [];
+  if (isLiveLayout()) phaseYearStrip(c, 'Occupancy', w.operations, (idx) => occ[idx], 'Occupancy ramp, by operating year', (idx) => idx - w.opsIdx + 1, `${line.key}|occ`, 'Ops year');
+  else yearStrip(c, 'Occupancy', w.operations, (idx) => occ[idx], NUMFMT.pct, true, snap, 'Occupancy ramp', (idx) => `revin|${line.key}|*|Occupancy ramp@${axisCol(idx)}`);
   if (isLiveLayout()) kv(c, 'Days per year', op?.daysPerYear ?? 365, NUMFMT.int, true, undefined, 'Available room nights = keys x days per year.', `rxin|${line.key}|days`);
   kv(c, 'Average guests per occupied room night', op?.guestsPerOccupiedRoom ?? 1.5, NUMFMT.rate, op?.guestsPerOccupiedRoom !== undefined, undefined, undefined, L('Average guests per occupied room night'));
   ancillaryRows(c, 'F&B Revenue', op?.fb, L('F&B Revenue, F&B %'));
@@ -960,8 +965,9 @@ function emitLeaseLine(c: SheetCursor, line: RevenueLine, w: LineWindow, snap: S
   const L = (label: string, col = 4): string => `inp=revin|${line.key}|*|${label}@${col}`;
   indexationRows(c, 'Rent indexation', lease?.rentIndexation, snap, line.key);
   opsStartRow(c, line, w, snap, lease?.operationsStartYearOverride, L('Operations start year'));
-  if (isLiveLayout()) phaseYearStrip(c, 'Occupancy', w.operations, (idx) => lease?.occupancyPerPeriodByPhase?.[idx - w.phaseOffset] ?? lease?.occupancyPerPeriod?.[idx], 'Occupancy ramp, by year of the phase', (idx) => idx - w.phaseOffset + 1, `${line.key}|occ`);
-  else yearStrip(c, 'Occupancy', w.operations, (idx) => lease?.occupancyPerPeriod?.[idx], NUMFMT.pct, true, snap, 'Occupancy ramp', (idx) => `revin|${line.key}|*|Occupancy ramp@${axisCol(idx)}`);
+  const occ = lease ? occupancyAxis({ ...lease, occupancyShiftPts: undefined }, w.opsIdx - w.cStart, w.phaseOffset, Math.max(1, snap.axisLength)) : [];
+  if (isLiveLayout()) phaseYearStrip(c, 'Occupancy', w.operations, (idx) => occ[idx], 'Occupancy ramp, by operating year', (idx) => idx - w.opsIdx + 1, `${line.key}|occ`, 'Ops year');
+  else yearStrip(c, 'Occupancy', w.operations, (idx) => occ[idx], NUMFMT.pct, true, snap, 'Occupancy ramp', (idx) => `revin|${line.key}|*|Occupancy ramp@${axisCol(idx)}`);
   arRow(c, line, lease?.arDays, lease?.arDays !== undefined ? 'Accounts Receivable Days (set on this line)' : 'Accounts Receivable Days (the project DSO; this line states none)', lease?.arDays ?? Math.max(0, projectDso), NUMFMT.int, lease?.arDays !== undefined, undefined, undefined, L('Accounts Receivable Days'));
 }
 

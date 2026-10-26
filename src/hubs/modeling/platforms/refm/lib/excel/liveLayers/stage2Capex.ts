@@ -244,9 +244,9 @@ export const stage2Capex: LiveLayer = {
     for (const sp of plan.rows.values()) {
       const r = w.addr(`cxw:${sp.key}`).row;
       const ph = phases.find((p) => p.id === sp.phaseId)!;
-      const cp = (): string => w.ref(`phase:${ph.id}:cp`);
-      // The phase's first year, and the window in phase periods.
-      w.fA({ sheet: CAPEX, row: r, col: C_FY }, `MAX(${axis()},YEAR(${w.ref(`phase:${ph.id}:start`)}))`);
+      const cp = (): string => w.ref(`tl:phase:${ph.id}:cp`);
+      // The phase's first year, and the window in phase periods, from the Timeline's phase table.
+      w.fA({ sheet: CAPEX, row: r, col: C_FY }, `MAX(${axis()},YEAR(${w.ref(`tl:phase:${ph.id}:cs`)}))`);
       if (sp.win === 'follows') {
         const rule = followedRule(sp.baseId);
         const start = rule === 'land' ? '0' : rule === 'half' ? `MAX(1,INT(MAX(1,${cp()})/2))` : rule === 'preop' ? `MAX(1,MAX(1,${cp()})-6)` : '1';
@@ -278,7 +278,7 @@ export const stage2Capex: LiveLayer = {
           const cash = w.addr(`rvc:${sp.assetId}:cash`);
           for (let t = 0; t < N; t++) {
             const c = cP(t);
-            w.fA({ sheet: CAPEX, row: tr, col: c }, `IF(AND(${i1(c)}>=1,${i1(c)}<=${cp()}+${w.ref(`phase:${ph.id}:op`)}+1),MAX(0,${w.refP({ sheet: cash.sheet, row: cash.row, col: c }, CAPEX)}),0)`);
+            w.fA({ sheet: CAPEX, row: tr, col: c }, `IF(AND(${i1(c)}>=1,${i1(c)}<=${cp()}+${w.ref(`tl:phase:${ph.id}:op`)}+1),MAX(0,${w.refP({ sheet: cash.sheet, row: cash.row, col: c }, CAPEX)}),0)`);
           }
         }
         w.fA({ sheet: CAPEX, row: tr, col: C_TOT }, sumAcross(tr));

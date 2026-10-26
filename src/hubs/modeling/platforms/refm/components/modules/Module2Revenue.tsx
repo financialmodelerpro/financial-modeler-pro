@@ -40,7 +40,8 @@ import { withResolvedAssetNames, assetPlotLabel } from '@/src/core/calculations/
 import { isRetailCompanion } from '@/src/core/calculations/retailCompanion';
 import { keysFromArea, resolveSubUnitAdr } from '@/src/core/calculations';
 import { resolveAvgUnitSize } from '../../lib/state/assetTypeStandards';
-import { resolveRowVelocity, expandIndexationToAxis } from '../../lib/revenue-resolvers';
+import { resolveRowVelocity, resolveLinePace, occupancyAxis, expandIndexationToAxis } from '../../lib/revenue-resolvers';
+import { sellFirstOpsLocal } from '@/src/core/calculations/revenue/opsYearGrid';
 import { applyIndexation } from '@/src/core/calculations/revenue';
 import { TabComments, FieldComment } from '../collab/FieldComments';
 import {
@@ -599,13 +600,13 @@ function AssetCard({ line, allLines, phase, project, phases, parcels }: AssetCar
     const shared: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(source)) if (!drop.has(k)) shared[k] = v;
     // The pace a Sell line hands over: its stored default, else its first row's.
-    let pace: { preSalesVelocityByPhase: number[]; postSalesVelocityByPhase: number[] } | undefined;
+    let pace: { preSalesVelocityByPhase: number[]; postSalesVelocityByPhase: number[]; postSalesVelocityByOpsYear?: number[] } | undefined;
     if (line.form === 'sell') {
       const dflt = sellConfig?.velocityDefault;
       if (dflt) pace = dflt;
       else if (subUnits[0]) {
-        const v = resolveRowVelocity(sellConfig, subUnits[0].id);
-        pace = { preSalesVelocityByPhase: v.pre ?? [], postSalesVelocityByPhase: v.post ?? [] };
+        const v = resolveRowVelocity(sellConfig, subUnits[0].id, phase);
+        pace = { preSalesVelocityByPhase: v.pre ?? [], postSalesVelocityByPhase: v.post ?? [], postSalesVelocityByOpsYear: v.postOps };
       }
     }
     let written = 0;
@@ -627,6 +628,7 @@ function AssetCard({ line, allLines, phase, project, phases, parcels }: AssetCar
               subUnitId: u.id,
               preSalesVelocity: [], postSalesVelocity: [],
               preSalesVelocityByPhase: p2.preSalesVelocityByPhase, postSalesVelocityByPhase: p2.postSalesVelocityByPhase,
+              postSalesVelocityByOpsYear: p2.postSalesVelocityByOpsYear,
             })),
           };
         }
@@ -884,8 +886,12 @@ function AssetCard({ line, allLines, phase, project, phases, parcels }: AssetCar
     }
     return axis;
   };
+  // SALES DURING OPERATION BY OPERATING YEAR (2026-10-26): what a write stores, read off the axis
+  // the grid edits, from the year after construction for the phase's operating years.
+  const firstOpsAxis = phaseOffset + sellFirstOpsLocal(cp, overlap);
+  const opsOfAxis = (axis: number[]): number[] => Array.from({ length: op }, (_, k) => axis[firstOpsAxis + k] ?? 0);
   const rowVelocityAxis = (subUnitId: string, kind: 'pre' | 'post'): number[] => {
-    const v = resolveRowVelocity(sellConfig, subUnitId);
+    const v = resolveRowVelocity(sellConfig, subUnitId, phase);
     const byPhase = kind === 'pre' ? v.pre : v.post;
     const legacy = kind === 'pre' ? v.preLegacy : v.postLegacy;
     return byPhase !== undefined ? expandToAxisLocal(byPhase) : paddedArray(legacy, totalPeriods);
@@ -893,7 +899,7 @@ function AssetCard({ line, allLines, phase, project, phases, parcels }: AssetCar
   // EVERY ROW ON THE LINE gets an entry, seeded from its current pace, so a
   // split write never leaves a sibling on an implicit default it can no longer
   // see.
-  const materialiseRows = (): Array<{ subUnitId: string; preSalesVelocity: number[]; postSalesVelocity: number[]; preSalesVelocityByPhase?: number[]; postSalesVelocityByPhase?: number[] }> =>
+  const materialiseRows = (): Array<{ subUnitId: string; preSalesVelocity: number[]; postSalesVelocity: number[]; preSalesVelocityByPhase?: number[]; postSalesVelocityByPhase?: number[]; postSalesVelocityByOpsYear?: number[] }> =>
     subUnits.map((su) => {
       const existing = sellConfig?.subUnits.find((s) => s.subUnitId === su.id);
       return {
@@ -902,6 +908,7 @@ function AssetCard({ line, allLines, phase, project, phases, parcels }: AssetCar
         postSalesVelocity: rowVelocityAxis(su.id, 'post'),
         preSalesVelocityByPhase: existing?.preSalesVelocityByPhase ?? sellConfig?.velocityDefault?.preSalesVelocityByPhase,
         postSalesVelocityByPhase: existing?.postSalesVelocityByPhase ?? sellConfig?.velocityDefault?.postSalesVelocityByPhase,
+        postSalesVelocityByOpsYear: opsOfAxis(rowVelocityAxis(su.id, 'post')),
       };
     });
   // A LINE PACE from the first row's current schedule, dual-written on both
@@ -923,8 +930,9 @@ function AssetCard({ line, allLines, phase, project, phases, parcels }: AssetCar
         subUnitId: su.id,
         preSalesVelocity: pace.pre.legacy, postSalesVelocity: pace.post.legacy,
         preSalesVelocityByPhase: pace.pre.byPhase, postSalesVelocityByPhase: pace.post.byPhase,
+        postSalesVelocityByOpsYear: opsOfAxis(pace.post.legacy),
       })),
-      velocityDefault: { preSalesVelocityByPhase: pace.pre.byPhase, postSalesVelocityByPhase: pace.post.byPhase },
+      velocityDefault: { preSalesVelocityByPhase: pace.pre.byPhase, postSalesVelocityByPhase: pace.post.byPhase, postSalesVelocityByOpsYear: opsOfAxis(pace.post.legacy) },
     });
   };
   // SPLIT WRITE: the rows now speak for themselves, so the line default, if
@@ -946,7 +954,7 @@ function AssetCard({ line, allLines, phase, project, phases, parcels }: AssetCar
         return { ...s, preSalesVelocity: w.legacy, preSalesVelocityByPhase: w.byPhase };
       }
       const w = dualWriteVelocity(s.postSalesVelocity, s.postSalesVelocityByPhase, periodIdx, value, valid);
-      return { ...s, postSalesVelocity: w.legacy, postSalesVelocityByPhase: w.byPhase };
+      return { ...s, postSalesVelocity: w.legacy, postSalesVelocityByPhase: w.byPhase, postSalesVelocityByOpsYear: opsOfAxis(w.legacy) };
     });
     writeRowsOwnPace(nextSubs);
   };
@@ -1183,7 +1191,11 @@ function AssetCard({ line, allLines, phase, project, phases, parcels }: AssetCar
   const opADRIdx = operateConfig?.adrIndexation ?? { method: 'none' as const };
   const opFb: AncillaryCfg = operateConfig?.fb ?? { mode: 'percent_of_rooms' as const, percentOfRooms: 0 };
   const opOther: AncillaryCfg = operateConfig?.otherRevenue ?? { mode: 'percent_of_rooms' as const, percentOfRooms: 0 };
-  const opOccupancy = operateConfig?.occupancyPerPeriod ?? new Array<number>(totalPeriods).fill(0);
+  // THE RAMP THE ENGINE READS (2026-10-26): by operating year where stored so, placed at this
+  // line's first operating year; a write states it by operating year.
+  const opsLocal = operationsStartIdx - constructionStartIdx;
+  const opsOfWindow = (axis: number[]): number[] => axis.slice(operationsStartIdx, operationsEndIdx + 1);
+  const opOccupancy = operateConfig ? occupancyAxis({ ...operateConfig, occupancyShiftPts: undefined }, opsLocal, phaseOffset, totalPeriods) : new Array<number>(totalPeriods).fill(0);
   const opGuestsPerOR = operateConfig?.guestsPerOccupiedRoom ?? 1.5;
   const opStartingADR = operateConfig?.startingADR ?? 0;
   const opDSO = operateConfig?.dso ?? Math.max(0, project.operatingAr?.dsoDays ?? 0);
@@ -1238,7 +1250,7 @@ function AssetCard({ line, allLines, phase, project, phases, parcels }: AssetCar
       const axisIdx = i + phaseOffset;
       nextByPhase[i] = next[axisIdx] ?? 0;
     }
-    updateOperateInline({ occupancyPerPeriod: next, occupancyPerPeriodByPhase: nextByPhase });
+    updateOperateInline({ occupancyPerPeriod: next, occupancyPerPeriodByPhase: nextByPhase, occupancyByOpsYear: opsOfWindow(next) });
   };
   const setOperateGuestsPerOR = (n: number): void => updateOperateInline({ guestsPerOccupiedRoom: Math.max(0, n) });
   // Pass 8e (2026-05-18): typical hospitality stabilization curve.
@@ -1261,7 +1273,7 @@ function AssetCard({ line, allLines, phase, project, phases, parcels }: AssetCar
       const axisIdx = i + phaseOffset;
       nextByPhase[i] = next[axisIdx] ?? 0;
     }
-    updateOperateInline({ occupancyPerPeriod: next, occupancyPerPeriodByPhase: nextByPhase });
+    updateOperateInline({ occupancyPerPeriod: next, occupancyPerPeriodByPhase: nextByPhase, occupancyByOpsYear: opsOfWindow(next) });
   };
   const setOperateDSO = (n: number): void => updateOperateInline({ dso: Math.max(0, Math.round(n)) });
   // Rental pool % per period (manual ramp). decimal 0..1 in storage.
@@ -1356,7 +1368,7 @@ function AssetCard({ line, allLines, phase, project, phases, parcels }: AssetCar
   type LeaseCfg = NonNullable<NonNullable<Asset['revenue']>['lease']>;
   const leaseConfig = asset.revenue?.lease;
   const leaseRentIdx = leaseConfig?.rentIndexation ?? { method: 'none' as const };
-  const leaseOccupancy = leaseConfig?.occupancyPerPeriod ?? new Array<number>(totalPeriods).fill(0);
+  const leaseOccupancy = leaseConfig ? occupancyAxis({ ...leaseConfig, occupancyShiftPts: undefined }, opsLocal, phaseOffset, totalPeriods) : new Array<number>(totalPeriods).fill(0);
   const leaseBaseRate = leaseConfig?.baseRate ?? 0;
   const leaseArDays = leaseConfig?.arDays ?? Math.max(0, project.operatingAr?.dsoDays ?? 0);
   const leaseOpsStartOverride = leaseConfig?.operationsStartYearOverride;
@@ -1387,7 +1399,7 @@ function AssetCard({ line, allLines, phase, project, phases, parcels }: AssetCar
   const setLeaseOccupancy = (idx: number, pct: number): void => {
     const next = paddedArray(leaseOccupancy, totalPeriods);
     next[idx] = Math.max(0, Math.min(1, pct / 100));
-    updateLeaseInline({ occupancyPerPeriod: next, occupancyPerPeriodByPhase: buildLeaseOccupancyByPhase(next) });
+    updateLeaseInline({ occupancyPerPeriod: next, occupancyPerPeriodByPhase: buildLeaseOccupancyByPhase(next), occupancyByOpsYear: opsOfWindow(next) });
   };
   const applyLeaseOccupancyStabilizationPreset = (): void => {
     // Retail / office stabilisation curve (reference v1.16 row 332):
@@ -1400,7 +1412,7 @@ function AssetCard({ line, allLines, phase, project, phases, parcels }: AssetCar
       const idx = operationsStartIdx + k;
       next[idx] = k < ramp.length ? ramp[k] : stabilized;
     }
-    updateLeaseInline({ occupancyPerPeriod: next, occupancyPerPeriodByPhase: buildLeaseOccupancyByPhase(next) });
+    updateLeaseInline({ occupancyPerPeriod: next, occupancyPerPeriodByPhase: buildLeaseOccupancyByPhase(next), occupancyByOpsYear: opsOfWindow(next) });
   };
   const setLeaseArDays = (n: number): void => updateLeaseInline({ arDays: Math.max(0, Math.round(n)) });
   const setLeaseRentIndexationMethod = (method: 'none' | 'yoy_compound' | 'step' | 'yoy_per_period'): void => {
@@ -2344,8 +2356,8 @@ function AssetCard({ line, allLines, phase, project, phases, parcels }: AssetCar
               <InlineGrid
                 cells={constructionWindow}
                 rows={splitVelocity || subUnits.length === 1
-                  ? subUnits.map((su) => buildVelocityRow(su, assetFor(su), sellConfig, project.currency, totalPeriods, 'pre', (suId, idx, pct) => setVelocity(suId, idx, pct, 'pre'), phaseOffset, constructionWindow, operationsWindow))
-                  : [buildSharedVelocityRow(sellConfig, subUnits, totalPeriods, 'pre', (idx, pct) => setVelocityForAllSubUnits(idx, pct, 'pre'), phaseOffset, constructionWindow, operationsWindow)]}
+                  ? subUnits.map((su) => buildVelocityRow(su, assetFor(su), sellConfig, project.currency, totalPeriods, 'pre', (suId, idx, pct) => setVelocity(suId, idx, pct, 'pre'), phase, phaseOffset, constructionWindow, operationsWindow))
+                  : [buildSharedVelocityRow(sellConfig, subUnits, totalPeriods, 'pre', (idx, pct) => setVelocityForAllSubUnits(idx, pct, 'pre'), phase, phaseOffset, constructionWindow, operationsWindow)]}
               />
             </InlineSection>
           )}
@@ -2359,8 +2371,8 @@ function AssetCard({ line, allLines, phase, project, phases, parcels }: AssetCar
               <InlineGrid
                 cells={operationsWindow}
                 rows={splitVelocity || subUnits.length === 1
-                  ? subUnits.map((su) => buildVelocityRow(su, assetFor(su), sellConfig, project.currency, totalPeriods, 'post', (suId, idx, pct) => setVelocity(suId, idx, pct, 'post'), phaseOffset, constructionWindow, operationsWindow))
-                  : [buildSharedVelocityRow(sellConfig, subUnits, totalPeriods, 'post', (idx, pct) => setVelocityForAllSubUnits(idx, pct, 'post'), phaseOffset, constructionWindow, operationsWindow)]}
+                  ? subUnits.map((su) => buildVelocityRow(su, assetFor(su), sellConfig, project.currency, totalPeriods, 'post', (suId, idx, pct) => setVelocity(suId, idx, pct, 'post'), phase, phaseOffset, constructionWindow, operationsWindow))
+                  : [buildSharedVelocityRow(sellConfig, subUnits, totalPeriods, 'post', (idx, pct) => setVelocityForAllSubUnits(idx, pct, 'post'), phase, phaseOffset, constructionWindow, operationsWindow)]}
               />
             </InlineSection>
           )}
@@ -2751,6 +2763,7 @@ function buildVelocityRow(
   totalPeriods: number,
   kind: 'pre' | 'post',
   onChange: (subUnitId: string, periodIdx: number, pct: number) => void,
+  timing: { constructionPeriods?: number; overlapPeriods?: number },
   phaseOffset = 0,
   preWindow: WindowCell[] = [],
   postWindow: WindowCell[] = [],
@@ -2758,7 +2771,7 @@ function buildVelocityRow(
   // THE ONE READ THE ENGINE DOES (2026-09-13): the row's own entry, else the
   // line default, else nothing. The hint says which, so a row that is
   // selling at the line's pace, or at none, says so on its own row.
-  const resolved = resolveRowVelocity(cfg as Parameters<typeof resolveRowVelocity>[0], su.id);
+  const resolved = resolveRowVelocity(cfg as Parameters<typeof resolveRowVelocity>[0], su.id, timing);
   const cfgSU = resolved.source === 'own'
     ? { preSalesVelocityByPhase: resolved.pre, postSalesVelocityByPhase: resolved.post, preSalesVelocity: resolved.preLegacy, postSalesVelocity: resolved.postLegacy }
     : resolved.source === 'default'
@@ -2835,6 +2848,7 @@ function buildSharedVelocityRow(
   totalPeriods: number,
   kind: 'pre' | 'post',
   onChange: (periodIdx: number, pct: number) => void,
+  timing: { constructionPeriods?: number; overlapPeriods?: number },
   phaseOffset = 0,
   preWindow: WindowCell[] = [],
   postWindow: WindowCell[] = [],
@@ -2851,7 +2865,7 @@ function buildSharedVelocityRow(
   // EVERY ROW READ THE WAY THE ENGINE READS IT (own entry, line default,
   // nothing), so the divergence check compares what actually sells.
   const axisOf = (suId: string, k: 'pre' | 'post'): number[] => {
-    const v = resolveRowVelocity(cfg as Parameters<typeof resolveRowVelocity>[0], suId);
+    const v = resolveRowVelocity(cfg as Parameters<typeof resolveRowVelocity>[0], suId, timing);
     const byPhaseArr = k === 'pre' ? v.pre : v.post;
     const legacyArr = k === 'pre' ? v.preLegacy : v.postLegacy;
     if (byPhaseArr !== undefined) return expandToAxis(byPhaseArr);
@@ -2860,9 +2874,9 @@ function buildSharedVelocityRow(
   const arrays = subUnitsInAsset.map((su) => axisOf(su.id, kind));
   // THE LINE DEFAULT IS THE REPRESENTATIVE where one is stored; the first
   // row stands in where the rows still speak for themselves.
-  const dflt = (cfg as { velocityDefault?: { preSalesVelocityByPhase: number[]; postSalesVelocityByPhase: number[] } } | undefined)?.velocityDefault;
+  const dflt = resolveLinePace(cfg as Parameters<typeof resolveLinePace>[0], timing);
   const first = dflt
-    ? expandToAxis(kind === 'pre' ? dflt.preSalesVelocityByPhase : dflt.postSalesVelocityByPhase)
+    ? expandToAxis(kind === 'pre' ? dflt.pre : dflt.post)
     : (arrays[0] ?? new Array<number>(totalPeriods).fill(0));
   const divergent = arrays.length > 1
     && arrays.some((arr) => arr.some((v, i) => Math.abs(v - first[i]) > 1e-9));
@@ -2870,8 +2884,8 @@ function buildSharedVelocityRow(
   // cells only, so the hint can never show a value that doesn't appear
   // in some cell on the row. Pre uses preWindow, post uses postWindow.
   const su0Id = subUnitsInAsset[0]?.id;
-  const preFirstAxis = dflt ? expandToAxis(dflt.preSalesVelocityByPhase) : (su0Id ? axisOf(su0Id, 'pre') : new Array<number>(totalPeriods).fill(0));
-  const postFirstAxis = dflt ? expandToAxis(dflt.postSalesVelocityByPhase) : (su0Id ? axisOf(su0Id, 'post') : new Array<number>(totalPeriods).fill(0));
+  const preFirstAxis = dflt ? expandToAxis(dflt.pre) : (su0Id ? axisOf(su0Id, 'pre') : new Array<number>(totalPeriods).fill(0));
+  const postFirstAxis = dflt ? expandToAxis(dflt.post) : (su0Id ? axisOf(su0Id, 'post') : new Array<number>(totalPeriods).fill(0));
   const preSumFirst = preWindow.reduce((s, c) => s + (preFirstAxis[c.idx] ?? 0), 0);
   const postSumFirst = postWindow.reduce((s, c) => s + (postFirstAxis[c.idx] ?? 0), 0);
   const sumSelf = kind === 'pre' ? preSumFirst : postSumFirst;

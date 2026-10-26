@@ -125,15 +125,25 @@ export const stage1LandArea: LiveLayer = {
 
     // ── Inputs: dates (computePhaseTimeline) and the axis year ────────────────
     if (w.has('project:startDate') && project.startDate) w.input('project:startDate', serialOf(project.startDate), 'dd mmm yyyy');
+    // THE TIMELINE IS THE ONE SOURCE OF TIMING (2026-10-26, founder): its phase table reads the
+    // three typed cells per phase on Inputs (start, construction and operations years) and the
+    // status; every date, year and flag below reads that table, and no other tab reads Inputs for timing.
+    for (const ph of state.phases) w.input(`phase:${ph.id}:start`, serialOf(ph.startDate as string), 'dd mmm yyyy');
+    for (const ph of state.phases) {
+      const t = (x: string): string => `tl:phase:${ph.id}:${x}`, p = (x: string): string => R(`phase:${ph.id}:${x}`);
+      w.f(t('cs'), p('start'), 'mmm yyyy');
+      w.f(t('cp'), p('cp')); w.f(t('op'), p('op'));
+      if (w.has(t('status')) && w.has(`phase:${ph.id}:status`)) w.f(t('status'), p('status'));
+    }
     for (const ph of state.phases) {
       const k = (x: string): string => `phase:${ph.id}:${x}`;
-      w.input(k('start'), serialOf(ph.startDate as string), 'dd mmm yyyy');
-      const s = R(k('start')), cp = R(k('cp')), op = R(k('op'));
-      w.f(k('cEnd'), `IF(${cp}=0,"Operational from start",EDATE(${s},12*${cp})-1)`, 'mmm yyyy');
-      w.f(k('oStart'), `IF(${cp}=0,${s},EDATE(${s},12*${cp}))`, 'mmm yyyy');
-      w.f(k('oEnd'), `EDATE(${R(k('oStart'))},12*${op})-1`, 'mmm yyyy');
+      const C = R(`tl:phase:${ph.id}:cs`), G = R(`tl:phase:${ph.id}:cp`), H = R(`tl:phase:${ph.id}:op`);
+      // Construction end is always a date: with no construction, the start date.
+      w.f(k('cEnd'), `IF(${G}=0,${C},EDATE(${C},12*${G})-1)`, 'mmm yyyy');
+      w.f(k('oStart'), `EDATE(${C},12*${G})`, 'mmm yyyy');
+      w.f(k('oEnd'), `EDATE(${R(k('oStart'))},12*${H})-1`, 'mmm yyyy');
     }
-    const starts = state.phases.map((ph) => R(`phase:${ph.id}:start`)).join(',');
+    const starts = state.phases.map((ph) => R(`tl:phase:${ph.id}:cs`)).join(',');
     w.f('project:axisYear', `YEAR(MIN(${starts}))`);
 
     // ── Timeline ──────────────────────────────────────────────────────────────
@@ -144,14 +154,15 @@ export const stage1LandArea: LiveLayer = {
       const t = (x: string): string => `tl:phase:${ph.id}:${x}`, p = (x: string): string => R(`phase:${ph.id}:${x}`);
       // In the live layout the end dates are worked out on these very cells (one key, two names).
       const same = (x: string, y: string): boolean => { const A = reg.need(t(x)), B = reg.need(`phase:${ph.id}:${y}`); return A.sheet === B.sheet && A.row === B.row && A.col === B.col; };
-      w.f(t('cs'), p('start'), 'mmm yyyy');
       if (!same('ce', 'cEnd')) w.f(t('ce'), p('cEnd'), 'mmm yyyy');
       if (!same('os', 'oStart')) w.f(t('os'), p('oStart'), 'mmm yyyy');
       if (!same('oe', 'oEnd')) w.f(t('oe'), p('oEnd'), 'mmm yyyy');
-      if (w.has(`phase:${ph.id}:sx`) && w.has(t('sx'))) w.f(t('sx'), p('sx'));
-      w.f(t('cp'), p('cp')); w.f(t('op'), p('op'));
     }
-    w.f('tl:project:start', `MIN(${state.phases.map((ph) => R(`phase:${ph.id}:start`)).join(',')})`, 'mmm yyyy');
+    w.f('tl:project:start', `MIN(${starts})`, 'mmm yyyy');
+    if (w.has('tl:project:count') && state.phases.length) {
+      const rows = state.phases.map((ph) => reg.need(`tl:phase:${ph.id}:cs`).row);
+      w.f('tl:project:count', `COUNTA($A$${Math.min(...rows)}:$A$${Math.max(...rows)})`);
+    }
     w.f('tl:project:end', `MAX(${state.phases.map((ph) => R(`phase:${ph.id}:oEnd`)).join(',')})`, 'mmm yyyy');
     for (const c of yearCols) if (w.has(`tl:ganttYear:${c}`)) w.f(`tl:ganttYear:${c}`, R(`tl:year:${c}`));
     liveGantt(wb, reg, state.phases.map((ph) => ph.id), yearCols);
@@ -416,7 +427,7 @@ export const stage1LandArea: LiveLayer = {
 
     const counts = w.formulas;
     return [
-      { sheet: 'Timeline', status: 'live' as const, formulas: counts.get('Timeline') ?? 0, note: 'The axis years, the dated phase schedule and the Gantt (conditional formatting) follow the phase dates on Inputs. The axis length is fixed at export.' },
+      { sheet: 'Timeline', status: 'live' as const, formulas: counts.get('Timeline') ?? 0, note: 'The one source of timing: the phase table reads each phase\'s start, construction and operations years and status on Inputs, and the model years, the dated schedule, the Gantt (conditional formatting), the period flags and the construction and operating year counters read that table; every other tab reads its timing here. The axis length is fixed at export.' },
       { sheet: 'Land & Area', status: 'live' as const, formulas: counts.get('Land & Area') ?? 0, note: 'The chain per plot, merged by line, the retail carve and the land by asset follow Inputs. Which plot an asset draws, the parking ratio basis and which assets host a retail strip are fixed at export; a step shown "-" at export stays "-".' },
       { sheet: 'Inputs', status: 'partial' as const, formulas: counts.get('Inputs') ?? 0, note: 'Live on this sheet: the phase dates, the model axis year, the plot values, Table 2 figures drawn from a whole plot or inherited from a type, the NSA used (the larger of the sub-units\' area and the Stated NSA), and the sub-unit areas, shares and unit counts.' },
     ];
@@ -442,30 +453,37 @@ function livePeriodFlags(w: Writer, reg: CellRegistry, phaseIds: string[], yearC
   const active = yearCols.slice(1);
   const R = (k: string): string => w.ref(k);
   const rowOf = (k: string): number => reg.need(k).row;
-  const prevRange = (k: string, c: number): string => `SUM($${colLetter(yearCols[0])}$${rowOf(k)}:${colLetter(c - 1)}$${rowOf(k)})`;
   for (const id of phaseIds) {
-    // The phase in years: the handover (the last construction year, never before the first
-    // model year) and the last operating year.
+    // The phase in years, from the phase table: the handover (the last construction year, never
+    // before the first model year) and the last operating year.
+    const T = (x: string): string => R(`tl:phase:${id}:${x}`);
     if (w.has(`tl:phase:${id}:hy`)) {
-      w.f(`tl:phase:${id}:hy`, `MAX(${R('project:axisYear')},YEAR(${R(`phase:${id}:start`)})+${R(`phase:${id}:cp`)}-1)`);
-      w.f(`tl:phase:${id}:ly`, `${R(`tl:phase:${id}:hy`)}+${R(`phase:${id}:op`)}`);
+      w.f(`tl:phase:${id}:hy`, `MAX(${R('project:axisYear')},YEAR(${T('cs')})+${T('cp')}-1)`);
+      w.f(`tl:phase:${id}:ly`, `${T('hy')}+${T('op')}`);
     }
     const con = `tl:flag:${id}:con`, hand = `tl:flag:${id}:hand`, ops = `tl:flag:${id}:ops`;
     if (!w.has(con) || !w.has(hand) || !w.has(ops)) continue;
-    const s = `YEAR(${R(`phase:${id}:start`)})`, cp = R(`phase:${id}:cp`), op = R(`phase:${id}:op`);
+    // The flags read the phase table: construction from the start year to the handover, the
+    // handover year, then operations to the last operating year.
     for (const c of active) {
-      w.fAt(w.sheetCell('Timeline', rowOf(con), c), `(${yr(c)}>=${s})*(${yr(c)}<${s}+${cp})`);
-      w.fAt(w.sheetCell('Timeline', rowOf(hand), c), `(${yr(c)}=MAX(${R('project:axisYear')},${s}+${cp}-1))*1`);
-      w.fAt(w.sheetCell('Timeline', rowOf(ops), c), `(${prevRange(hand, c)}=1)*(${prevRange(ops, c)}<${op})`);
+      w.fAt(w.sheetCell('Timeline', rowOf(con), c), `(${yr(c)}>=YEAR(${T('cs')}))*(${yr(c)}<=${T('hy')})*(${T('cp')}>0)`);
+      w.fAt(w.sheetCell('Timeline', rowOf(hand), c), `(${yr(c)}=${T('hy')})*1`);
+      w.fAt(w.sheetCell('Timeline', rowOf(ops), c), `(${yr(c)}>${T('hy')})*(${yr(c)}<=${T('ly')})`);
+    }
+    // The grid counters: 1, 2, 3 ... in construction years and in operating years, else 0.
+    const cc = `tl:ctr:${id}:con`, oc = `tl:ctr:${id}:ops`;
+    if (w.has(cc) && w.has(oc)) for (const c of active) {
+      const L = colLetter(c);
+      w.fAt(w.sheetCell('Timeline', rowOf(cc), c), `${L}$${rowOf(con)}*(${yr(c)}-YEAR(${T('cs')})+1)`);
+      w.fAt(w.sheetCell('Timeline', rowOf(oc), c), `${L}$${rowOf(ops)}*(${yr(c)}-${T('hy')})`);
     }
   }
   if (w.has('tl:flag:exit') && w.has('inp=ret|Exit Year@4')) {
     for (const c of active) w.fAt(w.sheetCell('Timeline', rowOf('tl:flag:exit'), c), `(${yr(c)}=${R('inp=ret|Exit Year@4')})*1`);
   }
-  if (w.has('tl:horizon')) {
-    const spans = phaseIds.map((id) => `MAX(0,YEAR(${R(`phase:${id}:start`)})-${R('project:axisYear')})+${R(`phase:${id}:cp`)}+${R(`phase:${id}:op`)}`);
-    w.f('tl:horizon', `MAX(1,YEAR(${R('tl:project:end')})-${R('project:axisYear')},${spans.join(',')})`);
-  }
+  // The model years: the last is the latest last operating year; how many is last - first + 1.
+  if (w.has('tl:lastYear')) w.f('tl:lastYear', `MAX(${phaseIds.map((id) => R(`tl:phase:${id}:ly`)).join(',')})`);
+  if (w.has('tl:horizon') && w.has('tl:lastYear')) w.f('tl:horizon', `${R('tl:lastYear')}-${R('project:axisYear')}+1`);
 }
 
 /** The Gantt: bars painted by conditional formatting from the dated schedule, not by fixed fills. */

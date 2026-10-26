@@ -247,7 +247,7 @@ export const stage6Loop: LiveLayer = {
 
     // ── Settings in force ────────────────────────────────────────────────────
     const psd = (): string => `YEAR(${w.ref('project:startDate')})`;
-    putS(K.lastCon, `MAX(${phases.map((p) => `MAX(0,YEAR(${w.ref(`phase:${p.id}:start`)})-${psd()})+MAX(0,${w.ref(`phase:${p.id}:cp`)})`).join(',')})+${psd()}-1`);
+    putS(K.lastCon, `MAX(${phases.map((p) => `MAX(0,YEAR(${w.ref(`tl:phase:${p.id}:cs`)})-${psd()})+MAX(0,${w.ref(`tl:phase:${p.id}:cp`)})`).join(',')})+${psd()}-1`);
     const D = (): string => `MAX(0,N(${inp(K.debtPct)}))`, E = (): string => `MAX(0,N(${inp(K.equityPct)}))`;
     putS(K.dF, `IF(${D()}+${E()}>0,${D()}/(${D()}+${E()}),0.7)`);
     putS(K.eF, `1-${T(K.dF)}`);
@@ -290,7 +290,7 @@ export const stage6Loop: LiveLayer = {
     } else if (has(K.sweepStart)) putS(K.sweepStart, hasSweepIn ? startYear(K.sweepStartIn, finCfg?.cashSweep?.startingYear, () => `MAX(${Y0()},MIN(${YN()},${lastCon()}+1))`) : `MAX(${Y0()},MIN(${YN()},${lastCon()}+1))`);
     {
       // A blank on Inputs pays from the year after construction (the engine's `??`: a typed 0 is a year).
-      const dflt = (): string => `MAX(${Y0()},MIN(${YN()},MAX(${psd()},${phases.map((p) => `YEAR(${w.ref(`phase:${p.id}:start`)})+MAX(0,${w.ref(`phase:${p.id}:cp`)})`).join(',')})))`;
+      const dflt = (): string => `MAX(${Y0()},MIN(${YN()},MAX(${psd()},${phases.map((p) => `YEAR(${w.ref(`tl:phase:${p.id}:cs`)})+MAX(0,${w.ref(`tl:phase:${p.id}:cp`)})`).join(',')})))`;
       const inD = inputsCellOf(K.divStartIn);
       if (inD) {
         putS(K.divStartIn, `IF(ISNUMBER(${inD}),${inD},${dflt()})`);

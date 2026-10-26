@@ -87,7 +87,7 @@ import {
 import { withResolvedAssetNames, assetLabel } from '@/src/core/calculations/assetName';
 // Module 2 and Module 3 mirror (addRevenue / addOpex).
 import { planRevenueLines, groupRevenueLines, lineForAsset, REVENUE_SECTIONS, REVENUE_SECTION_META, type RevenueLine } from '../revenueLines';
-import { lineRevenueResults, resolveRowVelocity, expandIndexationToAxis, resolveSellConfig, resolveHospitalityConfig, resolveLeaseConfig, resolveAssetKeys } from '../revenue-resolvers';
+import { lineRevenueResults, resolveRowVelocity, resolveLinePace, expandIndexationToAxis, resolveSellConfig, resolveHospitalityConfig, resolveLeaseConfig, resolveAssetKeys } from '../revenue-resolvers';
 import { buildCostPerSqmReport, costPerSqmTables, amountUnit } from '../reports/costPerSqmReport';
 import { revenueLineName, buildProjectRevenueGroupedRows, PROJECT_REVENUE_TABLES, buildShareSoldRows, buildPrePostRows, buildRevenueScheduleFeeds, buildEscalatedPriceTable } from '../reports/revenueOutputReports';
 import { buildInventoryRollForward } from '../reports/saleRollForwardReports';
@@ -1343,6 +1343,24 @@ function addPhaseTimeline(ws: ExcelJS.Worksheet, snap: ReturnType<typeof compute
   const lines = phases.map((p) => ({ phase: p, tl: computePhaseTimeline(p, project) }));
   const projTl = computeProjectTimeline(project, phases);
 
+  if (isLiveLayout()) {
+    // THE MODEL YEARS, TOGETHER AT THE TOP (2026-10-26, founder): the first year (the earliest
+    // phase start), the last (the latest last operating year) and how many, last - first + 1.
+    // Every other tab reads its timing from this tab, never from the phase dates on Inputs.
+    const yearRow = (label: string, key: string, value: number, fmt: string): void => {
+      setLabel(ws.getCell(r, 1), label, { bold: true });
+      const cell = ws.getCell(r, TOTAL_COL); cell.value = value; cell.numFmt = fmt;
+      cell.font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.formula } }; cell.alignment = { horizontal: 'right' };
+      registerCell(key, ws, cell);
+      r += 1;
+    };
+    yearRow('First model year', 'project:axisYear', snap.projectStartYear, NUMFMT.year);
+    ws.workbook.definedNames.add(`${quoteSheet(ws.name)}!$${colLetter(TOTAL_COL)}$${r - 1}`, 'ProjectStartYear');
+    yearRow('Last model year', 'tl:lastYear', snap.projectStartYear + N - 1, NUMFMT.year);
+    yearRow('Model years', 'tl:horizon', N, NUMFMT.int);
+    r += 1;
+  }
+
   // ── 1. Phase schedule (real dates) ──────────────────────────────────────────
   setSectionHeader(ws.getRow(r), 'Phase schedule (dated)', last, ARGB.sectionDark); r += 1;
   const HEADS = ['Phase', 'Status', 'Construction start', 'Construction end', 'Operations start', 'Operations end', 'Construction (yrs)', 'Operations (yrs)',
@@ -1352,8 +1370,11 @@ function addPhaseTimeline(ws: ExcelJS.Worksheet, snap: ReturnType<typeof compute
   for (const { phase, tl } of lines) {
     setLabel(ws.getCell(r, 1), phase.name);
     setLabel(ws.getCell(r, 2), phaseStatusLabel(phase.status));
+    if (isLiveLayout()) registerCell(`tl:phase:${phase.id}:status`, ws, ws.getCell(r, 2));
+    // No construction: the construction end is the start date, still a date (live layout, 2026-10-26).
+    const cEnd = isLiveLayout() && (phase.constructionPeriods ?? 0) === 0 ? tl.constructionStart : tl.constructionEnd;
     const cells: Array<[number, string | number]> = [
-      [3, fmtDate(tl.constructionStart)], [4, fmtDate(tl.constructionEnd)],
+      [3, fmtDate(tl.constructionStart)], [4, fmtDate(cEnd)],
       [5, fmtDate(tl.operationsStart)], [6, fmtDate(tl.operationsEnd)],
     ];
     for (const [c, v] of cells) {
@@ -1369,7 +1390,7 @@ function addPhaseTimeline(ws: ExcelJS.Worksheet, snap: ReturnType<typeof compute
     if (isLiveLayout()) {
       // THE PHASE IN YEARS (live layout, 2026-10-15): the handover (the last construction
       // year, never before the first model year) and the last operating year. The input grids
-      // are keyed by phase year (2026-10-25), so no "start year at export" shift is needed.
+      // are keyed by construction or operating year (2026-10-26), so no "start year at export" shift is needed.
       const sy = yr(phase.startDate as string);
       const hy = Math.max(snap.projectStartYear, sy + Math.max(0, phase.constructionPeriods ?? 0) - 1);
       const vals: Array<[string, number]> = [['hy', hy], ['ly', hy + Math.max(0, phase.operationsPeriods ?? 0)]];
@@ -1383,7 +1404,11 @@ function addPhaseTimeline(ws: ExcelJS.Worksheet, snap: ReturnType<typeof compute
   }
   // Project envelope.
   setLabel(ws.getCell(r, 1), 'Project', { bold: true });
-  setLabel(ws.getCell(r, 2), `${phases.length} phase${phases.length === 1 ? '' : 's'}`);
+  if (isLiveLayout()) {
+    const n = ws.getCell(r, 2); n.value = phases.length; n.numFmt = phases.length === 1 ? '0" phase"' : '0" phases"';
+    n.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } }; n.alignment = { horizontal: 'left' };
+    registerCell('tl:project:count', ws, n);
+  } else setLabel(ws.getCell(r, 2), `${phases.length} phase${phases.length === 1 ? '' : 's'}`);
   const envelope: Array<[number, string]> = [[3, fmtDate(projTl.startDate)], [6, fmtDate(projTl.endDate)]];
   registerCell('tl:project:start', ws, ws.getCell(r, 3));
   registerCell('tl:project:end', ws, ws.getCell(r, 6));
@@ -1394,15 +1419,6 @@ function addPhaseTimeline(ws: ExcelJS.Worksheet, snap: ReturnType<typeof compute
   }
   for (let c = 1; c <= 8; c++) fillCell(ws.getCell(r, c), ARGB.subtotal);
   r += 1;
-  if (isLiveLayout()) {
-    // The model axis starts at the earliest phase: worked out here (Inputs holds typed values only).
-    setLabel(ws.getCell(r, 1), 'First model year');
-    const ay = ws.getCell(r, 3); ay.value = snap.projectStartYear; ay.numFmt = NUMFMT.year;
-    ay.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } }; ay.alignment = { horizontal: 'right' };
-    registerCell('project:axisYear', ws, ay);
-    ws.workbook.definedNames.add(`${quoteSheet(ws.name)}!$C$${r}`, 'ProjectStartYear');
-    r += 1;
-  }
   r += 1;
 
   // ── 2. Cell-based Gantt across the period grid ──────────────────────────────
@@ -1487,20 +1503,33 @@ function addPeriodFlags(ws: ExcelJS.Worksheet, snap: ReturnType<typeof computeFi
     }
     r += 1;
   };
+  /** A counter row: 1, 2, 3 ... in the years named, else 0. */
+  const countRow = (key: string, label: string, n: (t: number) => number): void => {
+    setLabel(ws.getCell(r, LBL_COL), label);
+    registerCell(key, ws, ws.getCell(r, LBL_COL));
+    for (let t = 0; t < N; t++) {
+      const cell = ws.getCell(r, pcol(t));
+      cell.value = n(t); cell.numFmt = NUMFMT.int;
+      cell.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } };
+    }
+    r += 1;
+  };
   for (const p of state.phases) {
     const offset = utcYear(p.startDate, axis) - axis;
     const cp = Math.max(0, p.constructionPeriods ?? 0), op = Math.max(0, p.operationsPeriods ?? 0);
     const hand = Math.max(0, offset + cp - 1);
-    flagRow(`tl:flag:${p.id}:con`, `${p.name}: construction year (1 = yes)`, (t) => t >= offset && t <= offset + cp - 1);
+    const con = (t: number): boolean => t >= offset && t <= offset + cp - 1;
+    const ops = (t: number): boolean => t > hand && t <= hand + op;
+    flagRow(`tl:flag:${p.id}:con`, `${p.name}: construction year (1 = yes)`, con);
     flagRow(`tl:flag:${p.id}:hand`, `${p.name}: handover year (1 = yes)`, (t) => t === hand);
-    flagRow(`tl:flag:${p.id}:ops`, `${p.name}: operating year (1 = yes)`, (t) => t > hand && t <= hand + op);
+    flagRow(`tl:flag:${p.id}:ops`, `${p.name}: operating year (1 = yes)`, ops);
+    // THE GRID COUNTERS (2026-10-26): construction grids are read by the construction year,
+    // operating grids by the operating year, so a longer build moves the operating grids with it.
+    countRow(`tl:ctr:${p.id}:con`, `${p.name}: construction year number`, (t) => (con(t) ? t - offset + 1 : 0));
+    countRow(`tl:ctr:${p.id}:ops`, `${p.name}: operating year number`, (t) => (ops(t) ? t - hand : 0));
   }
   const exitIdx = resolveReturnsConfig(state.project, N).exitYearOffset;
   flagRow('tl:flag:exit', 'Exit year (1 = yes)', (t) => t === exitIdx);
-  setLabel(ws.getCell(r, LBL_COL), 'Model years (the horizon)');
-  registerCell('tl:horizon', ws, ws.getCell(r, TOTAL_COL));
-  const h = ws.getCell(r, TOTAL_COL);
-  h.value = N; h.numFmt = NUMFMT.int; h.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } };
 }
 
 // Strategy -> display group, shared by the Land & Area and Capex groupings.
@@ -2943,7 +2972,7 @@ function addRevenue(ctx: EmitCtx): { revLinks: RevLinks; cosLinks: CosLinks } {
         // the line default, else nothing.
         const split = sell !== undefined && sell.velocityDefault === undefined && (sell.subUnits?.length ?? 0) > 0;
         const axisOf = (suId: string, kind: 'pre' | 'post'): { axis: number[]; source: string } => {
-          const v = resolveRowVelocity(sell, suId);
+          const v = resolveRowVelocity(sell, suId, phase);
           const byPhase = kind === 'pre' ? v.pre : v.post;
           const legacy = kind === 'pre' ? v.preLegacy : v.postLegacy;
           return { axis: byPhase !== undefined ? axisFromPhase(byPhase, w.phaseOffset) : padded(legacy), source: v.source };
@@ -2959,8 +2988,8 @@ function addRevenue(ctx: EmitCtx): { revLinks: RevLinks; cosLinks: CosLinks } {
               });
             }
           } else {
-            const dflt = sell?.velocityDefault;
-            const axis = dflt ? axisFromPhase(kind === 'pre' ? dflt.preSalesVelocityByPhase : dflt.postSalesVelocityByPhase, w.phaseOffset) : axisOf(line.subUnits[0].id, kind).axis;
+            const dflt = resolveLinePace(sell, phase);
+            const axis = dflt ? axisFromPhase(kind === 'pre' ? dflt.pre : dflt.post, w.phaseOffset) : axisOf(line.subUnits[0].id, kind).axis;
             em.periodRow('All sub-units', axis, window, NUMFMT.pct, { input: true, total: isLiveLayout() ? undefined : sumOver(axis), basis: `Lockstep across every sub-unit (${line.subUnits.length})` });
           }
         };
@@ -3167,7 +3196,7 @@ function addRevenue(ctx: EmitCtx): { revLinks: RevLinks; cosLinks: CosLinks } {
             // order of the years, so one row and one sold row per sub-unit carry both passes.
             em.tableTitle('0. Velocity in force (per sub-unit)', 'The velocity typed on Inputs, pre-sales then sales during operation, at the years it applies to now (a phase that moves carries its velocity with it). Each year sells this share of the inventory, capped at what is still unsold.');
             for (const su of units) {
-              const v = resolveRowVelocity(a.revenue?.sell, su.id);
+              const v = resolveRowVelocity(a.revenue?.sell, su.id, p);
               const pre = v.pre !== undefined ? axisFromPhase(v.pre, w.phaseOffset) : padded(v.preLegacy);
               const post = v.post !== undefined ? axisFromPhase(v.post, w.phaseOffset) : padded(v.postLegacy);
               const both = Array.from({ length: N }, (_, t) => Math.max(0, pre[t] ?? 0) + Math.max(0, post[t] ?? 0));

@@ -1667,6 +1667,10 @@ export interface Asset {
          *  convention). Survives project axis origin moves. */
         preSalesVelocityByPhase?: number[];
         postSalesVelocityByPhase?: number[];
+        /** SALES DURING OPERATION BY OPERATING YEAR (2026-10-26): entry 0 = the year after
+         *  construction. Wins over postSalesVelocityByPhase when present, and the row's pre-sales
+         *  then apply in construction years only (`opsYearGrid.ts`). */
+        postSalesVelocityByOpsYear?: number[];
       }>;
       /**
        * @deprecated 2026-08-20. RETAINED FOR DATA, READ BY NOTHING, AND
@@ -1761,6 +1765,8 @@ export interface Asset {
       velocityDefault?: {
         preSalesVelocityByPhase: number[];
         postSalesVelocityByPhase: number[];
+        /** The line pace's sales during operation by operating year (as on a row). */
+        postSalesVelocityByOpsYear?: number[];
       };
       /**
        * M2 Pass 9h (2026-05-19): per-asset escrow override. Either
@@ -1808,6 +1814,10 @@ export interface Asset {
       occupancyPerPeriod: number[];
       /** M4 Pass 2h: phase-local occupancy ramp (0..1 per period). */
       occupancyPerPeriodByPhase?: number[];
+      /** THE OCCUPANCY RAMP BY OPERATING YEAR (2026-10-26): entry 0 = the first year the line
+       *  operates, so a change of construction length moves the ramp with the opening. Wins over
+       *  both fields above when present (`opsYearGrid.ts`, settled on load and save). */
+      occupancyByOpsYear?: number[];
       /** SCENARIO LEVER (2026-09-15): percentage points added to every operating
        *  period of the occupancy ramp, held within 0 to 100%. Absent on the base. */
       occupancyShiftPts?: number;
@@ -1896,6 +1906,10 @@ export interface Asset {
       occupancyPerPeriod: number[];
       /** M4 Pass 2h: phase-local occupancy ramp (0..1 per period). */
       occupancyPerPeriodByPhase?: number[];
+      /** THE OCCUPANCY RAMP BY OPERATING YEAR (2026-10-26): entry 0 = the first year the line
+       *  operates, so a change of construction length moves the ramp with the opening. Wins over
+       *  both fields above when present (`opsYearGrid.ts`, settled on load and save). */
+      occupancyByOpsYear?: number[];
       /** SCENARIO LEVER (2026-09-15): percentage points added to every operating
        *  period of the occupancy ramp, held within 0 to 100%. Absent on the base. */
       occupancyShiftPts?: number;

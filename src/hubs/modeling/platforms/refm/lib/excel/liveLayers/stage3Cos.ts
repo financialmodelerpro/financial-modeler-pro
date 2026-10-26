@@ -314,7 +314,7 @@ export const stage3Cos: LiveLayer = {
         const r = w.addr(inKey).row;
         const ov = (c: number): string => w.refA({ sheet: REV, row: r, col: c }, REV);
         const p0 = state.phases.find((x) => x.id === host.phaseId)!;
-        const handover = (): string => `YEAR(${w.ref(`phase:${p0.id}:start`)})+MAX(0,${w.ref(`phase:${p0.id}:cp`)}-1)`;
+        const handover = (): string => w.ref(`tl:phase:${p0.id}:hy`);
         here = REV;
         w.fA({ sheet: REV, row: r, col: TOTAL_COL }, `IF(AND(ISNUMBER(${ov(OPEN_COL)}),N(${ov(OPEN_COL)})>=0),${ov(OPEN_COL)},MAX(0,N(${pct()})))`);
         w.fA({ sheet: REV, row: r, col: OPEN_COL + 1 }, `IF(ISNUMBER(${ov(OPEN_COL + 2)}),${ov(OPEN_COL + 2)},IF(ISNUMBER(${dUntil()}),${dUntil()},${handover()}))`);

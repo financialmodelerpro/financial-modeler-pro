@@ -2422,7 +2422,7 @@ function buildModule1(
 // saleRollForwardReports, cosReports, opexReports), so the three surfaces
 // cannot re-word or re-order a table. Nothing here computes a model value.
 import { planRevenueLines, groupRevenueLines, lineForAsset, REVENUE_SECTIONS, REVENUE_SECTION_META, type RevenueLine } from '../revenueLines';
-import { lineRevenueResults, resolveRowVelocity, expandIndexationToAxis, resolveSellConfig, resolveHospitalityConfig, resolveLeaseConfig, resolveAssetKeys } from '../revenue-resolvers';
+import { lineRevenueResults, resolveRowVelocity, resolveLinePace, expandIndexationToAxis, resolveSellConfig, resolveHospitalityConfig, resolveLeaseConfig, resolveAssetKeys } from '../revenue-resolvers';
 import { buildCostPerSqmReport, costPerSqmTables, amountUnit, type CostPerSqmCell } from '../reports/costPerSqmReport';
 import { revenueLineName, buildProjectRevenueGroupedRows, PROJECT_REVENUE_TABLES, buildShareSoldRows, buildPrePostRows, buildRevenueScheduleFeeds, buildEscalatedPriceTable } from '../reports/revenueOutputReports';
 import { buildInventoryRollForward } from '../reports/saleRollForwardReports';
@@ -2637,7 +2637,7 @@ function buildModule2(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
         // the line default, else nothing.
         const split = sell !== undefined && sell.velocityDefault === undefined && (sell.subUnits?.length ?? 0) > 0;
         const axisOf = (suId: string, kind: 'pre' | 'post'): { axis: number[]; source: string } => {
-          const v = resolveRowVelocity(sell, suId);
+          const v = resolveRowVelocity(sell, suId, phase);
           const byPhase = kind === 'pre' ? v.pre : v.post;
           const legacy = kind === 'pre' ? v.preLegacy : v.postLegacy;
           return { axis: byPhase !== undefined ? axisFromPhase(byPhase, w.phaseOffset) : padded(legacy), source: v.source };
@@ -2651,8 +2651,8 @@ function buildModule2(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
               return windowRow(`${su.name || 'sub-unit'}${note}`, axis, window, N, 'pct', sumOver(axis));
             });
           }
-          const dflt = sell?.velocityDefault;
-          const axis = dflt ? axisFromPhase(kind === 'pre' ? dflt.preSalesVelocityByPhase : dflt.postSalesVelocityByPhase, w.phaseOffset) : axisOf(units[0].id, kind).axis;
+          const dflt = resolveLinePace(sell, phase);
+          const axis = dflt ? axisFromPhase(kind === 'pre' ? dflt.pre : dflt.post, w.phaseOffset) : axisOf(units[0].id, kind).axis;
           return [windowRow(`All sub-units, lockstep (${units.length})`, axis, window, N, 'pct', sumOver(axis))];
         };
         if (w.construction.length > 0) {

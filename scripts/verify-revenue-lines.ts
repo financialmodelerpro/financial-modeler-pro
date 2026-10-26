@@ -187,8 +187,8 @@ section('C. The Sell row list is the store\'s, looked up by id, with the line de
   check('C6 the Support row is never sold', !('suAS' in rA.presalesRevenuePerPeriodPerSubUnit));
   const sell = withDefault.revenue!.sell;
   check('C7 resolveRowVelocity names the source: own / default / none',
-    resolveRowVelocity(sell, 'suA1').source === 'own' && resolveRowVelocity(sell, 'suA2').source === 'default'
-    && resolveRowVelocity(villasA.revenue!.sell, 'suA2').source === 'none');
+    resolveRowVelocity(sell, 'suA1', {}).source === 'own' && resolveRowVelocity(sell, 'suA2', {}).source === 'default'
+    && resolveRowVelocity(villasA.revenue!.sell, 'suA2', {}).source === 'none');
 }
 
 // ── D. The asset's metric ───────────────────────────────────────────────────

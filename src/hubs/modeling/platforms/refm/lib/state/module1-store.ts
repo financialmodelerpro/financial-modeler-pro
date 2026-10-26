@@ -58,6 +58,7 @@ import { applyReferenceCostBases } from '@/src/core/calculations/costBases';
 import { settleStandardCostOverrides, seedCostStandardRows, settleLineRateStated, settleLineSelectionStated, followStripSeeds, planCapexReset, buildPhaseCostLines } from './costStandards';
 import { planTypeMassingWriteBack, resolveAssetTypeKey } from './assetTypeStandards';
 import { seedRevenueBlocks } from './revenueSeeds';
+import { settleOpsYearGrids } from './opsYearGrids';
 import { settleModel } from './settleModel';
 import { caseModelOf, withoutDerivedOverrides } from '../cases/caseModel';
 import { settleSubUnitPrices } from './subUnitPrices';
@@ -1410,7 +1411,10 @@ export function createModule1Store() {
       const massedLiveModel = massedLive.changed ? { ...ratedLive, project: { ...ratedLive.project, assetTypeValues: massedLive.values } } : ratedLive;
       const standardLive = settleStandardCostOverrides(massedLiveModel).state;
       const seededLive = seedRevenueBlocks(standardLive.assets);
-      const seededLiveModel = seededLive.changed ? { ...standardLive, assets: seededLive.assets } : standardLive;
+      const seededLiveModel0 = seededLive.changed ? { ...standardLive, assets: seededLive.assets } : standardLive;
+      // And every operating grid is keyed by operating year (2026-10-26), the same settle as on load.
+      const opsGridsLive = settleOpsYearGrids(seededLiveModel0.assets, seededLiveModel0.phases, seededLiveModel0.project);
+      const seededLiveModel = opsGridsLive.changed ? { ...seededLiveModel0, assets: opsGridsLive.assets } : seededLiveModel0;
       // And every sub-unit's active price is the one its basis states (2026-09-13).
       // The type's prices first, on rows with none of their own (2026-09-15).
       // The first cut's four type price fields fold into the two (2026-09-15).

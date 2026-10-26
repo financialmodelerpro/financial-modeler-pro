@@ -19,6 +19,7 @@
  */
 
 import { shiftOccupancy, scaleSalesPace } from '@/src/core/calculations/revenue/scenarioLevers';
+import { opsGridToPhaseLocal, sellPaceByPhase } from '@/src/core/calculations/revenue/opsYearGrid';
 import { isRetailCompanion } from '@/src/core/calculations/retailCompanion';
 import { buildEngineDownpaymentAxis } from './state/saleCohortResolution';
 import {
@@ -130,6 +131,23 @@ export function expandPhaseLocalToAxis(
     for (let i = 0; i < Math.min(legacy.length, N); i++) out[i] = legacy[i] ?? 0;
   }
   return out;
+}
+
+/**
+ * A hotel or lease line's occupancy on the project axis. Keyed by operating year where the
+ * line carries `occupancyByOpsYear` (placed at its first operating year, so it moves with the
+ * opening), else by year of the phase as before. The scenario lever shifts it either way.
+ */
+export function occupancyAxis(
+  cfg: { occupancyPerPeriod?: number[]; occupancyPerPeriodByPhase?: number[]; occupancyByOpsYear?: number[]; occupancyShiftPts?: number },
+  opsStartLocal: number,
+  phaseOffset: number,
+  axisLength: number,
+): number[] {
+  if (cfg.occupancyByOpsYear !== undefined) {
+    return expandPhaseLocalToAxis(shiftOccupancy(opsGridToPhaseLocal(cfg.occupancyByOpsYear, opsStartLocal), cfg.occupancyShiftPts), undefined, phaseOffset, axisLength);
+  }
+  return expandPhaseLocalToAxis(shiftOccupancy(cfg.occupancyPerPeriodByPhase, cfg.occupancyShiftPts), shiftOccupancy(cfg.occupancyPerPeriod, cfg.occupancyShiftPts), phaseOffset, axisLength);
 }
 
 export function expandYearKeyedToAxis(
@@ -372,7 +390,7 @@ export function resolveHospitalityConfig(
     startingADR: cfg.startingADR ?? 0,
     adrIndexation: expandIndexationToAxis(cfg.adrIndexation, cfg.adrIndexation?.growthPerPeriodByPhase, phaseOffset, axisLength),
     // The occupancy scenario lever shifts the ramp before it reaches the axis (2026-09-15).
-    occupancyPerPeriod: expandPhaseLocalToAxis(shiftOccupancy(cfg.occupancyPerPeriodByPhase, cfg.occupancyShiftPts), shiftOccupancy(cfg.occupancyPerPeriod, cfg.occupancyShiftPts), phaseOffset, axisLength),
+    occupancyPerPeriod: occupancyAxis(cfg, opsStartIdx - constructionStartIdx, phaseOffset, axisLength),
     guestsPerOccupiedRoom: cfg.guestsPerOccupiedRoom ?? 1.5,
     fb: fbExpanded,
     otherRevenue: orExpanded,
@@ -443,7 +461,7 @@ export function resolveLeaseConfig(
     baseRate: cfg.baseRate ?? 0,
     rentIndexation: expandIndexationToAxis(cfg.rentIndexation, cfg.rentIndexation?.growthPerPeriodByPhase, phaseOffset, axisLength),
     // The occupancy scenario lever shifts the ramp before it reaches the axis (2026-09-15).
-    occupancyPerPeriod: expandPhaseLocalToAxis(shiftOccupancy(cfg.occupancyPerPeriodByPhase, cfg.occupancyShiftPts), shiftOccupancy(cfg.occupancyPerPeriod, cfg.occupancyShiftPts), phaseOffset, axisLength),
+    occupancyPerPeriod: occupancyAxis(cfg, opsStartIdx - constructionStartIdx, phaseOffset, axisLength),
     opsStartIdx,
     opsEndIdx,
     arDays: cfg.arDays ?? 30,
@@ -564,17 +582,37 @@ export type VelocitySource = 'own' | 'default' | 'none';
 export function resolveRowVelocity(
   sell: NonNullable<Asset['revenue']>['sell'] | undefined,
   subUnitId: string,
-): { pre: number[] | undefined; post: number[] | undefined; preLegacy?: number[]; postLegacy?: number[]; source: VelocitySource } {
+  /** The phase's construction (and legacy overlap) in force: a row keyed by operating year is
+   *  placed after them (`opsYearGrid.ts`). Required, so every reader goes through the one rule. */
+  timing: { constructionPeriods?: number; overlapPeriods?: number },
+): { pre: number[] | undefined; post: number[] | undefined; preLegacy?: number[]; postLegacy?: number[]; postOps?: number[]; source: VelocitySource } {
+  const cp = Math.max(0, timing.constructionPeriods ?? 0), ov = Math.max(0, timing.overlapPeriods ?? 0);
   const own = sell?.subUnits?.find((s) => s.subUnitId === subUnitId);
   if (own) {
+    const postOps = own.postSalesVelocityByOpsYear;
     return {
-      pre: own.preSalesVelocityByPhase, post: own.postSalesVelocityByPhase,
-      preLegacy: own.preSalesVelocity, postLegacy: own.postSalesVelocity, source: 'own',
+      ...sellPaceByPhase({ pre: own.preSalesVelocityByPhase, post: own.postSalesVelocityByPhase, postOps, preLegacy: own.preSalesVelocity, postLegacy: own.postSalesVelocity }, cp, ov),
+      postOps, source: 'own',
     };
   }
   const dflt = sell?.velocityDefault;
-  if (dflt) return { pre: dflt.preSalesVelocityByPhase, post: dflt.postSalesVelocityByPhase, source: 'default' };
+  if (dflt) {
+    const postOps = dflt.postSalesVelocityByOpsYear;
+    const v = sellPaceByPhase({ pre: dflt.preSalesVelocityByPhase, post: dflt.postSalesVelocityByPhase, postOps }, cp, ov);
+    return { pre: v.pre, post: v.post, postOps, source: 'default' };
+  }
   return { pre: undefined, post: undefined, source: 'none' };
+}
+
+/** A Sell line's lockstep pace as years of the phase, by the same rule as a row (`resolveRowVelocity`). */
+export function resolveLinePace(
+  sell: NonNullable<Asset['revenue']>['sell'] | undefined,
+  timing: { constructionPeriods?: number; overlapPeriods?: number },
+): { pre: number[]; post: number[] } | undefined {
+  const d = sell?.velocityDefault;
+  if (!d) return undefined;
+  const v = sellPaceByPhase({ pre: d.preSalesVelocityByPhase, post: d.postSalesVelocityByPhase, postOps: d.postSalesVelocityByOpsYear }, timing.constructionPeriods ?? 0, timing.overlapPeriods ?? 0);
+  return { pre: v.pre ?? [], post: v.post ?? [] };
 }
 
 export interface ProjectRevenueSnapshot {
@@ -746,9 +784,9 @@ export function lineRevenueResults(
   };
 }
 
-export function computeAllSellResults(state: Pick<Module1Store, 'project' | 'phases' | 'assets' | 'subUnits'>): ProjectRevenueSnapshot {
-  const { project, phases, assets, subUnits } = state;
-  const timeline = computeProjectTimeline(project, phases);
+/** The revenue axis: its first year and its length (the one rule computeAllSellResults reads). */
+export function revenueAxisOf(project: Project, phases: readonly Phase[]): { projectStartYear: number; N: number } {
+  const timeline = computeProjectTimeline(project, phases as Phase[]);
   const projectStartYear = new Date(timeline.startDate).getUTCFullYear();
   // Mirror buildProjectAxis: inclusive slot count derived from
   // max(phaseOffset + cp + op - overlap), not endYear - startYear (which
@@ -760,7 +798,12 @@ export function computeAllSellResults(state: Pick<Module1Store, 'project' | 'pha
     const phaseLen = Math.max(0, (p.constructionPeriods ?? 0) + (p.operationsPeriods ?? 0) - (p.overlapPeriods ?? 0));
     if (psIdx + phaseLen > maxEnd) maxEnd = psIdx + phaseLen;
   }
-  const N = maxEnd;
+  return { projectStartYear, N: maxEnd };
+}
+
+export function computeAllSellResults(state: Pick<Module1Store, 'project' | 'phases' | 'assets' | 'subUnits'>): ProjectRevenueSnapshot {
+  const { project, phases, assets, subUnits } = state;
+  const { projectStartYear, N } = revenueAxisOf(project, phases);
   const yearLabels = Array.from({ length: N }, (_, i) => projectStartYear + i);
 
   const bySellAsset = new Map<string, SellAssetResult>();
@@ -801,7 +844,7 @@ export function computeAllSellResults(state: Pick<Module1Store, 'project' | 'pha
     const cfg: AssetSellConfig = {
       ...cfgRaw,
       subUnits: assetSubUnits.map((u) => {
-        const rowPace = resolveRowVelocity(storedSell, u.id);
+        const rowPace = resolveRowVelocity(storedSell, u.id, phase);
         // The sales pace scenario lever stretches the row's strips (2026-09-15).
         const paced = scaleSalesPace(rowPace.pre, rowPace.post, storedSell?.paceFactor);
         const v = { ...rowPace, pre: paced.pre, post: paced.post };

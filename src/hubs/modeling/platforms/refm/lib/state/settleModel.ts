@@ -23,6 +23,7 @@ import { applyReferenceCostBases } from '@/src/core/calculations/costBases';
 import { seedCostStandardRows, settleLineRateStated, settleLineSelectionStated, settleStandardCostOverrides } from './costStandards';
 import { planTypeMassingWriteBack } from './assetTypeStandards';
 import { seedRevenueBlocks } from './revenueSeeds';
+import { settleOpsYearGrids } from './opsYearGrids';
 import { settleSubUnitPrices } from './subUnitPrices';
 import { settleTypePriceFields, settleSubUnitPriceStated, settleSubUnitPriceDefaults } from './subUnitPriceDefaults';
 
@@ -86,7 +87,10 @@ export function settleModel(merged: HydrateSnapshot) {
       const massedModel = massed.changed ? { ...ratedModel, project: { ...ratedModel.project, assetTypeValues: massed.values } } : ratedModel;
       const standardModel = settleStandardCostOverrides(massedModel).state;
       const seeded = seedRevenueBlocks(standardModel.assets);
-      const seededModel = seeded.changed ? { ...standardModel, assets: seeded.assets } : standardModel;
+      const seededModel0 = seeded.changed ? { ...standardModel, assets: seeded.assets } : standardModel;
+      // And every operating grid is keyed by operating year (2026-10-26, opsYearGrids.ts), exactly.
+      const opsGrids = settleOpsYearGrids(seededModel0.assets, seededModel0.phases, seededModel0.project);
+      const seededModel = opsGrids.changed ? { ...seededModel0, assets: opsGrids.assets } : seededModel0;
       /**
        * AND EVERY SUB-UNIT'S ACTIVE PRICE IS THE ONE ITS BASIS STATES
        * (2026-09-13, subUnitPrices.ts): a row carries a price per sqm and a

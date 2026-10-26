@@ -3256,6 +3256,33 @@ exit payout, so total dividends and returns stayed identical while the per-phase
 **The trap to avoid:** a phase or segment view that borrows a project-level row. Either allocate it or leave it out
 and add it back once, and foot the segments to the whole in a check, or the overstatement never shows.
 
+### 7.68 A grid keyed by the wrong year count moves the right thing and leaves its values behind
+
+**Symptom (2026-10-26):** on FMP - MARINA GATE, Phase 2 construction 3 to 4 years moved the handover and the
+operating window, but the hotel opened in 2032 at 50%, the ramp's SECOND value: the 45% first year was lost and the
+new last operating year read 0%. Sales during operation stayed in the same calendar years, so the first fell in a
+construction year and was still filed as post-handover. The live workbook did the same, faithfully, with the grid
+length (4, 3) typed into each formula.
+
+**Mechanism:** the occupancy ramp and the sales during operation were stored by YEAR OF THE PHASE (index 0 = the
+phase's first year), which is a construction count. A grid that applies while a line operates belongs to the
+operating count; keyed by the construction count, a longer build shifts the window over values that stay put.
+Both counts agree until construction changes, so no fixed-input check saw it.
+
+**Fix:** operating grids are stored by OPERATING year (`occupancyByOpsYear`, `postSalesVelocityByOpsYear`), placed
+by ONE rule (`src/core/calculations/revenue/opsYearGrid.ts`) at the line's first operating year; pre-sales and the
+downpayment stay by construction year and apply in construction years only. `settleOpsYearGrids` converts a saved
+project on load and save ONLY where the new rule reproduces the old figures exactly (Marina Gate: 11,382 snapshot
+numbers identical). The live workbook reads every grid through Timeline counters (construction year number,
+operating year number) and the grid's own `COLUMNS`, and no other tab reads the phase cells on Inputs
+(`verify-formula-workbook` A12m, A12t).
+
+**Proof:** the same edit in real Excel and on the platform: handover 2031, operations 2032 to 2039, the hotel and
+both retail ramps open at 45% in 2032, sales during operation start in 2032, every row the same year by year.
+
+**The trap to avoid:** keying a series by a count that is only coincidentally equal to the one it means. Ask what
+the value is the Nth year OF, and store it by that.
+
 ## 8. Registries and two-step registration
 
 ### 8.1 A template registered in one place and not the other fails silently and permanently

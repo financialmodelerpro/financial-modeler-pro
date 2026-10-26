@@ -930,10 +930,31 @@ function formulaCells(wb: ExcelJS.Workbook): Map<string, { formula: string; resu
       const inp = wb.getWorksheet('Inputs')!;
       const calendarLabels: string[] = [];
       inp.eachRow((row, r) => { const a = String(row.getCell(1).value ?? ''); if (/(velocity|Sales During Operation|Occupancy ramp|Sale cohort terms)/i.test(a) && /\b20\d\d\b/.test(a)) calendarLabels.push(`A${r} ${a}`); });
-      const gridHeads = registry.keys().filter((k) => k.startsWith('rxgrid|')).map((k) => { const a = registry.need(k); return String(inp.getCell(a.row - 1, a.col).value ?? ''); });
-      const firstRows = new Set(registry.keys().filter((k) => k.startsWith('rxgrid|')).map((k) => registry.need(k).row));
-      check(`A12m the velocity, downpayment and occupancy grids are keyed by phase year (${firstRows.size} grids), never a calendar year`,
-        firstRows.size > 0 && calendarLabels.length === 0 && gridHeads.every((h) => /^Year \d+$/.test(h) || h === ''), [...calendarLabels, ...gridHeads.filter((h) => !/^Year \d+$/.test(h) && h !== '')].slice(0, 4).join('; '));
+      // THE GRIDS ARE KEYED THE WAY THE PLATFORM STORES THEM (2026-10-26, founder): a construction grid
+      // (pre-sales, downpayment) by construction year, an operating grid (sales during operation,
+      // occupancy) by operating year, so a longer build moves the operating grids with the opening.
+      // Both kinds must be present on the reference project, or the rule is checked on nothing.
+      const gridKeys = registry.keys().filter((k) => k.startsWith('rxgrid|'));
+      const isOpsGrid = (k: string): boolean => /\|(post\|[^@]*|occ)@\d+$/.test(k);
+      const headOf = (k: string): string => { const a = registry.need(k); return String(inp.getCell(a.row - 1, a.col).value ?? ''); };
+      const wrongHead = gridKeys.filter((k) => !(isOpsGrid(k) ? /^Ops year \d+$/ : /^Year \d+$/).test(headOf(k)));
+      const opsRows = new Set(gridKeys.filter(isOpsGrid).map((k) => registry.need(k).row)), conRows = new Set(gridKeys.filter((k) => !isOpsGrid(k)).map((k) => registry.need(k).row));
+      check(`A12m construction grids are keyed by construction year (${conRows.size}) and operating grids by operating year (${opsRows.size}), never a calendar year`,
+        opsRows.size > 0 && conRows.size > 0 && calendarLabels.length === 0 && wrongHead.length === 0, [...calendarLabels, ...wrongHead.map((k) => `${k}: "${headOf(k)}"`)].slice(0, 4).join('; '));
+      // TIMELINE IS THE ONE SOURCE OF TIMING (2026-10-26, founder): no formula on any other tab reads a
+      // phase's start, construction or operations cell on Inputs. Planted on a copy, the check fires.
+      const phaseCells = registry.keys().filter((k) => /^phase:[^:]+:(start|cp|op)$/.test(k)).map((k) => registry.need(k)).filter((a) => a.sheet === 'Inputs');
+      const phaseRefRe = new RegExp(`Inputs!\\$?(${phaseCells.map((a) => `${colLetterOf(a.col)}\\$?${a.row}`).join('|')})(?![0-9])`);
+      const readsPhaseDates = (book: ExcelJS.Workbook): string[] => {
+        const out: string[] = [];
+        for (const ws of book.worksheets) { if (ws.name === 'Timeline') continue; ws.eachRow((row, r) => row.eachCell((cell, c) => { const v = cell.value as unknown as { formula?: string } | null; if (v && typeof v === 'object' && typeof v.formula === 'string' && phaseRefRe.test(v.formula)) out.push(`${ws.name}!R${r}C${c}`); })); }
+        return out;
+      };
+      const offTimeline = phaseCells.length ? readsPhaseDates(wb) : ['no phase cells registered'];
+      const plantedRead = buildFormulaWorkbook(opts).wb;
+      if (phaseCells.length) plantedRead.getWorksheet('Revenue')!.getCell(2, 30).value = { formula: `Inputs!$${colLetterOf(phaseCells[0].col)}$${phaseCells[0].row}+0`, result: 0 } as never;
+      check(`A12t no formula outside Timeline reads a phase's start, construction or operations years on Inputs (${phaseCells.length} cells), and the check fires on a planted read`,
+        phaseCells.length > 0 && offTimeline.length === 0 && readsPhaseDates(plantedRead).length === 1, offTimeline.slice(0, 6).join(', '));
       const shiftLeft: string[] = [];
       for (const ws of wb.worksheets) ws.eachRow((row, r) => row.eachCell((cell, c) => { if (typeof cell.value === 'string' && /start year at export|years moved since export/i.test(cell.value)) shiftLeft.push(`${ws.name}!R${r}C${c}`); }));
       check('A12n no "start year at export" or "years moved" cell is left (Inputs, Timeline)', shiftLeft.length === 0 && !registry.keys().some((k) => /:sx$|:mv$/.test(k)), shiftLeft.join(', '));

@@ -53,7 +53,8 @@ import { storeComputedValues } from './liveLayers/evaluate';
 import { computedCells } from './liveLayers/writer';
 import { collapseSpaces } from './liveFrontMatter';
 import { linkPeriodHeaders } from './liveLayers/foundations';
-import { inputsUnreadProblems, receivableDaysProblems, cellId } from './liveLayers/inputAudit';
+import { inputsUnreadProblems, receivableDaysProblems, cellId, typedInputsCells } from './liveLayers/inputAudit';
+import { ARGB as INPUT_ARGB } from './styles';
 
 export type SheetStatus = 'live' | 'partial' | 'values' | 'values-by-design' | 'front';
 
@@ -178,6 +179,10 @@ export function buildFormulaWorkbook(opts: BuildModelOptions): FormulaWorkbookRe
   relabel(wb, status);
   // Labels a layer wrote read with single spaces too ("Branded  Villas", 2026-10-20).
   for (const ws of wb.worksheets) collapseSpaces(ws);
+  // EVERY TYPED VALUE ON INPUTS IS IN INPUT BLUE (2026-10-26, founder), the fixed-at-export ones
+  // too (the fee matrix, a land line's 100% rows): blue says typed, black says worked out.
+  const inputsWs = wb.getWorksheet('Inputs');
+  if (inputsWs) for (const { row, col } of typedInputsCells(wb)) { const cell = inputsWs.getCell(row, col); cell.font = { ...(cell.font ?? {}), color: { argb: INPUT_ARGB.inputText } }; }
   orderTabs(wb);
   writeLoopLinks(wb);
   const problems = exportShapeProblems(wb);

@@ -71,11 +71,11 @@ export function vintageDepF(addAll: string, life: string, firstOp: string, idxAl
   const V = `((${idxAll}>${firstOp})*${idxAll}+(${idxAll}<=${firstOp})*${firstOp})`;
   return `IF(${life}>0,SUMPRODUCT((${addAll}>0)*${addAll}/MAX(1,${life})*(${V}<=${idxNow})*(${V}+MAX(1,INT(${life}))>${idxNow})),0)`;
 }
-/** The year index (1 = the first year) of a phase's first operating year, from Inputs. */
+/** The year index (1 = the first year) of a phase's first operating year, from the Timeline's phase table. */
 export function firstOperatingIdx(w: LiveWriter, phaseId: string, hostId?: string): string {
   // The held line's own cell on the depreciation inputs table, where the live layout carries one.
   if (hostId && w.has(`fafirst:${hostId}`)) return w.ref(`fafirst:${hostId}`);
-  return `(MAX(0,YEAR(${w.ref(`phase:${phaseId}:start`)})-${w.ref('project:axisYear')})+MAX(0,${w.ref(`phase:${phaseId}:cp`)})+1)`;
+  return `(MAX(0,YEAR(${w.ref(`tl:phase:${phaseId}:cs`)})-${w.ref('project:axisYear')})+MAX(0,${w.ref(`tl:phase:${phaseId}:cp`)})+1)`;
 }
 
 export const stage4Schedules: LiveLayer = {
