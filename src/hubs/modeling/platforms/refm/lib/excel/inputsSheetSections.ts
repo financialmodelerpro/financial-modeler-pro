@@ -234,7 +234,8 @@ export function emitStandardsSection(c: SheetCursor, state: FinancialsResolverSt
   const escLive = isLiveLayout();
   kv(c, isLiveLayout() ? 'Construction cost escalation (% a year, from the first model year)' : `Construction cost escalation (% a year, from ${v.baseYear})`, v.escalationPct === undefined ? (escLive ? 0 : undefined) : v.escalationPct / 100, NUMFMT.pct2, true,
     undefined, v.escalationPct === undefined ? (escLive ? 'Not set on the platform, so 0%: rates are not escalated.' : 'Not set: rates are not escalated.') : undefined,
-    v.escalationPct === undefined && !escLive ? undefined : 'inp=cx:esc@3');
+    // The live workbook's Capex reads this cell itself (2026-10-27: no echo on Capex).
+    escLive ? 'cx:esc' : v.escalationPct === undefined ? undefined : 'inp=cx:esc@3');
   c.r += 1;
 
   // THE LIVE WORKBOOK SHOWS NO TYPE PRICES (2026-10-25): every price it reads is the sub-unit's own

@@ -188,3 +188,84 @@ export function planCapexSpread(
 
   return { rows, plotLine };
 }
+
+/**
+ * WHICH SPREAD EACH ASSET'S COST LINE READS (2026-10-27, founder), shared by the builder and the
+ * layer. An asset's plots may spread a line differently (one types a curve, another does not):
+ *
+ *   - a plot whose amount for the line is zero BY STRUCTURE (the line is off there, or its base
+ *     cannot exist there: sale revenue on a plot with no sale rows, a strip's area on a host) is
+ *     left out, so a line whose other plots all agree reads their one spread (marketing follows the
+ *     one plot that sells, its line's collections);
+ *   - a hard line (rate x an area) whose plots still differ blends their spreads weighted by each
+ *     plot's quantity (the rate is the line's, so it cancels);
+ *   - a soft line (a percentage of selected lines) blends them weighted by each plot's hard-cost
+ *     money, which is exact while every soft line selects all the hard lines, directly or through
+ *     other soft lines that do (the layer refuses otherwise): the soft lines with the same plot
+ *     spreads share one blend.
+ */
+export interface CapexBlendPlan {
+  /** `${host}|${lineId}` -> the row key the line's years read: `cxw:<spread>`, `cxbw:<host>:<line>` or `cxbs:<host>:<n>`. */
+  use: Map<string, string>;
+  hard: Array<{ host: string; lid: string; key: string; plots: string[] }>;
+  soft: Array<{ host: string; key: string; plots: string[]; lids: string[] }>;
+  /** Per host whose soft lines blend: one weight row per plot, its hard-cost money. */
+  weights: Array<{ host: string; plot: string; key: string }>;
+  /** The hard lines whose money weighs a host's soft blend. */
+  hardLines: Map<string, string[]>;
+  /** A mixed line the plan cannot express (neither hard nor soft). */
+  other: Array<{ host: string; lid: string }>;
+}
+const STRIP_ONLY = new Set(['rate_x_retail_gfa', 'rate_x_retail_parking_area']);
+const HOST_ONLY = new Set(['rate_x_main_asset_gfa', 'rate_x_parking_area', 'rate_x_landscape_area']);
+export function planCapexBlends(
+  state: PlanState & { subUnits: Array<{ assetId: string; category?: string }> },
+  members: Map<string, string[]>,
+  plan: CapexSpreadPlan,
+  isStrip: (a: Asset) => boolean,
+): CapexBlendPlan {
+  const use = new Map<string, string>();
+  const hard: CapexBlendPlan['hard'] = [], soft: CapexBlendPlan['soft'] = [], weights: CapexBlendPlan['weights'] = [], other: CapexBlendPlan['other'] = [];
+  const hardLines = new Map<string, string[]>();
+  const sells = (id: string): boolean => state.subUnits.some((u) => u.assetId === id && u.category !== 'Support');
+  for (const [host, ids] of members) {
+    const lids = [...new Set(ids.flatMap((id) => [...plan.plotLine.values()].filter((x) => x.assetId === id).map((x) => x.lineId)))];
+    const zero = (id: string, lid: string): boolean => {
+      const pl = plan.plotLine.get(`${id}|${lid}`);
+      if (!pl || pl.disabled) return true;
+      const a = state.assets.find((x) => x.id === id);
+      if (!a) return true;
+      if (pl.method === 'percent_of_revenue_sale' && !sells(id)) return true;
+      return isStrip(a) ? HOST_ONLY.has(pl.method) : STRIP_ONLY.has(pl.method);
+    };
+    const softGroups = new Map<string, { lids: string[]; plots: string[] }>();
+    for (const lid of lids) {
+      const live = ids.filter((id) => !zero(id, lid));
+      const spreads = live.map((id) => plan.plotLine.get(`${id}|${lid}`)!.spread);
+      const first = (live.length ? spreads[0] : ids.map((id) => plan.plotLine.get(`${id}|${lid}`)?.spread).find((x): x is string => !!x)) ?? '';
+      if (new Set(spreads).size <= 1) { use.set(`${host}|${lid}`, `cxw:${first}`); continue; }
+      const method = plan.plotLine.get(`${live[0]}|${lid}`)!.method;
+      if (method.startsWith('rate_x_')) {
+        const key = `cxbw:${host}:${lid}`;
+        hard.push({ host, lid, key, plots: live });
+        use.set(`${host}|${lid}`, key);
+      } else if (method === 'percent_of_selected') {
+        const tuple = live.map((id, i) => `${id}=${spreads[i]}`).join(',');
+        const g = softGroups.get(tuple) ?? { lids: [], plots: live };
+        g.lids.push(lid); softGroups.set(tuple, g);
+      } else other.push({ host, lid });
+    }
+    let n = 0;
+    for (const g of softGroups.values()) {
+      const key = `cxbs:${host}:${n++}`;
+      soft.push({ host, key, plots: g.plots, lids: g.lids });
+      for (const lid of g.lids) use.set(`${host}|${lid}`, key);
+    }
+    if (softGroups.size) {
+      const plots = [...new Set([...softGroups.values()].flatMap((g) => g.plots))];
+      for (const p of plots) weights.push({ host, plot: p, key: `cxhw:${host}:${p}` });
+      hardLines.set(host, lids.filter((lid) => ids.some((id) => !zero(id, lid) && plan.plotLine.get(`${id}|${lid}`)!.method.startsWith('rate_x_'))));
+    }
+  }
+  return { use, hard, soft, weights, hardLines, other };
+}

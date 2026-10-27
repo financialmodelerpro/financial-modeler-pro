@@ -48,6 +48,7 @@ import { assetHasSubstance } from '../../../components/modules/_shared/assetTabl
 import { buildSubUnitLines, buildAssetLandView, buildAssetAreaTables } from '../../../components/modules/_shared/assetInputsView';
 import { nsaUsedLines } from '../inputsSheetSections';
 import { nsaUsedFormula } from './liveAreas';
+import { planReportLines } from '../../reports/lineRows';
 import type { Asset, Parcel, SubUnit } from '../../state/module1-types';
 
 const EXCEL_EPOCH = Date.UTC(1899, 11, 30);
@@ -409,6 +410,20 @@ export const stage1LandArea: LiveLayer = {
           w.f(k('inkind'), pieces.length ? pieces.map((p) => `${R(p.pk)}*MAX(0,${pRef(p.parcel, 'rate')})*MAX(0,${pRef(p.parcel, 'inkind')})`).join('+') : '0');
         }
       } else landRow(k, R(`chain:${a.id}:land`), a.landAllocation?.parcelId);
+    }
+    // A line on several plots: its row is the SUM of its plots' rows, which sit under it.
+    const ls0 = { assets: state.assets, phases: state.phases, parcels: state.parcels };
+    for (const l of planReportLines(ls0, (a) => landView.some((x) => x.assetId === a.id))) {
+      const lk = l.key;
+      if (!w.has(`landline:${lk}:sqm`)) continue;
+      const members = l.assetIds.filter((id) => w.has(`land:${id}:sqm`)).map((id) => Number(w.cell(`land:${id}:sqm`).row)).sort((x, y) => x - y);
+      if (!members.length || members[members.length - 1] - members[0] !== members.length - 1) continue;
+      const L = (f: string): string => `landline:${lk}:${f}`;
+      for (const [f, col] of [['sqm', 2], ['value', 4], ['cash', 5], ['inkind', 6]] as const) {
+        const c = String.fromCharCode(64 + col);
+        w.f(L(f), `SUM($${c}$${members[0]}:$${c}$${members[members.length - 1]})`);
+      }
+      w.f(L('rate'), `IF(${R(L('sqm'))}>0,${R(L('value'))}/${R(L('sqm'))},0)`);
     }
     const cats = [...new Set(landView.map((x) => x.category))];
     for (const cat of cats) {

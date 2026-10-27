@@ -364,13 +364,14 @@ export const stage5Statements: LiveLayer = {
       const ret = visible.filter((a) => a.strategy === 'Lease' && matches(a));
       const all = [...res, ...hosp, ...ret];
       const byId = new Map(state.assets.map((a) => [a.id, a] as const));
-      // A capex line reads ONE CELL: its asset's row on Capex Table 3 (capex excluding land in kind).
-      const cashCapexKey = (assetIds: readonly string[]): string | undefined => assetIds.map((id) => `cx3:${id}`).find(has);
+      // A capex line reads its asset's row on Capex Table 2 less its land in kind (Table 3 is gone, 2026-10-27).
+      const cashCapexKey = (assetIds: readonly string[]): string | undefined => assetIds.map((id) => `cx2:${id}`).find(has);
+      const lineInKind = (assetIds: readonly string[]): F => sumF(assetIds.map((id) => byId.get(id)).filter((a): a is Asset => !!a).map(inKindOf));
       const members = (list: Asset[], pick: (a: Asset) => F, sign: 1 | -1, capexLine = false): Array<{ label: string; f: F }> => {
         const ids = new Set(list.map((a) => a.id));
         return planReportLines(state, (a) => ids.has(a.id)).map((line) => {
           const one = capexLine ? cashCapexKey(line.assetIds) : undefined;
-          const f = one ? keyF(one) : sumF(line.assetIds.map((id) => pick(byId.get(id)!)));
+          const f = one ? (t: number) => `${R(one, t)}-(${lineInKind(line.assetIds)(t)})` : sumF(line.assetIds.map((id) => pick(byId.get(id)!)));
           return { label: lineRowLabel(line, state), f: sign === 1 ? f : neg(f) };
         });
       };

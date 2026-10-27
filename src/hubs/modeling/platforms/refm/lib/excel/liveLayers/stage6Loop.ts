@@ -204,7 +204,7 @@ export const stage6Loop: LiveLayer = {
     for (const k of [K.minCash, K.debtPct, K.equityPct, K.payout, K.divOn, K.divStartIn, K.lastCon, K.dF, K.eF, K.landDebt, K.divStart, K.capexAll, K.nonLand, K.landCash, K.inKind, K.noi, K.proceeds, K.exitRepay]) {
       if (!has(k)) refuse.push(`the row ${k.split('|').slice(1).join(' / ')} is not on the Financing sheet`);
     }
-    for (const k of ['cx3:total', 'cx5:total:cash', 'cx5:total:inkind', 'schv:__project__:dep', 'schv:__project__:capDep']) if (!has(k)) refuse.push(`the ${k} row is not live`);
+    for (const k of ['cx2:total', 'cx5:total:cash', 'cx5:total:inkind', 'schv:__project__:dep', 'schv:__project__:capDep']) if (!has(k)) refuse.push(`the ${k} row is not live`);
     if (refuse.length) return values(`The financing could not be made live for this model: ${[...new Set(refuse)].join('; ')}.`);
 
     // ── Writing helpers ──────────────────────────────────────────────────────
@@ -370,7 +370,8 @@ export const stage6Loop: LiveLayer = {
     for (const f of fac) putS(`fin|${f.band}|Interest Rate %`, `MAX(0,N(${inp(`fin|${f.band}|Interbank Rate %`)})+N(${inp(`fin|${f.band}|Credit Spread %`)}))`);
 
     // ── Capex, the exit, the operating cash ──────────────────────────────────
-    put(K.capexAll, (t) => P('cx3:total', t));
+    // Capex excluding land in kind: Capex Table 2 less Table 5's in-kind land (2026-10-27).
+    put(K.capexAll, (t) => `${P('cx2:total', t)}-${P('cx5:total:inkind', t)}`);
     put(K.landCash, (t) => P('cx5:total:cash', t));
     put(K.nonLand, (t) => `MAX(0,${P(K.capexAll, t)}-${P(K.landCash, t)})`);
     put(K.inKind, (t) => P('cx5:total:inkind', t));

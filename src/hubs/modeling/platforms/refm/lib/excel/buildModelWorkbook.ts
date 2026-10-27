@@ -47,7 +47,8 @@ import { buildFcffBuildup, buildFcfeBuildup, buildDividendBuildup, m4StreamRow, 
 import { buildEmptyInputAdvisories, emptyInputAdvisoryText, buildIntegrityChecks, checkDetail, buildRevenueBasisAdvisoriesFor, revenueBasisAdvisoryText, buildSaleCohortAdvisories, saleCohortAdvisoryText } from '../reports/checksReport';
 import { buildCostOfSalesReport } from '../reports/cosReports';
 import { buildOpexReport, OPEX_AP_BASIS, OPEX_AP_TOTAL_BASIS } from '../reports/opexReports';
-import { planCapexSpread } from './liveLayers/capexSpread';
+import { planCapexSpread, planCapexBlends, followedRule, type SpreadRow } from './liveLayers/capexSpread';
+import { isRetailCompanion } from '@/src/core/calculations/retailCompanion';
 import { isParcelDrivenLandLine, resolvePhasingSource } from '@/src/core/calculations/capexPhasing';
 import { buildPLRows, buildPhaseEbitdaReconciliationRows, phaseEbitdaFooting, PHASE_RECON_LINE, taxBasisNote, buildDirectCFRows, buildIndirectCFRows, buildBSRows, buildBsReconciliationRows, buildBsFeederTables, BS_FEEDER_SECTIONS, BS_RECONCILIATION_CAPTION, buildFundFeeBasisRows, buildFundCapitalRows, fundFeeBasisBaseCell, totalColumnHeading, totalColumnNote, TOTAL_COLUMN_HEADINGS, TOTAL_COLUMN_NOTES, FUND_CAPITAL_BASES_TITLE, FUND_CAPITAL_BASES_NOTE, FUND_CAPITAL_BASE_TAG, type M4ReportCtx, type FundFeeBasisRow } from '../reports/m4Reports';
 import { buildFixedAssetReport, idcRowIsHeld, type FixedAssetTable } from '../reports/fixedAssetReports';
@@ -979,7 +980,10 @@ function addAssumptions(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFin
   // inherits its plot's curve spreads on the curve sliced to its own window.
   const curved = isLiveLayout() ? state.assets.filter((a) => a.visible !== false && a.capexPhasing?.phasing === 'manual' && (a.capexPhasing.distribution ?? []).some((v) => (v ?? 0) !== 0)) : [];
   if (curved.length) {
-    const L = Math.max(...curved.map((a) => (a.capexPhasing?.distribution ?? []).length));
+    // AS MANY PERIODS AS THE MODEL HAS YEARS (2026-10-27): a phase that builds longer reads the
+    // periods it needs; a period the platform does not store is blank (the platform reads 0).
+    const typedL = Math.max(...curved.map((a) => (a.capexPhasing?.distribution ?? []).length));
+    const L = Math.max(typedL, snap.axisLength + 1);
     setSectionHeader(ws.getRow(r), 'Plot spend curves (typed by phase period; period 0 is the year before the phase starts)', Math.max(9, L + 1)); r += 1;
     setColHeader(ws.getCell(`A${r}`), 'Plot', 'left');
     for (let i = 0; i < L; i++) setColHeader(ws.getCell(r, 2 + i), `P${i}`, 'right');
@@ -988,7 +992,11 @@ function addAssumptions(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFin
       setLabel(ws.getCell(`A${r}`), assetLabel(a, { parcels: state.parcels, phases: state.phases }), { indent: 1 });
       registerCell(`inpcurve:${a.id}`, ws, ws.getCell(`A${r}`));
       const dist = a.capexPhasing?.distribution ?? [];
-      for (let i = 0; i < L; i++) setInput(ws.getCell(r, 2 + i), Math.max(0, dist[i] ?? 0), NUMFMT.rate);
+      for (let i = 0; i < L; i++) {
+        const cell = ws.getCell(r, 2 + i);
+        if (i < dist.length) setInput(cell, Math.max(0, dist[i] ?? 0), NUMFMT.rate);
+        else { markInput(cell); cell.numFmt = NUMFMT.rate; }
+      }
       r += 1;
     }
     r += 1;
@@ -1604,12 +1612,39 @@ function addLandArea(wb: ExcelJS.Workbook, state: FinancialsResolverState, refs:
   LAND_HEADS.forEach((h, i) => setColHeader(ws.getCell(r, i + 1), h, i === 0 ? 'left' : 'right')); r += 1;
   const landAddrsByAsset = new Map<string, LandAreaAssetAddrs>();
   const firstBodyRow = r;
+  // A LINE ON SEVERAL PLOTS HAS ITS OWN ROW (live layout, 2026-10-27): the sum of its plots' rows,
+  // which sit under it, so Capex links one land value per line (as a retail strip already shows it).
+  const landLineOf = new Map<string, { key: string; title: string; ids: string[] }>();
+  if (isLiveLayout()) {
+    const ls = { assets: state.assets, phases: state.phases, parcels: state.parcels };
+    for (const l of planReportLines(ls, (a) => land.some((x) => x.assetId === a.id))) {
+      const ids = l.assetIds.filter((id) => land.some((x) => x.assetId === id));
+      if (ids.length > 1) for (const id of ids) landLineOf.set(id, { key: l.key, title: lineTitle(l, ls).replace(/\s*\([^)]*\)\s*$/, ''), ids });
+    }
+  }
   for (const cat of CAPEX_SECTIONS) {
-    const rows = land.filter((x) => x.category === cat);
-    if (rows.length === 0) continue;
+    const rows0 = land.filter((x) => x.category === cat);
+    if (rows0.length === 0) continue;
+    // A line's plots together, in the order the first of them appears.
+    const rows = rows0.flatMap((x, i) => { const g = landLineOf.get(x.assetId); if (!g) return [x]; return rows0.findIndex((y) => g.ids.includes(y.assetId)) === i ? rows0.filter((y) => g.ids.includes(y.assetId)) : []; });
     setLabel(ws.getCell(r, 1), cat, { bold: true }); fillRange(ws, r, 1, r, LAND_HEADS.length, ARGB.subtotal); r += 1;
+    const lineDone = new Set<string>();
     for (const a of rows) {
-      setLabel(ws.getCell(r, 1), a.name, { indent: 1 });
+      const g = landLineOf.get(a.assetId);
+      if (g && !lineDone.has(g.key)) {
+        lineDone.add(g.key);
+        const ms = rows.filter((y) => g.ids.includes(y.assetId));
+        const s = (pick: (x: typeof ms[number]) => number): number => ms.reduce((t, x) => t + pick(x), 0);
+        setLabel(ws.getCell(r, 1), g.title, { indent: 1 });
+        setFormula(ws.getCell(r, 2), fcell('0', s((x) => x.landSqm)), NUMFMT.int);
+        setFormula(ws.getCell(r, 3), fcell('0', s((x) => x.landSqm) > 0 ? s((x) => x.landValue) / s((x) => x.landSqm) : 0), NUMFMT.rate);
+        setFormula(ws.getCell(r, 4), fcell('0', s((x) => x.landValue)), NUMFMT.money);
+        setFormula(ws.getCell(r, 5), fcell('0', s((x) => x.cashLandValue)), NUMFMT.money);
+        setFormula(ws.getCell(r, 6), fcell('0', s((x) => x.inKindLandValue)), NUMFMT.money);
+        (['sqm', 'rate', 'value', 'cash', 'inkind'] as const).forEach((k, i) => registerCell(`landline:${g.key}:${k}`, ws, ws.getCell(r, 2 + i)));
+        r += 1;
+      }
+      setLabel(ws.getCell(r, 1), a.name, { indent: g ? 2 : 1 });
       setFormula(ws.getCell(r, 2), fcell('0', a.landSqm), NUMFMT.int);
       setFormula(ws.getCell(r, 3), fcell('0', a.landRate), NUMFMT.rate);
       setFormula(ws.getCell(r, 4), fcell('0', a.landValue), NUMFMT.money);
@@ -1769,6 +1804,12 @@ export function capexBasisText(method: string, rate: number): string | undefined
   if (CAPEX_PCT_BASIS[method]) return `${(Math.round(rate * 10000) / 100).toFixed(2)}% of ${CAPEX_PCT_BASIS[method]}`;
   return undefined;
 }
+/** A live Table 1 row's label tail: what its rate multiplies, in words (2026-10-27). */
+export function capexLabelWords(method: string): string {
+  if (CAPEX_AREA_BASIS[method]) return `, per sqm of ${CAPEX_AREA_BASIS[method].replace(/^[A-Z][a-z]/, (x) => x.toLowerCase())}`;
+  if (CAPEX_PCT_BASIS[method]) return `, % of ${CAPEX_PCT_BASIS[method]}`;
+  return '';
+}
 /** The words after the rate in a capex row's basis (for the live layer's formula). */
 export function capexBasisWords(method: string): { fmt: string; words: string } | undefined {
   if (CAPEX_AREA_BASIS[method]) return { fmt: '#,##0', words: ` × ${CAPEX_AREA_BASIS[method]}` };
@@ -1808,7 +1849,7 @@ function addCapex(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancial
   setNote(ws.getCell('A1'), `${SNAPSHOT_NOTE}\n\nSourced from the Capex cost lines and the Assets tab areas. Feeds Cost of Sales, Financing, Schedules and the Balance Sheet.`);
   setLabel(ws.getCell('A2'), SUB);
   setColHeader(ws.getCell(4, C_LBL), 'Cost line', 'left');
-  setColHeader(ws.getCell(4, C_UOM), live ? 'Basis' : 'Method', 'left');
+  setColHeader(ws.getCell(4, C_UOM), live ? 'Rate' : 'Method', live ? 'right' : 'left');
   if (!live) setColHeader(ws.getCell(4, C_RATE), 'Rate', 'right');
   setColHeader(ws.getCell(4, C_QTY), 'Quantity', 'right');
   setColHeader(ws.getCell(4, C_TOT), 'Total', 'right');
@@ -1900,6 +1941,298 @@ function addCapex(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancial
   });
   const inputLine = (hostId: string, lineId: string) => inputById.get(hostId)?.lines.find((l) => l.id === lineId);
   const methodLabel = (method: string, basis: string): string => (COST_METHOD_LABELS as Record<string, string>)[method] ?? basis;
+
+  if (live) return liveCapex();
+
+  // ── THE LIVE LAYOUT (2026-10-27, founder): one schedule by asset, the spend shares it reads ──
+  // No input card (Table 1 reads Inputs), no consolidated view, no Table 3 or 6, no check row:
+  // the escalation factor, the spend shares (one row per distinct spread, a blend only where an
+  // asset's plots spread a line differently), Table 1 by asset, the selling and marketing expensed,
+  // Tables 2, 4, 5 and 7. Every figure is the platform's; stage 2 writes the formulas.
+  function liveCapex(): CapexAddrs {
+    const escPct = state.project.costEscalationPct ?? 0;
+    const facOf = (t: number): number => Math.pow(1 + escPct / 100, t);
+    const plan = planCapexSpread(state, refs.capexMembers ?? new Map(), snap.revenue as never, snap.projectStartYear, N);
+    const memberMap = new Map<string, string[]>(lines.map((m) => [m.hostId, members(m.hostId)] as const));
+    const blends = planCapexBlends(state, memberMap, plan, (a) => isRetailCompanion(a));
+    const plotRep = buildCapexReport(snap, state);
+    const plotLn = (id: string, lid: string) => plotRep.inputAssets.find((ia) => ia.assetId === id)?.lines.find((x) => x.id === lid);
+    const expensed = expensedRowsOf(state, snap, lines.flatMap((m) => members(m.hostId)), (assetId, lineId, valued) => valued || plan.plotLine.has(`${assetId}|${lineId}`));
+    /** A plot's base-year amount for a line (an escalating line's spend back over its factor). */
+    const baseAmount = (id: string, lid: string): number => {
+      const e = expensed.find((x) => x.a.id === id && x.line.id === lid);
+      const per = e ? e.per : plotLn(id, lid)?.perPeriod;
+      const amount = e ? e.amount : plotLn(id, lid)?.amount ?? 0;
+      return plan.plotLine.get(`${id}|${lid}`)?.escalates && per ? per.reduce((s, v, t) => s + (v ?? 0) / facOf(t), 0) : amount;
+    };
+    const blendOf = (plots: string[], w: (id: string) => number, spreadOf: (id: string) => string | undefined): number[] => {
+      const wts = plots.map(w), tot = wts.reduce((s, v) => s + v, 0);
+      const out = zeros();
+      if (tot > 0) plots.forEach((id, i) => { const sp = plan.rows.get(spreadOf(id) ?? ''); if (sp) for (let t = 0; t < N; t++) out[t] += (wts[i] * (sp.shares[t] ?? 0)) / tot; });
+      else { const sp = plan.rows.get(spreadOf(plots[0]) ?? ''); if (sp) for (let t = 0; t < N; t++) out[t] = sp.shares[t] ?? 0; }
+      return out;
+    };
+    const ruleWords: Record<string, string> = { land: 'land payment', std: 'construction years', half: 'from half the construction years', preop: 'last construction years' };
+    const revLines = planRevenueLines(state.assets, state.subUnits, state.phases, state.project);
+    const spreadLabel = (sp: SpreadRow): string => {
+      const ph = state.phases.find((p) => p.id === sp.phaseId);
+      const a = sp.assetId ? state.assets.find((x) => x.id === sp.assetId) : undefined;
+      const lineName = state.costLines.find((c) => c.id === sp.lineId)?.name ?? '';
+      const win = sp.win === 'follows' ? ruleWords[followedRule(sp.baseId)] : `${lineName} window`;
+      if (sp.kind === 'collections') { const rl = a ? lineForAsset(revLines, a.id) : undefined; return `Collections, ${rl ? revenueLineName(rl) : a?.name ?? ''}`; }
+      if (sp.kind === 'curve') return `Curve, ${a ? assetLabel(a, ctxNames) : ''}, ${win}`;
+      return `Even${multiPhase && ph ? `, ${ph.name}` : ''}, ${sp.win === 'plot' && a ? `${assetLabel(a, ctxNames)}, ` : ''}${win}`;
+    };
+    let r = 5;
+    setLabel(ws.getCell(r, C_LBL), 'Cost escalation factor, by the year the money is spent', { bold: true });
+    registerCell('cx:escf', ws, ws.getCell(r, C_LBL));
+    for (let t = 0; t < N; t++) put(r, cP(t), facOf(t), FACTOR_FMT);
+    r += 2;
+
+    // ── Spend shares, one row per distinct spread ─────────────────────────
+    setSectionHeader(ws.getRow(r), 'Spend shares by year', cLast); r += 1;
+    subHeader(r, [[C_LBL, 'Spread', 'left'], [2, 'From period', 'right'], [3, 'To period', 'right'], [C_TOT, 'Total', 'right'], [C_OPEN, 'Window total', 'right']]);
+    r += 1;
+    // Each phase's period of every year (1 in its first year, 0 the year before); D holds that first year.
+    for (const ph of state.phases.filter((p) => [...plan.rows.values()].some((sp) => sp.phaseId === p.id))) {
+      const off = Math.max(0, new Date(ph.startDate as string).getUTCFullYear() - snap.projectStartYear);
+      setLabel(ws.getCell(r, C_LBL), `Phase period of the year, ${ph.name} (its first year in Total)`, { indent: 1 });
+      registerCell(`cxpp:${ph.id}`, ws, ws.getCell(r, C_LBL));
+      put(r, C_TOT, snap.projectStartYear + off, NUMFMT.year);
+      for (let t = 0; t < N; t++) put(r, cP(t), t - off + 1, NUMFMT.int);
+      r += 1;
+    }
+    for (const sp of plan.rows.values()) {
+      const ph = state.phases.find((p) => p.id === sp.phaseId);
+      const off = ph ? Math.max(0, new Date(ph.startDate as string).getUTCFullYear() - snap.projectStartYear) : 0;
+      setLabel(ws.getCell(r, C_LBL), spreadLabel(sp), { indent: 1 });
+      registerCell(`cxw:${sp.key}`, ws, ws.getCell(r, C_LBL));
+      put(r, 2, sp.start, NUMFMT.int); put(r, 3, sp.end, NUMFMT.int);
+      if (sp.kind === 'curve') {
+        const dist = state.assets.find((x) => x.id === sp.assetId)?.capexPhasing?.distribution ?? [];
+        let s = 0; for (let i = sp.start; i <= sp.end; i++) s += Math.max(0, dist[i] ?? 0);
+        put(r, C_OPEN, s, NUMFMT.rate);
+      } else if (sp.kind === 'collections' && ph) {
+        const cash = (snap.revenue as { bySellAsset?: Map<string, { cashCollectedPerPeriod?: number[] } | undefined> }).bySellAsset?.get(sp.assetId ?? '')?.cashCollectedPerPeriod ?? [];
+        const slots = (ph.constructionPeriods ?? 0) + (ph.operationsPeriods ?? 0) + 2;
+        let s = 0; for (let t = 0; t < N; t++) { const i = t - off + 1; if (i >= 1 && i < slots) s += Math.max(0, cash[t] ?? 0); }
+        put(r, C_OPEN, s);
+      }
+      for (let t = 0; t < N; t++) put(r, cP(t), sp.shares[t] ?? 0, NUMFMT.pct2);
+      put(r, C_TOT, sumN(sp.shares), NUMFMT.pct2);
+      r += 1;
+    }
+    r += 1;
+
+    // ── Blends: where an asset's plots spread a line differently ─────────────
+    if (blends.hard.length || blends.soft.length) {
+      setSectionHeader(ws.getRow(r), 'Spend shares blended across an asset\'s plots', cLast); r += 1;
+      subHeader(r, [[C_LBL, 'Asset / Cost line', 'left'], [C_TOT, 'Total', 'right']]);
+      r += 1;
+      for (const m of lines) {
+        const hs = blends.hard.filter((b) => b.host === m.hostId), ss = blends.soft.filter((b) => b.host === m.hostId), ws0 = blends.weights.filter((b) => b.host === m.hostId);
+        if (!hs.length && !ss.length) continue;
+        band(r, m.label + (multiPhase && m.phaseName ? `, ${m.phaseName}` : '')); r += 1;
+        for (const b of hs) {
+          const name = state.costLines.find((c) => c.id === b.lid)?.name ?? b.lid;
+          setLabel(ws.getCell(r, C_LBL), `${name}, weighted by plot quantity`, { indent: 1 });
+          registerCell(b.key, ws, ws.getCell(r, C_LBL));
+          const share = blendOf(b.plots, (id) => baseAmount(id, b.lid), (id) => plan.plotLine.get(`${id}|${b.lid}`)?.spread);
+          for (let t = 0; t < N; t++) put(r, cP(t), share[t], NUMFMT.pct2);
+          put(r, C_TOT, sumN(share), NUMFMT.pct2);
+          r += 1;
+        }
+        const hardOf = blends.hardLines.get(m.hostId) ?? [];
+        for (const wt of ws0) {
+          const a = state.assets.find((x) => x.id === wt.plot);
+          setLabel(ws.getCell(r, C_LBL), `Hard cost, ${a ? assetPlotLabel(a, ctxNames) || a.name : wt.plot} (soft-cost weight)`, { indent: 1 });
+          registerCell(wt.key, ws, ws.getCell(r, C_LBL));
+          put(r, C_TOT, hardOf.reduce((s, lid) => s + (plotLn(wt.plot, lid)?.amount ?? 0), 0));
+          r += 1;
+        }
+        for (const b of ss) {
+          setLabel(ws.getCell(r, C_LBL), ss.length > 1 ? `Soft costs (${b.lids.map((lid) => state.costLines.find((c) => c.id === lid)?.name ?? lid).join(', ')})` : 'Soft costs, weighted by plot hard cost', { indent: 1 });
+          registerCell(b.key, ws, ws.getCell(r, C_LBL));
+          const share = blendOf(b.plots, (id) => baseAmount(id, b.lids[0]), (id) => plan.plotLine.get(`${id}|${b.lids[0]}`)?.spread);
+          for (let t = 0; t < N; t++) put(r, cP(t), share[t], NUMFMT.pct2);
+          put(r, C_TOT, sumN(share), NUMFMT.pct2);
+          r += 1;
+        }
+      }
+      r += 1;
+    }
+
+    // ── Table 1: one row per cost line per asset ──────────────────────────
+    setSectionHeader(ws.getRow(r), 'Table 1 - Construction cost by asset and year', cLast); r += 1;
+    subHeader(r, [[C_LBL, 'Cost line', 'left'], [C_UOM, 'Rate', 'right'], [3, 'Quantity', 'right'], [C_TOT, 'Total', 'right']]);
+    r += 1;
+    const moneyBasis = new Set(['percent_of_inkind_land', 'percent_of_cash_land', 'percent_of_revenue_sale', 'percent_of_selected']);
+    const head = (m: LineMeta): string => (multiPhase && m.phaseName ? `${m.phaseName}: ${m.label}` : m.label);
+    const perAssetCapex = new Map<string, { inclRow: number; exclInKindRow: number; exclAllRow: number }>();
+    const lineRow = (rr: number, name: string, method: string, rateDec: number, qty: number, per: readonly number[], amount: number): void => {
+      setLabel(ws.getCell(rr, C_LBL), `${name}${capexLabelWords(method)}`, { indent: 1 });
+      put(rr, C_UOM, rateDec, method.startsWith('percent_') ? NUMFMT.pct2 : NUMFMT.rate);
+      put(rr, 3, qty, moneyBasis.has(method) ? NUMFMT.money : NUMFMT.int);
+      for (let t = 0; t < N; t++) put(rr, cP(t), per[t] ?? 0);
+      put(rr, C_TOT, amount);
+    };
+    const subRows: number[] = [];
+    for (const m of lines) {
+      band(r, head(m)); r += 1;
+      const first = r;
+      for (const ln of m.ref.lines) {
+        const src = inputLine(m.hostId, ln.id);
+        const rateDec = ln.isPercent ? ln.rate / 100 : ln.rate;
+        const pp = src?.perPeriod ?? zeros();
+        const base = plan.plotLine.get(`${m.hostId}|${ln.id}`)?.escalates ? pp.reduce((s, v, t) => s + (v ?? 0) / facOf(t), 0) : ln.amount;
+        registerCell(`cx1:${m.hostId}:${ln.id}`, ws, ws.getCell(r, C_LBL));
+        lineRow(r, ln.name, ln.method, rateDec, ln.method === 'fixed' ? 1 : (rateDec !== 0 ? base / rateDec : 0), pp, ln.amount);
+        r += 1;
+      }
+      moneyRow(r, `Subtotal, ${head(m)}`, m.incl, { style: 'subtotal', total: m.ref.total });
+      registerCell(`cx1sub:${m.hostId}`, ws, ws.getCell(r, C_LBL));
+      void first;
+      subRows.push(r);
+      perAssetCapex.set(m.hostId, { inclRow: r, exclInKindRow: r, exclAllRow: r });
+      r += 1;
+    }
+    const grandIncl = snap.financing.capex.perPeriod.inclAllLand.slice(0, N);
+    const projTotalRow = r;
+    registerCell('cx1:total', ws, ws.getCell(r, C_LBL));
+    moneyRow(r, 'Project total', grandIncl, { style: 'navy', total: sumN(grandIncl) });
+    r += 2;
+
+    // ── Selling and marketing expensed as incurred (not capex) ───────────
+    if (expensed.length) {
+      setSectionHeader(ws.getRow(r), 'Selling and marketing, expensed as incurred (not capex)', cLast); r += 1;
+      subHeader(r, [[C_LBL, 'Asset / Cost line', 'left'], [C_UOM, 'Rate', 'right'], [3, 'Quantity', 'right'], [C_TOT, 'Total', 'right']]);
+      r += 1;
+      const tot = zeros();
+      const hostOfPlot = new Map<string, LineMeta>();
+      for (const m of lines) for (const id of members(m.hostId)) hostOfPlot.set(id, m);
+      const pooledE = new Map<string, { m: LineMeta; first: typeof expensed[number]; per: number[]; amount: number }>();
+      for (const e of expensed) {
+        const m = hostOfPlot.get(e.a.id);
+        const k = `${m?.hostId ?? e.a.id}|${e.line.id}`;
+        const g = pooledE.get(k) ?? { m: m!, first: e, per: zeros(), amount: 0 };
+        addInto(g.per, e.per); g.amount += e.amount;
+        pooledE.set(k, g);
+      }
+      for (const [k, g] of pooledE) {
+        const [host] = k.split('|');
+        const e = g.first;
+        const ov = state.costOverrides.find((o) => o.assetId === e.a.id && o.lineId === e.line.id);
+        const rate = (ov && ov.overridden !== false ? ov.value ?? e.line.value : e.line.value) / 100;
+        registerCell(`cx1e:${host}:${e.line.id}`, ws, ws.getCell(r, C_LBL));
+        lineRow(r, `${e.line.name}, ${g.m ? head(g.m) : e.a.name}`, e.line.method, rate, rate !== 0 ? g.amount / rate : 0, g.per, g.amount);
+        setLabel(ws.getCell(r, C_LBL), `${e.line.name}, ${g.m ? head(g.m) : e.a.name}`, { indent: 1 });
+        addInto(tot, g.per);
+        r += 1;
+      }
+      registerCell('cx1e:total', ws, ws.getCell(r, C_LBL));
+      moneyRow(r, 'Total selling and marketing expensed', tot, { style: 'subtotal' });
+      r += 2;
+    }
+
+    // ── Tables 2 and 4 ─────────────────────────────────────────────────────
+    const summaryTable = (title: string, pick: (m: LineMeta) => number[], pfx: string): number => {
+      setSectionHeader(ws.getRow(r), title, cLast); r += 1;
+      subHeader(r, [[C_LBL, 'Asset', 'left'], [C_UOM, 'Phase', 'left'], [C_TOT, 'Total', 'right']]);
+      r += 1;
+      const grand = zeros();
+      let block: { phaseId: string; phaseName: string; series: number[] } | null = null;
+      const closeBlock = (): void => {
+        if (!block || !multiPhase) return;
+        registerCell(`${pfx}sub:${block.phaseId}`, ws, ws.getCell(r, C_LBL));
+        moneyRow(r, `Subtotal, ${block.phaseName}`, block.series, { style: 'subtotal' }); r += 1;
+      };
+      for (const m of lines) {
+        const series = pick(m);
+        if (Math.abs(sumN(series)) <= 0.5) continue;
+        if (block && block.phaseId !== m.phaseId) { closeBlock(); block = null; }
+        if (!block) block = { phaseId: m.phaseId, phaseName: m.phaseName, series: zeros() };
+        registerCell(`${pfx}:${m.hostId}`, ws, ws.getCell(r, C_LBL));
+        moneyRow(r, m.label, series, { b: m.phaseName, indent: 1 });
+        addInto(block.series, series); addInto(grand, series);
+        r += 1;
+      }
+      closeBlock();
+      const totalRow = r;
+      registerCell(`${pfx}:total`, ws, ws.getCell(r, C_LBL));
+      moneyRow(r, 'Total', grand, { style: 'navy' }); r += 2;
+      return totalRow;
+    };
+    summaryTable('Table 2 - Capex including land', (m) => m.incl, 'cx2');
+    const exclAllTotalRow = summaryTable('Table 4 - Capex excluding land (development cost)', (m) => m.exclAll, 'cx4');
+
+    // ── Table 5: land cash and in-kind by phase (what Financing funds) ───
+    setSectionHeader(ws.getRow(r), 'Table 5 - Land: cash and in-kind (what Financing funds)', cLast); r += 1;
+    subHeader(r, [[C_LBL, 'Land', 'left'], [C_UOM, 'Phase', 'left'], [C_TOT, 'Total', 'right']]);
+    r += 1;
+    const landBlocks = (snap.financing.capex.landByPhase ?? [])
+      .map((lp) => ({ ...lp, cash: lp.landCash.slice(0, N), inKind: lp.landInKind.slice(0, N) }))
+      .filter((b) => Math.abs(sumN(b.cash) + sumN(b.inKind)) > 0.5);
+    const gCash = zeros(); const gInKind = zeros();
+    for (const b of landBlocks) {
+      registerCell(`cx5:${b.phaseId}:cash`, ws, ws.getCell(r, C_LBL));
+      moneyRow(r, 'Land, cash', b.cash, { b: b.phaseName, indent: 1 }); r += 1;
+      registerCell(`cx5:${b.phaseId}:inkind`, ws, ws.getCell(r, C_LBL));
+      moneyRow(r, 'Land, in-kind', b.inKind, { b: b.phaseName, indent: 1 }); r += 1;
+      if (multiPhase) { registerCell(`cx5:${b.phaseId}:sub`, ws, ws.getCell(r, C_LBL)); moneyRow(r, `Subtotal, ${b.phaseName}`, b.cash.map((v, t) => v + (b.inKind[t] ?? 0)), { style: 'subtotal' }); r += 1; }
+      addInto(gCash, b.cash); addInto(gInKind, b.inKind);
+    }
+    if (landBlocks.length > 0) {
+      registerCell('cx5:total:cash', ws, ws.getCell(r, C_LBL));
+      moneyRow(r, 'Total land, cash', gCash, { style: 'navy' }); r += 1;
+      registerCell('cx5:total:inkind', ws, ws.getCell(r, C_LBL));
+      moneyRow(r, 'Total land, in-kind', gInKind, { style: 'navy' }); r += 1;
+      registerCell('cx5:total:land', ws, ws.getCell(r, C_LBL));
+      moneyRow(r, 'Total land', gCash.map((v, t) => v + (gInKind[t] ?? 0)), { style: 'navy' }); r += 1;
+      // The rest of the land stage (RETT, a transfer fee), per phase: not land value.
+      const memoLines = state.costLines.filter((c) => deriveCostStage(c) === 'land' && !isLandValueLine(c));
+      const memoIds = new Set(memoLines.map((c) => c.id));
+      const memoName = [...new Set(memoLines.map((c) => c.name))].join(', ') || 'Other land-stage costs';
+      for (const b of landBlocks) {
+        const memo = zeros();
+        for (const m of lines) { if (m.phaseId !== b.phaseId) continue; for (const ln of m.ref.lines) if (memoIds.has(ln.id)) addInto(memo, inputLine(m.hostId, ln.id)?.perPeriod); }
+        if (Math.abs(sumN(memo)) <= 0.5) continue;
+        registerCell(`cx5memo:${b.phaseId}`, ws, ws.getCell(r, C_LBL));
+        moneyRow(r, `${memoName} (land stage, not land value)`, memo, { b: b.phaseName, indent: 1 }); r += 1;
+      }
+    }
+    r += 1;
+
+    // ── Table 7: cost per sqm by line, and a Sell line's price against cost ──
+    const cur7 = state.project.currency ?? 'SAR';
+    const tables7 = costPerSqmTables(buildCostPerSqmReport(snap, state).lines, { currency: cur7, scaleTag: amountUnit(cur7, displayScale), multiPhase: state.phases.length > 1 });
+    // No cost line is in the operating (pre-opening) stage: the construction base says what it holds.
+    const preOpen = state.costLines.some((c) => deriveCostStage(c) === 'operating');
+    const fix7 = (s: string): string => (preOpen ? s : s.replace(/\(hard, soft, pre-opening\)/, '(hard and soft)'));
+    const cols = [C_LBL, C_OPEN, C_OPEN + 1, C_OPEN + 2, C_OPEN + 3];
+    for (const t of tables7) {
+      r += 1;
+      setSectionHeader(ws.getRow(r), t.title, cLast); r += 1;
+      subHeader(r, t.columns.map((c, i): [number, string, 'left' | 'right' | 'center'] => [cols[i], c, i === 0 ? 'left' : 'right']));
+      r += 1;
+      for (const row7 of t.rows) {
+        if (row7.kind === 'heading') band(r, '');
+        if (row7.key) registerCell(row7.key, ws, ws.getCell(r, C_LBL));
+        row7.cells.forEach((c, i) => {
+          const col = cols[i];
+          if (typeof c === 'string') { if (c) setLabel(ws.getCell(r, col), fix7(c), { indent: i === 0 && row7.kind !== 'heading' ? 1 : undefined, bold: row7.kind !== 'data' }); return; }
+          if (c.n === null) { setLabel(ws.getCell(r, col), 'n/a'); return; }
+          put(r, col, c.n, c.as === 'amount' ? NUMFMT.money : c.as === 'area' ? NUMFMT.int : NUMFMT.rate);
+        });
+        r += 1;
+      }
+    }
+    void subRows; void landAddrs; void TOL;
+    return {
+      scheduleTotalAddr: sheetRef(SHEETS.capex, `$${colLetter(C_TOT)}$${projTotalRow}`), buildupTotalAddr: sheetRef(SHEETS.capex, `$${colLetter(C_TOT)}$${projTotalRow}`),
+      inclTotalRow: projTotalRow, exclInKindTotalRow: projTotalRow, exclAllTotalRow,
+      perAsset: perAssetCapex, periodCol: (t: number) => C_OPEN + 1 + t,
+    };
+  }
 
   let r = 5;
 
@@ -6075,8 +6408,20 @@ function addChecks(ctx: EmitCtx, capexAddrs: CapexAddrs, retLinks: RetLinks): vo
       if (!a || !r || !p) continue;
       const name = revenueLineName(l);
       const sus = ctx.state.subUnits.filter((x) => x.assetId === a.id && isRevenueSubUnit(x));
+      // THE PLATFORM'S MEASURE: the velocity stored for the row less what the model years apply (pre-sales
+      // in the construction years, sales during operation by operating year after handover).
+      const off = Math.max(0, new Date(p.startDate as string).getUTCFullYear() - psy0);
+      const cp = Math.max(0, p.constructionPeriods ?? 0), N0 = snap.axisLength;
       for (const u of sus) {
-        checkRow(`Velocity in model years, ${name}${sus.length > 1 ? `: ${u.name || 'sub-unit'}` : ''}`, 'OK', 0, 'All typed velocity is inside the model years', `chk|vel|${l.key}|${u.name || 'sub-unit'}`);
+        const sell = a.revenue?.sell;
+        const own = sell?.subUnits?.find((s) => s.subUnitId === u.id);
+        const pre = (own ? own.preSalesVelocityByPhase : sell?.velocityDefault?.preSalesVelocityByPhase) ?? [];
+        const post = (own ? own.postSalesVelocityByOpsYear : sell?.velocityDefault?.postSalesVelocityByOpsYear) ?? [];
+        const typed = [...pre, ...post].reduce((s, v) => s + Math.max(0, v ?? 0), 0);
+        const inside = pre.reduce((s, v, k) => s + (k < cp && off + k < N0 ? Math.max(0, v ?? 0) : 0), 0)
+          + post.reduce((s, v, j) => s + (off + cp + j < N0 ? Math.max(0, v ?? 0) : 0), 0);
+        const out = typed - inside > 0.000001 ? typed - inside : 0;
+        checkRow(`Velocity in model years, ${name}${sus.length > 1 ? `: ${u.name || 'sub-unit'}` : ''}`, out ? 'CHECK' : 'OK', out, out ? `${(out * 100).toFixed(2)}% of typed velocity is outside the model years` : 'All typed velocity is inside the model years', `chk|vel|${l.key}|${u.name || 'sub-unit'}`);
       }
       const gap = r.presalesRevenuePerPeriod.reduce((s, v) => s + v, 0) - r.presalesCashPerPeriod.reduce((s, v) => s + v, 0);
       checkRow(`Pre-sales collected in full, ${name}`, Math.abs(gap) < 0.005 ? 'OK' : 'CHECK', gap, Math.abs(gap) < 0.005 ? 'Every pre-sale is collected by the handover year' : 'Pre-sales billed less collected', `chk|col|${l.key}`);

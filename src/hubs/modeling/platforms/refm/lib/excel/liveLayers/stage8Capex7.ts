@@ -61,7 +61,7 @@ export const stage8Capex7: LiveLayer = {
 
     // ── Each line's figures, as formula and twin ────────────────────────────
     const problems: string[] = [];
-    type Fig = { construction: X; land: X; idc: string; nsa: X; bua: X; gfa: X; gdv?: string; sold?: string; atBase?: string };
+    type Fig = { construction: X; land: X; idc: string; nsa: X; bua: X; gfa: X; gdv?: string; sold?: string; atBase?: string; basePrice?: string };
     const figs = new Map<string, Fig>();
     for (const l of report.lines) {
       const byStage = (want: (s: string) => boolean): X | null => {
@@ -81,7 +81,8 @@ export const stage8Capex7: LiveLayer = {
       if (!construction || !land) { problems.push(`${l.label}: a cost line is not on the working sheet`); continue; }
       if (areas.some((a) => !a)) { problems.push(`${l.label}: an area is not live (${misses.join('; ')})`); continue; }
       const sumA = (k: 'nsa' | 'bua' | 'gfa'): X => add(areas.map((a) => a![k]));
-      const nsa = sumA('nsa'), bua = sumA('bua'), gfa = sumA('gfa');
+      // NSA is the line's one "NSA used" row on Land & Area where it has one (2026-10-27).
+      const nsa = (has(`nsaline:${l.key}`) ? cellX(`nsaline:${l.key}`) : null) ?? sumA('nsa'), bua = sumA('bua'), gfa = sumA('gfa');
       const bad = [
         near(construction.v, l.cost.construction) ? '' : 'construction',
         near(land.v, l.land) ? '' : 'land',
@@ -95,7 +96,7 @@ export const stage8Capex7: LiveLayer = {
       });
       const fig: Fig = { construction, land, idc: idcTerms.length ? `(${idcTerms.join('+')})` : '0', nsa, bua, gfa };
       if (l.sale) {
-        const gdv: string[] = [], sold: string[] = [], atBase: string[] = [];
+        const gdv: string[] = [], sold: string[] = [], atBase: string[] = [], prices: string[] = [];
         // The Revenue working sheet states a LINE's sale revenue once, on its lead asset
         // (stage3Revenue: rvc:<asset>:saleRev), and Table 7 is per line too.
         const revIds = l.memberIds.filter((id) => has(`rvc:${id}:saleRev`));
@@ -111,13 +112,15 @@ export const stage8Capex7: LiveLayer = {
             const area = rowsOf('area');
             sold.push(...area);
             const qty = resolveSubUnitMetric(u, asset) === 'units' ? rowsOf('units') : area;
-            if (qty.length && has(`su:${u.id}:rate`)) atBase.push(`(${qty.join('+')})*MAX(0,N(${w.ref(`su:${u.id}:rate`)}))`);
+            if (qty.length && has(`su:${u.id}:rate`)) { atBase.push(`(${qty.join('+')})*${w.ref(`su:${u.id}:rate`)}`); prices.push(w.ref(`su:${u.id}:rate`)); }
             else if (qty.length && (u.unitPrice ?? 0) > 0) { problems.push(`${l.label}: a sub-unit's price is not on the Inputs sheet`); }
           }
         }
         fig.gdv = gdv.length ? `(${gdv.join('+')})` : '0';
         fig.sold = sold.length ? `(${sold.join('+')})` : '0';
         fig.atBase = atBase.length ? `(${atBase.join('+')})` : '0';
+        // One priced sub-unit: its price, read where it is typed; several: their sold-weighted average.
+        if (prices.length === 1) fig.basePrice = prices[0];
       }
       figs.set(l.key, fig);
     }
@@ -143,7 +146,7 @@ export const stage8Capex7: LiveLayer = {
       if (!l.sale || !has(`cx7b|${l.key}|sold`)) continue;
       const soldK = `cx7b|${l.key}|sold`;
       w.fA(at(soldK, C_TOT), f.sold!);
-      w.fA(at(soldK, C_TOT + 1), perSqm(f.atBase!, f.sold!));
+      w.fA(at(soldK, C_TOT + 1), f.basePrice ?? perSqm(f.atBase!, f.sold!));
       w.fA(at(soldK, C_TOT + 2), perSqm(f.gdv!, f.sold!));
       const base = w.refA(at(soldK, C_TOT + 1)), realised = w.refA(at(soldK, C_TOT + 2));
       for (const b of COST_BASES) {
