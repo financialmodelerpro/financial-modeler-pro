@@ -120,10 +120,8 @@ export const stage5Statements: LiveLayer = {
     const assetRev = (a: Asset): F => {
       const l = lineForAsset(lines, a.id);
       if (!l || !earner(a)) return () => '0';
-      if (a.strategy === 'Sell' || a.strategy === 'Sell + Manage') return has(`rvc:${l.key}:recPre`) ? (t) => `${R(`rvc:${l.key}:recPre`, t)}+${R(`rvc:${l.key}:postRev`, t)}` : () => '0';
-      if (a.strategy === 'Operate') return keyF(`rvc:${l.key}:total`);
-      if (a.strategy === 'Lease') return keyF(`rvc:${l.key}:rev`);
-      return () => '0';
+      // THE LINE'S ROW IN REVENUE'S SUMMARY (2026-10-27): revenue recognised, one row per line.
+      return keyF(`rvc:${l.key}:recognised`);
     };
     // Cost of sales is a LINE's (its rows on Schedules): it reads on the line's first plot, 0 on the others.
     const assetCos = (a: Asset): F => { const l = lineForAsset(lines, a.id); return l && l.host.id === a.id ? keyF(`cosc:${l.key}:cos`) : () => '0'; };
@@ -332,7 +330,8 @@ export const stage5Statements: LiveLayer = {
     };
     const capexCash = (a: Asset): F => { const k = capexRowsOf(a).cash; return (t) => k.map((x) => R(x, t)).join('+') || '0'; };
     const inKindOf = (a: Asset): F => { const k = capexRowsOf(a).inKind; return (t) => k.map((x) => R(x, t)).join('+') || '0'; };
-    const revRcv = (a: Asset): F => ((a.strategy === 'Sell' || a.strategy === 'Sell + Manage') ? keyF(`rvc:${a.id}:cash`) : assetRev(a));
+    // Cash collected: the line's row in Revenue's summary (a hotel or lease line as billed; its receivable is its own row).
+    const revRcv = (a: Asset): F => { const l = lineForAsset(lines, a.id); return l && earner(a) ? keyF(`rvc:${l.key}:collected`) : () => '0'; };
     // The Opex tab shows cash paid as a negative row ("Less: Cash Paid").
     const opexPaid = (a: Asset): F => neg(keyF(`oxo:ap:${a.id}:lessPaid`));
     const hqPaid: F = neg(keyF('oxo:ap:hq:lessPaid'));
@@ -401,7 +400,7 @@ export const stage5Statements: LiveLayer = {
       /** A phase's escrow: its revenue lines' held cash, and all held so far released in the release year. */
       const phaseEscrow = (kind: 'held' | 'release'): F => (t) => lines.filter((l) => l.phaseId === phaseId && has(`escc:${l.key}:held`)).map((l) => {
         if (kind === 'held') return R(`escc:${l.key}:held`, t);
-        const relY = w.refA({ sheet: 'Revenue', row: w.addr(`escc:${l.key}:in`).row, col: PERIOD_COLS.OPEN_COL + 3 }, here);
+        const relY = w.refA(w.addr(`escc:${l.key}:release`), here);
         const yr = (c: number, rel = false): string => (rel ? w.refP({ sheet: 'Revenue', row: 3, col: c }, here) : w.refA({ sheet: 'Revenue', row: 3, col: c }, here));
         const hr = w.addr(`escc:${l.key}:held`).row;
         const toNow = `'Revenue'!$${colLetter(pc(0))}$${hr}:${colLetter(pc(t))}$${hr}`;

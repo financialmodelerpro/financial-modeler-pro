@@ -447,7 +447,7 @@ function perturbations(input: LiveExportInputs, reg: CellRegistry): Perturbation
     const dv = a.revenue.sell.downpaymentByPhase[dk] + 0.1;
     out.push({ movesRevenue: true, label: `a sale year's downpayment (phase year ${dk + 1}) +10 points`, cell: `rxgrid|${sellL.key}|dp@${dk + 1}`, value: dv,
       edit: (s) => { (s.assets as any[]).find((q) => q.id === a.id).revenue.sell.downpaymentByPhase[dk] = dv; } });
-    out.push({ movesRevenue: true, label: 'instalment years after sale 3 to 2', cell: `revin|${sellL.key}|Sale cohort terms|Max instalment years after sale`, col: RC.TOTAL, value: 2,
+    out.push({ movesRevenue: true, label: 'instalment years after sale 3 to 2', cell: `rxin|${sellL.key}|inst`, col: 2, value: 2,
       edit: (s) => { (s.assets as any[]).find((q) => q.id === a.id).revenue.sell.maxInstalmentYears = 2; } });
     const ir = (a.revenue.sell.indexation?.rate ?? 0) + 0.01;
     out.push({ movesRevenue: true, label: 'the sale price indexation rate +1 point', cell: `rxin|${sellL.key}|rate`, col: 2, value: ir,
@@ -456,11 +456,13 @@ function perturbations(input: LiveExportInputs, reg: CellRegistry): Perturbation
   const hotL = lines.find((l) => l.form === 'operate' && earner(l)?.revenue?.operate);
   if (hotL) {
     const a = earner(hotL); const op = a.revenue.operate; const off = offOf(hotL);
-    const k = (op.occupancyPerPeriodByPhase as number[]).findIndex((v) => v > 0);
-    const v = op.occupancyPerPeriodByPhase[k] + 0.05;
-    out.push({ movesRevenue: true, label: `hotel occupancy (phase year ${k + 1}) +5 points`, cell: `rxgrid|${hotL.key}|occ@${k + 1}`, value: v,
-      edit: (s) => { const o = (s.assets as any[]).find((q) => q.id === a.id).revenue.operate; o.occupancyPerPeriodByPhase[k] = v; if (o.occupancyPerPeriod) o.occupancyPerPeriod[off + k] = v; } });
-    out.push({ movesRevenue: true, label: 'hotel F&B share of rooms +5 points', cell: `revin|${hotL.key}|ADR Indexation|F&B Revenue, F&B %`, col: RC.TOTAL, value: (op.fb.percentOfRooms ?? 0) + 0.05,
+    // KEYED BY OPERATING YEAR (2026-10-26): the platform reads occupancyByOpsYear, the grid Inputs shows.
+    const k = (op.occupancyByOpsYear as number[]).findIndex((v) => v > 0);
+    const v = op.occupancyByOpsYear[k] + 0.05;
+    void off;
+    out.push({ movesRevenue: true, label: `hotel occupancy (operating year ${k + 1}) +5 points`, cell: `rxgrid|${hotL.key}|occ@${k + 1}`, value: v,
+      edit: (s) => { (s.assets as any[]).find((q) => q.id === a.id).revenue.operate.occupancyByOpsYear[k] = v; } });
+    out.push({ movesRevenue: true, label: 'hotel F&B share of rooms +5 points', cell: `rxin|${hotL.key}|fb`, col: 2, value: (op.fb.percentOfRooms ?? 0) + 0.05,
       edit: (s) => { (s.assets as any[]).find((q) => q.id === a.id).revenue.operate.fb.percentOfRooms = (op.fb.percentOfRooms ?? 0) + 0.05; } });
     out.push({ movesRevenue: true, label: 'hotel days per year 365 to 360', cell: `rxin|${hotL.key}|days`, col: 2, value: 360,
       edit: (s) => { (s.assets as any[]).find((q) => q.id === a.id).revenue.operate.daysPerYear = 360; } });
@@ -476,10 +478,12 @@ function perturbations(input: LiveExportInputs, reg: CellRegistry): Perturbation
   const leaseL = lines.find((l) => l.form === 'lease' && !l.isStrip && earner(l)?.revenue?.lease);
   if (leaseL) {
     const a = earner(leaseL); const le = a.revenue.lease; const off = offOf(leaseL);
-    const k = (le.occupancyPerPeriodByPhase as number[]).findIndex((v) => v > 0);
-    const v = le.occupancyPerPeriodByPhase[k] + 0.05;
-    out.push({ movesRevenue: true, label: `lease occupancy (${leaseL.label}, phase year ${k + 1}) +5 points`, cell: `rxgrid|${leaseL.key}|occ@${k + 1}`, value: v,
-      edit: (s) => { const o = (s.assets as any[]).find((q) => q.id === a.id).revenue.lease; o.occupancyPerPeriodByPhase[k] = v; if (o.occupancyPerPeriod) o.occupancyPerPeriod[off + k] = v; } });
+    // KEYED BY OPERATING YEAR (2026-10-26): the platform reads occupancyByOpsYear, the grid Inputs shows.
+    const k = (le.occupancyByOpsYear as number[]).findIndex((v) => v > 0);
+    const v = le.occupancyByOpsYear[k] + 0.05;
+    void off;
+    out.push({ movesRevenue: true, label: `lease occupancy (${leaseL.label}, operating year ${k + 1}) +5 points`, cell: `rxgrid|${leaseL.key}|occ@${k + 1}`, value: v,
+      edit: (s) => { (s.assets as any[]).find((q) => q.id === a.id).revenue.lease.occupancyByOpsYear[k] = v; } });
     const sy = (le.rentIndexation?.startYear ?? 0) + 1;
     // Inputs states the start as a calendar year.
     out.push({ movesRevenue: true, label: 'the rent indexation starts a year later', cell: `rxin|${leaseL.key}|from`, col: 2, value: psy + sy,
@@ -575,8 +579,8 @@ function perturbations(input: LiveExportInputs, reg: CellRegistry): Perturbation
   out.push({ movesRevenue: false, label: `the minimum cash reserve ${minC} to ${minC + 15_000_000}`, cell: 'fin|1. Project Financing Settings|Minimum Cash Reserve', col: RC.TOTAL, value: minC + 15_000_000,
     edit: (s) => { (s.project.financing as { minimumCashReserve?: number }).minimumCashReserve = minC + 15_000_000; } });
   const held = st.project.escrow?.heldPct ?? 0;
-  if (held === 0 && reg.get('esc|||Project Held % (regulator-locked)')) {
-    out.push({ movesRevenue: false, label: 'escrow held on pre-sales cash 0% to 20% (rows the statements print only while non-zero)', cell: 'esc|||Project Held % (regulator-locked)', col: RC.TOTAL, value: 0.2,
+  if (held === 0 && reg.get('escin|pct')) {
+    out.push({ movesRevenue: false, label: 'escrow held on pre-sales cash 0% to 20% (rows the statements print only while non-zero)', cell: 'escin|pct', col: 2, value: 0.2,
       edit: (s) => { s.project.escrow = { ...(s.project.escrow ?? {}), heldPct: 0.2 }; } });
   } else out.push({ label: 'escrow held from zero', skip: held ? 'escrow already held' : 'no escrow inputs on the Revenue sheet' });
 
@@ -979,7 +983,10 @@ function formulaCells(wb: ExcelJS.Workbook): Map<string, { formula: string; resu
           const v = cell.value as unknown as { formula?: string; result?: unknown } | null;
           if (v && typeof v === 'object' && String(v.formula ?? '').includes(ref)) cell.value = { formula: String(v.formula).split(`IF(N(${ref})>0,N(${ref}),`).join('(').split(ref).join('0'), result: v.result } as never;
         }));
-        check('A12s the input check fires when a line\'s receivable days stop driving Schedules (its Revenue card copy still reads them)',
+        // A COPY IS NOT A READER (2026-10-27): the Revenue card that copied the days is gone, so the copy
+        // the strict rule must see past is planted here, on a spare cell of the cut workbook.
+        cut.getWorksheet('Revenue')!.getCell(2, 30).value = { formula: ref, result: 0 } as never;
+        check('A12s the input check fires when a line\'s receivable days stop driving Schedules (a bare copy of them on Revenue still reads them)',
           !readsIn(cut, 'Schedules', ref) && readsIn(cut, 'Revenue', ref) && inputsUnreadProblems(cut, allowedCells, { strict: true }).some((x) => x.startsWith(`Inputs!${colLetterOf(a.col)}${a.row} `))
           && receivableDaysProblems(cut, [a], true).length === 1 && receivableDaysProblems(wb, arCells, true).length === 0, '');
       }
@@ -1271,15 +1278,17 @@ function formulaCells(wb: ExcelJS.Workbook): Map<string, { formula: string; resu
       const rd = recalcInExcel(path, [{ ref: `${a.sheet}!${colLetterOf(a.col)}${a.row}`, value: serial }]);
       const errs = [...rd.cells].filter(([, v]) => typeof v === 'object').map(([k]) => k);
       check('D1 no cell anywhere in the workbook shows an Excel error', errs.length === 0, errs.slice(0, 6).join(', '));
-      const top = rd.cells.get(cellKey('Revenue', 1, 4));
-      check('D2 the warning at the top of the Revenue sheet appears', typeof top === 'string' && top.startsWith('WARNING'), JSON.stringify(top));
-      // (2026-10-20: one short line, the share outside the years, else OK; the Guide explains it.)
-      const warns = [...rd.cells].filter(([k, v]) => k.startsWith('Revenue!') && typeof v === 'string' && /^WARNING: \d[\d.]*% of typed velocity is outside the model years$/.test(v));
-      check(`D3 the velocity check names the share outside the model, beside the typed figure (${warns.length} line${warns.length === 1 ? '' : 's'})`, warns.length > 0, '');
-      // The velocity check lines are the cells that read a warning after the change.
-      const okBefore = warns.map(([k]) => [k, rec.cells.get(k)] as const);
-      check('D4 before the change every line reads OK and the top warning is blank', okBefore.every(([, v]) => v === 'OK') && okBefore.length > 0 && rec.cells.get(cellKey('Revenue', 1, 4)) === undefined,
-        okBefore.filter(([, v]) => v !== 'OK').map(([k]) => k).join(', '));
+      // THE VELOCITY CHECK IS ON CHECKS (2026-10-27, founder: off the Revenue tab, its D1 warning too):
+      // one row per sub-unit, status one column left of the residue, the detail one right.
+      const velKeys = registry.keys().filter((k) => k.startsWith('chk|vel|'));
+      const at = (r: ReturnType<typeof recalcInExcel>, k: string, dc: number): unknown => { const a = registry.need(k); return r.cells.get(cellKey(a.sheet, a.row, a.col + dc)); };
+      const fired = velKeys.filter((k) => at(rd, k, -1) === 'CHECK');
+      check(`D2 the velocity check on Checks reads CHECK for a line whose typed velocity left the model years (${fired.length} of ${velKeys.length})`, fired.length > 0, velKeys.map((k) => `${k}: ${String(at(rd, k, -1))}`).join('; '));
+      // (One short line: the share outside the years, else the all-inside sentence; the Guide explains it.)
+      check('D3 its detail names the share outside the model years', fired.length > 0 && fired.every((k) => /^\d[\d.]*% of typed velocity is outside the model years$/.test(String(at(rd, k, 1)))),
+        fired.map((k) => String(at(rd, k, 1))).join('; '));
+      check('D4 before the change every velocity check reads OK', velKeys.length > 0 && velKeys.every((k) => at(rec, k, -1) === 'OK'),
+        velKeys.filter((k) => at(rec, k, -1) !== 'OK').join(', '));
     }
 
     // THE LIVE CHECKS FIRE (2026-09-28, stage 7c): a status that can only read OK

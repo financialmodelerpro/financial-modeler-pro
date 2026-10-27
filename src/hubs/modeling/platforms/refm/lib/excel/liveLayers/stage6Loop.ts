@@ -419,7 +419,7 @@ export const stage6Loop: LiveLayer = {
     const arKeys = lines.filter((l) => l.form !== 'sell').map((l) => `rvc:${l.key}:opar`).filter(has);
     put(kAr, (t) => (arKeys.length ? `-(${arKeys.map((k) => `${P(k, t)}-N(${P(k, t, -1)})`).join('+')})` : '0'));
     put(kHq, (t) => `${has('oxo:ap:hq:lessPaid') ? P('oxo:ap:hq:lessPaid', t) : '0'}${has('cx1e:total') ? `-${P('cx1e:total', t)}` : ''}`);
-    const escNet = 'esc||C. Cash Flow Impact (project totals)|Net Cash Flow Adjustment (to M4)';
+    const escNet = 'esc||C. Cash Flow Impact (project totals)|Net escrow cash flow';
     put(kEsc, (t) => (has(escNet) ? P(escNet, t) : '0'));
     const kFeeTot = `fin|${FEES}|Total fund fees`;
     const fee = (t: number): string => (feeOn && has(kFeeTot) ? P(kFeeTot, t) : '0');

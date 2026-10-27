@@ -22,7 +22,7 @@ export const LIVE_TAB_GUIDE: Array<[string, string]> = [
   ['Inputs', 'Every number you can change. Shaded cells are inputs; type over them and every tab recalculates. An unshaded cell with a note was fixed when the file was exported.'],
   ['Timeline', 'The model years, each phase\'s dates, and the flags every other tab reads: construction years, the handover year, the operating years and the exit year.'],
   ['Land & Area', 'The value of each plot, then each plot\'s areas from the top down (land, footprint, GFA, saleable area, parking), merged by line, and the land each asset holds. Capex and Revenue take their quantities from here.'],
-  ['Revenue', 'Each line\'s sales or income: the sale velocity, prices and their indexation, recognition and collections for sale lines, and the hotel and lease statements. The velocity check at the foot flags any typed velocity that falls outside the model years.'],
+  ['Revenue', 'One path per line, reading its inputs on Inputs. A sale line: velocity, sqm sold and unsold, revenue split at handover, pre-sales recognised in the handover year, cash collected by pre-sales year (down % and instalment years beside each) and sales during operation in their year, then the receivable and unearned balances. A hotel or lease line: keys or lettable area and the operations start, then occupancy, rate and revenue. The summary gives sales value, revenue recognised and cash collected per line, which the P&L and Cash Flow link; escrow sits at the foot.'],
   ['Capex', 'What each asset costs and when. A cost line is its rate times its quantity from Land & Area, spread over the years by its spend share; where an asset\'s plots spread differently, the share weighs each plot by its amount. Tables 2 to 6 summarise by line, land and category.'],
   ['Opex', 'Operating costs per line: a fixed amount, a rate per key or sqm, or a share of revenue, inflated while the line operates, and the payables they leave.'],
   ['Schedules', 'Fixed assets and depreciation, cost of sales and inventory, receivables, escrow and payables. Depreciation is straight line from the first operating year over the useful life on Inputs.'],
@@ -32,7 +32,7 @@ export const LIVE_TAB_GUIDE: Array<[string, string]> = [
   ['Balance Sheet', 'Balances at each year end, the equity and retained earnings roll-forwards beneath, and the reconciliation bridge. The check row must read zero.'],
   ['Returns', 'Project and equity returns on three bases (FCFF, FCFE and distributions), the partners, fund fees, sources and uses, the exit, the sensitivity grid and the real estate metrics. The workings at the foot build each stream.'],
   ['Scenarios', 'The other cases as the platform computed them when the file was exported. They do not recalculate.'],
-  ['Checks', 'The identities that prove the model holds together, and the headline returns recomputed. OK means an identity holds; CHECK means it does not; NOTE is an advisory.'],
+  ['Checks', 'The identities that prove the model holds together, Revenue\'s own checks (typed velocity inside the model years, pre-sales collected in full, a handover-year downpayment that a sale in that year does not use, since it pays in full), and the headline returns recomputed. OK means a check holds; CHECK means it does not; NOTE is an advisory.'],
 ];
 
 /** What each Land & Area column is (2026-10-26): moved off the tab, which keeps its tables only. */

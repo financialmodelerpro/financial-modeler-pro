@@ -96,7 +96,7 @@ import { resolveCohortDownpayment, resolveAssetDownpaymentSource } from '../stat
 import { resolveAvgUnitSize } from '../state/assetTypeStandards';
 import { priceKeyFor, hasDualPrice } from '../state/subUnitPrices';
 import type { Asset, Phase, SubUnit } from '../state/module1-types';
-import { computeSubUnitArea, resolveSubUnitMetric, keysFromArea } from '@/src/core/calculations';
+import { computeSubUnitArea, resolveSubUnitMetric, keysFromArea, isRevenueSubUnit } from '@/src/core/calculations';
 import { applyIndexation, buildAccountsReceivable, buildUnearnedRevenue } from '@/src/core/calculations/revenue';
 import { hqOpexLinesInForce, normalizeOpexIndexation, type OpexLine } from '@/src/core/calculations/opex';
 import type { IndexationConfig } from '@/src/core/calculations/revenue/types';
@@ -2914,7 +2914,163 @@ function addRevenue(ctx: EmitCtx): { revLinks: RevLinks; cosLinks: CosLinks } {
   const plotsOf = (line: RevenueLine): string => (line.isStrip || line.isOperateCompanion)
     ? '' : line.members.map((m) => assetPlotLabel(m, labelCtx)).filter((x): x is string => !!x).join(' + ');
 
+  // ── THE LIVE LAYOUT (2026-10-27, founder): one path per line ─────────────────
+  // Drivers, sales, revenue recognised, cash collected; then one summary block.
+  // No input cards: the formulas read Inputs. Every row here is a formula in the
+  // live workbook (stage3Revenue.ts); the values are the platform's.
+  const liveOutput = (): void => {
+    em.setRegScope('rev');
+    const lineResults = new Map(lines.map((l) => [l.key, lineRevenueResults(l.members.map((m) => m.id), snap.revenue, l.key)] as const));
+    const zeros = (): number[] => new Array<number>(N).fill(0);
+    const sumAll = (x: readonly number[]): number => x.slice(0, N).reduce((s, v) => s + (v ?? 0), 0);
+    const per = (rec: Readonly<Record<string, number[]>> | undefined, id: string): number[] => padded(rec?.[id]);
+    const add = (x: readonly number[], y: readonly number[]): number[] => Array.from({ length: N }, (_, t) => (x[t] ?? 0) + (y[t] ?? 0));
+    const earnerOf = (line: RevenueLine): Asset | undefined => line.members.find((m) => state.subUnits.some((u) => u.assetId === m.id && isRevenueSubUnit(u)));
+    const unitsOf = (a: Asset): SubUnit[] => state.subUnits.filter((u) => u.assetId === a.id && isRevenueSubUnit(u));
+    const nm = (u: SubUnit): string => u.name || 'sub-unit';
+    // What the summary links, per line: sales value, revenue recognised, cash collected.
+    const summary = new Map<string, { value: number[]; rec: number[]; cash: number[] }>();
+    for (const g of groups) {
+      em.groupBand(g.section);
+      for (const line of g.lines) {
+        const p = phaseById.get(line.phaseId);
+        const a = earnerOf(line);
+        const res = lineResults.get(line.key);
+        if (!p || !a) continue;
+        const w = windowsOf(line, p);
+        const units = unitsOf(a);
+        em.setRegLine(line.key);
+        em.subTitle(revenueLineName(line));
+        setBasis(ws.getCell(em.cursor() - 1, META_B), [line.strategy, lineMeta(line)].filter(Boolean).join(', '));
+        if (line.form === 'sell' && res?.sell) {
+          const r = res.sell;
+          const idxAxis = expandIndexationToAxis(resolveSellConfig(a, state.project)?.indexation, a.revenue?.sell?.indexation?.growthPerPeriodByPhase, w.phaseOffset, N);
+          em.tableTitle('Sales');
+          em.setRegTable('s');
+          for (const u of units) {
+            const v = resolveRowVelocity(a.revenue?.sell, u.id, p);
+            const pre = v.pre !== undefined ? axisFromPhase(v.pre, w.phaseOffset) : padded(v.preLegacy);
+            const post = v.post !== undefined ? axisFromPhase(v.post, w.phaseOffset) : padded(v.postLegacy);
+            const both = Array.from({ length: N }, (_, t) => Math.max(0, pre[t] ?? 0) + Math.max(0, post[t] ?? 0));
+            em.periodRow(`${nm(u)}: velocity`, both, range(0, N - 1), NUMFMT.pct, { total: sumAll(both) });
+            const sold = add(per(r.presalesAreaPerPeriodPerSubUnit, u.id), per(r.postSalesAreaPerPeriodPerSubUnit, u.id));
+            em.moneyRow(`${nm(u)}: sqm sold`, sold, { indent: 1, numFmt: NUMFMT.int });
+            // Unsold at the year end: the inventory in the opening column, less each year's sales.
+            const area = computeSubUnitArea(u, a);
+            let left = area;
+            em.moneyRow(`${nm(u)}: sqm unsold at year end`, sold.map((s) => (left -= s)), { indent: 1, numFmt: NUMFMT.int, prior: area, totalLast: true });
+          }
+          const esc = buildEscalatedPriceTable(units, () => a, idxAxis, N, cur, (v) => String(v));
+          em.periodRow('Price indexation factor', esc.factor, range(0, N - 1), FACTOR_FMT);
+          for (const u of units) em.moneyRow(`${nm(u)}: revenue`, add(per(r.presalesRevenuePerPeriodPerSubUnit, u.id), per(r.postSalesRevenuePerPeriodPerSubUnit, u.id)), { indent: 1 });
+          em.moneyRow('Pre-sales revenue', padded(r.presalesRevenuePerPeriod), { indent: 1 });
+          em.moneyRow('Sales during operation revenue', padded(r.postSalesRevenuePerPeriod), { indent: 1 });
+          em.tableTitle('Revenue recognised');
+          em.setRegTable('r');
+          em.moneyRow('Pre-sales revenue recognised in the handover year', padded(r.presalesRecognitionPerPeriod), { indent: 1 });
+          em.tableTitle('Cash collected');
+          em.setRegTable('c');
+          em.colHeaders([[LBL_COL, 'Pre-sales, by sale year', 'left'], [META_B, 'Down %', 'right'], [3, 'Instalment years', 'right']]);
+          // Pre-sales cohorts only: every year up to the handover (a phase moved earlier sells in them).
+          const inst = Math.max(0, Math.floor(buildSaleCohortTermsBlock(a, p, psy)?.instalmentYears ?? 0));
+          for (let s = 0; s <= w.handoverIdx; s++) {
+            const row = em.moneyRow(`${yl[s]} sales: cash collected`, padded(r.cashVintageMatrix[s]), { indent: 1 });
+            const dp = s >= w.handoverIdx ? 1 : (w.construction.includes(s) ? resolveCohortDownpayment(a.revenue?.sell?.downpaymentByPhase, state.project.saleCohortDefaults?.downpayment, s - w.phaseOffset).value : 0);
+            const b = ws.getCell(row, META_B); b.value = dp; b.numFmt = NUMFMT.pct; b.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } };
+            const c = ws.getCell(row, 3); c.value = s >= w.handoverIdx ? 0 : Math.min(inst, w.handoverIdx - s); c.numFmt = NUMFMT.int; c.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } };
+          }
+          em.moneyRow('Pre-sales cash collected', padded(r.presalesCashPerPeriod), { indent: 1, style: 'subtotal' });
+          em.moneyRow('Sales during operation cash collected', padded(r.postSalesCashPerPeriod), { indent: 1 });
+          em.tableTitle('Balances');
+          em.setRegTable('b');
+          em.moneyRow('Receivable at year end', buildAccountsReceivable(padded(r.presalesRevenuePerPeriod), padded(r.presalesCashPerPeriod), N).perPeriod, { indent: 1, totalLast: true });
+          em.moneyRow('Unearned revenue at year end', buildUnearnedRevenue(padded(r.presalesRecognitionPerPeriod), padded(r.presalesRevenuePerPeriod), N).perPeriod, { indent: 1, totalLast: true });
+          summary.set(line.key, {
+            value: add(padded(r.presalesRevenuePerPeriod), padded(r.postSalesRevenuePerPeriod)),
+            rec: add(padded(r.presalesRecognitionPerPeriod), padded(r.postSalesRevenuePerPeriod)),
+            cash: add(padded(r.presalesCashPerPeriod), padded(r.postSalesCashPerPeriod)),
+          });
+          em.gap();
+          continue;
+        }
+        const inOps = range(0, N - 1).map((t) => (w.operations.includes(t) ? 1 : 0));
+        const opsYears = Math.max(1, sumAll(inOps));
+        const drivers = (): void => {
+          em.setRegTable('d');
+          if (line.form === 'operate') {
+            const typeValues = a.assetTypeId ? state.project.assetTypeValues?.[a.assetTypeId] : undefined;
+            em.scalarRow('Keys', resolveAssetKeys(a, state.subUnits, typeValues).keys, NUMFMT.int);
+          } else {
+            em.scalarRow('Lettable area (sqm)', units.reduce((s, u) => s + Math.max(0, computeSubUnitArea(u, a)), 0), NUMFMT.int);
+          }
+          em.scalarRow('Operations start year', psy + w.opsStartIdx, NUMFMT.year);
+          em.setRegTable('o');
+          em.periodRow('In operations (1 = yes)', inOps, range(0, N - 1), NUMFMT.int, { total: sumAll(inOps) });
+        };
+        if (line.form === 'operate' && res?.hospitality) {
+          const r = res.hospitality;
+          drivers();
+          em.periodRow('Occupancy', padded(r.occupancyPerPeriod), range(0, N - 1), NUMFMT.pct, { total: sumAll(r.occupancyPerPeriod) / opsYears });
+          em.periodRow(`ADR (${cur} per occupied room night)`, padded(r.adrPerPeriod), range(0, N - 1), NUMFMT.rate);
+          em.moneyRow('Available room nights', padded(r.availableRoomNightsPerPeriod), { indent: 1, numFmt: NUMFMT.int });
+          em.moneyRow('Occupied room nights', padded(r.occupiedRoomNightsPerPeriod), { indent: 1, numFmt: NUMFMT.int });
+          em.moneyRow('Guests', padded(r.guestsPerPeriod), { indent: 1, numFmt: NUMFMT.int });
+          em.moneyRow('Rooms revenue', padded(r.roomsRevenuePerPeriod), { indent: 1 });
+          em.moneyRow('F&B revenue', padded(r.fbRevenuePerPeriod), { indent: 1 });
+          em.moneyRow('Other revenue', padded(r.otherRevenuePerPeriod), { indent: 1 });
+          em.moneyRow('Hotel revenue', padded(r.totalRevenuePerPeriod), { style: 'subtotal' });
+          summary.set(line.key, { value: padded(r.totalRevenuePerPeriod), rec: padded(r.totalRevenuePerPeriod), cash: padded(r.totalRevenuePerPeriod) });
+          em.gap();
+          continue;
+        }
+        if (line.form === 'lease' && res?.lease) {
+          const r = res.lease;
+          drivers();
+          em.periodRow('Occupancy', padded(r.occupancyPerPeriod), range(0, N - 1), NUMFMT.pct, { total: sumAll(r.occupancyPerPeriod) / opsYears });
+          const zones = units.filter((u) => r.perSubUnit?.[u.id]);
+          for (const u of zones) {
+            const z = r.perSubUnit[u.id];
+            em.periodRow(`${nm(u)}: rent per sqm`, padded(z.indexedRatePerPeriod), range(0, N - 1), NUMFMT.rate);
+            em.moneyRow(`${nm(u)}: area let (sqm)`, padded(z.occupiedAreaPerPeriod), { indent: 1, numFmt: NUMFMT.int });
+            em.moneyRow(`${nm(u)}: rent`, padded(z.revenuePerPeriod), { indent: 1, style: zones.length === 1 ? 'subtotal' : 'plain' });
+          }
+          if (zones.length !== 1) {
+            em.moneyRow('Area let (sqm)', padded(r.occupiedAreaPerPeriod), { indent: 1, numFmt: NUMFMT.int });
+            em.moneyRow('Lease revenue', padded(r.totalRevenuePerPeriod), { style: 'subtotal' });
+          }
+          summary.set(line.key, { value: padded(r.totalRevenuePerPeriod), rec: padded(r.totalRevenuePerPeriod), cash: padded(r.totalRevenuePerPeriod) });
+          em.gap();
+        }
+      }
+    }
+    void zeros;
+    // ONE SUMMARY: sales value, revenue recognised, cash collected, one row per line.
+    em.groupBand('Revenue summary');
+    const views: Array<[string, string, 'value' | 'rec' | 'cash', string]> = [
+      ['sv', 'Sales value', 'value', 'Total sales value'],
+      ['rec', 'Revenue recognised', 'rec', 'Total revenue recognised'],
+      ['cash', 'Cash collected', 'cash', 'Total cash collected'],
+    ];
+    for (const [id, title, k, total] of views) {
+      em.tableTitle(title, id === 'cash' ? 'Hotel and lease as billed; receivables on Schedules' : '');
+      const tot = zeros();
+      for (const g of groups) for (const line of g.lines) {
+        const s = summary.get(line.key);
+        if (!s) continue;
+        em.setRegLine(line.key); em.setRegTable(`sum-${id}`);
+        em.moneyRow(revenueLineName(line), s[k], { indent: 1 });
+        for (let t = 0; t < N; t++) tot[t] += s[k][t] ?? 0;
+      }
+      em.setRegLine('__project__'); em.setRegTable(`sum-${id}`);
+      em.moneyRow(total, tot, { style: 'total' });
+      em.gap();
+    }
+  };
+  const lineMeta = (l: RevenueLine): string => l.isStrip ? 'ground-floor retail strip carved from its hosts'
+    : l.isOperateCompanion ? 'Operate companion' : plotsOf(l);
+
   // ── 1. Revenue Inputs ────────────────────────────────────────────────────────
+  if (!isLiveLayout()) {
   em.section('1. Revenue Inputs (one card per line, filed by section: sub-units, pace, prices, terms and recognition)');
   em.setRegScope('revin');
   {
@@ -3119,6 +3275,7 @@ function addRevenue(ctx: EmitCtx): { revLinks: RevLinks; cosLinks: CosLinks } {
       em.gap();
     }
   }
+  }
 
   // ── 2. Revenue Output ────────────────────────────────────────────────────────
   em.section('2. Revenue Output (per line, filed by section and phase, then the project total)');
@@ -3170,8 +3327,9 @@ function addRevenue(ctx: EmitCtx): { revLinks: RevLinks; cosLinks: CosLinks } {
   if (toSchedules) toSchedules.push(['Selling Costs (the selling and marketing lines on Capex, by line)', emitSellingCosts]); else emitSellingCosts(em, ws);
   em.setRegScope('rev');
   const lineResults = new Map(lines.map((l) => [l.key, lineRevenueResults(l.members.map((m) => m.id), snap.revenue, l.key)] as const));
-  const lineMeta = (l: RevenueLine): string => l.isStrip ? 'ground-floor retail strip carved from its hosts'
-    : l.isOperateCompanion ? 'Operate companion' : plotsOf(l);
+  let totalRow = em.cursor();
+  if (isLiveLayout()) liveOutput();
+  else {
   for (const g of groups) {
     em.groupBand(g.section);
     for (const p of state.phases) {
@@ -3416,7 +3574,7 @@ function addRevenue(ctx: EmitCtx): { revLinks: RevLinks; cosLinks: CosLinks } {
   // THE PROJECT TOTAL: three tables grouped by section, from the shared builder.
   em.groupBand('Project Total');
   em.setRegLine('__project__');
-  let totalRow = em.cursor();
+  totalRow = em.cursor();
   for (const t of PROJECT_REVENUE_TABLES) {
     em.tableTitle(t.title, t.caption);
     for (const row of buildProjectRevenueGroupedRows(t.view, lines, lineResults, N)) {
@@ -3424,6 +3582,7 @@ function addRevenue(ctx: EmitCtx): { revLinks: RevLinks; cosLinks: CosLinks } {
       if (t.view === 'recognition' && row.label === 'Total Project') totalRow = used;
     }
     em.gap();
+  }
   }
 
   // ── 3. Cost of Sales ─────────────────────────────────────────────────────────
@@ -3493,6 +3652,27 @@ function addRevenue(ctx: EmitCtx): { revLinks: RevLinks; cosLinks: CosLinks } {
       const rl = lineForAsset(lines, host.assetId);
       return { ...poolResults(members), assetId: host.assetId, name: rl ? revenueLineName(rl) : lineTitle(line, { assets: state.assets, phases: state.phases, parcels: state.parcels }), effectiveHeldPct: host.effectiveHeldPct, effectiveHeldUntilYear: host.effectiveHeldUntilYear, effectiveReleaseYear: host.effectiveReleaseYear };
     });
+    if (isLiveLayout()) {
+      // THE LIVE ESCROW (2026-10-27): the inputs are on Inputs, so this block holds the terms in
+      // force per line and the balance; the table ids keep the keys later tabs read.
+      em.groupBand('Escrow');
+      em.colHeaders([[LBL_COL, 'Line', 'left'], [TOTAL_COL, 'Held %', 'right'], [OPEN_COL, 'Held until', 'right'], [OPEN_COL + 1, 'Release year', 'right']]);
+      for (const row of rows) em.cellsRow([[LBL_COL, row.name, '@'], [TOTAL_COL, row.effectiveHeldPct, NUMFMT.pct], [OPEN_COL, row.effectiveHeldUntilYear, NUMFMT.year], [OPEN_COL + 1, row.effectiveReleaseYear, NUMFMT.year]]);
+      em.tableTitle('Escrow balance');
+      em.setRegTable('B. Escrow Balance Roll-Forward');
+      const opening = new Array<number>(N).fill(0);
+      for (let t = 1; t < N; t++) opening[t] = esc.cumulativeBalancePerPeriod[t - 1] ?? 0;
+      em.moneyRow('Opening Balance', opening, { indent: 1, noTotal: true });
+      for (const row of rows) em.moneyRow(`${row.name}: held`, row.result.heldPerPeriod, { indent: 1 });
+      em.moneyRow('Total Additions', esc.heldPerPeriod, { style: 'subtotal' });
+      em.moneyRow('Less: Release of Locked Funds', esc.releasePerPeriod.slice(0, N).map((v) => -v), { indent: 1 });
+      em.moneyRow('Closing Balance', esc.cumulativeBalancePerPeriod, { style: 'total', totalLast: true });
+      em.tableTitle('Escrow cash flow');
+      em.setRegTable('C. Cash Flow Impact (project totals)');
+      em.moneyRow('Less: cash locked in escrow', esc.heldPerPeriod.slice(0, N).map((v) => -v), { indent: 1 });
+      em.moneyRow('Add: cash released from escrow', esc.releasePerPeriod, { indent: 1 });
+      em.moneyRow('Net escrow cash flow', esc.cashFlowAdjustmentPerPeriod, { style: 'total' });
+    } else {
     em.groupBand('1. Escrow Inputs');
     const pe = state.project.escrow;
     em.scalarRow('Project Held % (regulator-locked)', pe?.heldPct ?? 0, NUMFMT.pct, { input: true, basis: 'Withheld from every pre-sales inflow; a line override wins.' });
@@ -3531,6 +3711,7 @@ function addRevenue(ctx: EmitCtx): { revLinks: RevLinks; cosLinks: CosLinks } {
     em.moneyRow('Less: Inaccessible Funds Locked', esc.heldPerPeriod.slice(0, N).map((v) => -v), { indent: 1 });
     em.moneyRow('Add: Release of Inaccessible Funds', esc.releasePerPeriod, { indent: 1 });
     em.moneyRow('Net Cash Flow Adjustment (to M4)', esc.cashFlowAdjustmentPerPeriod, { style: 'total' });
+    }
   }
 
   em.setRegScope(null);
@@ -5881,6 +6062,30 @@ function addChecks(ctx: EmitCtx, capexAddrs: CapexAddrs, retLinks: RetLinks): vo
   // THE FINANCING LOOP'S OWN PROFIT BEFORE TAX (live layout): the loop solves its tax on it, so it must
   // equal the P&L's every year; the residue is the worst year's difference.
   if (isLiveLayout()) checkRow(LOOP_PBT_CHECK, 'OK', 0, 'Loop profit before tax less the P&L', `chk|id|${LOOP_PBT_CHECK}`);
+  // REVENUE'S OWN CHECKS (live layout, 2026-10-27, moved off the Revenue tab): typed velocity inside
+  // the model years, pre-sales collected in full, and a handover-year downpayment that a sale in
+  // that year does not use (it pays in full). Stage 3 writes their formulas.
+  if (isLiveLayout()) {
+    const psy0 = snap.revenue.projectStartYear;
+    for (const l of planRevenueLines(ctx.state.assets, ctx.state.subUnits, ctx.state.phases, ctx.state.project)) {
+      if (l.form !== 'sell') continue;
+      const a = l.members.find((m) => ctx.state.subUnits.some((u) => u.assetId === m.id && isRevenueSubUnit(u)));
+      const r = a ? snap.revenue.bySellAsset.get(a.id) : undefined;
+      const p = ctx.state.phases.find((x) => x.id === l.phaseId);
+      if (!a || !r || !p) continue;
+      const name = revenueLineName(l);
+      const sus = ctx.state.subUnits.filter((x) => x.assetId === a.id && isRevenueSubUnit(x));
+      for (const u of sus) {
+        checkRow(`Velocity in model years, ${name}${sus.length > 1 ? `: ${u.name || 'sub-unit'}` : ''}`, 'OK', 0, 'All typed velocity is inside the model years', `chk|vel|${l.key}|${u.name || 'sub-unit'}`);
+      }
+      const gap = r.presalesRevenuePerPeriod.reduce((s, v) => s + v, 0) - r.presalesCashPerPeriod.reduce((s, v) => s + v, 0);
+      checkRow(`Pre-sales collected in full, ${name}`, Math.abs(gap) < 0.005 ? 'OK' : 'CHECK', gap, Math.abs(gap) < 0.005 ? 'Every pre-sale is collected by the handover year' : 'Pre-sales billed less collected', `chk|col|${l.key}`);
+      const block = buildSaleCohortTermsBlock(a, p, psy0);
+      const hand = block?.downpayments.find((d) => d.year === block.handoverYear)?.value ?? 0;
+      const over = hand > 0 && hand < 1;
+      checkRow(`Handover-year downpayment, ${name}`, over ? 'NOTE' : 'OK', hand, over ? `A handover-year sale pays in full; the ${Math.round(hand * 100)}% typed is unused` : 'No downpayment typed for the handover year', `chk|dp|${l.key}`);
+    }
+  }
   // Advisories: NOTE, never OK or CHECK. A gap between cash collected and gross
   // sale value, or a sale with no downpayment stated, is legitimate model state,
   // not a broken identity, so the residue beside a NOTE is the size of the gap it

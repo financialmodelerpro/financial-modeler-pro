@@ -291,18 +291,19 @@ export const stage3Cos: LiveLayer = {
 
     // ── Escrow (Revenue) ─────────────────────────────────────────────────────
     const escLines = planReportLines({ assets: state.assets, phases: state.phases, parcels: state.parcels }, (a) => snap.escrow.byAsset.has(a.id));
-    if (escLines.length && has('esc|||Project Held % (regulator-locked)')) {
+    // THE INPUTS ARE READ WHERE THEY ARE TYPED (2026-10-27): Revenue no longer echoes them, so the
+    // project defaults and each line's overrides are Inputs cells; a blank override is "auto".
+    if (escLines.length && has('escin|pct')) {
       here = REV;
-      const pct = (): string => fx('esc|||Project Held % (regulator-locked)', TOTAL_COL);
-      const dUntil = (): string => fx('esc|||Default Held Until Year (optional)', TOTAL_COL);
-      const dRelease = (): string => fx('esc|||Default Release Year (optional)', TOTAL_COL);
+      const pct = (): string => w.refA(w.addr('escin|pct'), REV);
+      const dUntil = (): string => w.refA(w.addr('escin|until'), REV);
+      const dRelease = (): string => w.refA(w.addr('escin|release'), REV);
       // The workbook's first and last years, from its own header row (the Timeline's).
       const Y = (t: number): string => w.refP({ sheet: REV, row: 3, col: pc(t) }, REV);
       const Y0 = (): string => w.refA({ sheet: REV, row: 3, col: pc(0) }, REV), YN = (): string => w.refA({ sheet: REV, row: 3, col: pc(N - 1) }, REV);
-      const A = (label: string): string => `esc||A. Pre-Sales Cash by Asset (subject to escrow)|${label}`;
       const Bk = (label: string): string => `esc||B. Escrow Balance Roll-Forward|${label}`;
       const Cc = (label: string): string => `esc||C. Cash Flow Impact (project totals)|${label}`;
-      const cashKeys: string[] = [], heldKeys: string[] = [];
+      const heldKeys: string[] = [];
       const releases: Array<{ held: string; rel: () => string }> = [];
       for (const el of escLines) {
         const host = state.assets.find((a) => a.id === el.assetIds[0]) as Asset;
@@ -310,24 +311,26 @@ export const stage3Cos: LiveLayer = {
         if (!rl || !has(`rvc:${rl.key}:cashPre`)) continue;
         const name = revenueLineName(rl);
         const inKey = `esc|||${name}`;
-        if (!has(inKey) || !has(A(name)) || !has(Bk(name))) continue;
+        if (!has(inKey) || !has(Bk(`${name}: held`))) continue;
         const r = w.addr(inKey).row;
-        const ov = (c: number): string => w.refA({ sheet: REV, row: r, col: c }, REV);
+        const ov = (k: 'held' | 'until' | 'release'): string => (has(`escin|${name}|${k}`) ? w.refA(w.addr(`escin|${name}|${k}`), REV) : '""');
+        const cell = (c: number): string => w.refA({ sheet: REV, row: r, col: c }, REV);
         const p0 = state.phases.find((x) => x.id === host.phaseId)!;
         const handover = (): string => w.ref(`tl:phase:${p0.id}:hy`);
         here = REV;
-        w.fA({ sheet: REV, row: r, col: TOTAL_COL }, `IF(AND(ISNUMBER(${ov(OPEN_COL)}),N(${ov(OPEN_COL)})>=0),${ov(OPEN_COL)},MAX(0,N(${pct()})))`);
-        w.fA({ sheet: REV, row: r, col: OPEN_COL + 1 }, `IF(ISNUMBER(${ov(OPEN_COL + 2)}),${ov(OPEN_COL + 2)},IF(ISNUMBER(${dUntil()}),${dUntil()},${handover()}))`);
-        w.fA({ sheet: REV, row: r, col: OPEN_COL + 3 }, `IF(ISNUMBER(${ov(OPEN_COL + 4)}),${ov(OPEN_COL + 4)},IF(ISNUMBER(${dRelease()}),${dRelease()},${handover()}+1))`);
-        const eff = (): string => ov(TOTAL_COL), until = (): string => ov(OPEN_COL + 1), relY = (): string => ov(OPEN_COL + 3);
-        row(A(name), (t) => p(`rvc:${rl.key}:cashPre`, t));
-        row(Bk(name), (t) => `IF(${Y(t)}<=MAX(${Y0()},MIN(${YN()},${until()})),MAX(0,${p(A(name), t)})*MAX(0,${eff()}),0)`);
-        cashKeys.push(A(name)); heldKeys.push(Bk(name));
-        releases.push({ held: Bk(name), rel: relY });
-        w.claim(`escc:${rl.key}:held`, REV, w.addr(Bk(name)).row, 1);
+        // The terms in force: the line's override where typed, else the project default, else the handover rule.
+        w.fA({ sheet: REV, row: r, col: TOTAL_COL }, `IF(AND(ISNUMBER(${ov('held')}),N(${ov('held')})>=0),${ov('held')},MAX(0,N(${pct()})))`);
+        w.fA({ sheet: REV, row: r, col: OPEN_COL }, `IF(ISNUMBER(${ov('until')}),${ov('until')},IF(ISNUMBER(${dUntil()}),${dUntil()},${handover()}))`);
+        w.fA({ sheet: REV, row: r, col: OPEN_COL + 1 }, `IF(ISNUMBER(${ov('release')}),${ov('release')},IF(ISNUMBER(${dRelease()}),${dRelease()},${handover()}+1))`);
+        const eff = (): string => cell(TOTAL_COL), until = (): string => cell(OPEN_COL), relY = (): string => cell(OPEN_COL + 1);
+        row(Bk(`${name}: held`), (t) => `IF(${Y(t)}<=MAX(${Y0()},MIN(${YN()},${until()})),MAX(0,${p(`rvc:${rl.key}:cashPre`, t)})*MAX(0,${eff()}),0)`);
+        heldKeys.push(Bk(`${name}: held`));
+        releases.push({ held: Bk(`${name}: held`), rel: relY });
+        w.claim(`escc:${rl.key}:held`, REV, w.addr(Bk(`${name}: held`)).row, 1);
         w.claim(`escc:${rl.key}:in`, REV, r, 1);
+        // The release year in force, by its own key: the phase cash flows read it (never a column offset).
+        w.claim(`escc:${rl.key}:release`, REV, r, OPEN_COL + 1);
       }
-      row(A('Total Pre-Sales Cash (all assets)'), (t) => sumKeys(cashKeys, t));
       row(Bk('Total Additions'), (t) => sumKeys(heldKeys, t));
       // A line releases everything it has held so far, in its release year (clamped to the workbook's years).
       row(Bk('Less: Release of Locked Funds'), (t) => `-(${releases.map((x) => {
@@ -337,9 +340,9 @@ export const stage3Cos: LiveLayer = {
       }).join('+') || '0'})`);
       row(Bk('Closing Balance'), (t) => `MAX(0,${p(Bk('Closing Balance'), t, -1)}+${p(Bk('Total Additions'), t)}+${p(Bk('Less: Release of Locked Funds'), t)})`, 'last');
       row(Bk('Opening Balance'), (t) => p(Bk('Closing Balance'), t, -1), 'none');
-      row(Cc('Less: Inaccessible Funds Locked'), (t) => `-${p(Bk('Total Additions'), t)}`);
-      row(Cc('Add: Release of Inaccessible Funds'), (t) => `-${p(Bk('Less: Release of Locked Funds'), t)}`);
-      row(Cc('Net Cash Flow Adjustment (to M4)'), (t) => `${p(Cc('Less: Inaccessible Funds Locked'), t)}+${p(Cc('Add: Release of Inaccessible Funds'), t)}`);
+      row(Cc('Less: cash locked in escrow'), (t) => `-${p(Bk('Total Additions'), t)}`);
+      row(Cc('Add: cash released from escrow'), (t) => `-${p(Bk('Less: Release of Locked Funds'), t)}`);
+      row(Cc('Net escrow cash flow'), (t) => `${p(Cc('Less: cash locked in escrow'), t)}+${p(Cc('Add: cash released from escrow'), t)}`);
     }
 
     const sheets = [...new Set([...lineCos.keys()].map((k) => w.addr(`cosc:${k}:cos`).sheet))];

@@ -118,7 +118,7 @@ export const stage3Opex: LiveLayer = {
       if (ln.rateMode === 'yoy') refuse.push(`HQ: ${ln.name} has year-by-year rates`);
       if (ln.useAssetDefault === false && ln.mode === 'fixed_baseline' && (ln.indexation?.method ?? 'none') !== 'none') refuse.push(`HQ: ${ln.name} has its own inflation`);
     }
-    if (!has('rev|__project__|Project Revenue (Sales Value year-on-year)|Total Project')) refuse.push('Revenue\'s project sales value is not on the Revenue tab');
+    if (!has('rvc:__project__:salesValue')) refuse.push('Revenue\'s project sales value is not on the Revenue tab');
     // An exit before the last year stops the held assets trading after it (`stopAfterExit`).
     if (snap.disposal.booked && snap.disposal.exitIdx < N - 1 && opexAssets.length) refuse.push('the exit falls before the last year, which stops the held assets trading after it');
     if (refuse.length) return values(`Opex could not be made live for this model: ${[...new Set(refuse)].join('; ')}.`);
@@ -200,13 +200,15 @@ export const stage3Opex: LiveLayer = {
       const K = (label: string): string => `opex|${l.key}|${tableId}|${label}`;
       const isOp = a.strategy === 'Operate';
       const earner = state.subUnits.some((u) => u.assetId === a.id && isRevenueSubUnit(u));
-      const RV = (label: string): string => `rev|${l.key}|${label}`;
-      const rvP = (label: string, t: number): string => (earner && has(RV(label)) ? P(RV(label), t) : '0');
+      // REVENUE'S ROWS BY THEIR KEYS (2026-10-27): the line's statement on Revenue (stage 3).
+      const RV = (k: string): string => `rvc:${l.key}:${k}`;
+      const rvP = (k: string, t: number): string => (earner && has(RV(k)) ? P(RV(k), t) : '0');
+      const keysCell = (): string => (isOp && earner && has(RV('keys')) ? A(RV('keys'), TOTAL_COL) : '0');
 
       if (tableId === 'stats') {
-        row(K('Keys'), (t) => rvP('1.|Total Rooms (Keys)', t), () => (earner && has(`revin|${l.key}||Keys the engine counts`) ? A(`revin|${l.key}||Keys the engine counts`, TOTAL_COL) : '0'));
-        row(K('Available room nights'), (t) => rvP('1.|Available Room Nights', t));
-        row(K('Occupied room nights'), (t) => rvP('1.|Occupied Room Nights', t));
+        row(K('Keys'), (t) => `${rvP('inOps', t)}*${keysCell()}`, () => keysCell());
+        row(K('Available room nights'), (t) => rvP('arn', t));
+        row(K('Occupied room nights'), (t) => rvP('orn', t));
         ratioRow(K('Occupancy'), K('Occupied room nights'), K('Available room nights'));
         // The rates read the statement's rooms revenue, below on this tab.
         const rooms = `opex|${l.key}|stmt|Rooms revenue`;
@@ -224,7 +226,7 @@ export const stage3Opex: LiveLayer = {
       // Operating years and inflation.
       const ops = (t: number): string => P(`tl:flag:${a.phaseId}:ops`, t);
       const hand = (t: number): string => P(`tl:flag:${a.phaseId}:hand`, t);
-      const startKey = `revin|${l.key}|${isOp ? 'ADR Indexation' : 'Rent Indexation'}|Operations start year`;
+      const startKey = RV('opsStart');
       const yearHere = (t: number): string => w.refP({ sheet: OPEX, row: 3, col: pc(t) }, OPEX);
       const inOpsK = K('In operations (1 = yes)');
       row(inOpsK, (t) => (has(startKey) ? `(${hand(t)}+${ops(t)})*(${yearHere(t)}>=${A(startKey, TOTAL_COL)})` : ops(t)));
@@ -243,18 +245,18 @@ export const stage3Opex: LiveLayer = {
       // Revenue on the statement, from the Revenue tab.
       const revRows: Record<string, string> = {};
       if (isOp) {
-        row(K('Rooms revenue'), (t) => rvP('2.|Rooms Revenue', t));
-        row(K('F&B revenue'), (t) => rvP('2.|F&B Revenue', t));
-        row(K('Other revenue'), (t) => rvP('2.|Other Revenue', t));
+        row(K('Rooms revenue'), (t) => rvP('rooms', t));
+        row(K('F&B revenue'), (t) => rvP('fb', t));
+        row(K('Other revenue'), (t) => rvP('other', t));
         row(K('Total revenue'), (t) => sumRows([w.addr(K('Rooms revenue')).row, w.addr(K('F&B revenue')).row, w.addr(K('Other revenue')).row], t));
         Object.assign(revRows, { pct_of_room_rev: K('Rooms revenue'), pct_of_fb_rev: K('F&B revenue'), pct_of_other_rev: K('Other revenue'), pct_of_total_rev: K('Total revenue') });
       } else {
-        row(K('Lease revenue'), (t) => rvP('2.|Total Lease Revenue', t));
+        row(K('Lease revenue'), (t) => rvP('rev', t));
         row(K('Total revenue'), (t) => sumRows([w.addr(K('Lease revenue')).row], t));
         Object.assign(revRows, { pct_of_lease_rev: K('Lease revenue'), pct_of_total_rev: K('Total revenue') });
       }
-      const keys = (): string => (isOp && earner && has(`revin|${l.key}||Keys the engine counts`) ? A(`revin|${l.key}||Keys the engine counts`, TOTAL_COL) : '0');
-      const gla = (): string => (!isOp && earner && has(RV('1.|Total Gross Lease Area (sqm)')) ? A(RV('1.|Total Gross Lease Area (sqm)'), TOTAL_COL) : '0');
+      const keys = keysCell;
+      const gla = (): string => (!isOp && earner && has(RV('gla')) ? A(RV('gla'), TOTAL_COL) : '0');
       const stored = (a.opex?.lines ?? []) as OpexLine[];
       const inKeys = cardKeys(a.id, stored.map((x) => x.name), ['Asset Inflation']);
       const gopKey = K('Gross operating profit, GOP');
@@ -362,7 +364,7 @@ export const stage3Opex: LiveLayer = {
           const yr = (t: number): string => w.refP({ sheet: OPEX, row: 3, col: pc(t) }, OPEX);
           row(facK, (t) => (hqDefault.method === 'yoy_compound' ? `(1+${rate})^MAX(0,${yr(t)}-MAX(${from},${axis}))` : `IF(${yr(t)}>=MAX(${from},${axis}),1+${rate},1)`), 'none');
         }
-        const salesValue = 'rev|__project__|Project Revenue (Sales Value year-on-year)|Total Project';
+        const salesValue = 'rvc:__project__:salesValue';
         hqStored.forEach((ln, i) => {
           const key = K(tb.rows[rowIdx++]?.label ?? '');
           const k = hqKeys[i];

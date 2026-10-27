@@ -1,34 +1,34 @@
 /**
- * stage3Revenue.ts (2026-09-27, rebuilt 2026-10-15), FORMULA-LINKED EXPORT: REVENUE.
+ * stage3Revenue.ts (2026-09-27, rebuilt 2026-10-15, shortened 2026-10-27), FORMULA-LINKED EXPORT: REVENUE.
  *
- * EVERY FIGURE ON THE REVENUE TAB IS BUILT FROM ROWS ON THE TABS (founder,
- * 2026-10-14). There is no working sheet. The engine's rules, row by row:
+ * ONE PATH PER LINE (founder, 2026-10-27): drivers, sales, revenue recognised, cash
+ * collected, then one summary block. There are no input cards: every formula reads
+ * the input where it is typed on Inputs. The engine's rules, row by row:
  *
- *   SELL, per sub-unit. "Velocity in force" is the velocity typed on Inputs at
- *     the years it applies to now: Inputs keys a construction grid (pre-sales, the
- *     downpayment) by construction year and an operating grid (sales during
- *     operation, occupancy) by operating year, the platform's own keys (2026-10-26),
- *     and each is read through the Timeline's year counters, so a phase that moves or
- *     builds longer carries its grids with it. The engine sells the
- *     pre-sales years first, then the operation years, which is the order of the
- *     years, so one "sqm sold" row carries both passes: each year sells the
- *     velocity share of the inventory rounded to whole sqm, capped at what is
- *     still unsold, and the year the typed velocity reaches 100% (or the share
- *     reaches what is left) takes the exact remainder (sell.ts). A sale up to
- *     the handover year is a pre-sale, after it a sale during operation.
- *     Revenue = sqm sold x the base price x the indexation factor. Recognition
- *     at handover. Collections: each sale year's cohort pays its downpayment in
- *     the year it sells and the balance in equal instalments over the instalment
- *     years (the lesser of the maximum and the years left to handover); a sale
- *     at or after handover, or with no instalment years, pays in full. The
- *     receivable and unearned roll forward from those rows.
- *   HOTEL. In operation from the operations start year on Revenue to the last
- *     operating year; keys x days, x occupancy; ADR = the base rate x the
- *     indexation factor; F&B and other as shares of rooms revenue.
- *   LEASE. Gross lease area x occupancy, x the base rent x the factor.
+ *   SELL, per sub-unit. "Velocity" is the velocity typed on Inputs at the years it
+ *     applies to now: a construction grid (pre-sales, the downpayment) by
+ *     construction year and an operating grid (sales during operation, occupancy)
+ *     by operating year, each read through the Timeline's year counters. The engine
+ *     sells the pre-sales years first, then the operation years, which is the order
+ *     of the years, so one "sqm sold" row carries both passes: each year sells the
+ *     velocity share of the inventory rounded to whole sqm, and takes exactly what is
+ *     still unsold once the share reaches it or the typed velocity reaches 100%
+ *     (sell.ts). A sale up to the handover year is a pre-sale, after it a sale during
+ *     operation. Revenue = sqm sold x the Inputs price x the indexation factor.
+ *     Pre-sales are recognised in the handover year (their running total x the
+ *     Timeline's handover flag); a sale during operation as it is sold. Each pre-sales
+ *     year's cohort pays its downpayment in the year it sells and the balance in equal
+ *     instalments over the instalment years (the lesser of the maximum and the years
+ *     left to handover); a sale in the handover year pays in full. A sale during
+ *     operation is collected in its year. The receivable and the unearned revenue are
+ *     running totals.
+ *   HOTEL. In operation from the operations start year to the last operating year;
+ *     keys x days x occupancy; ADR = the Inputs rate x the indexation factor; F&B and
+ *     other as shares of rooms revenue.
+ *   LEASE. Lettable area x occupancy, x the Inputs rent x the factor.
  *
- * The keys of the old working sheet (rvc:) are claimed at the visible rows that
- * now hold those figures, so every later tab reads them where they are.
+ * Its checks sit on the Checks tab: typed velocity inside the model years, pre-sales
+ * collected in full, and a handover-year downpayment a sale in that year does not use.
  *
  * REFUSES by name (Revenue stays values) what it does not express: another
  * indexation method, recognition other than at handover, a handover override,
@@ -48,7 +48,7 @@ import type { CellAddr } from '../cellRegistry';
 import { LiveWriter } from './writer';
 import { statedLineReceivableDays } from '../../receivableDays';
 import { PERIOD_COLS } from '../buildModelWorkbook';
-import { ARGB, NUMFMT, setLabel, fillRange, colLetter } from '../styles';
+import { NUMFMT, colLetter } from '../styles';
 import { withResolvedAssetNames } from '@/src/core/calculations/assetName';
 import { resolveAssetTypeKey } from '../../state/assetTypeStandards';
 import { resolveSubUnitMetric, isRevenueSubUnit } from '@/src/core/calculations';
@@ -60,6 +60,7 @@ import { hasAnyDownpayment } from '@/src/core/calculations/revenue/cohortTerms';
 import type { Asset, Phase, SubUnit } from '../../state/module1-types';
 
 const REV = 'Revenue';
+const CHK = 'Checks';
 const IDX_METHODS = new Set(['none', 'yoy_compound', 'single_rate']);
 
 type Idx = { method?: string; rate?: number; startYear?: number } | undefined;
@@ -80,7 +81,8 @@ export const stage3Revenue: LiveLayer = {
     const subUnits = state.subUnits as SubUnit[];
     const lines = planRevenueLines(state.assets, state.subUnits, state.phases, state.project);
     const revRows = (a: Asset): SubUnit[] => subUnits.filter((u) => u.assetId === a.id && isRevenueSubUnit(u));
-    const K = (line: RevenueLine, table: string, label: string): string => `revin|${line.key}|${table}|${label}`;
+    const nm = (u: SubUnit): string => u.name || 'sub-unit';
+    /** A row of a line on this tab: `rev|<line>|<table id>|<label>` (the builder's liveOutput). */
     const O = (line: RevenueLine, table: string, label: string): string => `rev|${line.key}|${table}|${label}`;
     const byPrefix = (prefix: string): string | undefined => reg.keys().find((k) => k.startsWith(prefix));
 
@@ -89,6 +91,7 @@ export const stage3Revenue: LiveLayer = {
     const phaseOf = (l: RevenueLine): Phase | undefined => phases.find((p) => p.id === l.phaseId);
     const earning = (l: RevenueLine): Asset[] => l.members.filter((m) => revRows(m).length > 0);
     const offsetAt = (p: Phase): number => new Date(p.startDate as string).getUTCFullYear() - snap.revenue.projectStartYear;
+    /** A value stored for a year the sheet's row does not show cannot be expressed. */
     const shownOrZero = (name: string, byPhase: readonly (number | null | undefined)[] | undefined, off: number, rowKey: string | undefined): void => {
       if (!byPhase) return;
       const row = rowKey && has(rowKey) ? w.addr(rowKey).row : undefined;
@@ -116,12 +119,13 @@ export const stage3Revenue: LiveLayer = {
       if (earners.length && (p.constructionPeriods ?? 0) < 1) refuse.push(`${name}: its phase has no construction years`);
       if (!has(`tl:phase:${p.id}:hy`) || !has('tl:horizon')) refuse.push(`${name}: the Timeline's phase years are not live`);
       if (!has(`tl:ctr:${p.id}:con`) || !has(`tl:ctr:${p.id}:ops`)) refuse.push(`${name}: the Timeline's year counters are not live`);
+      if (!has(`tl:flag:${p.id}:hand`)) refuse.push(`${name}: the Timeline's handover flag is not live`);
       const ix = idxOf(l, a);
       if (!IDX_METHODS.has(ix?.method ?? 'none')) refuse.push(`${name}: indexation ${ix?.method}`);
       if ((ix?.method ?? 'none') !== 'none' && earners.length && (!has(`rxin|${l.key}|rate`) || !has(`rxin|${l.key}|from`))) refuse.push(`${name}: its indexation has no rate on Inputs`);
       const off = offsetAt(p);
       if (l.form !== 'sell' && statedLineReceivableDays(a) !== statedLineReceivableDays(l.host)) refuse.push(`${name}: the earning plot and the line card state different receivable days`);
-      if (l.form !== 'sell' && statedLineReceivableDays(a) !== undefined && !reg.keys().some((k) => k.startsWith(`revin|${l.key}|`) && k.endsWith('|Accounts Receivable Days'))) refuse.push(`${name}: its own receivable days are not on the sheet`);
+      if (l.form !== 'sell' && earners.length && !has(`rxin|${l.key}|arDays`)) refuse.push(`${name}: its receivable days are not on Inputs`);
       if (l.form === 'sell') {
         const sell = a.revenue?.sell;
         if (!sell) continue;
@@ -132,9 +136,11 @@ export const stage3Revenue: LiveLayer = {
         if (sell.paceFactor != null && sell.paceFactor !== 1) refuse.push(`${name}: a sales pace lever`);
         if (sell.velocityDefault && l.subUnits.length > 1) refuse.push(`${name}: a lockstep velocity row`);
         if (!hasAnyDownpayment(sell.downpaymentByPhase)) refuse.push(`${name}: no downpayment of its own`);
+        if (!has(`rxin|${l.key}|inst`)) refuse.push(`${name}: its instalment years are not on Inputs`);
         for (let k = 0; k < Math.max(0, p.constructionPeriods ?? 0); k++) {
           const v = sell.downpaymentByPhase?.[k];
           if (!(typeof v === 'number' && Number.isFinite(v))) refuse.push(`${name}: a sale year's downpayment is carried, not typed`);
+          else if (!has(`rxgrid|${l.key}|dp@${k + 1}`)) refuse.push(`${name}: a sale year's downpayment is not on Inputs`);
         }
         for (const u of revRows(a)) {
           if (resolveSubUnitMetric(u, a) === 'units') refuse.push(`${name}: ${u.name} is sold by units`);
@@ -147,11 +153,10 @@ export const stage3Revenue: LiveLayer = {
           const post = (v.post ?? []).map((x, i) => ((x ?? 0) > 0 ? i : -1)).filter((i) => i >= 0);
           if (pre.some((i) => post.includes(i))) refuse.push(`${name}: ${u.name} has a pre-sales and an operation velocity in the same year`);
           else if (pre.length && post.length && Math.min(...post) < Math.max(...pre)) refuse.push(`${name}: ${u.name} sells during operation before its last pre-sales year`);
-          shownOrZero(`${name} pre-sales velocity`, v.pre, off, K(l, 'Pre-Sales velocity', u.name || 'sub-unit'));
-          shownOrZero(`${name} sales during operation`, v.post, off, K(l, 'Sales During Operation', u.name || 'sub-unit'));
+          shownOrZero(`${name} pre-sales velocity`, v.pre, off, O(l, 's', `${nm(u)}: velocity`));
+          shownOrZero(`${name} sales during operation`, v.post, off, O(l, 's', `${nm(u)}: velocity`));
           if (!has(`su:${u.id}:area`) || !has(`su:${u.id}:rate`)) refuse.push(`${name}: ${u.name}'s area or price is not on Inputs`);
         }
-        shownOrZero(`${name} downpayment`, sell.downpaymentByPhase as number[] | undefined, off, K(l, 'Sale cohort terms', 'Downpayment %'));
       } else if (l.form === 'operate') {
         const op = a.revenue?.operate;
         if (!op) continue;
@@ -161,13 +166,14 @@ export const stage3Revenue: LiveLayer = {
         if (op.occupancyShiftPts) refuse.push(`${name}: an occupancy lever`);
         if (revRows(a).length > 1) refuse.push(`${name}: more than one room type`);
         if (!has(`rxin|${l.key}|days`)) refuse.push(`${name}: its days per year are not on Inputs`);
+        if (!has(`rxin|${l.key}|guests`) || !has(`rxin|${l.key}|fb`) || !has(`rxin|${l.key}|other`)) refuse.push(`${name}: its guests, F&B or other share is not on Inputs`);
         for (const u of revRows(a)) {
           if ((u.startingAdr ?? 0) > 0) refuse.push(`${name}: ${u.name} stores an ADR of its own`);
           if (u.hospitalityIndexation) refuse.push(`${name}: ${u.name} has its own ADR indexation`);
           if (resolveSubUnitMetric(u, a) === 'units') refuse.push(`${name}: ${u.name} counts keys`);
-          if (!has(`su:${u.id}:area`)) refuse.push(`${name}: ${u.name}'s area is not on Inputs`);
+          if (!has(`su:${u.id}:area`) || !has(`su:${u.id}:rate`)) refuse.push(`${name}: ${u.name}'s area or ADR is not on Inputs`);
         }
-        shownOrZero(`${name} occupancy`, occupancyAxis(op, opsLocalOf(p, op.operationsStartYearOverride), off, N).slice(Math.max(0, off)), off, K(l, 'ADR Indexation', 'Occupancy ramp'));
+        shownOrZero(`${name} occupancy`, occupancyAxis(op, opsLocalOf(p, op.operationsStartYearOverride), off, N).slice(Math.max(0, off)), off, O(l, 'o', 'Occupancy'));
         if (op.occupancyByOpsYear === undefined) refuse.push(`${name}: its occupancy is still keyed by year of the phase`);
       } else {
         const le = a.revenue?.lease;
@@ -176,9 +182,9 @@ export const stage3Revenue: LiveLayer = {
         for (const u of revRows(a)) {
           if (!((u.unitPrice ?? 0) > 0) && (le.baseRate ?? 0) > 0) refuse.push(`${name}: ${u.name} takes the line's base rent`);
           if (resolveSubUnitMetric(u, a) === 'units') refuse.push(`${name}: ${u.name} is let by units`);
-          if (!has(`su:${u.id}:area`)) refuse.push(`${name}: ${u.name}'s area is not on Inputs`);
+          if (!has(`su:${u.id}:area`) || !has(`su:${u.id}:rate`)) refuse.push(`${name}: ${u.name}'s area or rent is not on Inputs`);
         }
-        shownOrZero(`${name} occupancy`, occupancyAxis(le, opsLocalOf(p, le.operationsStartYearOverride), off, N).slice(Math.max(0, off)), off, K(l, 'Rent Indexation', 'Occupancy ramp'));
+        shownOrZero(`${name} occupancy`, occupancyAxis(le, opsLocalOf(p, le.operationsStartYearOverride), off, N).slice(Math.max(0, off)), off, O(l, 'o', 'Occupancy'));
         if (le.occupancyByOpsYear === undefined) refuse.push(`${name}: its occupancy is still keyed by year of the phase`);
       }
     }
@@ -191,14 +197,17 @@ export const stage3Revenue: LiveLayer = {
     const at = (key: string, col: number): CellAddr => ({ sheet: w.addr(key).sheet, row: w.addr(key).row, col });
     /** This year's cell of a registered row (column relative; no sheet name on this tab). */
     const P = (key: string, t: number): string => w.refP(at(key, pc(t)), REV);
+    /** The cell of a registered row one year to the left (the opening column for year 1). */
+    const Prev = (key: string, t: number): string => w.refP(at(key, pc(t) - 1), REV);
     /** A fixed cell of a registered row. */
     const A = (key: string, col: number): string => w.refA(at(key, col), REV);
     /** A fixed cell, any column of a row on this tab. */
     const AR = (row: number, col: number): string => w.refA({ sheet: REV, row, col }, REV);
     const yr = (t: number): string => w.refP({ sheet: REV, row: 3, col: pc(t) }, REV);
-    const ix = (t: number): string => w.refP({ sheet: REV, row: 4, col: pc(t) }, REV);
     const rowOf = (key: string): number => w.addr(key).row;
     const span = (row: number): string => { for (let t = 0; t < N; t++) w.refP({ sheet: REV, row, col: pc(t) }, REV); return `$${colLetter(pc(0))}$${row}:$${colLetter(pc(N - 1))}$${row}`; };
+    /** From the first year to this one, on a row of this tab: a running total. */
+    const toDate = (key: string, t: number): string => { const r = rowOf(key); w.refP({ sheet: REV, row: r, col: pc(t) }, REV); return `SUM($${colLetter(pc(0))}$${r}:${colLetter(pc(t))}$${r})`; };
     const row = (key: string, f: (t: number) => string, total: 'sum' | 'last' | 'none' | (() => string) = 'sum'): void => {
       if (!has(key)) return;
       const r = rowOf(key);
@@ -208,18 +217,9 @@ export const stage3Revenue: LiveLayer = {
       else if (total === 'last') w.fA(T, AR(r, pc(N - 1)));
       else if (typeof total === 'function') w.fA(T, total());
     };
-    /** A card cell is shown only in its window: link it where the platform shows it. */
-    const linkShown = (cardKey: string, src: (t: number) => string): void => {
-      if (!has(cardKey)) return;
-      for (let t = 0; t < N; t++) { const c = at(cardKey, pc(t)); if (w.platformValue(c) !== undefined) w.fA(c, src(t)); }
-    };
-    const lastPos = (r: number): string => `IFERROR(LOOKUP(2,1/(${span(r)}>0),${span(r)}),0)`;
-    const avgPos = (r: number): string => `IFERROR(AVERAGEIF(${span(r)},">0"),0)`;
-    const worst = (r: number): string => { const s = span(r); return `IF(MAX(${s})<0.005,IF(-MIN(${s})<0.005,0,MIN(${s})),IF(MAX(${s})>=-MIN(${s}),MAX(${s}),MIN(${s})))`; };
-    const fmtRate = (x: string): string => `IF(${x}=INT(${x}),TEXT(${x},"#,##0"),TEXT(${x},"#,##0.##"))`;
-    const cur = state.project.currency ?? 'SAR';
     const TL = (p: Phase, k: string): string => w.ref(`tl:phase:${p.id}:${k}`);
-    const HZ = (): string => w.ref('tl:horizon', TOTAL_COL);
+    /** An Inputs cell registered on its value (column B for a single figure). */
+    const IN = (key: string): string => w.ref(key);
     /**
      * AN INPUTS GRID (2026-10-26). Inputs registers each cell `rxgrid|<grid>@<n>`, n the
      * construction year of a construction grid or the operating year of an operating grid.
@@ -231,10 +231,7 @@ export const stage3Revenue: LiveLayer = {
       for (const k of ks) w.refA(w.addr(`rxgrid|${grid}@${k}`), REV);
       return { k0: ks[0], n: ks.length, range: `${w.refA(first, REV)}:$${colLetter(last.col)}$${last.row}` };
     };
-    /**
-     * A GRID READ BY A YEAR COUNTER (2026-10-26): `y` is 1, 2, 3 ... (a Timeline counter, 0 outside
-     * its years), and the grid's length is read from the grid on Inputs, never typed into the formula.
-     */
+    /** A grid read by a year counter `y` (1, 2, 3 ..., 0 outside its years); its length is read from Inputs. */
     const atYear = (g: { k0: number; n: number; range: string } | undefined, y: string, clamp01 = false): string => {
       if (!g) return '0';
       const k = g.k0 === 1 ? y : `${y}-${g.k0 - 1}`;
@@ -242,10 +239,9 @@ export const stage3Revenue: LiveLayer = {
       return `IF(AND(${k}>=1,${k}<=COLUMNS(${g.range})),${clamp01 ? `MIN(1,MAX(0,${v}))` : v},0)`;
     };
     /** The Timeline's construction or operating year number of phase p, in year t's column. */
-    const ctr = (p: Phase, kind: 'con' | 'ops', t: number, absolute = false): string => {
-      const a = { sheet: 'Timeline', row: w.addr(`tl:ctr:${p.id}:${kind}`).row, col: pc(t) };
-      return absolute ? w.refA(a, REV) : w.refP(a, REV);
-    };
+    const ctr = (p: Phase, kind: 'con' | 'ops', t: number): string => w.refP({ sheet: 'Timeline', row: w.addr(`tl:ctr:${p.id}:${kind}`).row, col: pc(t) }, REV);
+    /** The Timeline's handover flag of phase p (1 in the handover year). */
+    const handF = (p: Phase, t: number): string => w.refP({ sheet: 'Timeline', row: w.addr(`tl:flag:${p.id}:hand`).row, col: pc(t) }, REV);
     /** The indexation factor of the line for year t, from the rate and start year on Inputs. */
     const factorF = (l: RevenueLine, idx: Idx, t: number): string => {
       const m = idx?.method ?? 'none';
@@ -264,333 +260,217 @@ export const stage3Revenue: LiveLayer = {
       return contiguous ? `SUM(${c}$${sorted[0]}:${c}$${sorted[sorted.length - 1]})` : sorted.map((r) => `${c}$${r}`).join('+');
     };
     const claim = (k: string, at2: string): void => { if (has(at2) && !has(k)) w.claim(k, REV, rowOf(at2), 1); };
+    /** What the summary block links, per line. */
+    const lineTotals = new Map<string, { value: (t: number) => string; rec: (t: number) => string; cash: (t: number) => string }>();
+    /** Formulas for the Checks rows, written once every line is placed. */
+    const checks: Array<() => void> = [];
+    const chkCell = (key: string, dc: number): CellAddr => ({ sheet: CHK, row: w.addr(key).row, col: w.addr(key).col + dc });
 
     // ── Each line ────────────────────────────────────────────────────────────
     for (const l of lines) {
       const p = phaseOf(l);
       const a = earning(l)[0];
-      if (!p) continue;
-      // Input card: the Table 5 price, read from Inputs.
-      for (const u of l.subUnits) {
-        const key = K(l, '', u.name || 'sub-unit');
-        if (has(key) && has(`su:${u.id}:rate`) && typeof w.platformValue(at(key, TOTAL_COL)) === 'number') w.f(key, `N(${w.ref(`su:${u.id}:rate`)})`, { col: TOTAL_COL });
-      }
-      if (!a) continue;
+      if (!p || !a) continue;
       const units = revRows(a);
       const before = (t: number): string => `(${yr(t)}<=${TL(p, 'hy')})`;
+      const idx = idxOf(l, a);
 
       if (l.form === 'sell' && a.revenue?.sell) {
-        const idx = a.revenue.sell.indexation as Idx;
-        const nm = (u: SubUnit): string => u.name || 'sub-unit';
+        const S = (label: string): string => O(l, 's', label);
         const area = (u: SubUnit): string => w.ref(`su:${u.id}:area`);
-        // 0. Velocity in force, each year: the pre-sales velocity and the
-        //    velocity during operation, at the Timeline's construction and operating year numbers, read from Inputs; the card shows them.
+        // Velocity in force: the pre-sales and operation grids on Inputs, at the Timeline's year numbers.
         for (const u of units) {
           const gPre = gridOf(`${l.key}|pre|${nm(u)}`), gPost = gridOf(`${l.key}|post|${nm(u)}`);
-          const preF = (t: number): string => atYear(gPre, ctr(p, 'con', t)), postF = (t: number): string => atYear(gPost, ctr(p, 'ops', t));
-          linkShown(K(l, 'Pre-Sales velocity', nm(u)), preF);
-          linkShown(K(l, 'Sales During Operation', nm(u)), postF);
-          row(O(l, '0.', nm(u)), (t) => [gPre ? preF(t) : '', gPost ? postF(t) : ''].filter(Boolean).join('+') || '0');
+          row(S(`${nm(u)}: velocity`), (t) => [gPre ? atYear(gPre, ctr(p, 'con', t)) : '', gPost ? atYear(gPost, ctr(p, 'ops', t)) : ''].filter(Boolean).join('+') || '0');
         }
-        // 1b. Sold per sub-unit: the share of the inventory, capped at what is unsold; the exact remainder once the typed velocity reaches 100%.
+        // Sqm sold: the velocity share of the inventory, rounded to whole sqm, or exactly what is still
+        // unsold once the share reaches it or the typed velocity reaches 100%. The one tolerance is the
+        // engine's on the typed total (typed shares can add to 0.9999999999999999).
         for (const u of units) {
-          const vk = O(l, '0.', nm(u)), sk = O(l, '1b.', nm(u));
-          if (!has(vk) || !has(sk)) continue;
-          const vr = rowOf(vk), sr = rowOf(sk);
-          const prevSold = (t: number): string => { w.refP({ sheet: REV, row: sr, col: pc(t) - 1 }, REV); return `SUM($${colLetter(OPEN_COL)}$${sr}:${colLetter(pc(t) - 1)}$${sr})`; };
-          const typed = (t: number): string => { w.refP({ sheet: REV, row: vr, col: pc(t) }, REV); return `SUM($${colLetter(pc(0))}$${vr}:${colLetter(pc(t))}$${vr})`; };
+          const vk = S(`${nm(u)}: velocity`), sk = S(`${nm(u)}: sqm sold`), uk = S(`${nm(u)}: sqm unsold at year end`);
+          if (!has(vk) || !has(sk) || !has(uk)) continue;
           row(sk, (t) => {
-            const v = P(vk, t), A_ = area(u), unsold = `(${A_}-${prevSold(t)})`;
-            return `IF(${v}=0,0,IF(OR(${typed(t)}>=1-1E-9,${v}*${A_}>=${unsold}-1E-9*${A_}),${unsold},ROUND(${A_}*${v},0)))`;
+            const v = P(vk, t), A_ = area(u), left = Prev(uk, t);
+            return `IF(${v}=0,0,IF(OR(${toDate(vk, t)}>=1-1E-9,${v}*${A_}>=${left}),${left},ROUND(${A_}*${v},0)))`;
           });
-          row(O(l, '1a.', nm(u)), (t) => `IF(${area(u)}>0,${P(sk, t)}/${area(u)},0)`, () => `IF(${area(u)}>0,SUM(${span(sr)})/${area(u)},0)`);
+          // Unsold at the year end: the inventory in the opening column, less each year's sales.
+          w.fA({ sheet: REV, row: rowOf(uk), col: OPEN_COL }, area(u));
+          row(uk, (t) => `${Prev(uk, t)}-${P(sk, t)}`, 'last');
         }
-        const suSold = units.map((u) => O(l, '1b.', nm(u))).filter(has).map(rowOf);
-        const preSqm = O(l, '1b.', 'Total pre-sales sqm'), postSqm = O(l, '1b.', 'Total sales during operation sqm'), allSqm = O(l, '1b.', 'Asset Total SQM Sold');
-        row(preSqm, (t) => `${before(t)}*${sumRows(suSold, t)}`);
-        row(postSqm, (t) => `(1-${before(t)})*${sumRows(suSold, t)}`);
-        row(allSqm, (t) => `${P(preSqm, t)}+${P(postSqm, t)}`);
-        const inv = (): string => units.map(area).join('+') || '0';
-        row(O(l, '1a.', 'Asset Total'), (t) => `IF((${inv()})>0,${P(allSqm, t)}/(${inv()}),0)`, () => `IF((${inv()})>0,SUM(${span(rowOf(allSqm))})/(${inv()}),0)`);
-        // 1c. Closing inventory.
-        const openU = O(l, '1c.', 'Opening unsold'), soldU = O(l, '1c.', 'Sold in year'), closeU = O(l, '1c.', 'Closing unsold');
-        row(openU, (t) => `IF(${ix(t)}=1,${inv()},${w.refP({ sheet: REV, row: rowOf(closeU), col: pc(t) - 1 }, REV)})`, 'none');
-        row(soldU, (t) => `-${P(allSqm, t)}`);
-        row(closeU, (t) => `${P(openU, t)}+${P(soldU, t)}`, 'last');
-        const chk1c = O(l, '1c.', 'Check (must be zero)');
-        row(chk1c, (t) => `${P(openU, t)}+${P(soldU, t)}-${P(closeU, t)}`, () => worst(rowOf(chk1c)));
-        // 2a. The factor and each sub-unit's price per year; the input card links them where it shows them.
-        const fk = O(l, '2a.', 'Indexation factor (every sub-unit of this line)');
+        const fk = S('Price indexation factor');
         row(fk, (t) => factorF(l, idx, t), 'none');
-        linkShown(K(l, 'Sale price per year', 'Indexation factor'), (t) => P(fk, t));
-        const priceKey = new Map<string, string>();
-        for (const u of units) {
-          const pk = byPrefix(`${O(l, '2a.', nm(u))} (`);
-          if (!pk) continue;
-          const base = (): string => w.ref(`su:${u.id}:rate`);
-          row(pk, (t) => `IF(${base()}>0,${base()}*${P(fk, t)},0)`, 'none');
-          w.fA(at(pk, 1), `"${nm(u).replace(/"/g, '""')} (${cur} "&${fmtRate(base())}&" / sqm)"`);
-          priceKey.set(u.id, pk);
-          const ck = byPrefix(`${K(l, 'Sale price per year', nm(u))} (`);
-          if (ck) { linkShown(ck, (t) => P(pk, t)); w.fA(at(ck, 1), `"${nm(u).replace(/"/g, '""')} (${cur} "&${fmtRate(base())}&" / sqm)"`); }
-        }
-        // 2b. Revenue: sqm sold x the price per year, split at handover.
         const suRev: number[] = [];
         for (const u of units) {
-          const rk = O(l, '2b.', nm(u)), pk = priceKey.get(u.id);
-          if (!has(rk) || !pk) continue;
-          row(rk, (t) => `${P(O(l, '1b.', nm(u)), t)}*${P(pk, t)}`);
+          const rk = S(`${nm(u)}: revenue`);
+          if (!has(rk)) continue;
+          row(rk, (t) => `${P(S(`${nm(u)}: sqm sold`), t)}*${w.ref(`su:${u.id}:rate`)}*${P(fk, t)}`);
           suRev.push(rowOf(rk));
         }
-        const preRev = O(l, '2b.', 'Total pre-sales revenue'), postRev = O(l, '2b.', 'Total sales during operation revenue'), allRev = O(l, '2b.', 'Asset Total Revenue');
+        const preRev = S('Pre-sales revenue'), postRev = S('Sales during operation revenue');
         row(preRev, (t) => `${before(t)}*${sumRows(suRev, t)}`);
         row(postRev, (t) => `(1-${before(t)})*${sumRows(suRev, t)}`);
-        row(allRev, (t) => `${P(preRev, t)}+${P(postRev, t)}`);
-        // 3a / 3b. Each sale year's pre-sales recognised in the handover year.
-        const recRows: number[] = [];
-        for (let s = 0; s < N; s++) {
-          const k = O(l, '3a.', `Sold in ${snap.yearLabels[s]}`);
-          if (!has(k)) continue;
-          row(k, (t) => `${AR(rowOf(preRev), pc(s))}*(${yr(t)}=${TL(p, 'hy')})`);
-          recRows.push(rowOf(k));
-        }
-        const recTot = O(l, '3a.', 'Year Total');
-        row(recTot, (t) => sumRows(recRows, t));
-        const recPre = O(l, '3b.', 'Pre-Sales Recognised'), recPost = O(l, '3b.', 'Sales During Operation Recognised');
-        row(recPre, (t) => P(recTot, t));
-        row(recPost, (t) => P(postRev, t));
-        row(O(l, '3b.', 'Total Revenue Recognised'), (t) => `${P(recPre, t)}+${P(recPost, t)}`);
-        // 4a. The cohorts: the sale-year table holds each year's down %, instalment years and sale value.
-        // The downpayment of a sale year: Inputs, at the construction year the sale falls in (the card shows it).
+        // Recognised: the pre-sales to date, in the handover year.
+        const recPre = O(l, 'r', 'Pre-sales revenue recognised in the handover year');
+        row(recPre, (t) => `${toDate(preRev, t)}*${handF(p, t)}`);
+        // Collections: one row per pre-sales year, its down % and instalment years beside it.
         const gDp = gridOf(`${l.key}|dp`);
-        linkShown(K(l, 'Sale cohort terms', 'Downpayment %'), (t) => atYear(gDp, ctr(p, 'con', t)));
-        const maxInst = (): string => w.ref(K(l, 'Sale cohort terms', 'Max instalment years after sale'), TOTAL_COL);
         const cohortRows: number[] = [];
         for (let s = 0; s < N; s++) {
-          const y = snap.yearLabels[s];
-          const gk = byPrefix(O(l, '4a.', `${y} sale,`)), ck = O(l, '4achk', String(y));
-          if (!gk || !has(ck)) continue;
-          const cr = rowOf(ck), sy = AR(3, pc(s)), sx = AR(4, pc(s));
-          const B = AR(cr, 2), D = AR(cr, 4), Nn = AR(cr, 7);
-          w.fA({ sheet: REV, row: cr, col: 7 }, `IF(${sy}>=${TL(p, 'hy')},0,MIN(INT(${maxInst()}),${TL(p, 'hy')}-${sy}))`);
-          const dp = atYear(gDp, ctr(p, 'con', s, true), true);
-          void sx;
-          w.fA({ sheet: REV, row: cr, col: 2 }, `IF(${sy}>=${TL(p, 'hy')},1,${dp})`);
-          w.fA({ sheet: REV, row: cr, col: 4 }, AR(rowOf(allRev), pc(s)));
-          const pre = AR(rowOf(preRev), pc(s)), post = AR(rowOf(postRev), pc(s));
-          row(gk, (t) => `IF(${yr(t)}=${sy},IF(${Nn}=0,1,${B})*${pre}+${post},IF(AND(${yr(t)}>${sy},${yr(t)}<=${sy}+${Nn}),(1-${B})*${pre}/${Nn},0))`);
-          w.fA(at(gk, 1), `"${y} sale, "&IF(${B}=1,"paid in full",TEXT(${B}*100,"0.00")&"% down")`);
-          w.fA({ sheet: REV, row: cr, col: 5 }, `SUM(${span(rowOf(gk))})`);
-          w.fA({ sheet: REV, row: cr, col: 6 }, `${AR(cr, 5)}-${D}`);
-          cohortRows.push(rowOf(gk));
+          const ck = O(l, 'c', `${snap.yearLabels[s]} sales: cash collected`);
+          if (!has(ck)) continue;
+          const cr = rowOf(ck), sy = AR(3, pc(s));
+          const B = AR(cr, 2), C = AR(cr, 3);
+          const dp = atYear(gDp, w.refA({ sheet: 'Timeline', row: w.addr(`tl:ctr:${p.id}:con`).row, col: pc(s) }, REV), true);
+          w.fA({ sheet: REV, row: cr, col: 2 }, `IF(${sy}>=${TL(p, 'hy')},1,${dp})`, { numFmt: NUMFMT.pct });
+          w.fA({ sheet: REV, row: cr, col: 3 }, `IF(${sy}>=${TL(p, 'hy')},0,MIN(INT(${IN(`rxin|${l.key}|inst`)}),${TL(p, 'hy')}-${sy}))`, { numFmt: NUMFMT.int });
+          const pre = AR(rowOf(preRev), pc(s));
+          row(ck, (t) => `IF(${yr(t)}=${sy},IF(${C}=0,1,${B})*${pre},IF(AND(${yr(t)}>${sy},${yr(t)}<=${sy}+${C}),(1-${B})*${pre}/${C},0))`);
+          w.fA({ sheet: REV, row: cr, col: 1 }, `${sy}&" sales: cash collected"`);
+          cohortRows.push(cr);
         }
-        const collected = O(l, '4a.', 'Total collected');
-        row(collected, (t) => sumRows(cohortRows, t));
-        // 4b. Cash: sales during operation are paid in full in their year; the rest collected is pre-sales cash.
-        const sdoCash = O(l, '4b.', 'Sales During Operation Cash'), preCash = O(l, '4b.', 'Pre-Sales Cash'), allCash = O(l, '4b.', 'Total Cash Collected');
-        row(sdoCash, (t) => P(postRev, t));
-        row(preCash, (t) => `${P(collected, t)}-${P(sdoCash, t)}`);
-        row(allCash, (t) => `${P(preCash, t)}+${P(sdoCash, t)}`);
-        // 5 / 6. The receivable and the unearned revenue roll forward.
-        const roll = (tbl: string, open: string, add: string, less: string, change: string, close: string, lessFrom: string): void => {
-          const C = O(l, tbl, close), Op = O(l, tbl, open), Ad = O(l, tbl, add), Ls = O(l, tbl, less), Ck = O(l, tbl, 'Check (must be zero)');
-          row(Op, (t) => w.refP({ sheet: REV, row: rowOf(C), col: pc(t) - 1 }, REV), 'none');
-          row(Ad, (t) => P(preRev, t));
-          row(Ls, (t) => `-${P(lessFrom, t)}`);
-          row(C, (t) => `${P(Op, t)}+${P(Ad, t)}+${P(Ls, t)}`, 'last');
-          row(O(l, tbl, change), (t) => `${P(C, t)}-${P(Op, t)}`);
-          row(Ck, (t) => `${P(Op, t)}+${P(Ad, t)}+${P(Ls, t)}-${P(C, t)}`, () => worst(rowOf(Ck)));
-        };
-        roll('5.', 'Opening receivable', 'Add: sales contracted', 'Less: cash collected', 'Change in receivable (cash flow delta)', 'Closing receivable', preCash);
-        roll('6.', 'Opening unearned', 'Add: sales contracted', 'Less: revenue recognised', 'Change in unearned (cash flow delta)', 'Closing unearned', recPre);
+        const preCash = O(l, 'c', 'Pre-sales cash collected'), postCash = O(l, 'c', 'Sales during operation cash collected');
+        row(preCash, (t) => sumRows(cohortRows, t));
+        row(postCash, (t) => P(postRev, t));
+        // Balances: running totals of what was billed less what was collected or recognised.
+        const ar = O(l, 'b', 'Receivable at year end'), ur = O(l, 'b', 'Unearned revenue at year end');
+        row(ar, (t) => `${toDate(preRev, t)}-${toDate(preCash, t)}`, 'last');
+        row(ur, (t) => `${toDate(preRev, t)}-${toDate(recPre, t)}`, 'last');
+        lineTotals.set(l.key, {
+          value: (t) => `${P(preRev, t)}+${P(postRev, t)}`,
+          rec: (t) => `${P(recPre, t)}+${P(postRev, t)}`,
+          cash: (t) => `${P(preCash, t)}+${P(postCash, t)}`,
+        });
         // What later tabs read, at the rows that now hold it.
         claim(`rvc:${l.key}:preRev`, preRev); claim(`rvc:${l.key}:postRev`, postRev);
-        claim(`rvc:${l.key}:preArea`, preSqm); claim(`rvc:${l.key}:postArea`, postSqm);
         claim(`rvc:${l.key}:cashPre`, preCash); claim(`rvc:${l.key}:recPre`, recPre);
-        claim(`rvc:${l.key}:ar`, O(l, '5.', 'Closing receivable')); claim(`rvc:${l.key}:ur`, O(l, '6.', 'Closing unearned'));
+        claim(`rvc:${l.key}:ar`, ar); claim(`rvc:${l.key}:ur`, ur);
         claim(`rvc:${l.key}:factor`, fk);
-        claim(`rvc:${a.id}:saleRev`, allRev); claim(`rvc:${a.id}:cash`, allCash);
-        for (const u of units) { claim(`rvc:${l.key}:${u.id}:pre:area`, O(l, '1b.', nm(u))); claim(`rvc:${l.key}:${u.id}:pre:rev`, O(l, '2b.', nm(u))); }
+        for (const u of units) { claim(`rvc:${l.key}:${u.id}:pre:area`, S(`${nm(u)}: sqm sold`)); claim(`rvc:${l.key}:${u.id}:pre:rev`, S(`${nm(u)}: revenue`)); }
+        // Checks: typed velocity inside the model years; pre-sales collected; the handover-year downpayment.
+        checks.push(() => {
+          for (const u of units) {
+            const key = `chk|vel|${l.key}|${nm(u)}`, vk = S(`${nm(u)}: velocity`);
+            if (!has(key) || !has(vk)) continue;
+            const grids = [gridOf(`${l.key}|pre|${nm(u)}`), gridOf(`${l.key}|post|${nm(u)}`)].filter((g): g is NonNullable<typeof g> => !!g);
+            const res = w.addr(key);
+            w.fA(res, `${grids.length ? grids.map((g) => `SUM(${g.range.replace(/^\$/, 'Inputs!$')})`).join('+') : '0'}-SUM(${w.rangeA(REV, rowOf(vk), pc(0), pc(N - 1))})`, { numFmt: NUMFMT.pct2 });
+            const C = w.refA(res, CHK);
+            w.fA(chkCell(key, -1), `IF(${C}>0.000001,"CHECK","OK")`);
+            w.fA(chkCell(key, 1), `IF(${C}>0.000001,TEXT(${C},"0.00%")&" of typed velocity is outside the model years","All typed velocity is inside the model years")`);
+          }
+          const ck = `chk|col|${l.key}`;
+          if (has(ck)) {
+            const res = w.addr(ck);
+            w.fA(res, `SUM(${w.rangeA(REV, rowOf(preRev), pc(0), pc(N - 1))})-SUM(${w.rangeA(REV, rowOf(preCash), pc(0), pc(N - 1))})`);
+            const C = w.refA(res, CHK);
+            w.fA(chkCell(ck, -1), `IF(ABS(${C})<0.005,"OK","CHECK")`);
+            w.fA(chkCell(ck, 1), `IF(ABS(${C})<0.005,"Every pre-sale is collected by the handover year","Pre-sales billed less collected")`);
+          }
+          const dk = `chk|dp|${l.key}`;
+          if (has(dk) && gDp) {
+            const res = w.addr(dk);
+            const k = `(${TL(p, 'hy')}-YEAR(${TL(p, 'cs')})+1)`;
+            w.fA(res, atYear({ ...gDp, range: gDp.range.startsWith('Inputs!') ? gDp.range : `Inputs!${gDp.range}` }, k), { numFmt: NUMFMT.pct });
+            const C = w.refA(res, CHK), St = w.refA(chkCell(dk, -1), CHK);
+            w.fA(chkCell(dk, -1), `IF(AND(${C}>0,${C}<1),"NOTE","OK")`);
+            w.fA(chkCell(dk, 1), `IF(${St}="NOTE","A handover-year sale pays in full; the "&TEXT(${C},"0%")&" typed is unused","No downpayment typed for the handover year")`);
+          }
+        });
         continue;
       }
 
-      // HOTEL and LEASE: the years in operation, from the operations start on the card to the last operating year.
+      // HOTEL and LEASE: drivers, then the years in operation.
       const isOp = l.form === 'operate';
-      const startKey = K(l, isOp ? 'ADR Indexation' : 'Rent Indexation', 'Operations start year');
-      // THE CARD SHOWS THE YEAR IN FORCE, from the override on Inputs: the override, never
-      // before construction starts, else the year after handover.
+      const D = (label: string): string => O(l, 'd', label), R = (label: string): string => O(l, 'o', label);
+      // The operations start in force: the override on Inputs (never before construction starts), else the year after handover.
+      const startKey = D('Operations start year');
       const ovKey = `oxin|opsStart|${l.key}`;
       if (has(ovKey) && has(startKey)) {
         const ov = w.ref(ovKey, 2), sy = `MAX(${w.ref('project:axisYear')},YEAR(${TL(p, 'cs')}))`;
         w.fA(at(startKey, TOTAL_COL), `IF(ISNUMBER(${ov}),MAX(${sy},${ov}),${TL(p, 'hy')}+1)`);
       }
-      // THE CARD'S RECEIVABLE DAYS ARE THE DAYS IN FORCE (2026-10-25): the line's own on Inputs where
-      // positive, else the project DSO, the rule Schedules collects this line's revenue on.
-      {
-        const arCard = reg.keys().find((k) => k.startsWith(`revin|${l.key}|`) && k.endsWith('|Accounts Receivable Days'));
-        const arIn = `rxin|${l.key}|arDays`;
-        if (arCard && has(arIn) && has('project:dso')) {
-          const own = w.ref(arIn, 2);
-          w.fA(at(arCard, TOTAL_COL), `IF(N(${own})>0,N(${own}),N(${w.ref('project:dso')}))`);
-        }
-      }
-      const ioK = O(l, '1.', 'In operations (1 = yes)');
+      const ioK = R('In operations (1 = yes)');
       row(ioK, (t) => { const s = A(startKey, TOTAL_COL); return `(${yr(t)}>=${s})*(${yr(t)}<=MAX(${s},${TL(p, 'ly')}))`; });
       const IO = (t: number): string => P(ioK, t);
       const opsNo = (t: number): string => `${IO(t)}*(${yr(t)}-${A(startKey, TOTAL_COL)}+1)`;
-      const idx = idxOf(l, a);
-      // Occupancy: Inputs, at the line's operating year (1 in the year it opens; the card shows it where it shows a year).
+      // Occupancy: Inputs, at the line's operating year; the Total is its average over the years in operation.
       const gOcc = gridOf(`${l.key}|occ`);
-      linkShown(K(l, isOp ? 'ADR Indexation' : 'Rent Indexation', 'Occupancy ramp'), (t) => atYear(gOcc, opsNo(t)));
+      const occR = R('Occupancy');
+      row(occR, (t) => `${IO(t)}*${atYear(gOcc, opsNo(t), true)}`, () => `SUM(${span(rowOf(occR))})/MAX(1,SUM(${span(rowOf(ioK))}))`);
+      claim(`rvc:${l.key}:inOps`, ioK); claim(`rvc:${l.key}:opsStart`, startKey);
       if (isOp && a.revenue?.operate) {
         const u = units[0];
-        // The card's keys: the sub-unit's area over the unit size (the sub-unit's own size first, the type's second).
+        // Keys: the sub-unit's area over the unit size (the sub-unit's own size first, the type's second).
         const tk = resolveAssetTypeKey(a);
         const unitCell = u && has(`su:${u.id}:unit`) ? w.ref(`su:${u.id}:unit`) : '';
         const typeUnit = tk && has(`type:${tk}:unit`) ? w.ref(`type:${tk}:unit`) : '0';
         const size = unitCell ? `IF(N(${unitCell})>0,${unitCell},N(${typeUnit}))` : `N(${typeUnit})`;
-        const keysK = K(l, '', 'Keys the engine counts');
-        if (u && has(keysK)) w.f(keysK, `IF(AND(${w.ref(`su:${u.id}:area`)}>0,${size}>0),MAX(1,ROUND(${w.ref(`su:${u.id}:area`)}/${size},0)),0)`, { col: TOTAL_COL });
+        const keysK = D('Keys');
+        if (u && has(keysK)) w.fA(at(keysK, TOTAL_COL), `IF(AND(${w.ref(`su:${u.id}:area`)}>0,${size}>0),MAX(1,ROUND(${w.ref(`su:${u.id}:area`)}/${size},0)),0)`);
         const keys = (): string => A(keysK, TOTAL_COL);
-        const days = (): string => w.ref(`rxin|${l.key}|days`, 2);
-        const card = (label: string): string => A(K(l, 'ADR Indexation', label), TOTAL_COL);
-        const keyR = O(l, '1.', 'Total Rooms (Keys)'), daysR = O(l, '1.', 'Days per Year'), occR = O(l, '1.', 'Occupancy %');
-        const facR = O(l, '1.', 'ADR Indexation Factor'), adrR = O(l, '1.', `ADR (${cur} per occupied room night)`);
-        const fbR = O(l, '1.', 'F&B % of Rooms Revenue'), otR = O(l, '1.', 'Other % of Rooms Revenue');
-        const arnR = O(l, '1.', 'Available Room Nights'), ornR = O(l, '1.', 'Occupied Room Nights');
-        row(keyR, (t) => `${IO(t)}*${keys()}`, () => keys());
-        row(daysR, (t) => `${IO(t)}*${days()}`, () => days());
-        row(occR, (t) => `${IO(t)}*${atYear(gOcc, opsNo(t), true)}`, () => avgPos(rowOf(occR)));
-        row(facR, (t) => `${IO(t)}*${factorF(l, idx, t)}`, () => lastPos(rowOf(facR)));
-        const base = u ? A(K(l, '', u.name || 'sub-unit'), TOTAL_COL) : '0';
-        row(adrR, (t) => `${P(facR, t)}*${base}`, () => lastPos(rowOf(adrR)));
-        row(fbR, (t) => `${IO(t)}*${card('F&B Revenue, F&B %')}`, () => card('F&B Revenue, F&B %'));
-        row(otR, (t) => `${IO(t)}*${card('Other Revenue, Other %')}`, () => card('Other Revenue, Other %'));
-        row(arnR, (t) => `${P(keyR, t)}*${P(daysR, t)}`);
+        const adrR = byPrefix(R('ADR ('));
+        if (adrR && u) row(adrR, (t) => `${IO(t)}*${w.ref(`su:${u.id}:rate`)}*${factorF(l, idx, t)}`, 'none');
+        const arnR = R('Available room nights'), ornR = R('Occupied room nights');
+        row(arnR, (t) => `${IO(t)}*${keys()}*${IN(`rxin|${l.key}|days`)}`);
         row(ornR, (t) => `${P(arnR, t)}*${P(occR, t)}`);
-        const gk = byPrefix(O(l, '1.', 'Guests per Year (x '));
-        if (gk) {
-          row(gk, (t) => `${P(ornR, t)}*${card('Average guests per occupied room night')}`);
-          w.fA(at(gk, 1), `"Guests per Year (x "&TEXT(${card('Average guests per occupied room night')},"0.00")&" guests / ORN)"`);
-        }
-        const roomsR = O(l, '2.', 'Rooms Revenue'), fbRev = O(l, '2.', 'F&B Revenue'), otRev = O(l, '2.', 'Other Revenue'), totR = O(l, '2.', 'Total Hospitality Revenue');
-        row(roomsR, (t) => `${P(ornR, t)}*${P(adrR, t)}`);
-        row(fbRev, (t) => `${P(roomsR, t)}*${P(fbR, t)}`);
-        row(otRev, (t) => `${P(roomsR, t)}*${P(otR, t)}`);
+        row(R('Guests'), (t) => `${P(ornR, t)}*${IN(`rxin|${l.key}|guests`)}`);
+        const roomsR = R('Rooms revenue'), fbRev = R('F&B revenue'), otRev = R('Other revenue'), totR = R('Hotel revenue');
+        if (adrR) row(roomsR, (t) => `${P(ornR, t)}*${P(adrR, t)}`);
+        row(fbRev, (t) => `${P(roomsR, t)}*${IN(`rxin|${l.key}|fb`)}`);
+        row(otRev, (t) => `${P(roomsR, t)}*${IN(`rxin|${l.key}|other`)}`);
         row(totR, (t) => sumRows([rowOf(roomsR), rowOf(fbRev), rowOf(otRev)], t));
-        // The card's occupancy Total: its average over the years in operation.
-        w.fA(at(K(l, 'ADR Indexation', 'Occupancy ramp'), TOTAL_COL), `SUM(${span(rowOf(occR))})/MAX(1,SUM(${span(rowOf(ioK))}))`);
+        lineTotals.set(l.key, { value: (t) => P(totR, t), rec: (t) => P(totR, t), cash: (t) => P(totR, t) });
         claim(`rvc:${l.key}:total`, totR); claim(`rvc:${l.key}:rooms`, roomsR); claim(`rvc:${l.key}:fb`, fbRev); claim(`rvc:${l.key}:other`, otRev);
-        claim(`rvc:${l.key}:arn`, arnR); claim(`rvc:${l.key}:orn`, ornR); claim(`rvc:${l.key}:inOps`, ioK); claim(`rvc:${l.key}:wfactor`, facR);
-        claim(`rvc:${l.key}:keys`, keysK);
+        claim(`rvc:${l.key}:arn`, arnR); claim(`rvc:${l.key}:orn`, ornR); claim(`rvc:${l.key}:keys`, keysK);
         continue;
       }
       if (!isOp && a.revenue?.lease) {
-        const glaSum = (): string => units.map((u) => w.ref(`su:${u.id}:area`)).join('+') || '0';
-        const glaR = O(l, '1.', 'Total Gross Lease Area (sqm)'), occR = O(l, '1.', 'Occupancy %'), facR = O(l, '1.', 'Rent Indexation Factor');
-        const occTot = O(l, '1.', 'Total Occupied Lease Area (sqm)'), revTot = O(l, '2.', 'Total Lease Revenue');
-        row(occR, (t) => `${IO(t)}*${atYear(gOcc, opsNo(t), true)}`, () => avgPos(rowOf(occR)));
-        row(facR, (t) => `${IO(t)}*${factorF(l, idx, t)}`, () => lastPos(rowOf(facR)));
+        const glaK = D('Lettable area (sqm)');
+        if (has(glaK)) w.fA(at(glaK, TOTAL_COL), units.map((u) => w.ref(`su:${u.id}:area`)).join('+') || '0');
         const occRows: number[] = [], revRowsL: number[] = [];
-        for (const u of l.subUnits) {
-          if (!units.some((x) => x.id === u.id)) continue;
-          const nm = u.name || 'sub-unit';
-          const rk = byPrefix(O(l, '1.', `${nm} Indexed Rate (`)), ok = O(l, '1.', `${nm} Occupied Area (sqm)`), vk = O(l, '2.', `${nm} Rent Revenue`);
-          const baseK = K(l, '', nm);
-          if (rk) {
-            row(rk, (t) => `${A(baseK, TOTAL_COL)}*${P(facR, t)}`, () => lastPos(rowOf(rk)));
-            w.fA(at(rk, 1), `"${nm.replace(/"/g, '""')} Indexed Rate ("&TEXT(ROUND(${w.ref(`su:${u.id}:area`)},0),"#,##0")&" sqm GLA)"`);
-          }
+        for (const u of units) {
+          const rk = R(`${nm(u)}: rent per sqm`), ok = R(`${nm(u)}: area let (sqm)`), vk = R(`${nm(u)}: rent`);
+          row(rk, (t) => `${IO(t)}*${w.ref(`su:${u.id}:rate`)}*${factorF(l, idx, t)}`, 'none');
           row(ok, (t) => `${w.ref(`su:${u.id}:area`)}*${P(occR, t)}`);
+          row(vk, (t) => `${P(ok, t)}*${P(rk, t)}`);
           if (has(ok)) occRows.push(rowOf(ok));
-          if (rk) row(vk, (t) => `${P(ok, t)}*${P(rk, t)}`);
           if (has(vk)) revRowsL.push(rowOf(vk));
         }
-        row(occTot, (t) => sumRows(occRows, t));
-        row(revTot, (t) => sumRows(revRowsL, t));
-        row(glaR, (t) => `IF(${P(occTot, t)}>0,${glaSum()},0)`, () => glaSum());
-        const rateK = byPrefix(O(l, '1.', 'Indexed Rate ('));
-        if (rateK) row(rateK, (t) => `IF(${P(occTot, t)}>0,${P(revTot, t)}/${P(occTot, t)},0)`, () => lastPos(rowOf(rateK)));
-        w.fA(at(K(l, 'Rent Indexation', 'Occupancy ramp'), TOTAL_COL), `SUM(${span(rowOf(occR))})/MAX(1,SUM(${span(rowOf(ioK))}))`);
-        claim(`rvc:${l.key}:rev`, revTot); claim(`rvc:${l.key}:occupied`, occTot); claim(`rvc:${l.key}:gla`, glaR);
-        claim(`rvc:${l.key}:inOps`, ioK); claim(`rvc:${l.key}:wfactor`, facR);
+        // One sub-unit: its rows are the line's. Several: a total of each.
+        const occTot = units.length === 1 ? R(`${nm(units[0])}: area let (sqm)`) : R('Area let (sqm)');
+        const revTot = units.length === 1 ? R(`${nm(units[0])}: rent`) : R('Lease revenue');
+        if (units.length !== 1) { row(occTot, (t) => sumRows(occRows, t)); row(revTot, (t) => sumRows(revRowsL, t)); }
+        lineTotals.set(l.key, { value: (t) => P(revTot, t), rec: (t) => P(revTot, t), cash: (t) => P(revTot, t) });
+        claim(`rvc:${l.key}:rev`, revTot); claim(`rvc:${l.key}:occupied`, occTot); claim(`rvc:${l.key}:gla`, glaK);
       }
     }
 
-    // ── THE VELOCITY CHECK (founder, 2026-09-27: match the platform, and warn) ──
-    // This workbook's years are FIXED at export, so a phase moved or lengthened past
-    // them leaves some typed velocity in years it does not have: it stays unsold here
-    // and a visible warning says so, typed and in-model figures side by side.
-    const rv = wb.getWorksheet(REV)!;
-    let fr = rv.rowCount + 3;
-    setLabel(rv.getCell(fr, 1), 'Velocity check (typed velocity inside the model years)', { bold: true });
-    fillRange(rv, fr, 1, fr, OPEN_COL + N, ARGB.subtotal);
-    fr += 1;
-    setLabel(rv.getCell(fr, 1), 'Line / sub-unit', { bold: true }); setLabel(rv.getCell(fr, 2), 'Result', { bold: true });
-    setLabel(rv.getCell(fr, TOTAL_COL), 'Typed', { bold: true }); setLabel(rv.getCell(fr, OPEN_COL), 'Inside the model', { bold: true });
-    fr += 1;
-    const warnCells: string[] = [];
-    for (const l of lines) {
-      if (l.form !== 'sell') continue;
-      for (const u of l.subUnits) {
-        const nm = u.name || 'sub-unit';
-        const vk = O(l, '0.', nm);
-        if (!has(vk)) continue;
-        setLabel(rv.getCell(fr, 1), `${revenueLineName(l)} / ${nm}`, { indent: 1 });
-        // Typed: the whole grid on Inputs (every year of the phase typed there, inside the model's years or not).
-        const typedGrids = [gridOf(`${l.key}|pre|${nm}`), gridOf(`${l.key}|post|${nm}`)].filter((g): g is NonNullable<typeof g> => !!g);
-        w.fA({ sheet: REV, row: fr, col: TOTAL_COL }, typedGrids.length ? typedGrids.map((g) => `SUM(${g.range})`).join('+') : '0', { numFmt: NUMFMT.pct2 });
-        w.fA({ sheet: REV, row: fr, col: OPEN_COL }, `SUM(${span(rowOf(vk))})`, { numFmt: NUMFMT.pct2 });
-        const typed = AR(fr, TOTAL_COL), inside = AR(fr, OPEN_COL);
-        // One short line (2026-10-20): the share outside the years, else OK; the Guide explains it.
-        w.fA({ sheet: REV, row: fr, col: 2 }, `IF(${inside}<${typed}-1E-9,"WARNING: "&TEXT(${typed}-${inside},"0.00%")&" of typed velocity is outside the model years","OK")`);
-        warnCells.push(`${inside}<${typed}-1E-9`);
-        rv.addConditionalFormatting({ ref: `B${fr}`, rules: [{ type: 'expression', priority: 1, formulae: [`LEFT(B${fr},7)="WARNING"`], style: { font: { bold: true, color: { argb: 'FFC00000' } }, fill: { type: 'pattern', pattern: 'solid', bgColor: { argb: 'FFFDE9E7' } } } }] } as unknown as Parameters<typeof rv.addConditionalFormatting>[0]);
-        fr += 1;
+    // ── The summary: sales value, revenue recognised, cash collected, one row per line ──
+    const views: Array<['sv' | 'rec' | 'cash', 'value' | 'rec' | 'cash', string]> = [['sv', 'value', 'Total sales value'], ['rec', 'rec', 'Total revenue recognised'], ['cash', 'cash', 'Total cash collected']];
+    for (const [id, k, totalLabel] of views) {
+      const lineRows: number[] = [];
+      for (const g of groupRevenueLines(lines)) for (const l of g.lines) {
+        const f = lineTotals.get(l.key);
+        const key = O(l, `sum-${id}`, revenueLineName(l));
+        if (!f || !has(key)) continue;
+        row(key, f[k]);
+        lineRows.push(rowOf(key));
+        const a = earning(l)[0];
+        if (id === 'sv') { claim(`rvc:${l.key}:salesValue`, key); if (l.form === 'sell' && a) claim(`rvc:${a.id}:saleRev`, key); }
+        if (id === 'rec') claim(`rvc:${l.key}:recognised`, key);
+        if (id === 'cash') { claim(`rvc:${l.key}:collected`, key); if (l.form === 'sell' && a) claim(`rvc:${a.id}:cash`, key); }
       }
-    }
-    if (warnCells.length) {
-      w.fA({ sheet: REV, row: 1, col: TOTAL_COL }, `IF(OR(${warnCells.join(',')}),"WARNING: typed sales velocity falls outside this workbook's years after a phase change; see the velocity check at the foot of this sheet.","")`, { cached: '' });
-      rv.getCell(1, TOTAL_COL).font = { name: 'Calibri', size: 10, bold: true, color: { argb: 'FFC00000' } };
+      const tk = `rev|__project__|sum-${id}|${totalLabel}`;
+      row(tk, (t) => sumRows(lineRows, t));
+      if (id === 'sv') claim('rvc:__project__:salesValue', tk);
     }
 
-    // ── The project totals, three views, grouped by section ──────────────────
-    const lineSeries = (l: RevenueLine, view: 'revenue' | 'recognition' | 'cash', seg: 'pre' | 'post' | 'all', t: number): string => {
-      const pick = (k: string): string => (has(k) ? P(k, t) : '0');
-      if (l.form === 'sell') {
-        const pre = view === 'revenue' ? pick(O(l, '2b.', 'Total pre-sales revenue')) : view === 'recognition' ? pick(O(l, '3b.', 'Pre-Sales Recognised')) : pick(O(l, '4b.', 'Pre-Sales Cash'));
-        const post = view === 'revenue' ? pick(O(l, '2b.', 'Total sales during operation revenue')) : view === 'recognition' ? pick(O(l, '3b.', 'Sales During Operation Recognised')) : pick(O(l, '4b.', 'Sales During Operation Cash'));
-        return seg === 'pre' ? pre : seg === 'post' ? post : view === 'revenue' ? pick(O(l, '2b.', 'Asset Total Revenue')) : `${pre}+${post}`;
-      }
-      return l.form === 'operate' ? pick(O(l, '2.', 'Total Hospitality Revenue')) : pick(O(l, '2.', 'Total Lease Revenue'));
-    };
-    const views: Array<['revenue' | 'recognition' | 'cash', string]> = [['revenue', 'Project Revenue (Sales Value year-on-year)'], ['recognition', 'Project Revenue Recognised'], ['cash', 'Project Cash Collected']];
-    for (const [view, title] of views) {
-      const PK = (label: string): string => `rev|__project__|${title}|${label}`;
-      const sectionTotals: string[] = [];
-      for (const g of groupRevenueLines(lines)) {
-        const sells = g.lines.filter((l) => l.form === 'sell');
-        const ops = g.lines.filter((l) => l.form !== 'sell');
-        const parts: string[] = [];
-        if (sells.length && view === 'revenue') {
-          for (const l of sells) { row(PK(revenueLineName(l)), (t) => lineSeries(l, view, 'all', t)); parts.push(PK(revenueLineName(l))); }
-        } else if (sells.length) {
-          for (const l of sells) row(PK(revenueLineName(l)), (t) => lineSeries(l, view, 'pre', t));
-          row(PK('Total Pre-Sales'), (t) => sells.map((l) => P(PK(revenueLineName(l)), t)).join('+'));
-          for (const l of sells) row(PK(`${revenueLineName(l)}~1`), (t) => lineSeries(l, view, 'post', t));
-          row(PK('Total Sales During Operation'), (t) => sells.map((l) => P(PK(`${revenueLineName(l)}~1`), t)).join('+'));
-          parts.push(PK('Total Pre-Sales'), PK('Total Sales During Operation'));
-        }
-        for (const l of ops) { row(PK(revenueLineName(l)), (t) => lineSeries(l, view, 'all', t)); parts.push(PK(revenueLineName(l))); }
-        row(PK(`Total ${g.section}`), (t) => parts.filter(has).map((k) => P(k, t)).join('+') || '0');
-        sectionTotals.push(PK(`Total ${g.section}`));
-      }
-      row(PK('Total Project'), (t) => sectionTotals.filter(has).map((k) => P(k, t)).join('+') || '0');
-    }
+    for (const c of checks) c();
 
     return [
       { sheet: REV, status: 'partial' as const, formulas: w.formulas.get(REV) ?? 0,
-        note: 'Live on this sheet: the input cards and the Revenue Output for every line, each figure built from rows on the tabs: the velocity in force and the sqm sold per sub-unit, inventory, price per year, revenue split at handover, recognition, the sale cohort grid with each sale year\'s down %, instalment years and check, cash, the receivable and unearned roll-forwards, the hotel and lease statements with their years in operation, and the three project totals.' },
+        note: 'Live on this sheet: every line, each figure built from rows on the tabs and the inputs on Inputs: the velocity and the sqm sold per sub-unit, revenue split at handover, recognition, collections by pre-sales year, the receivable and unearned balances, the hotel and lease statements with their years in operation, and the summary of sales value, revenue recognised and cash collected.' },
     ];
+
   },
 };

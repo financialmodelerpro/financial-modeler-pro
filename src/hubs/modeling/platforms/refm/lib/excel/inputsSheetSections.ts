@@ -899,7 +899,7 @@ function emitSellLine(c: SheetCursor, line: RevenueLine, w: LineWindow, snap: Sn
     const byIdx = new Map(block.downpayments.map((d) => [d.year - snap.projectStartYear, d.value]));
     phaseYearStrip(c, 'Downpayment % by sale year', [...byIdx.keys()], (idx) => byIdx.get(idx), 'Sale cohort terms, by construction year of the sale',
       (idx) => idx + snap.projectStartYear - phaseStartYear + 1, `${line.key}|dp`);
-    kv(c, 'Max instalment years after sale', block.instalmentYears, NUMFMT.int, true, undefined, undefined, `inp=revin|${line.key}|Sale cohort terms|Max instalment years after sale@4`);
+    kv(c, 'Max instalment years after sale', block.instalmentYears, NUMFMT.int, true, undefined, undefined, `rxin|${line.key}|inst`);
     kv(c, 'Instalments', block.stopAtHandover ? 'Stop at handover' : 'May run past handover', '@', true);
     note(c, saleCohortRuleText(block));
   } else if (block && block.downpayments.length) {
@@ -960,9 +960,11 @@ function emitOperateLine(c: SheetCursor, line: RevenueLine, w: LineWindow, snap:
   if (isLiveLayout()) phaseYearStrip(c, 'Occupancy', w.operations, (idx) => occ[idx], 'Occupancy ramp, by operating year', (idx) => idx - w.opsIdx + 1, `${line.key}|occ`, 'Ops year');
   else yearStrip(c, 'Occupancy', w.operations, (idx) => occ[idx], NUMFMT.pct, true, snap, 'Occupancy ramp', (idx) => `revin|${line.key}|*|Occupancy ramp@${axisCol(idx)}`);
   if (isLiveLayout()) kv(c, 'Days per year', op?.daysPerYear ?? 365, NUMFMT.int, true, undefined, 'Available room nights = keys x days per year.', `rxin|${line.key}|days`);
-  kv(c, 'Average guests per occupied room night', op?.guestsPerOccupiedRoom ?? 1.5, NUMFMT.rate, op?.guestsPerOccupiedRoom !== undefined, undefined, undefined, L('Average guests per occupied room night'));
-  ancillaryRows(c, 'F&B Revenue', op?.fb, L('F&B Revenue, F&B %'));
-  ancillaryRows(c, 'Other Revenue', op?.otherRevenue, L('Other Revenue, Other %'));
+  // The live workbook reads these three where they are typed (2026-10-27): the Revenue card is gone.
+  const live = isLiveLayout();
+  kv(c, 'Average guests per occupied room night', op?.guestsPerOccupiedRoom ?? 1.5, NUMFMT.rate, op?.guestsPerOccupiedRoom !== undefined, undefined, undefined, live ? `rxin|${line.key}|guests` : L('Average guests per occupied room night'));
+  ancillaryRows(c, 'F&B Revenue', op?.fb, live ? `rxin|${line.key}|fb` : L('F&B Revenue, F&B %'));
+  ancillaryRows(c, 'Other Revenue', op?.otherRevenue, live ? `rxin|${line.key}|other` : L('Other Revenue, Other %'));
   arRow(c, line, op?.dso, op?.dso !== undefined ? 'Accounts Receivable Days (set on this line)' : 'Accounts Receivable Days (the project DSO; this line states none)', op?.dso ?? Math.max(0, projectDso), NUMFMT.int, op?.dso !== undefined, undefined, undefined, L('Accounts Receivable Days'));
 }
 
@@ -986,16 +988,17 @@ export function emitEscrowInputs(c: SheetCursor, state: FinancialsResolverState,
   const p = state.project;
   const assets = state.assets;
   setSectionHeader(c.ws.getRow(c.r), 'Escrow Inputs', 7); c.r += 1;
-  kv(c, 'Project Held % (regulator-locked)', p.escrow?.heldPct ?? 0, NUMFMT.pct2, true, undefined, undefined, 'inp=esc|||Project Held % (regulator-locked)@4');
   const liveEsc = isLiveLayout();
+  // The live workbook reads the escrow inputs here (2026-10-27): Revenue no longer echoes them.
+  kv(c, 'Project Held % (regulator-locked)', p.escrow?.heldPct ?? 0, NUMFMT.pct2, true, undefined, undefined, liveEsc ? 'escin|pct' : 'inp=esc|||Project Held % (regulator-locked)@4');
   /** A year that may be blank (auto): shaded either way in the live workbook, which reads a blank as auto. */
   const yearDoor = (label: string, v: number | undefined, auto: string, key: string): void => {
     if (!liveEsc) { kv(c, label, v ?? auto, v !== undefined ? NUMFMT.year : '@', v !== undefined); return; }
-    const r = kv(c, label, v, NUMFMT.year, true, undefined, `Blank = ${auto}.`, `inp=${key}@4#blank`);
+    const r = kv(c, label, v, NUMFMT.year, true, undefined, `Blank = ${auto}.`, key);
     if (v === undefined) { const cell = c.ws.getCell(r, 2); markInput(cell); cell.numFmt = NUMFMT.year; }
   };
-  yearDoor('Default Held Until Year (optional)', p.escrow?.defaultHeldUntilYear, 'auto: handover year', 'esc|||Default Held Until Year (optional)');
-  yearDoor('Default Release Year (optional)', p.escrow?.defaultReleaseYear, 'auto: handover year + 1', 'esc|||Default Release Year (optional)');
+  yearDoor('Default Held Until Year (optional)', p.escrow?.defaultHeldUntilYear, 'auto: handover year', 'escin|until');
+  yearDoor('Default Release Year (optional)', p.escrow?.defaultReleaseYear, 'auto: handover year + 1', 'escin|release');
   const revLines = planRevenueLines(state.assets, state.subUnits, state.phases, state.project);
   const lines = planReportLines({ assets, phases: state.phases, parcels: state.parcels }, (a) => snap.escrow.byAsset.has(a.id));
   if (lines.length > 0) {
@@ -1013,7 +1016,7 @@ export function emitEscrowInputs(c: SheetCursor, state: FinancialsResolverState,
         const cell = c.ws.getCell(c.r, col);
         if (v !== undefined) setInput(cell, v, fmt); else if (liveEsc) { markInput(cell); cell.numFmt = fmt; }
         const rl = a ? lineForAsset(revLines, a.id) : undefined;
-        if (liveEsc && rl) registerCell(`inp=esc|||${revenueLineName(rl)}@${modCol}#blank`, c.ws, cell);
+        if (liveEsc && rl) registerCell(`escin|${revenueLineName(rl)}|${modCol === 5 ? 'held' : modCol === 7 ? 'until' : 'release'}`, c.ws, cell);
       };
       if (liveEsc) {
         ovCell(2, esc?.heldPctOverride, NUMFMT.pct2, 5);
