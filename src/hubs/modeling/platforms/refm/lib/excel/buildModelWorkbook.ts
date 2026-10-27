@@ -98,7 +98,7 @@ import { resolveAvgUnitSize } from '../state/assetTypeStandards';
 import { priceKeyFor, hasDualPrice } from '../state/subUnitPrices';
 import type { Asset, Phase, SubUnit } from '../state/module1-types';
 import { computeSubUnitArea, resolveSubUnitMetric, keysFromArea, isRevenueSubUnit } from '@/src/core/calculations';
-import { applyIndexation, buildAccountsReceivable, buildUnearnedRevenue } from '@/src/core/calculations/revenue';
+import { applyIndexation, buildAccountsReceivable, buildAccountsReceivableDSO, buildUnearnedRevenue } from '@/src/core/calculations/revenue';
 import { hqOpexLinesInForce, normalizeOpexIndexation, type OpexLine } from '@/src/core/calculations/opex';
 import type { IndexationConfig } from '@/src/core/calculations/revenue/types';
 import { assetPlotLabel } from '@/src/core/calculations/assetName';
@@ -3304,9 +3304,10 @@ function addRevenue(ctx: EmitCtx): { revLinks: RevLinks; cosLinks: CosLinks } {
           em.tableTitle('Cash collected');
           em.setRegTable('c');
           em.colHeaders([[LBL_COL, 'Pre-sales, by sale year', 'left'], [META_B, 'Down %', 'right'], [3, 'Instalment years', 'right']]);
-          // Pre-sales cohorts only: every year up to the handover (a phase moved earlier sells in them).
+          // One row per model year (2026-10-27): a year with no pre-sales shows zero, so a phase
+          // lengthened in Excel still has a row for every year it now pre-sells in.
           const inst = Math.max(0, Math.floor(buildSaleCohortTermsBlock(a, p, psy)?.instalmentYears ?? 0));
-          for (let s = 0; s <= w.handoverIdx; s++) {
+          for (let s = 0; s < N; s++) {
             const row = em.moneyRow(`${yl[s]} sales: cash collected`, padded(r.cashVintageMatrix[s]), { indent: 1 });
             const dp = s >= w.handoverIdx ? 1 : (w.construction.includes(s) ? resolveCohortDownpayment(a.revenue?.sell?.downpaymentByPhase, state.project.saleCohortDefaults?.downpayment, s - w.phaseOffset).value : 0);
             const b = ws.getCell(row, META_B); b.value = dp; b.numFmt = NUMFMT.pct; b.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } };
@@ -3326,6 +3327,14 @@ function addRevenue(ctx: EmitCtx): { revLinks: RevLinks; cosLinks: CosLinks } {
           em.gap();
           continue;
         }
+        // A hotel or lease line's receivable (revenue x its days over 365) and the cash it collects
+        // (revenue less the rise in that receivable): the rule Schedules and the Balance Sheet read.
+        const opCashRows = (earner: Asset, rev: number[]): number[] => {
+          const ar = buildAccountsReceivableDSO({ revenuePerPeriod: rev, dsoDays: lineReceivableDays(earner, state.project), daysPerYear: Math.max(1, state.project.operatingAr?.daysPerYear ?? 365), axisLength: N });
+          em.moneyRow('Receivable at year end', ar.perPeriod, { indent: 1, totalLast: true });
+          em.moneyRow('Cash collected', ar.cashReceivedPerPeriod, { style: 'subtotal' });
+          return ar.cashReceivedPerPeriod;
+        };
         const inOps = range(0, N - 1).map((t) => (w.operations.includes(t) ? 1 : 0));
         const opsYears = Math.max(1, sumAll(inOps));
         const drivers = (): void => {
@@ -3337,6 +3346,7 @@ function addRevenue(ctx: EmitCtx): { revLinks: RevLinks; cosLinks: CosLinks } {
             em.scalarRow('Lettable area (sqm)', units.reduce((s, u) => s + Math.max(0, computeSubUnitArea(u, a)), 0), NUMFMT.int);
           }
           em.scalarRow('Operations start year', psy + w.opsStartIdx, NUMFMT.year);
+          em.scalarRow('Receivable days', lineReceivableDays(a, state.project), NUMFMT.int);
           em.setRegTable('o');
           em.periodRow('In operations (1 = yes)', inOps, range(0, N - 1), NUMFMT.int, { total: sumAll(inOps) });
         };
@@ -3352,7 +3362,7 @@ function addRevenue(ctx: EmitCtx): { revLinks: RevLinks; cosLinks: CosLinks } {
           em.moneyRow('F&B revenue', padded(r.fbRevenuePerPeriod), { indent: 1 });
           em.moneyRow('Other revenue', padded(r.otherRevenuePerPeriod), { indent: 1 });
           em.moneyRow('Hotel revenue', padded(r.totalRevenuePerPeriod), { style: 'subtotal' });
-          summary.set(line.key, { value: padded(r.totalRevenuePerPeriod), rec: padded(r.totalRevenuePerPeriod), cash: padded(r.totalRevenuePerPeriod) });
+          summary.set(line.key, { value: padded(r.totalRevenuePerPeriod), rec: padded(r.totalRevenuePerPeriod), cash: opCashRows(a, padded(r.totalRevenuePerPeriod)) });
           em.gap();
           continue;
         }
@@ -3371,7 +3381,7 @@ function addRevenue(ctx: EmitCtx): { revLinks: RevLinks; cosLinks: CosLinks } {
             em.moneyRow('Area let (sqm)', padded(r.occupiedAreaPerPeriod), { indent: 1, numFmt: NUMFMT.int });
             em.moneyRow('Lease revenue', padded(r.totalRevenuePerPeriod), { style: 'subtotal' });
           }
-          summary.set(line.key, { value: padded(r.totalRevenuePerPeriod), rec: padded(r.totalRevenuePerPeriod), cash: padded(r.totalRevenuePerPeriod) });
+          summary.set(line.key, { value: padded(r.totalRevenuePerPeriod), rec: padded(r.totalRevenuePerPeriod), cash: opCashRows(a, padded(r.totalRevenuePerPeriod)) });
           em.gap();
         }
       }
@@ -3385,7 +3395,7 @@ function addRevenue(ctx: EmitCtx): { revLinks: RevLinks; cosLinks: CosLinks } {
       ['cash', 'Cash collected', 'cash', 'Total cash collected'],
     ];
     for (const [id, title, k, total] of views) {
-      em.tableTitle(title, id === 'cash' ? 'Hotel and lease as billed; receivables on Schedules' : '');
+      em.tableTitle(title);
       const tot = zeros();
       for (const g of groups) for (const line of g.lines) {
         const s = summary.get(line.key);

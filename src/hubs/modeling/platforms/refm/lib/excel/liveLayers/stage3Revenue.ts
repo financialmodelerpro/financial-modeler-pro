@@ -126,6 +126,7 @@ export const stage3Revenue: LiveLayer = {
       const off = offsetAt(p);
       if (l.form !== 'sell' && statedLineReceivableDays(a) !== statedLineReceivableDays(l.host)) refuse.push(`${name}: the earning plot and the line card state different receivable days`);
       if (l.form !== 'sell' && earners.length && !has(`rxin|${l.key}|arDays`)) refuse.push(`${name}: its receivable days are not on Inputs`);
+      if (l.form !== 'sell' && earners.length && !has('project:dso')) refuse.push(`${name}: the project DSO is not on Inputs`);
       if (l.form === 'sell') {
         const sell = a.revenue?.sell;
         if (!sell) continue;
@@ -238,6 +239,13 @@ export const stage3Revenue: LiveLayer = {
       const v = `INDEX(${g.range},${k})`;
       return `IF(AND(${k}>=1,${k}<=COLUMNS(${g.range})),${clamp01 ? `MIN(1,MAX(0,${v}))` : v},0)`;
     };
+    /** A downpayment at year y of the phase: past the last year typed, the last one carries forward
+     *  (the engine's resolveDownpayment), so a phase lengthened in Excel keeps the platform's terms. */
+    const dpAt = (g: { k0: number; n: number; range: string } | undefined, y: string): string => {
+      if (!g) return '0';
+      const k = g.k0 === 1 ? y : `${y}-${g.k0 - 1}`;
+      return `IF(${k}>=1,MIN(1,MAX(0,INDEX(${g.range},MIN(${k},COLUMNS(${g.range}))))),0)`;
+    };
     /** The Timeline's construction or operating year number of phase p, in year t's column. */
     const ctr = (p: Phase, kind: 'con' | 'ops', t: number): string => w.refP({ sheet: 'Timeline', row: w.addr(`tl:ctr:${p.id}:${kind}`).row, col: pc(t) }, REV);
     /** The Timeline's handover flag of phase p (1 in the handover year). */
@@ -320,7 +328,7 @@ export const stage3Revenue: LiveLayer = {
           if (!has(ck)) continue;
           const cr = rowOf(ck), sy = AR(3, pc(s));
           const B = AR(cr, 2), C = AR(cr, 3);
-          const dp = atYear(gDp, w.refA({ sheet: 'Timeline', row: w.addr(`tl:ctr:${p.id}:con`).row, col: pc(s) }, REV), true);
+          const dp = dpAt(gDp, w.refA({ sheet: 'Timeline', row: w.addr(`tl:ctr:${p.id}:con`).row, col: pc(s) }, REV));
           w.fA({ sheet: REV, row: cr, col: 2 }, `IF(${sy}>=${TL(p, 'hy')},1,${dp})`, { numFmt: NUMFMT.pct });
           w.fA({ sheet: REV, row: cr, col: 3 }, `IF(${sy}>=${TL(p, 'hy')},0,MIN(INT(${IN(`rxin|${l.key}|inst`)}),${TL(p, 'hy')}-${sy}))`, { numFmt: NUMFMT.int });
           const pre = AR(rowOf(preRev), pc(s));
@@ -370,7 +378,7 @@ export const stage3Revenue: LiveLayer = {
           if (has(dk) && gDp) {
             const res = w.addr(dk);
             const k = `(${TL(p, 'hy')}-YEAR(${TL(p, 'cs')})+1)`;
-            w.fA(res, atYear({ ...gDp, range: gDp.range.startsWith('Inputs!') ? gDp.range : `Inputs!${gDp.range}` }, k), { numFmt: NUMFMT.pct });
+            w.fA(res, dpAt({ ...gDp, range: gDp.range.startsWith('Inputs!') ? gDp.range : `Inputs!${gDp.range}` }, k), { numFmt: NUMFMT.pct });
             const C = w.refA(res, CHK), St = w.refA(chkCell(dk, -1), CHK);
             w.fA(chkCell(dk, -1), `IF(AND(${C}>0,${C}<1),"NOTE","OK")`);
             w.fA(chkCell(dk, 1), `IF(${St}="NOTE","A handover-year sale pays in full; the "&TEXT(${C},"0%")&" typed is unused","No downpayment typed for the handover year")`);
@@ -398,6 +406,20 @@ export const stage3Revenue: LiveLayer = {
       const occR = R('Occupancy');
       row(occR, (t) => `${IO(t)}*${atYear(gOcc, opsNo(t), true)}`, () => `SUM(${span(rowOf(occR))})/MAX(1,SUM(${span(rowOf(ioK))}))`);
       claim(`rvc:${l.key}:inOps`, ioK); claim(`rvc:${l.key}:opsStart`, startKey);
+      // The receivable: revenue x the line's days over 365 (its own days on Inputs where typed, else
+      // the project DSO), and the cash collected: revenue less the rise in it. Schedules, the Balance
+      // Sheet and the Cash Flow read these rows (2026-10-27).
+      const daysK = D('Receivable days');
+      if (has(daysK) && has(`rxin|${l.key}|arDays`)) {
+        const own = w.ref(`rxin|${l.key}|arDays`, 2);
+        w.fA(at(daysK, TOTAL_COL), `IF(N(${own})>0,N(${own}),N(${w.ref('project:dso')}))`);
+      }
+      const opCash = (rev: string): void => {
+        const arK = R('Receivable at year end'), cashK = R('Cash collected');
+        row(arK, (t) => `${P(rev, t)}*${A(daysK, TOTAL_COL)}/365`, 'last');
+        row(cashK, (t) => (t === 0 ? `${P(rev, t)}-${P(arK, t)}` : `${P(rev, t)}-(${P(arK, t)}-${Prev(arK, t)})`));
+        claim(`rvc:${l.key}:opar`, arK); claim(`rvc:${l.key}:opcash`, cashK);
+      };
       if (isOp && a.revenue?.operate) {
         const u = units[0];
         // Keys: the sub-unit's area over the unit size (the sub-unit's own size first, the type's second).
@@ -419,7 +441,8 @@ export const stage3Revenue: LiveLayer = {
         row(fbRev, (t) => `${P(roomsR, t)}*${IN(`rxin|${l.key}|fb`)}`);
         row(otRev, (t) => `${P(roomsR, t)}*${IN(`rxin|${l.key}|other`)}`);
         row(totR, (t) => sumRows([rowOf(roomsR), rowOf(fbRev), rowOf(otRev)], t));
-        lineTotals.set(l.key, { value: (t) => P(totR, t), rec: (t) => P(totR, t), cash: (t) => P(totR, t) });
+        opCash(totR);
+        lineTotals.set(l.key, { value: (t) => P(totR, t), rec: (t) => P(totR, t), cash: (t) => P(R('Cash collected'), t) });
         claim(`rvc:${l.key}:total`, totR); claim(`rvc:${l.key}:rooms`, roomsR); claim(`rvc:${l.key}:fb`, fbRev); claim(`rvc:${l.key}:other`, otRev);
         claim(`rvc:${l.key}:arn`, arnR); claim(`rvc:${l.key}:orn`, ornR); claim(`rvc:${l.key}:keys`, keysK);
         continue;
@@ -440,7 +463,8 @@ export const stage3Revenue: LiveLayer = {
         const occTot = units.length === 1 ? R(`${nm(units[0])}: area let (sqm)`) : R('Area let (sqm)');
         const revTot = units.length === 1 ? R(`${nm(units[0])}: rent`) : R('Lease revenue');
         if (units.length !== 1) { row(occTot, (t) => sumRows(occRows, t)); row(revTot, (t) => sumRows(revRowsL, t)); }
-        lineTotals.set(l.key, { value: (t) => P(revTot, t), rec: (t) => P(revTot, t), cash: (t) => P(revTot, t) });
+        opCash(revTot);
+        lineTotals.set(l.key, { value: (t) => P(revTot, t), rec: (t) => P(revTot, t), cash: (t) => P(R('Cash collected'), t) });
         claim(`rvc:${l.key}:rev`, revTot); claim(`rvc:${l.key}:occupied`, occTot); claim(`rvc:${l.key}:gla`, glaK);
       }
     }
@@ -469,7 +493,7 @@ export const stage3Revenue: LiveLayer = {
 
     return [
       { sheet: REV, status: 'partial' as const, formulas: w.formulas.get(REV) ?? 0,
-        note: 'Live on this sheet: every line, each figure built from rows on the tabs and the inputs on Inputs: the velocity and the sqm sold per sub-unit, revenue split at handover, recognition, collections by pre-sales year, the receivable and unearned balances, the hotel and lease statements with their years in operation, and the summary of sales value, revenue recognised and cash collected.' },
+        note: 'Live on this sheet: every line, each figure built from rows on the tabs and the inputs on Inputs: the velocity and the sqm sold per sub-unit, revenue split at handover, recognition, collections by pre-sales year, the receivable and unearned balances, the hotel and lease statements with their years in operation, the receivable of each line and the cash it collects, and the summary of sales value, revenue recognised and cash collected.' },
     ];
 
   },

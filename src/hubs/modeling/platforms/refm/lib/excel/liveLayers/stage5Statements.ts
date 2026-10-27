@@ -330,7 +330,7 @@ export const stage5Statements: LiveLayer = {
     };
     const capexCash = (a: Asset): F => { const k = capexRowsOf(a).cash; return (t) => k.map((x) => R(x, t)).join('+') || '0'; };
     const inKindOf = (a: Asset): F => { const k = capexRowsOf(a).inKind; return (t) => k.map((x) => R(x, t)).join('+') || '0'; };
-    // Cash collected: the line's row in Revenue's summary (a hotel or lease line as billed; its receivable is its own row).
+    // Cash collected: the line's row in Revenue's summary (a hotel or lease line's revenue less the rise in its receivable).
     const revRcv = (a: Asset): F => { const l = lineForAsset(lines, a.id); return l && earner(a) ? keyF(`rvc:${l.key}:collected`) : () => '0'; };
     // The Opex tab shows cash paid as a negative row ("Less: Cash Paid").
     const opexPaid = (a: Asset): F => neg(keyF(`oxo:ap:${a.id}:lessPaid`));
@@ -456,9 +456,13 @@ export const stage5Statements: LiveLayer = {
             else if (L === `(+) Change in ${labels.tax} payable`) f = delta(taxPay);
             else if (L === '(+) Change in Escrow balance') f = neg(delta(escClose));
           }
-        } else if (L === 'Total Revenue Received') f = has(K(OPAR))
-          ? sumKeysF([...headOf('cf-rev-res'), ...headOf('cf-rev-hosp'), ...headOf('cf-rev-ret'), K(OPAR)])
-          : (t) => `${sumF(res.map(revRcv))(t)}+${opCash(t)}`;
+        } else if (L === 'Total Revenue Received') {
+          // Each line's row is its cash (a hotel or lease line's revenue less the rise in its
+          // receivable, on Revenue, 2026-10-27), so the total adds the class rows above it.
+          const heads = [...headOf('cf-rev-res'), ...headOf('cf-rev-hosp'), ...headOf('cf-rev-ret'), ...(has(K(OPAR)) ? [K(OPAR)] : [])];
+          const classes = [res, hosp, ret].filter((x) => x.length).length;
+          f = heads.length && heads.length >= classes ? sumKeysF(heads) : (t) => `${sumF(res.map(revRcv))(t)}+${opCash(t)}`;
+        }
         else if (L === 'Less: Inaccessible Funds Locked') f = phaseFiltered ? neg(phaseEscrow('held')) : neg(keyF(escB('Total Additions')));
         else if (L === 'Add: Release of Inaccessible Funds') f = phaseFiltered ? phaseEscrow('release') : neg(keyF(escB('Less: Release of Locked Funds')));
         else if (L.startsWith('HQ Expenses')) f = neg(hqPaid);

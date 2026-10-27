@@ -940,11 +940,27 @@ export function buildDirectCFRows(ctx: M4ReportCtx): M4Row[] {
   const retailAssets = visibleAssets.filter((a) => a.strategy === 'Lease' && matchesPhase(a));
 
   rows.push({ label: 'CASH FROM OPERATIONS', values: [], isSection: true });
+  // A HOTEL OR LEASE LINE'S CASH IS ITS REVENUE LESS THE RISE IN ITS RECEIVABLE, at the days the
+  // engine collects it on (receivableDays.ts). The live workbook (`all`) prints each line that way,
+  // as its Revenue tab does (2026-10-27), so its rows add to Total Revenue Received; the screen and
+  // the PDF keep the lines as billed. Every total is unchanged.
+  const operatingCash = new Map<string, number[]>();
+  for (const a of [...hospitalityAssets, ...retailAssets]) {
+    const pl = snap.perAssetPL.get(a.id);
+    if (!pl) continue;
+    operatingCash.set(a.id, buildAccountsReceivableDSO({
+      revenuePerPeriod: pl.revenuePerPeriod.slice(0, N),
+      dsoDays: lineReceivableDays(a, state.project),
+      daysPerYear: Math.max(1, state.project.operatingAr?.daysPerYear ?? 365),
+      axisLength: N,
+    }).cashReceivedPerPeriod);
+  }
+  const received = (id: string): number[] | undefined => (all && operatingCash.has(id) ? operatingCash.get(id) : snap.perAssetCF.get(id)?.revenueReceivedPerPeriod as number[] | undefined);
   // One member row per consolidated line (2026-09-15).
   const pushLineRows = (list: ReadonlyArray<{ id: string }>, key: 'revenueReceivedPerPeriod' | 'opexPaidPerPeriod', group: string, sign = 1): void => {
     const ids = new Set(list.map((a) => a.id));
     for (const line of planReportLines(state, (a) => ids.has(a.id))) {
-      const series = sumLine(line, (id) => (snap.perAssetCF.get(id)?.[key] as number[] | undefined), N);
+      const series = sumLine(line, (id) => (key === 'revenueReceivedPerPeriod' ? received(id) : snap.perAssetCF.get(id)?.[key] as number[] | undefined), N);
       if (!all && series.every((v) => v === 0)) continue;
       rows.push({ label: lineRowLabel(line, state), values: sign === 1 ? series : series.map((v) => -v), indent: 2, phaseLabel: phaseShort(line.phaseId), collapseGroup: group, collapseRole: 'member' });
     }
@@ -954,7 +970,7 @@ export function buildDirectCFRows(ctx: M4ReportCtx): M4Row[] {
     for (const a of list) {
       const cf = snap.perAssetCF.get(a.id);
       if (!cf) continue;
-      const series = (cf[key] as number[] | undefined) ?? [];
+      const series = (key === 'revenueReceivedPerPeriod' ? received(a.id) : cf[key] as number[] | undefined) ?? [];
       for (let t = 0; t < N; t++) out[t] += series[t] ?? 0;
     }
     return out;
@@ -1010,15 +1026,9 @@ export function buildDirectCFRows(ctx: M4ReportCtx): M4Row[] {
     const out = sumAssetSeries(residentialAssets, 'revenueReceivedPerPeriod');
     // Each asset at the days the engine collects it on (receivableDays.ts).
     for (const a of [...hospitalityAssets, ...retailAssets]) {
-      const pl = snap.perAssetPL.get(a.id);
-      if (!pl) continue;
-      const ar = buildAccountsReceivableDSO({
-        revenuePerPeriod: pl.revenuePerPeriod.slice(0, N),
-        dsoDays: lineReceivableDays(a, state.project),
-        daysPerYear: Math.max(1, state.project.operatingAr?.daysPerYear ?? 365),
-        axisLength: N,
-      });
-      for (let t = 0; t < N; t++) out[t] += ar.cashReceivedPerPeriod[t] ?? 0;
+      const cash = operatingCash.get(a.id);
+      if (!cash) continue;
+      for (let t = 0; t < N; t++) out[t] += cash[t] ?? 0;
     }
     return out;
   };
@@ -1026,13 +1036,9 @@ export function buildDirectCFRows(ctx: M4ReportCtx): M4Row[] {
   const escrowHeld = phaseFiltered ? sumEscrow('heldPerPeriod').map((v) => -v) : d.escrowHeldPerPeriod;
   const escrowRelease = phaseFiltered ? sumEscrow('releasePerPeriod') : d.escrowReleasePerPeriod;
   const opexPaid = phaseFiltered ? sumAssetSeries(phaseAssets, 'opexPaidPerPeriod').map((v) => -v) : d.opexPaidPerPeriod;
-  // THE LIVE WORKBOOK SHOWS THE ROW ITS TOTAL ADDS (2026-10-20): a hotel or lease line's cash is its
-  // revenue less the rise in its receivable, so that rise is a row of its own and Total Revenue
-  // Received is the sum of the rows above it. Only where an operating line exists.
-  if (all && hospitalityAssets.length + retailAssets.length > 0) {
-    const shown = sumAssetSeries([...residentialAssets, ...hospitalityAssets, ...retailAssets], 'revenueReceivedPerPeriod');
-    rows.push({ label: 'Less: Rise in operating receivables', values: revenueReceived.map((v, t) => v - (shown[t] ?? 0)), indent: 1 });
-  }
+  // THE LIVE WORKBOOK PRINTED A ROW FOR THE RISE IN THE OPERATING RECEIVABLES (2026-10-20) so its
+  // total added the rows above it; since 2026-10-27 each hotel and lease line is printed as cash, so
+  // the rows above add to the total without it.
   rows.push({ label: 'Total Revenue Received', values: revenueReceived, isSubtotal: true });
 
   if (all || escrowHeld.some((v) => v !== 0) || escrowRelease.some((v) => v !== 0)) {

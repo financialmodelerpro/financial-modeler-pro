@@ -346,6 +346,17 @@ function perturbations(input: LiveExportInputs, reg: CellRegistry): Perturbation
     out.push({ movesRevenue: true, label: `construction years of ${shorten.name} -1 (the project still ends in ${lastEnd})`, cell: `phase:${shorten.id}:cp`, value: shorten.constructionPeriods - 1,
       edit: (s) => { (s.phases as any[]).find((x) => x.id === shorten.id).constructionPeriods = shorten.constructionPeriods - 1; } });
   } else out.push({ label: 'construction years of a phase', skip: 'no phase can shorten without moving the project end' });
+  // A LONGER BUILD (2026-10-27): the handover moves a year later, so a pre-sales year that had no
+  // collections row at export now sells; every model year has one, and the collections check holds.
+  // Where every phase that could lengthen already ends the project, the copy runs that phase's
+  // operations a year shorter first, so the longer build still ends inside the workbook's years.
+  const lengthen = ph.find((p) => endYr(p, p.constructionPeriods + 1) <= lastEnd) ?? shorten;
+  if (lengthen) {
+    const fits = endYr(lengthen, lengthen.constructionPeriods + 1) <= lastEnd;
+    out.push({ movesRevenue: true, label: `construction years of ${lengthen.name} +1 (${fits ? '' : 'on a copy where its operations run a year shorter; '}the project still ends in ${lastEnd})`, cell: `phase:${lengthen.id}:cp`, value: lengthen.constructionPeriods + 1,
+      ...(fits ? {} : { variant: (s: Snap) => { (s.phases as any[]).find((x) => x.id === lengthen.id).operationsPeriods = lengthen.operationsPeriods - 1; } }),
+      edit: (s) => { (s.phases as any[]).find((x) => x.id === lengthen.id).constructionPeriods = lengthen.constructionPeriods + 1; } });
+  } else out.push({ label: 'construction years of a phase +1', skip: 'no phase can lengthen without moving the project end' });
   const later = ph.find((p) => yr(p) - 1 >= firstStart && yr(p) > firstStart && endYr(p, p.constructionPeriods, yr(p) - 1) <= lastEnd);
   if (later) {
     const d = new Date(`${later.startDate.slice(0, 10)}T00:00:00Z`); d.setUTCFullYear(d.getUTCFullYear() - 1);
@@ -974,20 +985,23 @@ function formulaCells(wb: ExcelJS.Workbook): Map<string, { formula: string; resu
       const arAllowed = arCells.filter((a) => allowedCells.has(cellId(a.sheet, a.row, a.col)));
       const readsIn = (book: ExcelJS.Workbook, sheet: string, ref: string): boolean => { let hit = false; book.getWorksheet(sheet)!.eachRow((row) => row.eachCell((cell) => { const v = cell.value as unknown as { formula?: string } | null; if (v && typeof v === 'object' && String(v.formula ?? '').includes(ref)) hit = true; })); return hit; };
       const refOf = (a: { row: number; col: number }): string => `Inputs!$${colLetterOf(a.col)}$${a.row}`;
-      const schedReads = arCells.filter((a) => readsIn(wb, 'Schedules', refOf(a)));
-      check(`A12r every hotel and lease line's receivable days (${arCells.length}) are on no allowance and drive its Schedules receivable`, arCells.length > 0 && arAllowed.length === 0 && schedReads.length === arCells.length, `allowed ${arAllowed.length}, read by Schedules ${schedReads.length}`);
+      // SINCE 2026-10-27 Revenue works out each line's receivable from its days and Schedules links
+      // it, so the days are read on Revenue and reach Schedules through it.
+      const revReads = arCells.filter((a) => readsIn(wb, 'Revenue', refOf(a)));
+      const unreached = receivableDaysProblems(wb, arCells, true);
+      check(`A12r every hotel and lease line's receivable days (${arCells.length}) are on no allowance, are read on Revenue and drive its Schedules receivable`, arCells.length > 0 && arAllowed.length === 0 && revReads.length === arCells.length && unreached.length === 0, `allowed ${arAllowed.length}, read on Revenue ${revReads.length}, not reaching Schedules ${unreached.length}`);
       if (arCells.length) {
         const cut = buildFormulaWorkbook(opts).wb;
         const a = arCells[0], ref = refOf(a);
-        cut.getWorksheet('Schedules')!.eachRow((row) => row.eachCell((cell) => {
+        cut.getWorksheet('Revenue')!.eachRow((row) => row.eachCell((cell) => {
           const v = cell.value as unknown as { formula?: string; result?: unknown } | null;
           if (v && typeof v === 'object' && String(v.formula ?? '').includes(ref)) cell.value = { formula: String(v.formula).split(`IF(N(${ref})>0,N(${ref}),`).join('(').split(ref).join('0'), result: v.result } as never;
         }));
-        // A COPY IS NOT A READER (2026-10-27): the Revenue card that copied the days is gone, so the copy
-        // the strict rule must see past is planted here, on a spare cell of the cut workbook.
+        // A COPY IS NOT A READER (2026-10-27): the days are cut out of the Revenue receivable, and a bare
+        // copy the strict rule must see past is planted on a spare cell of the cut workbook.
         cut.getWorksheet('Revenue')!.getCell(2, 30).value = { formula: ref, result: 0 } as never;
-        check('A12s the input check fires when a line\'s receivable days stop driving Schedules (a bare copy of them on Revenue still reads them)',
-          !readsIn(cut, 'Schedules', ref) && readsIn(cut, 'Revenue', ref) && inputsUnreadProblems(cut, allowedCells, { strict: true }).some((x) => x.startsWith(`Inputs!${colLetterOf(a.col)}${a.row} `))
+        check('A12s the input check fires when a line\'s receivable days stop driving the receivable (a bare copy of them on Revenue still reads them)',
+          readsIn(cut, 'Revenue', ref) && inputsUnreadProblems(cut, allowedCells, { strict: true }).some((x) => x.startsWith(`Inputs!${colLetterOf(a.col)}${a.row} `))
           && receivableDaysProblems(cut, [a], true).length === 1 && receivableDaysProblems(wb, arCells, true).length === 0, '');
       }
     }

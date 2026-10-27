@@ -17,8 +17,8 @@
  *     row); inventory rolls forward from its own previous column. A plot of a merged
  *     line with capex and no rows releases on the line's sales, so the line is the unit.
  *   THE FEEDS: the income statement, balance sheet and cash flow feeds per line; an
- *     operating line's receivable is revenue x its days over 365, its cash revenue
- *     less the movement.
+ *     operating line's receivable and cash are its rows on Revenue (revenue x its days
+ *     over 365, and revenue less the rise in it), linked here.
  *   ESCROW: pre-sales cash held at the effective held % through the held-until year
  *     and released, all held so far, in the release year; both years clamped to the
  *     workbook's years by its own header row.
@@ -245,11 +245,14 @@ export const stage3Cos: LiveLayer = {
         const days = (): string => (has(arIn)
           ? `IF(N(${w.refA(w.addr(arIn, 2), here)})>0,N(${w.refA(w.addr(arIn, 2), here)}),N(${dso()}))`
           : daysKey ? fx(daysKey, TOTAL_COL) : dso());
+        // THE RECEIVABLE AND THE CASH ARE REVENUE'S ROWS (2026-10-27): Revenue works out each line's
+        // receivable and the cash it collects, so the feed links them and works out neither again.
+        const onRevenue = has(`rvc:${l.key}:opar`) && has(`rvc:${l.key}:opcash`);
         feeds.push({
-          key: l.key, name, section: l.section,
+          key: onRevenue ? undefined : l.key, name, section: l.section,
           revenue: (t) => p(revKey, t),
-          cash: (t) => `${p(revKey, t)}-(${p(`rvc:${l.key}:opar`, t)}-${p(`rvc:${l.key}:opar`, t, -1)})`,
-          cosC: Z, cosO: Z, cosT: Z, inv: Z, ar: (t) => `${p(revKey, t)}*${days()}/365`, ur: Z, capex: Z,
+          cash: onRevenue ? (t) => p(`rvc:${l.key}:opcash`, t) : (t) => `${p(revKey, t)}-(${p(`rvc:${l.key}:opar`, t)}-${p(`rvc:${l.key}:opar`, t, -1)})`,
+          cosC: Z, cosO: Z, cosT: Z, inv: Z, ar: onRevenue ? (t) => p(`rvc:${l.key}:opar`, t) : (t) => `${p(revKey, t)}*${days()}/365`, ur: Z, capex: Z,
         });
       }
     }
