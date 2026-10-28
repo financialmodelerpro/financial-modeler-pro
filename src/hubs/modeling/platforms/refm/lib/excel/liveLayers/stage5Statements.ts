@@ -78,7 +78,7 @@ export const stage5Statements: LiveLayer = {
 
     // ── Preconditions ────────────────────────────────────────────────────────
     const refuse: string[] = [];
-    if (!has('schv:__project__:capDep')) refuse.push('the Schedules fixed asset tables are not live');
+    if (!has('schv:__project__:dep')) refuse.push('the Schedules fixed asset tables are not live');
     if (!w.reg.keys().some((k) => k.startsWith('oxo:'))) refuse.push('Opex is not live');
     if (!w.reg.keys().some((k) => k.startsWith('rvc:'))) refuse.push('Revenue is not live');
     if (!has('fnc:tax') || !has('fnc:main:intexp')) refuse.push('the financing loop is not live');
@@ -615,7 +615,8 @@ export const stage5Statements: LiveLayer = {
       ['Δ AR (operating)', delta(opArProject)],
       ['Δ Receivables (residential)', delta(resAr)],
       ['Δ Inventory', delta(sc('schv:A3:close'))],
-      ['Δ Fixed assets NBV', delta(sc('schv:__project__:capNbv'))],
+      // The building NBV less its capitalised interest part (Schedules carries the total and the interest memo).
+      ['Δ Fixed assets NBV', delta((t) => `${sc('schv:__project__:close')(t)}${has('schv:__project__:idcNbv') ? `-${sc('schv:__project__:idcNbv')(t)}` : ''}`)],
       ['Δ Land', delta(sc('schv:__project__:landClose'))],
       ['Δ Capitalised IDC NBV', delta(sc('schv:__project__:idcNbv'))],
     ];

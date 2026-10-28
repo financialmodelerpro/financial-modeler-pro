@@ -189,8 +189,9 @@ export const inertKey = (name: InertInput, sheet: string, row: number, col: numb
 
 /**
  * HOTEL AND LEASE RECEIVABLE DAYS DRIVE THE CASH (2026-10-25, founder): wherever Schedules is
- * live, each line's days on Inputs (`rxin|<line>|arDays`) must reach a Schedules formula, its
- * operating receivable. The export fails otherwise, so a broken wiring cannot ship.
+ * live, each line's days on Inputs (`rxin|<line>|arDays`) must reach the Balance Sheet, its
+ * operating receivable (since 2026-10-28 the Balance Sheet links Revenue's receivable directly;
+ * Schedules no longer copies it). The export fails otherwise, so a broken wiring cannot ship.
  * SINCE 2026-10-27 the receivable is worked out on Revenue and Schedules links it, so the days
  * reach Schedules through Revenue: the rule follows the formulas that read them (a few steps),
  * and a copy on Revenue that nothing reads still fails it.
@@ -205,7 +206,7 @@ export function receivableDaysProblems(wb: ExcelJS.Workbook, cells: Array<{ shee
     for (let step = 0; step < 4 && front.length; step++) {
       const next: string[] = [];
       for (const c of front) for (const r of readers.get(c) ?? []) {
-        if (r.startsWith('Schedules!')) return true;
+        if (r.startsWith('Balance Sheet!') || r.startsWith("'Balance Sheet'!")) return true;
         if (!seen.has(r)) { seen.add(r); next.push(r); }
       }
       front = next;
@@ -213,5 +214,5 @@ export function receivableDaysProblems(wb: ExcelJS.Workbook, cells: Array<{ shee
     return false;
   };
   const colL = (n: number): string => { let s = ''; while (n > 0) { const m = (n - 1) % 26; s = String.fromCharCode(65 + m) + s; n = Math.floor((n - 1) / 26); } return s; };
-  return cells.filter((a) => !reachesSchedules(cellId(a.sheet, a.row, a.col))).map((a) => `Inputs!${colL(a.col)}${a.row} (a line's receivable days) drives no receivable on Schedules`);
+  return cells.filter((a) => !reachesSchedules(cellId(a.sheet, a.row, a.col))).map((a) => `Inputs!${colL(a.col)}${a.row} (a line's receivable days) drives no receivable on the Balance Sheet`);
 }

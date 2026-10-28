@@ -5240,6 +5240,7 @@ function addSchedules(ctx: EmitCtx): void {
   // as the Balance Sheet and Cash Flow tabs.
   writeSheetHeader(ws, snap, N, 'Schedules', 'Full mirror of the platform Module 4 Schedules, both sub-tabs in sequence: 1. Fixed Assets & D&A (depreciation inputs, land and depreciable roll-forwards per line with capitalised interest, project totals, IDC pool), 2. BS Schedules (balance-sheet feeder roll-forwards ordered ASSETS / LIABILITIES / EQUITY).', { label: 'Line', totalLabel: TOTAL_COLUMN_HEADINGS.mixed, feeds: `Sourced from Capex, depreciation, Modules 1-3 and the financing recurrence. Supports the Balance Sheet. ${TOTAL_COLUMN_NOTES.mixed}` });
   const E = makeEmitters(ws, N);
+  if (isLiveLayout()) { addSchedulesLive(ctx, ws, E); ctx.toSchedules = []; return; }
 
   // A fixed asset table from the shared builder: a balance row's Total column
   // holds its last period, a flow row's the sum, exactly as the screen prints.
@@ -5377,6 +5378,124 @@ function addSchedules(ctx: EmitCtx): void {
     for (const tbl of tables) { E.setRegLine(tbl.key); E.subTitle(tbl.title); E.emitTable(tbl.rows); E.note(tbl.caption); }
   }
   E.setRegScope(null);
+}
+
+// ── Schedules, THE LIVE LAYOUT (2026-10-28, founder) ─────────────────────────
+// 1. One fixed asset table per held asset: a depreciation helper row (the useful
+// life in B, the first depreciation year in C, each year the year its addition
+// starts depreciating), land (opening, additions, disposed, closing) and building
+// (opening, capex and capitalised interest additions, depreciation, disposed,
+// closing, the capitalised interest's own depreciation and NBV as memos); then
+// the project as SUMs. 2. One cost of sales block per Sell line: the base (capex
+// plus capitalised interest), the recognition share, cost of sales and one
+// inventory roll-forward; then the project totals. The working capital schedules
+// are not repeated: the Balance Sheet links Revenue and Opex. Rows are keyed
+// `fa|<host>|<id>` and `cs|<line>|<id>` for stage4Schedules; values are the platform's.
+function addSchedulesLive(ctx: EmitCtx, ws: ExcelJS.Worksheet, E: ReturnType<typeof makeEmitters>): void {
+  const { snap, state } = ctx;
+  const N = snap.axisLength;
+  const padded = (arr: readonly number[] | undefined): number[] => Array.from({ length: N }, (_, i) => arr?.[i] ?? 0);
+  const keyed = (key: string, r: number): void => registerCell(key, ws, ws.getCell(r, LBL_COL));
+  const num = (r: number, c: number, v: number): void => { const cell = ws.getCell(r, c); cell.value = v; cell.numFmt = NUMFMT.int; cell.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } }; };
+  const revLines = planRevenueLines(state.assets, state.subUnits, state.phases, state.project);
+  const nameOf = (assetId: string, fallback: string): string => { const l = lineForAsset(revLines, assetId); return l ? revenueLineName(l) : fallback; };
+  const LOOP = 'From Financing (interest loop)';
+  ws.getColumn(META_C).width = Math.max(ws.getColumn(META_C).width ?? 0, 10);
+  E.setRegScope(null);
+  type Opt = Parameters<typeof E.moneyRow>[2];
+  const money = (key: string, label: string, v: readonly number[], opts: Opt = {}): number => { const r = E.moneyRow(label, [...v], opts); keyed(key, r); return r; };
+  const balance: Opt = { indent: 1, noTotal: true };
+
+  // ── 1. Fixed assets ─────────────────────────────────────────────────────────
+  const dCtx = disposalContextOf(snap);
+  const report = buildFixedAssetReport({ fa: snap.fixedAssets, idc: snap.idc, state, dCtx });
+  const lines = report.groups.flatMap((g) => g.lines);
+  if (lines.length) {
+    E.section('1. Fixed assets (per held asset)');
+    const hr = E.cursor();
+    setColHeader(ws.getCell(hr, META_B), 'Useful life (yrs)', 'right');
+    setColHeader(ws.getCell(hr, META_C), 'From year no.', 'right');
+    E.gap();
+    const pick = (rows: readonly M4Row[], pred: (s: string) => boolean): number[] | undefined => { const r = rows.find((x) => pred(x.label)); return r ? padded(r.values) : undefined; };
+    const idcDepOf = (ids: readonly string[]): number[] => {
+      const out = new Array<number>(N).fill(0);
+      for (const id of ids) { const r0 = snap.idc.byAsset.get(id); if (r0 && idcRowIsHeld(r0)) r0.depreciationPerPeriod.forEach((v, t) => { if (t < N) out[t] += v ?? 0; }); }
+      return out;
+    };
+    /** One table: land, building and (where interest was capitalised) its memos. */
+    const table = (base: string, land: readonly M4Row[], dep: readonly M4Row[], idcDep: number[]): void => {
+      const K = (id: string): string => `fa|${base}|${id}`;
+      const withIdc = dep.some((r) => r.label.includes('IDC'));
+      const L = (pred: (s: string) => boolean): number[] => pick(land, pred) ?? padded([]);
+      const D = (pred: (s: string) => boolean): number[] => pick(dep, pred) ?? padded([]);
+      money(K('landOpen'), 'Land: opening', L((s) => s === 'Opening Land'), balance);
+      money(K('landAdd'), 'Land: (+) additions', L((s) => s === '(+) Land Additions'), { indent: 1 });
+      if (dCtx.booked) money(K('landDisp'), 'Land: (−) disposed at exit', L((s) => s.startsWith('(−) Land Disposed')), { indent: 1 });
+      money(K('landClose'), 'Land: closing', L((s) => s === 'Closing Land'), { ...balance, style: 'subtotal' });
+      money(K('open'), 'Building: opening', D((s) => s.startsWith('Opening NBV')), balance);
+      money(K('capAdd'), 'Building: (+) capex additions', D((s) => s === '(+) Capex Additions'), { indent: 1 });
+      if (withIdc) { const r = money(K('idcAdd'), 'Building: (+) capitalised interest additions', D((s) => s.startsWith('(+) IDC Additions')), { indent: 1 }); setBasis(ws.getCell(r, META_B), base === '__project__' ? 'From Financing (interest loop): the assets added' : LOOP); }
+      money(K('dep'), 'Building: (−) depreciation', D((s) => s.startsWith('(−) Depreciation')), { indent: 1 });
+      if (dCtx.booked) money(K('disp'), 'Building: (−) disposed at exit', D((s) => s.startsWith('(−) Disposed at Exit')), { indent: 1 });
+      money(K('close'), 'Building: closing', D((s) => s.startsWith('Closing NBV')), { ...balance, style: 'subtotal' });
+      if (withIdc) {
+        money(K('idcDep'), 'of which: depreciation on capitalised interest', idcDep, { indent: 2 });
+        money(K('idcNbv'), 'of which: capitalised interest, closing', D((s) => s.includes('of which: IDC NBV')), { indent: 2, noTotal: true });
+      }
+    };
+    for (const l of lines) {
+      const input = report.inputs.find((i) => i.hostId === l.hostId);
+      const host = state.assets.find((a) => a.id === l.hostId);
+      const ph = host && state.phases.find((p) => p.id === host.phaseId);
+      if (!input || !host || !ph) continue;
+      E.subTitle(nameOf(l.hostId, l.title));
+      // THE DEPRECIATION HELPER: the life (B), the first depreciation year (C, the year after the
+      // handover year), and each year the year its additions start depreciating (the later of the two).
+      const off = Math.max(0, utcYear(ph.startDate as string, snap.projectStartYear) - snap.projectStartYear);
+      const first = off + Math.max(0, ph.constructionPeriods ?? 0) + 1;
+      const hrow = money(`fa|${l.hostId}|help`, 'Depreciation starts (year no.)', Array.from({ length: N }, (_, t) => Math.max(t + 1, first)), { indent: 1, noTotal: true, numFmt: NUMFMT.int });
+      num(hrow, META_B, input.lifeEffective);
+      num(hrow, META_C, first);
+      registerCell(`fain:${l.hostId}`, ws, ws.getCell(hrow, LBL_COL));
+      registerCell(`fafirst:${l.hostId}`, ws, ws.getCell(hrow, META_C));
+      table(l.hostId, l.land.rows, l.depreciable.rows, idcDepOf(l.memberIds));
+      E.gap();
+    }
+    E.subTitle('Project total');
+    table('__project__', report.project.land.rows, report.project.depreciable.rows, padded(snap.idc.idcDepreciationPerPeriod));
+    E.gap();
+  }
+
+  // ── 2. Cost of sales and inventory ──────────────────────────────────────────
+  const cosTables = buildCostOfSalesReport(snap, state, (v) => String(v), { allVintages: true });
+  const cosLines = revLines.filter((l) => l.form === 'sell' && cosTables.some((t) => t.lineKey === l.key));
+  if (cosLines.length) {
+    E.section(`${lines.length ? 2 : 1}. Cost of sales and inventory (per sell line)`);
+    const cosRows: number[][] = [], invRows: number[][] = [];
+    for (const l of cosLines) {
+      const rows = cosTables.filter((t) => t.lineKey === l.key).flatMap((t) => t.rows);
+      const v = (label: string): number[] => padded(rows.find((r) => r.label === label)?.values);
+      const K = (id: string): string => `cs|${l.key}|${id}`;
+      E.subTitle(revenueLineName(l));
+      money(K('capex'), 'Capex', v('Capex, from Module 1'), { indent: 1 });
+      setBasis(ws.getCell(money(K('idc'), 'Capitalised interest', v('Capitalised IDC'), { indent: 1 }), META_B), LOOP);
+      money(K('base'), 'Cost base', v('Total base charged through cost of sales'), { style: 'subtotal' });
+      money(K('share'), 'Recognition share of lifetime revenue', v('Recognition share of lifetime revenue'), { indent: 1, numFmt: NUMFMT.pct });
+      const cos = v('Cost of Sales, total base x recognition share');
+      money(K('cos'), 'Cost of sales', cos, { style: 'subtotal' });
+      money(K('open'), 'Inventory: opening', v('Opening balance'), balance);
+      money(K('add'), 'Inventory: (+) cost base', v('(+) Capex (incl. capitalised IDC)'), { indent: 1 });
+      money(K('out'), 'Inventory: (−) cost of sales', v('(-) Cost of Sales'), { indent: 1 });
+      const inv = v('Inventory balance (as carried on the balance sheet)');
+      money(K('close'), 'Inventory: closing', inv, { ...balance, style: 'subtotal' });
+      cosRows.push(cos); invRows.push(inv);
+      E.gap();
+    }
+    const sum = (xs: number[][]): number[] => Array.from({ length: N }, (_, t) => xs.reduce((s, x) => s + (x[t] ?? 0), 0));
+    E.subTitle('Project total');
+    money('cs|__project__|cos', 'Cost of sales', sum(cosRows), { style: 'subtotal' });
+    money('cs|__project__|inv', 'Inventory: closing', sum(invRows), { ...balance, style: 'subtotal' });
+  }
 }
 
 // ── P&L (full detailed mirror via the shared platform row-builder) ────────────

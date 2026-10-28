@@ -5,10 +5,8 @@
  * roll-forwards the operating model owns live; these four read the financing
  * solve (stage 6), so they waited for it:
  *
- *   - the capitalised interest (IDC) pool: construction interest capitalised
- *     per asset, split into held fixed assets and Sell inventory, and the held
- *     pool rolled forward (opening, additions, depreciation, the write-off at
- *     the exit, closing), from the solve's own rows;
+ *   - (the capitalised interest pool copy on Schedules was removed 2026-10-28:
+ *     each held asset's table carries its interest, and the project its total);
  *   - L3, debt outstanding by tranche: the balance sheet's debt (the live
  *     financing takes exactly one facility, so the tranche IS the total);
  *   - E1, equity: cash drawn (development and management fee) and land in kind
@@ -50,8 +48,6 @@ export const stage8Schedules: LiveLayer = {
     const vis = (key: string): F | null => (has(key) ? (t) => `N(${w.refP({ sheet: w.addr(key).sheet, row: w.addr(key).row, col: pc(t) })})` : null);
     // A figure of the financing loop (stage6Loop, an outflow row read negated) or a working row, a year at a time.
     const calc = (key: string): F | null => (has(key) ? (t) => `N(${key.startsWith('fnc:') ? loopAt(w, key, t) : w.perP(key, t)})` : null);
-    const sumF = (fs: F[]): F => (t) => (fs.length ? `(${fs.map((f) => f(t)).join('+')})` : '0');
-    const neg = (f: F): F => (t) => `-(${f(t)})`;
 
     const done: string[] = [], kept: string[] = [];
     /**
@@ -93,32 +89,6 @@ export const stage8Schedules: LiveLayer = {
       }
       done.push(name);
     };
-
-    // ── The capitalised interest pool ─────────────────────────────────────────
-    {
-      const idcKeys = reg.keys().filter((k) => /^fnc:main:idc:[^:]+$/.test(k));
-      const sellIds = new Set(state.assets.filter((a) => a.strategy === 'Sell' || a.strategy === 'Sell + Manage').map((a) => a.id));
-      // A line's capitalised interest is one row its plots share: each row once.
-      const idcOf = (pred: (id: string) => boolean): F[] => { const seen = new Set<number>(); return idcKeys.filter((k) => pred(k.split(':')[3])).filter((k) => { const r = w.addr(k).row; if (seen.has(r)) return false; seen.add(r); return true; }).map((k) => calc(k)!); };
-      const held = calc('fnc:main:idcadd'), dep = calc('fnc:main:idcdep');
-      // The interest written off at the exit: the project's interest NBV before the exit, on Schedules.
-      const disp: F | null = has('schv:__project__:idcNbv') && has('tl:flag:exit')
-        ? (t) => `${w.perP('tl:flag:exit', t)}*MAX(0,N(${w.perP('schv:__project__:idcNbv', t - 1)})+${w.perP('schv:__project__:idcAdd', t)}-${w.perP('schv:__project__:idcDep', t)})`
-        : calc('fnc:main:idcdisp');
-      const P = 'sch|__project__|idc|';
-      const opening = `${P}Opening IDC NBV (held)`;
-      const rolled: F | null = held && dep && disp ? (t) => `${w.refP({ sheet: SCH, row: w.addr(opening).row, col: pc(t) })}+${held(t)}-${dep(t)}-${disp(t)}` : null;
-      table('the capitalised interest pool', P, {
-        'Construction interest': idcKeys.length ? sumF(idcOf(() => true)) : null,
-        'Capitalised to held fixed assets (Operate / Lease)': held,
-        'Capitalised to Sell inventory (released through Cost of Sales, memo)': sumF(idcOf((id) => sellIds.has(id))),
-        'Opening IDC NBV (held)': 'opening',
-        '(+) IDC Additions (held)': held,
-        '(−) IDC Depreciation': dep ? neg(dep) : null,
-        '(−) Disposed at Exit (capitalised interest)': disp ? neg(disp) : null,
-        'Closing IDC NBV (held)': rolled,
-      }, 'Closing IDC NBV (held)');
-    }
 
     // ── L3, debt outstanding by tranche ───────────────────────────────────────
     {

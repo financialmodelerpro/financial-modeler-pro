@@ -577,9 +577,11 @@ export const stage7Returns: LiveLayer = {
       // the capex NBV before the exit, the land, and the rest of the depreciable write-off (the interest).
       const sx = (k: string, t: number): string => (has(k) ? w.per(k, t) : '0');
       const exitX = (): string => (has('tl:flag:exit') ? w.per('tl:flag:exit', X) : '0');
-      const capDisp = (base: string): string => `${exitX()}*MAX(0,${X > 0 ? sx(`schv:${base}:capNbv`, X - 1) : '0'}+${sx(`schv:${base}:capAdd`, X)}-${sx(`schv:${base}:capDep`, X)})`;
+      // Schedules carries the building write-off (capex and capitalised interest) and the interest's own NBV:
+      // the interest written off is that NBV before the exit, the building the rest.
+      const idcDisp = (base: string): string => (has(`schv:${base}:idcNbv`) ? `${exitX()}*MAX(0,${X > 0 ? sx(`schv:${base}:idcNbv`, X - 1) : '0'}+${sx(`schv:${base}:idcAdd`, X)}-${sx(`schv:${base}:idcDep`, X)})` : '0');
+      const capDisp = (base: string): string => (has(`schv:${base}:disp`) ? `-${sx(`schv:${base}:disp`, X)}-${idcDisp(base)}` : '0');
       const landDisp = (base: string): string => (has(`schv:${base}:landDisp`) ? `-${sx(`schv:${base}:landDisp`, X)}` : '0');
-      const idcDisp = (base: string): string => (has(`schv:${base}:idcAdd`) && has(`schv:${base}:disp`) ? `-${sx(`schv:${base}:disp`, X)}-${capDisp(base)}` : '0');
       const bld = (): string => capDisp('__project__'), lnd = (): string => landDisp('__project__');
       const cint = (): string => fnc('fnc:main:idcdisp', X);
       const nbv = (): string => `(${bld()}+${lnd()}+${cint()})`;
@@ -609,7 +611,7 @@ export const stage7Returns: LiveLayer = {
         const rk = `${G}${lineTitle(l, lineState)}`;
         if (!has(`${rk}|0`)) continue;
         // The line's fixed asset schedule is keyed by its first member that has one (stage 4).
-        const host = l.assetIds.find((id) => has(`schv:${id}:capNbv`));
+        const host = l.assetIds.find((id) => has(`schv:${id}:close`));
         if (!host) { missing.push(`the fixed asset schedule of ${lineTitle(l, lineState)}`); continue; }
         const rr = w.addr(`${rk}|0`).row;
         soldRows.push(rr);

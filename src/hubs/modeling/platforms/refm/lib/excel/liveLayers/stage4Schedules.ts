@@ -1,34 +1,39 @@
 /**
- * stage4Schedules.ts (2026-09-27; on the visible tab 2026-10-15), FORMULA-LINKED
- * EXPORT, STAGE 4: SCHEDULES.
+ * stage4Schedules.ts (2026-09-27; on the visible tab 2026-10-15; made short 2026-10-28),
+ * FORMULA-LINKED EXPORT, STAGE 4: SCHEDULES.
  *
- * Runs after Capex, Revenue, Cost of Sales and Opex, since it reads all four. Every
- * figure is a row on the Schedules tab:
+ * Runs after Capex, Revenue and Opex, since it reads them. Every figure is a row on
+ * the Schedules tab, laid out by `addSchedulesLive` (keys `fa|<host>|<id>` and
+ * `cs|<line>|<id>`):
  *
- *   FIXED ASSETS & D&A, per held line (Operate and Lease) as
- *     `computeAllFixedAssetResults` builds it: the line's plots' land value rows on
- *     Capex are its land additions (land never depreciates), the rest of their rows
- *     its depreciable additions. Each year's addition depreciates straight line from
- *     the later of its own year and the first operating year, over the line's useful
- *     life: one SUMPRODUCT over the additions row and the index row, on its own row
- *     ("of which: on capex") where interest was capitalised. NBV is floored at zero;
- *     the exit (the Timeline's exit flag) writes the balances off in the exit year.
- *     The project tables add the lines.
- *   BS SCHEDULES: the sales receivables and unearned revenue roll forward from
- *     Revenue's rows; the operating receivables close on the feed's rows; inventory
- *     rolls forward from the cost of sales rows; escrow and payables read Revenue
- *     and Opex.
+ *   FIXED ASSETS, per held asset (Operate and Lease) as `computeAllFixedAssetResults`
+ *     builds it. A helper row carries the useful life (B, from Inputs: the asset's own
+ *     life, a blank taking its category default there), the first depreciation year
+ *     (C, the year after the Timeline's handover year) and, each year, the year that
+ *     year's additions start depreciating (the later of the two). Land: its plots'
+ *     land value rows on Capex are the additions (land never depreciates). Building:
+ *     the rest of Capex, plus the interest capitalised into the asset (the financing
+ *     loop's rows, the one backward link); each year's additions depreciate straight
+ *     line over the life from their start year (one SUMPRODUCT); the exit (the
+ *     Timeline's exit flag) writes the balances off in the exit year. The capitalised
+ *     interest's own depreciation and NBV are memo rows (the loop and the balance
+ *     sheet read them). The project rows are SUMs of the assets'.
+ *   COST OF SALES, per Sell line as `buildAssetCostOfSales` builds it: the line's
+ *     capex plus its capitalised interest is the base, released on the share of the
+ *     line's lifetime revenue recognised each year (Revenue's summary row); one
+ *     inventory roll-forward; the project rows are SUMs.
  *
- * WAITS FOR THE FINANCING: interest capitalised into a held line, its depreciation
- * and its NBV come out of the circular solve, so those cells hold the platform's
- * values, marked pending, until the financing layer writes their formulas into the
- * same cells (the `schv:` keys below). Debt, equity and retained earnings are the
- * Balance Sheet's (stage 8).
+ * The working capital schedules (receivables, unearned revenue, escrow, payables) are
+ * not repeated here: the Balance Sheet links Revenue and Opex, where they are worked out.
  *
- * REFUSES by name (the Schedules sheet stays values): Capex not live, reducing
- * balance depreciation, a phase overlap, existing operations carried in, plots of one
- * line with different lives, an exit before the last year, an operating receivable
- * year that is not 365 days, a Sell plot holding inventory with no cost of sales line.
+ * WAITS FOR THE FINANCING: capitalised interest comes out of the circular solve, so
+ * its cells hold the platform's values, marked pending, until the financing layer
+ * writes their formulas into the same cells (`schv:<host>:idcAdd`, `cosc:<line>:idc`).
+ *
+ * REFUSES by name (the Schedules sheet stays values): Capex not live, reducing balance
+ * depreciation, a phase overlap, existing operations carried in, plots of one line with
+ * different lives, a life not on Inputs, an exit before the last year, a Sell plot
+ * holding inventory with no cost of sales line.
  *
  * No em dashes in this file.
  */
@@ -38,42 +43,33 @@ import { PERIOD_COLS } from '../buildModelWorkbook';
 import { withResolvedAssetNames } from '@/src/core/calculations/assetName';
 import { isLandValueLine, resolveUsefulLifeYears } from '@/src/core/calculations';
 import { computeFinancialsSnapshot } from '../../financials-resolvers';
-import { planRevenueLines, lineForAsset } from '../../revenueLines';
-import { buildFixedAssetReport, type FixedAssetTable } from '../../reports/fixedAssetReports';
+import { planRevenueLines } from '../../revenueLines';
+import { buildFixedAssetReport } from '../../reports/fixedAssetReports';
 import { disposalContextOf } from '../../reports/disposalSchedules';
-import { buildBsFeederTables } from '../../reports/m4Reports';
-import { planReportLines, poolMapByLine } from '../../reports/lineRows';
-import type { Asset, CostLine, Phase } from '../../state/module1-types';
+import { planReportLines, poolCapexByLine } from '../../reports/lineRows';
+import { buildCapexReport } from '../../reports/capexReports';
+import type { CostLine, Asset } from '../../state/module1-types';
 import { usefulLifeCategory } from '../inputsSheetSections';
 
 const SCH = 'Schedules';
 
-/**
- * A HELD LINE'S USEFUL LIFE IN FORCE: the life on the Schedules inputs table, a blank or
- * zero inheriting the category default (`resolveUsefulLifeYears`). The one formula every
- * reader of the life uses (this layer and the financing solve).
- */
+/** A HELD ASSET'S USEFUL LIFE IN FORCE: column B of its depreciation helper row on Schedules. */
 export function lifeInForce(w: LiveWriter, host: Asset, here?: string): string {
   const a = w.addr(`fain:${host.id}`);
-  const life = w.refA({ sheet: a.sheet, row: a.row, col: PERIOD_COLS.TOTAL_COL }, here);
-  // The table's cell IS the life in force (written from Inputs below); no default is typed in a formula.
-  if (w.has(`falife:${host.id}`)) return life;
-  const dflt = resolveUsefulLifeYears({ ...host, usefulLifeYears: undefined } as Asset);
-  return `IF(N(${life})>0,N(${life}),${dflt})`;
+  return w.refA({ sheet: a.sheet, row: a.row, col: PERIOD_COLS.META_B }, here);
 }
 
 /**
  * EACH YEAR'S ADDITION DEPRECIATES OVER THE LIFE FROM THE LATER OF ITS OWN YEAR AND THE FIRST
- * OPERATING YEAR: the one rule, here and in the financing loop's fee-free solve. `addAll` is the
- * additions row across the years; `idxAll` and `idxNow` are Schedules' year-index row and this year's cell.
+ * OPERATING YEAR: the rule the financing loop's fee-free solve uses. `addAll` is the additions
+ * row across the years; `idxAll` and `idxNow` are Schedules' year-index row and this year's cell.
  */
 export function vintageDepF(addAll: string, life: string, firstOp: string, idxAll: string, idxNow: string): string {
   const V = `((${idxAll}>${firstOp})*${idxAll}+(${idxAll}<=${firstOp})*${firstOp})`;
   return `IF(${life}>0,SUMPRODUCT((${addAll}>0)*${addAll}/MAX(1,${life})*(${V}<=${idxNow})*(${V}+MAX(1,INT(${life}))>${idxNow})),0)`;
 }
-/** The year index (1 = the first year) of a phase's first operating year, from the Timeline's phase table. */
+/** The year number (1 = the first year) depreciation starts: column C of the asset's helper row. */
 export function firstOperatingIdx(w: LiveWriter, phaseId: string, hostId?: string): string {
-  // The held line's own cell on the depreciation inputs table, where the live layout carries one.
   if (hostId && w.has(`fafirst:${hostId}`)) return w.ref(`fafirst:${hostId}`);
   return `(MAX(0,YEAR(${w.ref(`tl:phase:${phaseId}:cs`)})-${w.ref('project:axisYear')})+MAX(0,${w.ref(`tl:phase:${phaseId}:cp`)})+1)`;
 }
@@ -86,11 +82,11 @@ export const stage4Schedules: LiveLayer = {
     const state = { ...raw, assets: withResolvedAssetNames(raw.assets, { parcels: raw.parcels, phases: raw.phases }) };
     const snap = computeFinancialsSnapshot(state);
     const N = snap.axisLength;
-    const { TOTAL_COL, OPEN_COL } = PERIOD_COLS;
+    const { TOTAL_COL, OPEN_COL, META_B } = PERIOD_COLS;
+    const META_C = META_B + 1;
     const pc = (t: number): number => OPEN_COL + 1 + t;
     const w = new LiveWriter(wb, reg, ctx.pending);
     const has = (k: string): boolean => w.has(k);
-    const phases = state.phases as Phase[];
     const lines = planRevenueLines(state.assets, state.subUnits, state.phases, state.project);
     const lineState = { assets: state.assets, phases: state.phases, parcels: state.parcels };
     const values = (note: string) => [{ sheet: SCH, status: 'values' as const, formulas: 0, note }];
@@ -99,257 +95,162 @@ export const stage4Schedules: LiveLayer = {
     const refuse: string[] = [];
     if (!w.reg.keys().some((k) => k.startsWith('cxc:'))) refuse.push('Capex is not live for this model');
     const dCtx = disposalContextOf(snap);
-    if (dCtx.booked && dCtx.exitIdx < N - 1) refuse.push('the exit falls before the last year');
-    if (dCtx.booked && !has('tl:flag:exit')) refuse.push('the Timeline shows no exit year');
+    const booked = dCtx.booked;
+    if (booked && dCtx.exitIdx < N - 1) refuse.push('the exit falls before the last year');
+    if (booked && !has('tl:flag:exit')) refuse.push('the Timeline shows no exit year');
     const faAssets = state.assets.filter((a) => snap.fixedAssets.byAsset.has(a.id));
     for (const a of faAssets) {
       if ((a.depreciationMethod ?? 'straight_line') !== 'straight_line') refuse.push(`${a.name}: reducing balance depreciation`);
-      const p = phases.find((x) => x.id === a.phaseId);
+      const p = state.phases.find((x) => x.id === a.phaseId);
       if (p && (p.overlapPeriods ?? 0) !== 0) refuse.push(`${a.name}: a phase overlap, which the sheet does not show`);
       if ((a.historicalPreCapexLand ?? 0) > 0 || (a.historicalPreCapexBuilding ?? 0) > 0) refuse.push(`${a.name}: existing operations carried in`);
     }
-    const faLines = planReportLines(lineState, (a) => snap.fixedAssets.byAsset.has(a.id));
-    for (const l of faLines) {
+    const report = buildFixedAssetReport({ fa: snap.fixedAssets, idc: snap.idc, state, dCtx });
+    const faLines = report.groups.flatMap((g) => g.lines);
+    for (const l of planReportLines(lineState, (a) => snap.fixedAssets.byAsset.has(a.id))) {
       const lives = new Set(l.assetIds.map((id) => resolveUsefulLifeYears(state.assets.find((a) => a.id === id)!)));
       if (lives.size > 1) refuse.push(`${l.assetIds.join(', ')}: plots of one line depreciate over different lives`);
-      if (!has(`fain:${l.assetIds[0]}`)) refuse.push(`${l.assetIds[0]}: no life on the inputs table`);
     }
-    const oparKeys = lines.filter((l) => l.form !== 'sell').map((l) => `rvc:${l.key}:opar`).filter(has);
-    const arDays = state.project.operatingAr?.daysPerYear;
-    if (arDays !== undefined && arDays !== 365) refuse.push('the operating receivables use a year that is not 365 days, which the sheet does not show');
-    const invLines = lines.filter((l) => l.form === 'sell' && has(`cosc:${l.key}:inv`));
+    for (const l of faLines) {
+      const host = state.assets.find((a) => a.id === l.hostId)!;
+      if (!has(`fa|${l.hostId}|help`)) refuse.push(`${host.name}: no fixed asset table`);
+      if (!has(`falife:${host.id}`) || !has(`fadefault:${usefulLifeCategory(host)}`)) refuse.push(`${host.name}: its useful life is not on Inputs`);
+      if (!has(`tl:flag:${host.phaseId}:hand`)) refuse.push(`${host.name}: the Timeline's handover year is not live`);
+    }
+    const cosLines = lines.filter((l) => l.form === 'sell' && has(`cs|${l.key}|cos`));
     for (const [id, c] of snap.byAssetCostOfSales) {
-      if (c.inventoryPerPeriod.some((v) => Math.abs(v) > 0) && !invLines.some((l) => l.members.some((m) => m.id === id))) refuse.push(`${id} holds inventory with no cost of sales line`);
+      if (c.inventoryPerPeriod.some((v) => Math.abs(v) > 0) && !cosLines.some((l) => l.members.some((m) => m.id === id))) refuse.push(`${id} holds inventory with no cost of sales line`);
     }
+    for (const l of cosLines) if (!has(`rvc:${l.key}:recognised`)) refuse.push(`${l.label}: its revenue recognised is not on Revenue`);
     if (refuse.length) return values(`Schedules could not be made live for this model: ${[...new Set(refuse)].join('; ')}.`);
 
     // ── Writing helpers: one formula per row, period references column relative ──
     const here = SCH;
     const p = (key: string, t: number, dt = 0): string => { const a = w.addr(key); return w.refP({ sheet: a.sheet, row: a.row, col: pc(t) + dt }, here); };
     const fx = (key: string, col: number): string => { const a = w.addr(key); return w.refA({ sheet: a.sheet, row: a.row, col }, here); };
-    const row = (key: string, f: (t: number) => string, total: 'sum' | 'last' | 'first' | 'sumPrior' | 'none'): void => {
+    const rng = (key: string): string => { const a = w.addr(key); return w.rangeA(a.sheet, a.row, pc(0), pc(N - 1)); };
+    const row = (key: string, f: (t: number) => string, total: 'sum' | 'none'): void => {
       if (!has(key)) return;
       const r = w.addr(key).row;
       for (let t = 0; t < N; t++) w.fA({ sheet: SCH, row: r, col: pc(t) }, f(t));
-      const rng = (): string => w.rangeA(SCH, r, pc(0), pc(N - 1));
-      if (total === 'sum') w.fA({ sheet: SCH, row: r, col: TOTAL_COL }, `SUM(${rng()})`);
-      else if (total === 'sumPrior') w.fA({ sheet: SCH, row: r, col: TOTAL_COL }, `SUM(${rng()})+N(${w.refA({ sheet: SCH, row: r, col: OPEN_COL }, here)})`);
-      else if (total === 'last') w.fA({ sheet: SCH, row: r, col: TOTAL_COL }, w.refA({ sheet: SCH, row: r, col: pc(N - 1) }, here));
-      else if (total === 'first') w.fA({ sheet: SCH, row: r, col: TOTAL_COL }, w.refA({ sheet: SCH, row: r, col: pc(0) }, here));
+      if (total === 'sum') w.fA({ sheet: SCH, row: r, col: TOTAL_COL }, `SUM(${w.rangeA(SCH, r, pc(0), pc(N - 1))})`);
     };
     /** The platform's values, marked pending: the financing layer writes the formula into these cells. */
-    const pendingRow = (key: string, vals: readonly number[], total: 'sum' | 'last'): void => {
+    const pendingRow = (key: string): void => {
       if (!has(key)) return;
       const r = w.addr(key).row;
-      for (let t = 0; t < N; t++) w.valueA({ sheet: SCH, row: r, col: pc(t) }, vals[t] ?? 0, { pending: true });
-      if (total === 'sum') w.fA({ sheet: SCH, row: r, col: TOTAL_COL }, `SUM(${w.rangeA(SCH, r, pc(0), pc(N - 1))})`);
-      else w.fA({ sheet: SCH, row: r, col: TOTAL_COL }, w.refA({ sheet: SCH, row: r, col: pc(N - 1) }, here));
+      for (let t = 0; t < N; t++) w.valueA({ sheet: SCH, row: r, col: pc(t) }, Number(w.platformValue({ sheet: SCH, row: r, col: pc(t) }) ?? 0), { pending: true });
+      w.fA({ sheet: SCH, row: r, col: TOTAL_COL }, `SUM(${w.rangeA(SCH, r, pc(0), pc(N - 1))})`);
     };
-    const plat = (key: string): number[] => Array.from({ length: N }, (_, t) => Number(w.platformValue({ sheet: SCH, row: w.addr(key).row, col: pc(t) }) ?? 0));
-    const booked = dCtx.booked;
+    /** A total of rows on this tab: SUM over a block where they sit together, else SUM of the cells. */
+    const sumOf = (keys: string[], t: number): string => {
+      const ks = keys.filter(has);
+      if (!ks.length) return '0';
+      const rs = ks.map((k) => w.addr(k).row).sort((a, b) => a - b);
+      for (const r of rs) w.refP({ sheet: SCH, row: r, col: pc(t) }, here);
+      if (rs.length > 1 && rs.every((r, i) => i === 0 || r === rs[i - 1] + 1)) return `SUM(${p(ks.find((k) => w.addr(k).row === rs[0])!, t)}:${p(ks.find((k) => w.addr(k).row === rs[rs.length - 1])!, t)})`;
+      return `SUM(${ks.map((k) => p(k, t)).join(',')})`;
+    };
     const exit = (t: number): string => (booked ? w.refP({ sheet: 'Timeline', row: w.addr('tl:flag:exit').row, col: pc(t) }, here) : '0');
-    const idxRow = (t: number): string => w.refP({ sheet: SCH, row: 4, col: pc(t) }, here);
-    const idxAll = (): string => w.rangeA(SCH, 4, pc(0), pc(N - 1));
+    const idxNow = (t: number): string => w.refP({ sheet: SCH, row: 4, col: pc(t) }, here);
     const claim = (name: string, key: string): void => { if (has(key)) w.claim(name, SCH, w.addr(key).row, 1); };
     const costLineOf = (id: string): Pick<CostLine, 'id' | 'catalogId'> => (state.costLines as CostLine[]).find((x) => x.id === id) ?? { id };
+    const ROWS = ['landOpen', 'landAdd', 'landDisp', 'landClose', 'open', 'capAdd', 'idcAdd', 'dep', 'disp', 'close', 'idcDep', 'idcNbv'] as const;
+    const CLAIMED = ['landAdd', 'landDisp', 'landClose', 'capAdd', 'idcAdd', 'dep', 'disp', 'close', 'idcDep', 'idcNbv'] as const;
 
-    // ── Fixed assets, per held line ──────────────────────────────────────────
-    const report = buildFixedAssetReport({ fa: snap.fixedAssets, idc: snap.idc, state, dCtx });
-    const find = (t: FixedAssetTable, kind: string, keyBase: string, pred: (label: string) => boolean): string | undefined => {
-      const r = t.rows.find((x) => pred(x.label));
-      return r ? `sch|${keyBase}|${kind}|${r.label}` : undefined;
-    };
-    interface Rows { landAdd: string; landOpen: string; landDisp?: string; landClose: string; open: string; capAdd: string; idcAdd?: string; idcDep?: string; dep: string; capDep: string; disp?: string; close: string; capNbv: string; idcNbv?: string; accum?: string; tot: FixedAssetTable }
-    const rowsOf = (keyBase: string, land: FixedAssetTable, dep: FixedAssetTable, tot: FixedAssetTable): Rows | null => {
-      const L = (pred: (s: string) => boolean): string | undefined => find(land, 'land', keyBase, pred);
-      const D = (pred: (s: string) => boolean): string | undefined => find(dep, 'dep', keyBase, pred);
-      const withIdc = dep.rows.some((r) => r.label.includes('IDC'));
-      const capDepKey = `sch|${keyBase}|dep|   of which: on capex`;
-      const idcDepKey = `sch|${keyBase}|dep|   of which: on capitalised interest`;
-      const out = {
-        landAdd: L((s) => s === '(+) Land Additions'), landOpen: L((s) => s === 'Opening Land'), landDisp: L((s) => s.startsWith('(−) Land Disposed')), landClose: L((s) => s === 'Closing Land'),
-        open: D((s) => s.startsWith('Opening NBV')), capAdd: D((s) => s === '(+) Capex Additions'), idcAdd: D((s) => s.startsWith('(+) IDC Additions')),
-        dep: D((s) => s.startsWith('(−) Depreciation')), capDep: withIdc ? capDepKey : D((s) => s.startsWith('(−) Depreciation')), idcDep: withIdc ? idcDepKey : undefined,
-        disp: D((s) => s.startsWith('(−) Disposed at Exit')), close: D((s) => s.startsWith('Closing NBV')),
-        capNbv: withIdc ? D((s) => s.includes('of which: Capex NBV')) : D((s) => s.startsWith('Closing NBV')),
-        idcNbv: D((s) => s.includes('of which: IDC NBV')), accum: D((s) => s.startsWith('Accumulated')), tot,
+    // ── Fixed assets, per held asset ─────────────────────────────────────────
+    for (const l of faLines) {
+      const host = state.assets.find((a) => a.id === l.hostId)!;
+      const K = (id: string): string => `fa|${l.hostId}|${id}`;
+      // The helper: the life in force (B), the first depreciation year (C), each year's start year.
+      const hk = K('help');
+      const ov = w.ref(`falife:${host.id}`), dflt = w.ref(`fadefault:${usefulLifeCategory(host)}`);
+      w.fA({ sheet: SCH, row: w.addr(hk).row, col: META_B }, `IF(N(${ov})>0,N(${ov}),${dflt})`);
+      const hand = w.addr(`tl:flag:${host.phaseId}:hand`);
+      w.fA({ sheet: SCH, row: w.addr(hk).row, col: META_C }, `SUMPRODUCT(${w.rangeA('Timeline', hand.row, pc(0), pc(N - 1))},${w.rangeA('Timeline', 4, pc(0), pc(N - 1))})+1`);
+      const life = fx(hk, META_B), first = fx(hk, META_C);
+      row(hk, (t) => `MAX(${idxNow(t)},${first})`, 'none');
+      // Each year's additions depreciate from their start year, over the life.
+      const dep = (addKeys: string[]) => (t: number): string => {
+        const adds = addKeys.filter(has).map((k) => rng(k));
+        const sum = adds.length > 1 ? `(${adds.join('+')})` : adds[0];
+        return `IF(${life}>0,SUMPRODUCT((${sum}>0)*${sum}*(${rng(hk)}<=${idxNow(t)})*(${rng(hk)}+MAX(1,INT(${life}))>${idxNow(t)}))/MAX(1,${life}),0)`;
       };
-      if (!out.landAdd || !out.landOpen || !out.landClose || !out.open || !out.capAdd || !out.dep || !out.capDep || !out.close || !out.capNbv || !has(out.capDep)) return null;
-      if (withIdc && (!out.idcAdd || !out.idcNbv || !has(idcDepKey))) return null;
-      return out as Rows;
-    };
-    /** Write a line's (or the project's) three tables. `capDepF` and the additions come from the caller. */
-    /** `idc`: the interest additions (null: the financing loop writes them) and their depreciation. */
-    const writeTables = (keyBase: string, r: Rows, landAddF: (t: number) => string, capAddF: (t: number) => string, capDepF: ((t: number) => string) | null, idc: { add: ((t: number) => string) | null; dep: (t: number) => string } | null): void => {
-      const withIdc = !!r.idcAdd;
+      // The asset's rows on Capex: Table 4 (excluding all land) is what depreciates, Table 2 less it is its land.
+      const keys = l.memberIds.flatMap((id) => w.reg.keys().filter((k) => k.startsWith(`cxc:${id}:`) && k.split(':').length === 3));
+      const landKeys = keys.filter((k) => isLandValueLine(costLineOf(k.split(':')[2])));
+      const otherKeys = keys.filter((k) => !landKeys.includes(k));
+      const c2 = l.memberIds.map((id) => `cx2:${id}`).find(has), c4 = l.memberIds.map((id) => `cx4:${id}`).find(has);
+      const byTables = !!c2 && !!c4 && c2.slice(4) === c4.slice(4);
+      const withIdc = has(K('idcAdd'));
       // Land.
-      row(r.landAdd, landAddF, 'sum');
-      row(r.landOpen, (t) => p(r.landClose, t, -1), 'last');
-      if (r.landDisp) row(r.landDisp, (t) => `-(${exit(t)}*(${p(r.landOpen, t)}+${p(r.landAdd, t)}))`, 'sum');
-      row(r.landClose, (t) => `${p(r.landOpen, t)}+${p(r.landAdd, t)}${r.landDisp ? `+${p(r.landDisp, t)}` : ''}`, 'last');
-      // Depreciable: additions, the capex depreciation, the capex NBV.
-      row(r.capAdd, capAddF, 'sum');
-      const capDepPos = (t: number): string => (withIdc ? p(r.capDep, t) : `-${p(r.dep, t)}`);
-      if (capDepF) row(r.capDep, withIdc ? capDepF : (t) => `-(${capDepF(t)})`, 'sum');
-      const capPre = (t: number): string => `MAX(0,${p(r.capNbv, t, -1)}+${p(r.capAdd, t)}-${capDepPos(t)})`;
-      row(r.capNbv, (t) => `(1-${exit(t)})*${capPre(t)}`, 'last');
-      if (withIdc && idc) {
-        // CAPITALISED INTEREST: its additions are the financing loop's (written into these cells
-        // by the loop, the one backward link); its depreciation, NBV and write-off are worked
-        // out here, by the rule capex follows.
-        if (idc.add) row(r.idcAdd!, idc.add, 'sum'); else pendingRow(r.idcAdd!, plat(r.idcAdd!), 'sum');
-        row(r.idcDep!, idc.dep, 'sum');
-        row(r.dep, (t) => `-(${p(r.capDep, t)}+${p(r.idcDep!, t)})`, 'sum');
-        const idcPre = (t: number): string => `MAX(0,${p(r.idcNbv!, t, -1)}+${p(r.idcAdd!, t)}-${p(r.idcDep!, t)})`;
-        if (r.disp) row(r.disp, (t) => `-(${exit(t)}*(${capPre(t)}+${idcPre(t)}))`, 'sum');
-        row(r.idcNbv!, (t) => `(1-${exit(t)})*${idcPre(t)}`, 'last');
-        row(r.close, (t) => `${p(r.capNbv, t)}+${p(r.idcNbv!, t)}`, 'last');
-      } else if (r.disp) row(r.disp, (t) => `-(${exit(t)}*${capPre(t)})`, 'sum');
-      row(r.open, (t) => p(r.close, t, -1), 'last');
-      if (r.accum) row(r.accum, (t) => `(1-${exit(t)})*(${p(r.accum!, t, -1)}+${capDepPos(t)})`, 'last');
-      // Total: land and depreciable.
-      for (const x of r.tot.rows) {
-        const key = `sch|${keyBase}|total|${x.label}`;
-        const L = x.label;
-        if (L === 'Opening Land') row(key, (t) => p(r.landOpen, t), 'last');
-        else if (L.startsWith('Opening Depreciable')) row(key, (t) => p(r.open, t), 'last');
-        else if (L === 'Opening Fixed Assets') row(key, (t) => `${p(r.landOpen, t)}+${p(r.open, t)}`, 'last');
-        else if (L.startsWith('(−) Disposed at Exit')) row(key, (t) => [r.landDisp, r.disp].filter((k): k is string => !!k).map((k) => p(k, t)).join('+') || '0', 'sum');
-        else if (L === 'Closing Land') row(key, (t) => p(r.landClose, t), 'last');
-        else if (L.startsWith('Closing Depreciable')) row(key, (t) => p(r.close, t), 'last');
-        else if (L === 'Closing Fixed Assets') row(key, (t) => `${p(r.landClose, t)}+${p(r.close, t)}`, 'last');
-        else throw new Error(`Schedules: no rule for the row "${L}" (total)`);
+      row(K('landOpen'), (t) => p(K('landClose'), t, -1), 'none');
+      row(K('landAdd'), byTables ? (t) => `${p(c2!, t)}-${p(c4!, t)}` : (t) => landKeys.map((k) => p(k, t)).join('+') || '0', 'sum');
+      row(K('landDisp'), (t) => `-${exit(t)}*(${p(K('landOpen'), t)}+${p(K('landAdd'), t)})`, 'sum');
+      row(K('landClose'), (t) => `${p(K('landOpen'), t)}+${p(K('landAdd'), t)}${has(K('landDisp')) ? `+${p(K('landDisp'), t)}` : ''}`, 'none');
+      // Building.
+      row(K('open'), (t) => p(K('close'), t, -1), 'none');
+      row(K('capAdd'), byTables ? (t) => p(c4!, t) : (t) => otherKeys.map((k) => p(k, t)).join('+') || '0', 'sum');
+      if (withIdc) pendingRow(K('idcAdd'));
+      const flows = [K('capAdd'), ...(withIdc ? [K('idcAdd')] : [])];
+      row(K('dep'), (t) => `-${dep(flows)(t)}`, 'sum');
+      const before = (t: number): string => `${p(K('open'), t)}+${p(K('capAdd'), t)}${withIdc ? `+${p(K('idcAdd'), t)}` : ''}+${p(K('dep'), t)}`;
+      row(K('disp'), (t) => `-${exit(t)}*(${before(t)})`, 'sum');
+      row(K('close'), (t) => `${before(t)}${has(K('disp')) ? `+${p(K('disp'), t)}` : ''}`, 'none');
+      if (withIdc) {
+        row(K('idcDep'), dep([K('idcAdd')]), 'sum');
+        row(K('idcNbv'), (t) => `(1-${exit(t)})*(${p(K('idcNbv'), t, -1)}+${p(K('idcAdd'), t)}-${p(K('idcDep'), t)})`, 'none');
       }
-      // The rows later layers read.
-      for (const [name, k] of Object.entries({ landAdd: r.landAdd, landDisp: r.landDisp, landClose: r.landClose, capAdd: r.capAdd, capDep: r.capDep, dep: r.dep, disp: r.disp, capNbv: r.capNbv, idcAdd: r.idcAdd, idcDep: r.idcDep, idcNbv: r.idcNbv, close: r.close })) {
-        if (k) claim(`schv:${keyBase}:${name}`, k);
-      }
-    };
-
-    const lineRows = new Map<string, Rows>();
-    for (const gr of report.groups) {
-      for (const l of gr.lines) {
-        const r = rowsOf(l.hostId, l.land, l.depreciable, l.total);
-        if (!r) return values(`Schedules could not be made live for this model: ${l.title}'s tables do not carry the rows the formulas need.`);
-        const host = state.assets.find((a) => a.id === l.hostId)!;
-        const p0 = phases.find((x) => x.id === host.phaseId)!;
-        const keys = l.memberIds.flatMap((id) => w.reg.keys().filter((k) => k.startsWith(`cxc:${id}:`) && k.split(':').length === 3));
-        const landKeys = keys.filter((k) => isLandValueLine(costLineOf(k.split(':')[2])));
-        const otherKeys = keys.filter((k) => !landKeys.includes(k));
-        // The life, and the year index of the first operating year.
-        const Lf = (): string => lifeInForce(w, host, here);
-        const inputs = w.addr(`fain:${host.id}`);
-        // The life in force: the life typed on Inputs, a blank taking its category's default there.
-        const dk = `fadefault:${usefulLifeCategory(host)}`;
-        if (w.has(`falife:${host.id}`) && w.has(dk)) {
-          const ov = w.ref(`falife:${host.id}`);
-          w.fA({ sheet: SCH, row: inputs.row, col: TOTAL_COL }, `IF(N(${ov})>0,N(${ov}),${w.ref(dk)})`);
-        }
-        w.fA({ sheet: SCH, row: inputs.row, col: OPEN_COL }, `IF(${Lf()}>0,1/${Lf()},0)`);
-        // The year depreciation starts (the first operating year, as a model year number).
-        if (w.has(`fafirst:${host.id}`)) w.f(`fafirst:${host.id}`, firstOperatingIdx(w, p0.id));
-        // Each year's addition depreciates from the later of its own year and the first operating year.
-        const vintageDep = (addKey: string) => (t: number): string => vintageDepF(w.rangeA(SCH, w.addr(addKey).row, pc(0), pc(N - 1)), Lf(), firstOperatingIdx(w, p0.id, host.id), idxAll(), idxRow(t));
-        // The asset's rows on Capex: Table 4 (excluding all land) is what depreciates, Table 2 less it is its land.
-        const c2 = l.memberIds.map((id) => `cx2:${id}`).find((k) => w.has(k)), c4 = l.memberIds.map((id) => `cx4:${id}`).find((k) => w.has(k));
-        const byTables = !!c2 && !!c4 && c2.slice(4) === c4.slice(4);
-        writeTables(l.hostId, r,
-          byTables ? (t) => `${p(c2!, t)}-${p(c4!, t)}` : (t) => landKeys.map((k) => p(k, t)).join('+') || '0',
-          byTables ? (t) => p(c4!, t) : (t) => otherKeys.map((k) => p(k, t)).join('+') || '0', vintageDep(r.capAdd),
-          r.idcAdd ? { add: null, dep: vintageDep(r.idcAdd) } : null);
-        lineRows.set(l.hostId, r);
-        w.claim(`schc:${host.id}:life`, inputs.sheet, inputs.row, TOTAL_COL);
-      }
+      for (const name of CLAIMED) claim(`schv:${l.hostId}:${name}`, K(name));
     }
-    // The project: the lines added.
+    // The project: each row the SUM of the assets' rows.
     {
-      const pr = rowsOf('__project__', report.project.land, report.project.depreciable, report.project.total);
-      if (!pr) return values('Schedules could not be made live for this model: the project tables do not carry the rows the formulas need.');
-      const ls = [...lineRows.values()];
-      const sum = (pick: (x: Rows) => string | ((t: number) => string)) => (t: number): string => ls.map((x) => { const v = pick(x); return typeof v === 'string' ? p(v, t) : v(t); }).join('+') || '0';
-      const capDepOf = (x: Rows): string | ((t: number) => string) => (x.idcAdd ? x.capDep : (t: number) => `(-${p(x.dep, t)})`);
-      const zero = (): string => '0';
-      writeTables('__project__', pr, sum((x) => x.landAdd), sum((x) => x.capAdd), pr.idcAdd ? sum(capDepOf) : (t) => `-(${sum((x) => x.dep)(t)})`,
-        pr.idcAdd ? { add: sum((x) => x.idcAdd ?? zero), dep: sum((x) => x.idcDep ?? zero) } : null);
+      const K = (id: string): string => `fa|__project__|${id}`;
+      for (const id of ROWS) {
+        const parts = faLines.map((l) => `fa|${l.hostId}|${id}`).filter(has);
+        row(K(id), (t) => sumOf(parts, t), id === 'landOpen' || id === 'landClose' || id === 'open' || id === 'close' || id === 'idcNbv' ? 'none' : 'sum');
+      }
+      for (const name of CLAIMED) claim(`schv:__project__:${name}`, K(name));
     }
-    // The capitalised interest pool's per-line additions read the financing (stage 8).
 
-    // ── BS Schedules ─────────────────────────────────────────────────────────
-    const feeders = buildBsFeederTables({ snap, state, fmt: (v: number) => String(v) });
-    const F = (tbl: string, label: string): string => `sch|${tbl}||${label}`;
-    const sellMap = new Map([...snap.byAssetSchedules.entries()].filter(([id]) => snap.revenue.bySellAsset.has(id)));
-    const sellLines = poolMapByLine(sellMap, lineState).map(([id, , name]) => ({ name, rl: lineForAsset(lines, id) }));
-    const sellKey = (k: string): string[] => sellLines.map((s) => (s.rl ? `rvc:${s.rl.key}:${k}` : '')).filter((x) => x && has(x));
-    // The balance sheet reads the receivable and unearned balances as Revenue holds them, not floored.
-    const sumP = (keys: string[], t: number): string => keys.map((k) => p(k, t)).join('+') || '0';
-    const byLine = (tbl: string, rowsT: Array<{ label: string }>, k: string): string[] => {
-      const out: string[] = [];
-      const occ = new Map<string, number>();
-      for (const s of sellLines) {
-        const n = occ.get(s.name) ?? 0; occ.set(s.name, n + 1);
-        const key = n ? `${F(tbl, s.name)}~${n}` : F(tbl, s.name);
-        const src = s.rl && has(`rvc:${s.rl.key}:${k}`) ? `rvc:${s.rl.key}:${k}` : '';
-        if (!rowsT.some((r) => r.label === s.name)) continue;
-        row(key, (t) => (src ? p(src, t) : '0'), 'last');
-        out.push(key);
-      }
-      return out;
-    };
-    for (const tbl of feeders) {
-      if (tbl.key === 'A1') {
-        const C = F('A1', 'Closing AR (project total)');
-        row(F('A1', 'Opening AR (project)'), (t) => p(C, t, -1), 'first');
-        row(F('A1', '(+) Pre-Sales Sale Value'), (t) => sumP(sellKey('preRev'), t), 'sumPrior');
-        row(F('A1', '(−) Pre-Sales Cash Collected'), (t) => `-(${sumP(sellKey('cashPre'), t)})`, 'sumPrior');
-        row(C, (t) => `${p(F('A1', 'Opening AR (project)'), t)}+${p(F('A1', '(+) Pre-Sales Sale Value'), t)}+${p(F('A1', '(−) Pre-Sales Cash Collected'), t)}`, 'last');
-        const ks = byLine('A1', tbl.rows, 'ar');
-        row(F('A1', 'Total Closing AR'), (t) => sumP(ks, t), 'last');
-      } else if (tbl.key === 'L2') {
-        const C = F('L2', 'Closing unearned revenue (project total)');
-        row(F('L2', 'Opening unearned revenue (project)'), (t) => p(C, t, -1), 'first');
-        row(F('L2', '(+) Pre-sales contracts signed (sale value)'), (t) => sumP(sellKey('preRev'), t), 'sumPrior');
-        row(F('L2', '(−) Revenue recognized (at handover)'), (t) => `-(${sumP(sellKey('recPre'), t)})`, 'sumPrior');
-        row(C, (t) => `${p(F('L2', 'Opening unearned revenue (project)'), t)}+${p(F('L2', '(+) Pre-sales contracts signed (sale value)'), t)}+${p(F('L2', '(−) Revenue recognized (at handover)'), t)}`, 'last');
-        const ks = byLine('L2', tbl.rows, 'ur');
-        row(F('L2', 'Total Closing Unearned Revenue'), (t) => sumP(ks, t), 'last');
-      } else if (tbl.key === 'A2') {
-        const opKeys = lines.filter((l) => l.form !== 'sell').map((l) => `rvc:${l.key}:${l.form === 'operate' ? 'total' : 'rev'}`).filter(has);
-        const C = F('A2', 'Closing AR');
-        row(F('A2', 'Opening AR'), (t) => p(C, t, -1), 'first');
-        row(F('A2', '(+) Operating revenue billed'), (t) => sumP(opKeys, t), 'sumPrior');
-        row(C, (t) => sumP(oparKeys, t), 'last');
-        row(F('A2', '(−) Cash collected'), (t) => `${p(C, t)}-${p(F('A2', 'Opening AR'), t)}-${p(F('A2', '(+) Operating revenue billed'), t)}`, 'sumPrior');
-      } else if (tbl.key === 'A3') {
-        const C = F('A3', 'Closing inventory');
-        row(F('A3', 'Opening inventory'), (t) => p(C, t, -1), 'first');
-        row(F('A3', '(+) Capex capitalized'), (t) => sumP(invLines.map((l) => `cosc:${l.key}:base`).filter(has), t), 'sumPrior');
-        row(F('A3', '(−) Released to Cost of Sales'), (t) => `-(${sumP(invLines.map((l) => `cosc:${l.key}:cos`).filter(has), t)})`, 'sumPrior');
-        row(C, (t) => `${p(F('A3', 'Opening inventory'), t)}+${p(F('A3', '(+) Capex capitalized'), t)}+${p(F('A3', '(−) Released to Cost of Sales'), t)}`, 'last');
-      } else if (tbl.key === 'A4') {
-        const B = (label: string): string => `esc||B. Escrow Balance Roll-Forward|${label}`;
-        if (!has(B('Closing Balance'))) continue;
-        row(F('A4', 'Opening Balance'), (t) => p(B('Closing Balance'), t, -1), 'first');
-        row(F('A4', '(+) Held this period'), (t) => p(B('Total Additions'), t), 'sumPrior');
-        row(F('A4', '(−) Release'), (t) => p(B('Less: Release of Locked Funds'), t), 'sumPrior');
-        row(F('A4', 'Closing Balance'), (t) => p(B('Closing Balance'), t), 'last');
-      } else if (tbl.key === 'L1') {
-        // Opex's project roll-forward (2026-10-28): cash paid is a positive row there, an outflow here.
-        if (!has('ox|ap|close')) continue;
-        row(F('L1', 'Opening AP'), (t) => p('ox|ap|open', t), 'first');
-        row(F('L1', '(+) Opex incurred'), (t) => p('ox|ap|inc', t), 'sumPrior');
-        row(F('L1', '(−) Cash paid'), (t) => `-${p('ox|ap|paid', t)}`, 'sumPrior');
-        row(F('L1', 'Closing AP'), (t) => p('ox|ap|close', t), 'last');
+    // ── Cost of sales and inventory, per Sell line ───────────────────────────
+    const cosById = snap.byAssetCostOfSales;
+    const anyNZ = (a: number[] | undefined): boolean => !!a && a.some((v) => (v ?? 0) !== 0);
+    const capexLines = poolCapexByLine(buildCapexReport(snap, state), state).members;
+    for (const l of cosLines) {
+      const K = (id: string): string => `cs|${l.key}|${id}`;
+      const parts = l.members.filter((m) => anyNZ(cosById.get(m.id)?.cos.perPeriod));
+      // The line's capex: Capex's subtotal for the line where its plots are exactly these, else the plots' rows.
+      const ids = new Set(parts.map((m) => m.id));
+      const hostKey = [...capexLines].find(([, xs]) => xs.length === ids.size && xs.every((x) => ids.has(x)))?.[0];
+      const plotRows = parts.flatMap((m) => w.reg.keys().filter((k) => k.startsWith(`cxc:${m.id}:`) && k.split(':').length === 3));
+      row(K('capex'), (t) => (hostKey && has(`cx1sub:${hostKey}`) ? p(`cx1sub:${hostKey}`, t) : plotRows.map((k) => p(k, t)).join('+') || '0'), 'sum');
+      pendingRow(K('idc'));
+      row(K('base'), (t) => sumOf([K('capex'), K('idc')], t), 'sum');
+      const rec = `rvc:${l.key}:recognised`;
+      const recTot = fx(rec, TOTAL_COL);
+      row(K('share'), (t) => `IF(${recTot}>0,MAX(0,${p(rec, t)})/${recTot},0)`, 'sum');
+      const baseTot = fx(K('base'), TOTAL_COL);
+      row(K('cos'), (t) => `IF(${baseTot}>0,${baseTot}*${p(K('share'), t)},0)`, 'sum');
+      row(K('open'), (t) => p(K('close'), t, -1), 'none');
+      row(K('add'), (t) => p(K('base'), t), 'sum');
+      row(K('out'), (t) => `-${p(K('cos'), t)}`, 'sum');
+      row(K('close'), (t) => `${p(K('open'), t)}+${p(K('add'), t)}+${p(K('out'), t)}`, 'none');
+      for (const [name, id] of [['capex', 'capex'], ['idc', 'idc'], ['base', 'base'], ['share', 'share'], ['cos', 'cos'], ['inv', 'close']] as const) {
+        const a = w.addr(K(id)); w.claim(`cosc:${l.key}:${name}`, a.sheet, a.row, 1);
       }
     }
-    claim('schv:A3:close', F('A3', 'Closing inventory'));
+    row('cs|__project__|cos', (t) => sumOf(cosLines.map((l) => `cs|${l.key}|cos`), t), 'sum');
+    row('cs|__project__|inv', (t) => sumOf(cosLines.map((l) => `cs|${l.key}|close`), t), 'none');
+    claim('schv:A3:close', 'cs|__project__|inv');
 
     return [{
       sheet: SCH, status: 'partial' as const, formulas: w.formulas.get(SCH) ?? 0,
-      note: 'Live: the land and depreciable roll-forwards per line and for the project (each year\'s capex its own straight-line vintage from the first operating year, the useful life on the inputs table, the exit write-off in the exit year), and the sales and operating receivables, inventory, escrow, payables and unearned revenue schedules, every figure a row on the tab.',
+      note: 'Live: one fixed asset table per held asset and the project (each year\'s capex and capitalised interest depreciating straight line from its start year over the useful life on Inputs, the exit write-off in the exit year), and one cost of sales and inventory block per Sell line and the project, every figure a row on the tab. The Balance Sheet reads receivables, unearned revenue, escrow and payables from Revenue and Opex.',
       waits: {
         on: 'financing',
-        text: 'Capitalised interest, its depreciation and its NBV come out of the financing and wait for that stage, so the combined depreciation, NBV and inventory do not yet follow an input that moves it.',
-        after: 'Capitalised interest, its depreciation and its NBV per line and for the project read the live financing solve.',
+        text: 'Capitalised interest comes out of the financing and waits for that stage, so depreciation, NBV, cost of sales and inventory do not yet follow an input that moves it.',
+        after: 'Capitalised interest reads the live financing solve.',
       },
     }];
   },

@@ -606,7 +606,7 @@ function perturbations(input: LiveExportInputs, reg: CellRegistry): Perturbation
     // Five years from the life in force (a blank life inherits the category default).
     const life = resolveUsefulLifeYears(lifeHost) + 5;
     const lineIds = (lines.find((l) => l.members.some((m: any) => m.id === lifeHost.id))?.members ?? [lifeHost]).map((m: any) => m.id);
-    out.push({ movesRevenue: false, label: `useful life of a held line (${lifeHost.name}) to ${life} years`, cell: `fain:${lifeHost.id}`, col: RC.TOTAL, value: life,
+    out.push({ movesRevenue: false, label: `useful life of a held line (${lifeHost.name}) to ${life} years`, cell: `fain:${lifeHost.id}`, col: 2, value: life,
       edit: (s) => { for (const q of s.assets as any[]) if (lineIds.includes(q.id)) q.usefulLifeYears = life; } });
   } else out.push({ label: 'useful life of a held line', skip: 'no held line on the inputs table' });
   const dso = st.project.operatingAr?.dsoDays ?? 0;
@@ -994,7 +994,7 @@ function formulaCells(wb: ExcelJS.Workbook): Map<string, { formula: string; resu
       // it, so the days are read on Revenue and reach Schedules through it.
       const revReads = arCells.filter((a) => readsIn(wb, 'Revenue', refOf(a)));
       const unreached = receivableDaysProblems(wb, arCells, true);
-      check(`A12r every hotel and lease line's receivable days (${arCells.length}) are on no allowance, are read on Revenue and drive its Schedules receivable`, arCells.length > 0 && arAllowed.length === 0 && revReads.length === arCells.length && unreached.length === 0, `allowed ${arAllowed.length}, read on Revenue ${revReads.length}, not reaching Schedules ${unreached.length}`);
+      check(`A12r every hotel and lease line's receivable days (${arCells.length}) are on no allowance, are read on Revenue and drive its receivable on the Balance Sheet`, arCells.length > 0 && arAllowed.length === 0 && revReads.length === arCells.length && unreached.length === 0, `allowed ${arAllowed.length}, read on Revenue ${revReads.length}, not reaching the Balance Sheet ${unreached.length}`);
       if (arCells.length) {
         const cut = buildFormulaWorkbook(opts).wb;
         const a = arCells[0], ref = refOf(a);

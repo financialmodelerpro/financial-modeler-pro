@@ -204,7 +204,7 @@ export const stage6Loop: LiveLayer = {
     for (const k of [K.minCash, K.debtPct, K.equityPct, K.payout, K.divOn, K.divStartIn, K.lastCon, K.dF, K.eF, K.landDebt, K.divStart, K.capexAll, K.nonLand, K.landCash, K.inKind, K.noi, K.proceeds, K.exitRepay]) {
       if (!has(k)) refuse.push(`the row ${k.split('|').slice(1).join(' / ')} is not on the Financing sheet`);
     }
-    for (const k of ['cx2:total', 'cx5:total:cash', 'cx5:total:inkind', 'schv:__project__:dep', 'schv:__project__:capDep']) if (!has(k)) refuse.push(`the ${k} row is not live`);
+    for (const k of ['cx2:total', 'cx5:total:cash', 'cx5:total:inkind', 'schv:__project__:dep']) if (!has(k)) refuse.push(`the ${k} row is not live`);
     if (refuse.length) return values(`The financing could not be made live for this model: ${[...new Set(refuse)].join('; ')}.`);
 
     // ── Writing helpers ──────────────────────────────────────────────────────
@@ -641,11 +641,11 @@ export const stage6Loop: LiveLayer = {
     const kEbit0 = Q('Revenue less operating expenses'), kCos = Q('(-) Cost of sales'), kFee = Q('(-) Fund management fees'), kDep = Q('(-) Depreciation (capex and capitalised interest)');
     const kInt = Q('(-) Interest expensed'), kGain = Q('(+) Gain on disposal'), kPbt = Q('= Profit before tax'), kTaxable = Q('Taxable profit'), kTax = Q('Tax');
     for (const k of [kEbit0, kCos, kFee, kDep, kInt, kGain, kPbt, kTaxable, kTax, kTaxPaid]) if (!has(k)) return values(`The financing could not be made live for this model: the row ${k.split('|').pop()} is not on the Financing sheet.`);
-    const S1 = 'sched|Income Statement Feed';
-    const revTot = `${S1}|Revenue (P&L)|Total Revenue`;
+    // Revenue recognised, project total: Revenue's summary (the Schedules feed that copied it is gone, 2026-10-28).
+    const revTot = 'rev|__project__|sum-rec|Total revenue recognised';
     const opexKeys = [...visible.map((a) => `oxo:${a.id}:total`), 'oxo:hq:total'].filter(has);
     put(kEbit0, (t) => `${has(revTot) ? P(revTot, t) : '0'}-(${opexKeys.map((k) => P(k, t)).join('+') || '0'})-${has('cx1e:total') ? P('cx1e:total', t) : '0'}`);
-    const cosTot = 'cos|__project__|Project Total Cost of Sales|Total Cost of Sales';
+    const cosTot = 'cs|__project__|cos';
     put(kCos, (t) => (has(cosTot) ? `-${P(cosTot, t)}` : '0'));
     put(kFee, (t) => `-${fee(t)}`);
     put(kDep, (t) => P('schv:__project__:dep', t));
@@ -883,7 +883,8 @@ export const stage6Loop: LiveLayer = {
       put(kE0, (t) => P(kEbit0, t));
       put(kCosF, (t) => `-(${[...cosF.values()].map((k) => P(k, t)).join('+') || '0'})`);
       put(kDepF, (t) => (has('schv:__project__:idcDep')
-        ? `-(${P('schv:__project__:capDep', t)}${heldF.map((x) => `+${P(x.dep, t)}`).join('')})`
+        // Depreciation on capex is the total less the interest part (both on Schedules), then this solve's interest part.
+        ? `${P('schv:__project__:dep', t)}+${P('schv:__project__:idcDep', t)}${heldF.map((x) => `-${P(x.dep, t)}`).join('')}`
         : P('schv:__project__:dep', t)));
       put(kIntF, (t) => P(kExpF, t));
       put(kGainF, (t) => `${P(kGain, t)}${kIdcDisp ? `-${P(kIdcDisp, t)}` : ''}${heldF.map((x) => `+${P(x.off, t)}`).join('')}`);

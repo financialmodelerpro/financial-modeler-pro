@@ -551,11 +551,10 @@ export function emitDepreciationSection(c: SheetCursor, state: FinancialsResolve
     const openingLand = rows.reduce((s, x) => s + (x.land.openingAtAxisStart ?? 0), 0);
     const openingBldg = rows.reduce((s, x) => s + (x.depreciable.openingNBVPerPeriod[0] ?? 0), 0);
     if (live) {
-      // The opening balances at the model start, typed here; the Schedules inputs table echoes them.
+      // The opening balances at the model start, typed here (existing operations, which the live
+      // workbook refuses; at zero they are declared inert below). Schedules no longer echoes them.
       setInput(c.ws.getCell(c.r, 6), openingLand, NUMFMT.money);
       setInput(c.ws.getCell(c.r, 7), openingBldg, NUMFMT.money);
-      registerCell(`inp=fain:${host.id}@6`, c.ws, c.ws.getCell(c.r, 6));
-      registerCell(`inp=fain:${host.id}@7`, c.ws, c.ws.getCell(c.r, 7));
       const phase = state.phases.find((p) => p.id === host.phaseId);
       if (openingLand === 0 && openingBldg === 0 && phaseHasModelCapex(phase)) for (const col of [6, 7]) registerCell(inertKey(INERT_INPUTS.openingFixedAssets, c.sheetName, c.r, col), c.ws, c.ws.getCell(c.r, col));
     } else {
