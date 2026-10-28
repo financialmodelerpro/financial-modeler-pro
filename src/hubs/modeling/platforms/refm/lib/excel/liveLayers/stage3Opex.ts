@@ -1,5 +1,5 @@
 /**
- * stage3Opex.ts (2026-09-27, rebuilt 2026-10-14), FORMULA-LINKED EXPORT: OPEX.
+ * stage3Opex.ts (2026-09-27, rebuilt 2026-10-14, made short 2026-10-28), FORMULA-LINKED EXPORT: OPEX.
  *
  * EVERY FIGURE ON THE OPEX TAB IS BUILT FROM ROWS ON THE TABS (founder,
  * 2026-10-14). There is no working sheet: each line's operating statement
@@ -12,21 +12,26 @@
  *                   engine's window, opex-resolvers `resolveOpsWindow`)
  *   Inflation       the factor while operating, counted from the later of the
  *                   year typed on Inputs and the line's first operating year
- *                   (assetOpex.ts, 2026-10-05)
+ *                   (assetOpex.ts, 2026-10-05): one exponent from MAX(the
+ *                   Inputs year, the operations start, the handover year)
  *   A cost line     a fixed amount x the factor, a rate per key or per sqm of
- *                   leasable area (Revenue's figures) x the factor, or a share
- *                   of a revenue row on this statement while operating; a line
- *                   on GOP takes its share of the statement's GOP. Off is zero.
- *   Totals          each group sums its lines; GOP, EBITDA and the operating
- *                   summaries follow; HQ overheads are a fixed amount x the HQ
- *                   factor or a share of Revenue's project sales value
- *   Payables        closing = opex x DPO / days, opening = last year's closing,
- *                   cash paid = opex less the change
+ *                   leasable area (Revenue's drivers) x the factor, or a share
+ *                   of a revenue row on this statement (zero outside
+ *                   operations, so no flag); a line on GOP takes its share of
+ *                   GOP. Off is zero.
+ *   Totals          a group of two rows or more sums them (one row is its own
+ *                   total); GOP and EBITDA follow; HQ overheads are a fixed
+ *                   amount x the HQ factor or a share of the project sales value
+ *   Summary         each line's revenue, opex and EBITDA, HQ and the project
+ *   Payables        each line's and HQ's closing payable = opex x the days in
+ *                   force (column B) / the days basis; one project roll-forward
+ *                   whose cash paid is a positive row that is subtracted
  *
- * Inputs are typed on Inputs and shown on the cards here: the value and On /
- * Off of every line, the inflation rate and start year, the DPO days and the
- * days basis. A line's mode and category are the structure of its formula and
- * are fixed at export.
+ * No input cards (2026-10-28, founder): the formulas read Inputs where each
+ * value is typed: a line's value and On / Off (oxv| and oxon|), the inflation
+ * rate and year, the DPO days and the days basis. The rows are keyed by
+ * opexPlan.ts, which the builder lays out from. A line's mode and category are
+ * the structure of its formula and are fixed at export.
  *
  * REFUSES by name (Opex stays values): the Timeline or Revenue rows it reads
  * are not live, a year-by-year rate, an inflation other than none, compounding
@@ -48,9 +53,8 @@ import { normalizeOpexIndexation, hqOpexLinesInForce, type OpexLine } from '@/sr
 import { isRevenueSubUnit } from '@/src/core/calculations';
 import { computeFinancialsSnapshot } from '../../financials-resolvers';
 import { planRevenueLines, lineForAsset, type RevenueLine } from '../../revenueLines';
-import { revenueLineName } from '../../reports/revenueOutputReports';
-import { buildOpexReport, leaseCostBucket, type LeaseCostBucket } from '../../reports/opexReports';
-import { hospitalityCostGroup, HOSPITALITY_COST_GROUPS, type HospitalityCostGroup } from '../../reports/hospitalityStatement';
+import { HOSPITALITY_COST_GROUPS } from '../../reports/hospitalityStatement';
+import { planOpexStatement, groupTotalKey, oxKey } from './opexPlan';
 import { planReportLines } from '../../reports/lineRows';
 import type { Asset, Phase } from '../../state/module1-types';
 
@@ -59,12 +63,8 @@ const IDX_METHODS = new Set(['none', 'yoy_compound', 'single_rate']);
 const FIXED_MODES = new Set(['fixed_baseline', 'per_room_year', 'per_sqm_year']);
 const DIRECT = new Set(['direct_rooms', 'direct_fb', 'direct_other']);
 const INDIRECT = new Set(['indirect_ga', 'indirect_it', 'indirect_sm', 'indirect_pom', 'indirect_energy', 'indirect_eosb']);
-const MGMT = new Set(['mgmt_base', 'mgmt_tech', 'mgmt_incentive', 'replacement_reserve']);
 
 type Idx = { method?: string; rate?: number; startYear?: number };
-/** The engine's project-total bucket for a category (opex-resolvers `projectTotals`). */
-type Bucket = 'direct' | 'indirect' | 'mgmt' | 'other';
-const bucketOf = (cat: string): Bucket => (DIRECT.has(cat) ? 'direct' : INDIRECT.has(cat) ? 'indirect' : MGMT.has(cat) ? 'mgmt' : 'other');
 
 export const stage3Opex: LiveLayer = {
   name: 'stage 3c: opex',
@@ -74,7 +74,7 @@ export const stage3Opex: LiveLayer = {
     const state = { ...raw, assets: withResolvedAssetNames(raw.assets, { parcels: raw.parcels, phases: raw.phases }) };
     const snap = computeFinancialsSnapshot(state);
     const N = snap.axisLength;
-    const { TOTAL_COL, OPEN_COL } = PERIOD_COLS;
+    const { TOTAL_COL, OPEN_COL, META_B } = PERIOD_COLS;
     const pc = (t: number): number => OPEN_COL + 1 + t;
     const w = new LiveWriter(wb, reg, ctx.pending);
     const has = (k: string): boolean => w.has(k);
@@ -118,6 +118,7 @@ export const stage3Opex: LiveLayer = {
       if (ln.rateMode === 'yoy') refuse.push(`HQ: ${ln.name} has year-by-year rates`);
       if (ln.useAssetDefault === false && ln.mode === 'fixed_baseline' && (ln.indexation?.method ?? 'none') !== 'none') refuse.push(`HQ: ${ln.name} has its own inflation`);
     }
+    if (!has('oxin|dpo|default') || !has('oxin|dpo|days')) refuse.push('the DPO days are not on Inputs');
     if (!has('rvc:__project__:salesValue')) refuse.push('Revenue\'s project sales value is not on the Revenue tab');
     // An exit before the last year stops the held assets trading after it (`stopAfterExit`).
     if (snap.disposal.booked && snap.disposal.exitIdx < N - 1 && opexAssets.length) refuse.push('the exit falls before the last year, which stops the held assets trading after it');
@@ -127,8 +128,9 @@ export const stage3Opex: LiveLayer = {
     const at = (key: string, col: number): CellAddr => ({ sheet: w.addr(key).sheet, row: w.addr(key).row, col });
     /** This year's cell of a registered row, column relative (same sheet: no sheet name). */
     const P = (key: string, t: number): string => w.refP(at(key, pc(t)), OPEX);
-    /** A fixed cell (a rate, a count) of a registered row. */
+    /** A fixed cell (a rate, a count, an Inputs value) of a registered row. */
     const A = (key: string, col: number): string => w.refA(at(key, col), OPEX);
+    const colOf = (c: number): string => { let s = ''; for (let n = c; n > 0; n = Math.floor((n - 1) / 26)) s = String.fromCharCode(65 + ((n - 1) % 26)) + s; return s; };
     const row = (key: string, f: (t: number) => string, total: 'sum' | 'last' | 'first' | 'none' | ((t0: string, t1: string) => string) = 'sum'): void => {
       if (!has(key)) return;
       const r = w.addr(key).row;
@@ -140,301 +142,175 @@ export const stage3Opex: LiveLayer = {
       else if (total === 'first') w.fA(T, w.refA({ sheet: OPEX, row: r, col: pc(0) }));
       else w.fA(T, total(colOf(pc(0)), colOf(pc(N - 1))));
     };
-    const colOf = (c: number): string => { let s = ''; for (let n = c; n > 0; n = Math.floor((n - 1) / 26)) s = String.fromCharCode(65 + ((n - 1) % 26)) + s; return s; };
-    /** SUM of a block of rows on this sheet, this year's column. */
-    const sumRows = (rows: number[], t: number): string => {
+    /** A total of rows on this sheet, this year's column: one SUM over rows that sit together, else added. */
+    const sumRows = (keys: string[], t: number): string => {
+      const rows = keys.filter(has).map((k) => w.addr(k).row);
       if (!rows.length) return '0';
       const sorted = [...rows].sort((a, b) => a - b);
-      const contiguous = sorted.every((r, i) => i === 0 || r === sorted[i - 1] + 1);
-      if (contiguous) { const c = colOf(pc(t)); for (const r of sorted) w.refP({ sheet: OPEX, row: r, col: pc(t) }, OPEX); return sorted.length === 1 ? `${c}$${sorted[0]}` : `SUM(${c}$${sorted[0]}:${c}$${sorted[sorted.length - 1]})`; }
+      const together = sorted.every((r, i) => i === 0 || r === sorted[i - 1] + 1);
+      if (together && sorted.length > 1) { for (const r of sorted) w.refP({ sheet: OPEX, row: r, col: pc(t) }, OPEX); const c = colOf(pc(t)); return `SUM(${c}$${sorted[0]}:${c}$${sorted[sorted.length - 1]})`; }
       return sorted.map((r) => w.refP({ sheet: OPEX, row: r, col: pc(t) }, OPEX)).join('+');
     };
+    const sumAll = (k: string): string => `SUM(${w.rangeA(OPEX, w.addr(k).row, pc(0), pc(N - 1))})`;
     const ratioRow = (key: string, num: string, den: string): void => {
-      row(key, (t) => `IF(${P(den, t)}>0,${P(num, t)}/${P(den, t)},0)`, () => {
-        const sn = `SUM(${w.rangeA(OPEX, w.addr(num).row, pc(0), pc(N - 1))})`, sd = `SUM(${w.rangeA(OPEX, w.addr(den).row, pc(0), pc(N - 1))})`;
-        return `IF(${sd}>0,${sn}/${sd},0)`;
-      });
+      row(key, (t) => `IF(${P(den, t)}>0,${P(num, t)}/${P(den, t)},0)`, () => `IF(${sumAll(den)}>0,${sumAll(num)}/${sumAll(den)},0)`);
     };
-    const occ = new Map<string, number>();
-    const keyOf = (base: string): string => { const n = occ.get(base) ?? 0; occ.set(base, n + 1); return n ? `${base}~${n}` : base; };
-
-    // ── The cards: the value and On / Off of each line, echoes of Inputs ─────
-    const cardKeys = (scopeLine: string, names: string[], before: string[] = []): string[] => {
-      const seen = new Map<string, number>();
-      for (const b of before) seen.set(b, (seen.get(b) ?? 0) + 1);
-      return names.map((n) => { const c = seen.get(n) ?? 0; seen.set(n, c + 1); return `opexin|${scopeLine}||${n}${c ? `~${c}` : ''}`; });
-    };
-    const valueCell = (key: string): string => A(key, OPEN_COL + 1);
-    const onCell = (key: string): string => A(key, OPEN_COL + 3);
-    // The DPO card: each line's effective days are worked out on Inputs beside its override.
-    const apIn = (label: string): string => `opexin|__ap__||${label}`;
-    const dpoDefaultIn = reg.keys().find((k) => k.startsWith('inp=opexin|__ap__||Project Default DPO (days)'));
-    const hosts = planReportLines(lineState, (a) => a.strategy === 'Operate' || a.strategy === 'Lease').map((ln) => state.assets.find((x) => x.id === ln.assetIds[0])!);
-    const cardName = (a: Asset): string => { const l = lineForAsset(lines, a.id); return l ? revenueLineName(l) : a.name; };
-    const ordered = [...hosts.filter((h) => h.strategy === 'Operate'), ...hosts.filter((h) => h.strategy === 'Lease')];
-    const dpoKeys = cardKeys('__ap__', ordered.map(cardName));
-    const dpoCard = new Map<string, string>();
-    ordered.forEach((h, i) => {
-      const k = dpoKeys[i], ik = `oxin|dpo|${h.id}`;
-      if (!has(k) || !has(ik) || !dpoDefaultIn) return;
-      // The days in force: the line's override typed on Inputs, a blank taking the project default.
-      const ov = at(ik, 2);
-      w.f(k, `IF(ISNUMBER(${w.refA(ov)}),${w.refA(ov)},${w.refA(w.addr(dpoDefaultIn))})`, { col: TOTAL_COL });
-      w.f(k, `IF(ISNUMBER(${w.refA(ov)}),${w.refA(ov)},"inherit")`, { col: OPEN_COL });
-      dpoCard.set(h.id, k);
-    });
+    const yearHere = (t: number): string => w.refP({ sheet: OPEX, row: 3, col: pc(t) }, OPEX);
+    /** An Inputs cell, read where it is typed. */
+    const IN = (key: string, col: number): string => A(key, col);
 
     // ── The statements ───────────────────────────────────────────────────────
-    const tables = buildOpexReport(snap, state, { allLines: true });
-    interface LineOut { asset: Asset; line: RevenueLine; total: string; rev: string; gop?: string; ebitda: string; cells: Array<{ row: number; bucket: Bucket }> }
+    interface LineOut { asset: Asset; line: RevenueLine; total: string }
     const outs: LineOut[] = [];
-    const hospGroupRow = new Map<string, Map<HospitalityCostGroup, string>>();
-
-    for (const tb of tables.filter((x) => x.lineKey)) {
-      const l = lines.find((x) => x.key === tb.lineKey);
-      if (!l) continue;
+    for (const l of lines) {
       const a = l.members.find((m) => opexAssets.includes(m));
       if (!a) continue;
-      occ.clear();
-      const tableId = tb.title.endsWith('Operating statistics') ? 'stats' : 'stmt';
-      const K = (label: string): string => `opex|${l.key}|${tableId}|${label}`;
+      const K = (id: string): string => oxKey(l.key, id);
+      if (!has(K('opex'))) continue;
       const isOp = a.strategy === 'Operate';
       const earner = state.subUnits.some((u) => u.assetId === a.id && isRevenueSubUnit(u));
       // REVENUE'S ROWS BY THEIR KEYS (2026-10-27): the line's statement on Revenue (stage 3).
       const RV = (k: string): string => `rvc:${l.key}:${k}`;
       const rvP = (k: string, t: number): string => (earner && has(RV(k)) ? P(RV(k), t) : '0');
-      const keysCell = (): string => (isOp && earner && has(RV('keys')) ? A(RV('keys'), TOTAL_COL) : '0');
+      const p = phases.find((x) => x.id === a.phaseId)!;
 
-      if (tableId === 'stats') {
-        row(K('Keys'), (t) => `${rvP('inOps', t)}*${keysCell()}`, () => keysCell());
-        row(K('Available room nights'), (t) => rvP('arn', t));
-        row(K('Occupied room nights'), (t) => rvP('orn', t));
-        ratioRow(K('Occupancy'), K('Occupied room nights'), K('Available room nights'));
-        // The rates read the statement's rooms revenue, below on this tab.
-        const rooms = `opex|${l.key}|stmt|Rooms revenue`;
-        row(K('Average daily rate, ADR'), (t) => `IF(${P(K('Occupied room nights'), t)}>0,${P(rooms, t)}/${P(K('Occupied room nights'), t)},0)`, () => {
-          const s = (k: string): string => `SUM(${w.rangeA(OPEX, w.addr(k).row, pc(0), pc(N - 1))})`;
-          return `IF(${s(K('Occupied room nights'))}>0,${s(rooms)}/${s(K('Occupied room nights'))},0)`;
-        });
-        row(K('Revenue per available room, RevPAR'), (t) => `IF(${P(K('Available room nights'), t)}>0,${P(rooms, t)}/${P(K('Available room nights'), t)},0)`, () => {
-          const s = (k: string): string => `SUM(${w.rangeA(OPEX, w.addr(k).row, pc(0), pc(N - 1))})`;
-          return `IF(${s(K('Available room nights'))}>0,${s(rooms)}/${s(K('Available room nights'))},0)`;
-        });
-        continue;
-      }
-
-      // Operating years and inflation.
-      const ops = (t: number): string => P(`tl:flag:${a.phaseId}:ops`, t);
-      const hand = (t: number): string => P(`tl:flag:${a.phaseId}:hand`, t);
+      // Operating years: the Timeline's handover and operating years, from the operations start on Revenue.
+      const ops = (t: number): string => P(`tl:flag:${p.id}:ops`, t);
+      const hand = (t: number): string => P(`tl:flag:${p.id}:hand`, t);
       const startKey = RV('opsStart');
-      const yearHere = (t: number): string => w.refP({ sheet: OPEX, row: 3, col: pc(t) }, OPEX);
-      const inOpsK = K('In operations (1 = yes)');
-      row(inOpsK, (t) => (has(startKey) ? `(${hand(t)}+${ops(t)})*(${yearHere(t)}>=${A(startKey, TOTAL_COL)})` : ops(t)));
-      const IO = (t: number): string => P(inOpsK, t);
+      row(K('io'), (t) => (has(startKey) ? `(${hand(t)}+${ops(t)})*(${yearHere(t)}>=${A(startKey, TOTAL_COL)})` : ops(t)));
+      const IO = (t: number): string => P(K('io'), t);
+      // Inflation counts from the later of the year on Inputs and the first operating year (assetOpex.ts):
+      // the operations start on Revenue, never before the handover year.
       const ix = idxOf(a.opex?.defaultIndexation);
-      const facK = K('Inflation factor while operating');
-      if (has(facK)) {
-        const rate = (): string => A(`oxin|${a.id}|rate`, 2), from = (): string => A(`oxin|${a.id}|from`, 2);
-        const r0 = w.addr(inOpsK).row;
-        const yearsIn = (t: number): string => { w.refP({ sheet: OPEX, row: r0, col: pc(t) }, OPEX); w.refP({ sheet: OPEX, row: r0, col: pc(0) }, OPEX); return `SUM($${colOf(pc(0))}$${r0}:${colOf(pc(t))}$${r0})`; };
-        const exp = (t: number): string => `MIN(${yearHere(t)}-${from()},${yearsIn(t)}-1)`;
-        row(facK, (t) => (ix.method === 'yoy_compound' ? `${IO(t)}*(1+${rate()})^MAX(0,${exp(t)})` : `${IO(t)}*IF(${exp(t)}>=0,1+${rate()},1)`), 'none');
+      if (has(K('fac'))) {
+        const rate = IN(`oxin|${a.id}|rate`, 2), from = IN(`oxin|${a.id}|from`, 2);
+        const hy = has(`tl:phase:${p.id}:hy`) ? `,${w.ref(`tl:phase:${p.id}:hy`)}` : '';
+        const base = has(startKey) ? `MAX(${from},${A(startKey, TOTAL_COL)}${hy})` : from;
+        row(K('fac'), (t) => (ix.method === 'yoy_compound' ? `${IO(t)}*(1+${rate})^MAX(0,${yearHere(t)}-${base})` : `${IO(t)}*IF(${yearHere(t)}>=${base},1+${rate},1)`), 'none');
       }
-      const FAC = (t: number): string => (has(facK) ? P(facK, t) : IO(t));
+      const FAC = (t: number): string => (has(K('fac')) ? P(K('fac'), t) : IO(t));
 
-      // Revenue on the statement, from the Revenue tab.
+      // Revenue, from the Revenue tab.
       const revRows: Record<string, string> = {};
       if (isOp) {
-        row(K('Rooms revenue'), (t) => rvP('rooms', t));
-        row(K('F&B revenue'), (t) => rvP('fb', t));
-        row(K('Other revenue'), (t) => rvP('other', t));
-        row(K('Total revenue'), (t) => sumRows([w.addr(K('Rooms revenue')).row, w.addr(K('F&B revenue')).row, w.addr(K('Other revenue')).row], t));
-        Object.assign(revRows, { pct_of_room_rev: K('Rooms revenue'), pct_of_fb_rev: K('F&B revenue'), pct_of_other_rev: K('Other revenue'), pct_of_total_rev: K('Total revenue') });
+        row(K('rev:rooms'), (t) => rvP('rooms', t));
+        row(K('rev:fb'), (t) => rvP('fb', t));
+        row(K('rev:other'), (t) => rvP('other', t));
+        row(K('rev'), (t) => sumRows([K('rev:rooms'), K('rev:fb'), K('rev:other')], t));
+        Object.assign(revRows, { pct_of_room_rev: K('rev:rooms'), pct_of_fb_rev: K('rev:fb'), pct_of_other_rev: K('rev:other'), pct_of_total_rev: K('rev') });
       } else {
-        row(K('Lease revenue'), (t) => rvP('rev', t));
-        row(K('Total revenue'), (t) => sumRows([w.addr(K('Lease revenue')).row], t));
-        Object.assign(revRows, { pct_of_lease_rev: K('Lease revenue'), pct_of_total_rev: K('Total revenue') });
+        row(K('rev'), (t) => rvP('rev', t));
+        Object.assign(revRows, { pct_of_lease_rev: K('rev'), pct_of_total_rev: K('rev') });
       }
-      const keys = keysCell;
-      const gla = (): string => (!isOp && earner && has(RV('gla')) ? A(RV('gla'), TOTAL_COL) : '0');
+      // Per key: the keys on Revenue's drivers. Per sqm: the lettable area there.
+      const keys = isOp && earner && has(RV('keys')) ? A(RV('keys'), TOTAL_COL) : '0';
+      const gla = !isOp && earner && has(RV('gla')) ? A(RV('gla'), TOTAL_COL) : '0';
       const stored = (a.opex?.lines ?? []) as OpexLine[];
-      const inKeys = cardKeys(a.id, stored.map((x) => x.name), ['Asset Inflation']);
-      const gopKey = K('Gross operating profit, GOP');
+      const plan = planOpexStatement(l.key, stored, isOp);
       const lineF = (i: number) => (t: number): string => {
-        const ln = stored[i], k = inKeys[i];
-        if (!has(k)) throw new Error(`opex card row missing: ${k}`);
-        // A rate and a revenue row are never negative; GOP can be, so only it is floored (assetOpex.ts).
-        const rate = valueCell(k);
+        const ln = stored[i];
+        const vK = `oxv|${a.id}|${i}`, onK = `oxon|${a.id}|${i}`;
+        if (!has(vK) || !has(onK)) throw new Error(`opex Inputs cell missing: ${vK}`);
+        // A revenue row is zero outside operations, and so is GOP: neither needs the flag.
+        const rate = IN(vK, 5);
         let v: string;
         if (ln.mode === 'fixed_baseline') v = `${rate}*${FAC(t)}`;
-        else if (ln.mode === 'per_room_year') v = keys() === '0' ? '0' : `${rate}*${keys()}*${FAC(t)}`;
-        else if (ln.mode === 'per_sqm_year') v = gla() === '0' ? '0' : `${rate}*${gla()}*${FAC(t)}`;
-        else if (ln.mode === 'pct_of_gop') v = `${rate}*MAX(0,${P(gopKey, t)})*${IO(t)}`;
-        else if (revRows[ln.mode]) v = `${rate}*${P(revRows[ln.mode], t)}*${IO(t)}`;
+        else if (ln.mode === 'per_room_year') v = keys === '0' ? '0' : `${rate}*${keys}*${FAC(t)}`;
+        else if (ln.mode === 'per_sqm_year') v = gla === '0' ? '0' : `${rate}*${gla}*${FAC(t)}`;
+        else if (ln.mode === 'pct_of_gop') v = `${rate}*MAX(0,${P(K('gop'), t)})`;
+        else if (revRows[ln.mode]) v = `${rate}*${P(revRows[ln.mode], t)}`;
         else return '0';
-        return v === '0' ? '0' : `IF(${onCell(k)}="Off",0,${v})`;
+        return v === '0' ? '0' : `IF(${IN(onK, 7)}="Off",0,${v})`;
       };
-      // Each shown cost row is the plot's lines of that group and name (one, unless a name repeats).
-      const cells: LineOut['cells'] = [];
-      const groupRows = new Map<string, number[]>();
-      const costRow = (group: string, label: string, idxs: number[]): void => {
-        const key = keyOf(K(label));
-        if (!has(key)) return;
-        const fs = idxs.map(lineF);
-        row(key, (t) => { const parts = fs.map((f) => f(t)).filter((x) => x !== '0'); return parts.length ? parts.join('+') : '0'; });
-        const r = w.addr(key).row;
-        groupRows.set(group, [...(groupRows.get(group) ?? []), r]);
-        for (const i of idxs) cells.push({ row: r, bucket: bucketOf(String(stored[i].category)) });
-      };
-      const sectionOf = isOp
-        ? (ln: OpexLine): string => hospitalityCostGroup(String(ln.category))
-        : (ln: OpexLine): string => leaseCostBucket(String(ln.category));
-      // Walk the table's own rows so labels and order are the builder's.
-      let current: string | null = null;
-      const SECTION_OF: Record<string, string> = {
-        'Departmental expenses': 'departmental', 'Undistributed operating expenses': 'undistributed', 'Management fees': 'management', 'Fixed charges and reserves': 'fixed',
-        'Property operating costs': 'operating', 'Service charge and recoverable costs': 'recoveries', 'Other charges': 'other_charges',
-      };
-      const seen = new Set<string>();
-      occ.clear();
-      // Revenue and driver rows were keyed above in order; re-key them so repeats count right.
-      for (const r of tb.rows) {
-        if (r.isSection) { current = SECTION_OF[r.label] ?? null; continue; }
-        if (!current || r.isSubtotal || r.isTotal || !r.indent) { keyOf(K(r.label)); continue; }
-        const g = current;
-        const idxs = stored.map((ln, i) => (sectionOf(ln) === g && ln.name === r.label ? i : -1)).filter((i) => i >= 0);
-        if (seen.has(`${g}|${r.label}`)) { keyOf(K(r.label)); continue; }
-        seen.add(`${g}|${r.label}`);
-        costRow(g, r.label, idxs);
+      for (const g of plan.groups) {
+        for (const r of g.rows) row(r.key, (t) => { const parts = r.idxs.map((i) => lineF(i)(t)).filter((x) => x !== '0'); return parts.length ? parts.join('+') : '0'; });
+        if (g.totalKey) row(g.totalKey, (t) => sumRows(g.rows.map((r) => r.key), t));
       }
-      const G = (g: string): number[] => groupRows.get(g) ?? [];
-      const totalOpexK = K('Total operating expenses');
+      const GT = (group: string): string | undefined => { const g = plan.groups.find((x) => x.group === group); return g ? groupTotalKey(g) : undefined; };
+      const gt = (group: string, t: number): string => { const k = GT(group); return k && has(k) ? P(k, t) : '0'; };
+      const groupKeys = plan.groups.map(groupTotalKey).filter((k): k is string => !!k);
       if (isOp) {
-        const gk = new Map<HospitalityCostGroup, string>();
-        for (const [g, lab] of [['departmental', 'Total departmental expenses'], ['undistributed', 'Total undistributed operating expenses'], ['management', 'Total management fees'], ['fixed', 'Total fixed charges and reserves']] as Array<[HospitalityCostGroup, string]>) {
-          if (has(K(lab))) { row(K(lab), (t) => sumRows(G(g), t)); gk.set(g, K(lab)); }
-        }
-        hospGroupRow.set(l.key, gk);
-        row(K('Departmental profit'), (t) => `${P(K('Total revenue'), t)}-${P(gk.get('departmental')!, t)}`);
-        row(gopKey, (t) => `${P(K('Departmental profit'), t)}-${P(gk.get('undistributed')!, t)}`);
-        ratioRow(K('GOP margin'), gopKey, K('Total revenue'));
-        row(totalOpexK, (t) => HOSPITALITY_COST_GROUPS.map((g) => P(gk.get(g)!, t)).join('+'));
-        row(K('EBITDA, net operating income'), (t) => `${P(gopKey, t)}-${P(gk.get('management')!, t)}-${P(gk.get('fixed')!, t)}`);
-        ratioRow(K('EBITDA margin'), K('EBITDA, net operating income'), K('Total revenue'));
-        row(K('Check, total opex less the four expense groups'), (t) => `${P(totalOpexK, t)}-(${HOSPITALITY_COST_GROUPS.map((g) => P(gk.get(g)!, t)).join('+')})`);
-        outs.push({ asset: a, line: l, total: totalOpexK, rev: K('Total revenue'), gop: gopKey, ebitda: K('EBITDA, net operating income'), cells });
+        row(K('dp'), (t) => `${P(K('rev'), t)}-${gt('departmental', t)}`);
+        row(K('gop'), (t) => `${P(K('dp'), t)}-${gt('undistributed', t)}`);
+        ratioRow(K('gopm'), K('gop'), K('rev'));
+        row(K('opex'), (t) => sumRows(groupKeys, t));
+        row(K('ebitda'), (t) => `${P(K('gop'), t)}-${gt('management', t)}-${gt('fixed', t)}`);
+        for (const g of HOSPITALITY_COST_GROUPS) { const k = GT(g); if (k && has(k)) w.claim(`oxo:${l.key}:grp:${g}`, OPEX, w.addr(k).row, 1); }
       } else {
-        const bk: Array<[LeaseCostBucket, string]> = [['operating', 'Total property operating costs'], ['recoveries', 'Total service charge and recoverable costs'], ['other_charges', 'Total other charges']];
-        for (const [b, lab] of bk) row(K(lab), (t) => sumRows(G(b), t));
-        row(totalOpexK, (t) => bk.map(([, lab]) => P(K(lab), t)).join('+'));
-        row(K('EBITDA, net operating income'), (t) => `${P(K('Total revenue'), t)}-${P(totalOpexK, t)}`);
-        ratioRow(K('EBITDA margin'), K('EBITDA, net operating income'), K('Total revenue'));
-        row(K('Check, total opex less the expense groups'), (t) => `${P(totalOpexK, t)}-(${bk.map(([, lab]) => P(K(lab), t)).join('+')})`);
-        outs.push({ asset: a, line: l, total: totalOpexK, rev: K('Total revenue'), ebitda: K('EBITDA, net operating income'), cells });
+        row(K('opex'), (t) => sumRows(groupKeys, t));
+        row(K('ebitda'), (t) => `${P(K('rev'), t)}-${P(K('opex'), t)}`);
       }
+      ratioRow(K('ebm'), K('ebitda'), K('rev'));
+      outs.push({ asset: a, line: l, total: K('opex') });
     }
 
-    // ── Project tables ───────────────────────────────────────────────────────
-    const hqLineRows: number[] = [];
-    let hqTotalK = '';
-    for (const tb of tables.filter((x) => !x.lineKey)) {
-      occ.clear();
-      const tid = tb.title.split(',')[0].trim();
-      const K = (label: string): string => keyOf(`opex|__project__|${tid}|${label}`);
-      if (tb.title === 'Hospitality operating summary' || tb.title === 'Leasing operating summary') {
-        const form = tb.title.startsWith('Hospitality') ? 'operate' : 'lease';
-        const order = outs.filter((o) => o.line.form === form);
-        let pickKey: 'rev' | 'gop' | 'ebitda' = 'rev';
-        let members: number[] = [];
-        for (const r of tb.rows) {
-          if (r.isSection) { pickKey = r.label === 'Total revenue' ? 'rev' : r.label.startsWith('Gross') ? 'gop' : 'ebitda'; members = []; continue; }
-          const k = K(r.label);
-          if (r.isSubtotal) { const ms = members; row(k, (t) => sumRows(ms, t)); continue; }
-          const src = order[members.length]?.[pickKey];
-          if (src && has(k)) { row(k, (t) => P(src, t)); members.push(w.addr(k).row); }
-        }
-        continue;
-      }
-      if (tb.title.startsWith('HQ & Corporate Overheads')) {
-        const hqKeys = cardKeys('__hq__', hqStored.map((x) => x.name), ['HQ Inflation']);
-        let rowIdx = 0;
-        const facK = (hqDefault.method ?? 'none') !== 'none' ? K(tb.rows[rowIdx++].label) : '';
-        if (facK) {
-          const rate = A('oxin|hq|rate', 2), from = A('oxin|hq|from', 2), axis = A('project:axisYear', 2);
-          const yr = (t: number): string => w.refP({ sheet: OPEX, row: 3, col: pc(t) }, OPEX);
-          row(facK, (t) => (hqDefault.method === 'yoy_compound' ? `(1+${rate})^MAX(0,${yr(t)}-MAX(${from},${axis}))` : `IF(${yr(t)}>=MAX(${from},${axis}),1+${rate},1)`), 'none');
-        }
-        const salesValue = 'rvc:__project__:salesValue';
-        hqStored.forEach((ln, i) => {
-          const key = K(tb.rows[rowIdx++]?.label ?? '');
-          const k = hqKeys[i];
-          if (!has(k)) throw new Error(`HQ card row missing: ${k}`);
-          row(key, (t) => {
-            const rate = valueCell(k);
-            const v = ln.mode === 'fixed_baseline' ? (facK ? `${rate}*${P(facK, t)}` : rate) : ln.mode === 'pct_of_total_rev' ? `${rate}*${P(salesValue, t)}` : '';
-            return v ? `IF(${onCell(k)}="Off",0,${v})` : '0';
-          });
-          if (has(key)) hqLineRows.push(w.addr(key).row);
-        });
-        hqTotalK = K('Total HQ Opex');
-        row(hqTotalK, (t) => sumRows(hqLineRows, t));
-        continue;
-      }
-      if (tb.title === 'Project Total Opex') {
-        const by = (b: Bucket): number[] => outs.flatMap((o) => o.cells.filter((c) => c.bucket === b).map((c) => c.row));
-        const uniq = (rs: number[]): number[] => [...new Set(rs)];
-        row(K('Direct costs'), (t) => sumRows(uniq(by('direct')), t));
-        row(K('Indirect costs'), (t) => sumRows(uniq(by('indirect')), t));
-        row(K('Management fees and replacement reserve'), (t) => sumRows(uniq(by('mgmt')), t));
-        row(K('Other charges'), (t) => sumRows(uniq(by('other')), t));
-        const allK = K('All asset opex');
-        const four = ['Direct costs', 'Indirect costs', 'Management fees and replacement reserve', 'Other charges'].map((x) => w.addr(`opex|__project__|Project Total Opex|${x}`).row);
-        row(allK, (t) => sumRows(four, t));
-        const hqK = K('HQ overheads');
-        row(hqK, (t) => (hqTotalK ? P(hqTotalK, t) : '0'));
-        row(K('Total Project Opex'), (t) => `${P(allK, t)}+${P(hqK, t)}`);
-      }
+    // ── HQ, project-wide ─────────────────────────────────────────────────────
+    if (has('ox|hq|fac')) {
+      const rate = IN('oxin|hq|rate', 2), from = IN('oxin|hq|from', 2), axis = A('project:axisYear', 2);
+      row('ox|hq|fac', (t) => (hqDefault.method === 'yoy_compound' ? `(1+${rate})^MAX(0,${yearHere(t)}-MAX(${from},${axis}))` : `IF(${yearHere(t)}>=MAX(${from},${axis}),1+${rate},1)`), 'none');
+    }
+    const salesValue = 'rvc:__project__:salesValue';
+    const hqKeys: string[] = [];
+    hqStored.forEach((ln, i) => {
+      const k = `ox|hq|c${i}`;
+      if (!has(k)) return;
+      if (!has(`oxv|hq|${i}`) || !has(`oxon|hq|${i}`)) throw new Error(`HQ Inputs cell missing: ${i}`);
+      const rate = IN(`oxv|hq|${i}`, 4);
+      row(k, (t) => {
+        const v = ln.mode === 'fixed_baseline' ? (has('ox|hq|fac') ? `${rate}*${P('ox|hq|fac', t)}` : rate) : ln.mode === 'pct_of_total_rev' ? `${rate}*${P(salesValue, t)}` : '';
+        return v ? `IF(${IN(`oxon|hq|${i}`, 6)}="Off",0,${v})` : '0';
+      });
+      hqKeys.push(k);
+    });
+    row('ox|hq|total', (t) => sumRows(hqKeys, t));
+
+    // ── The summary: each line's revenue, opex and EBITDA, HQ, the project ───
+    for (const id of ['rev', 'opex', 'ebitda'] as const) {
+      const ks: string[] = [];
+      for (const o of outs) { const k = `ox|sum|${id}|${o.line.key}`; row(k, (t) => P(oxKey(o.line.key, id), t)); ks.push(k); }
+      const hqK = `ox|sum|${id}|hq`;
+      row(hqK, (t) => (has('ox|hq|total') ? P('ox|hq|total', t) : '0'));
+      if (id === 'ebitda') row(`ox|sum|${id}`, (t) => `${sumRows(ks, t)}${has(hqK) ? `-${P(hqK, t)}` : ''}`);
+      else row(`ox|sum|${id}`, (t) => sumRows([...ks, ...(id === 'opex' ? [hqK] : [])], t));
     }
 
-    // ── Payables roll-forwards ───────────────────────────────────────────────
-    const daysCard = (): string => `MAX(1,${A(apIn('Days basis'), TOTAL_COL)})`;
-    const apRows = (scope: string, incLabel: string, inc: (t: number) => string, dpo: () => string): { lessPaid: string } => {
-      const K = (label: string): string => `opex|${scope}|ap|${label}`;
-      row(K(incLabel), inc);
-      row(K('Closing AP'), (t) => `${P(K(incLabel), t)}*${dpo()}/${daysCard()}`, 'last');
-      row(K('Opening AP'), (t) => w.refP({ sheet: OPEX, row: w.addr(K('Closing AP')).row, col: pc(t) - 1 }, OPEX), 'first');
-      row(K('Less: Cash Paid'), (t) => `${P(K('Closing AP'), t)}-${P(K('Opening AP'), t)}-${P(K(incLabel), t)}`);
-      return { lessPaid: K('Less: Cash Paid') };
+    // ── Payables ─────────────────────────────────────────────────────────────
+    // Each line's closing payable: its opex x the days in force (column B) / the days basis.
+    const daysBasis = `MAX(1,${IN('oxin|dpo|days', 2)})`;
+    const dflt = IN('oxin|dpo|default', 2);
+    const closeKeys: string[] = [];
+    const payable = (key: string, inc: (t: number) => string, daysF: string): void => {
+      if (!has(key)) return;
+      w.fA(at(key, META_B), daysF);
+      const d = A(key, META_B);
+      row(key, (t) => `${inc(t)}*${d}/${daysBasis}`, 'last');
+      closeKeys.push(key);
     };
-    const apLines = planReportLines(lineState, (a) => snap.ap.byAsset.has(a.id));
-    const apScopes: string[] = [];
-    for (const rl of apLines) {
+    for (const rl of planReportLines(lineState, (a) => snap.ap.byAsset.has(a.id))) {
       const o = outs.find((x) => rl.assetIds.includes(x.asset.id));
-      const scope = `ap:${rl.assetIds.join('+')}`;
-      const card = o ? dpoCard.get(o.asset.id) : undefined;
-      const res = apRows(scope, 'Opex Incurred', (t) => (o ? P(o.total, t) : '0'), () => (card ? A(card, TOTAL_COL) : '0'));
-      if (o) { w.claim(`oxo:ap:${o.asset.id}:lessPaid`, OPEX, w.addr(res.lessPaid).row, 1); }
-      apScopes.push(scope);
+      const key = `ox|ap|${rl.assetIds.join('+')}`;
+      const ov = o && has(`oxin|dpo|${o.asset.id}`) ? IN(`oxin|dpo|${o.asset.id}`, 2) : '';
+      payable(key, (t) => (o ? P(o.total, t) : '0'), ov ? `IF(ISNUMBER(${ov}),${ov},${dflt})` : dflt);
+      if (o && has(key)) w.claim(`oxo:ap:${o.asset.id}:close`, OPEX, w.addr(key).row, 1);
     }
-    const hqAp = apRows('__hq__', 'HQ Opex Incurred', (t) => (hqTotalK ? P(hqTotalK, t) : '0'), () => `N(${A(apIn('Project Default DPO (days)'), TOTAL_COL)})`); // the card echoes Inputs and prints a zero as words
-    w.claim('oxo:ap:hq:lessPaid', OPEX, w.addr(hqAp.lessPaid).row, 1);
-    // The project roll-forward sums the line and HQ roll-forwards above it.
-    const projK = (label: string): string => `opex|__project__|ap|${label}`;
-    const parts = (label: string, hqLabel = label): number[] => [...apScopes.map((s) => `opex|${s}|ap|${label}`), `opex|__hq__|ap|${hqLabel}`].filter(has).map((k) => w.addr(k).row);
-    row(projK('Opening AP'), (t) => sumRows(parts('Opening AP'), t), 'first');
-    row(projK('Opex Incurred'), (t) => sumRows(parts('Opex Incurred', 'HQ Opex Incurred'), t));
-    row(projK('Less: Cash Paid'), (t) => sumRows(parts('Less: Cash Paid'), t));
-    row(projK('Closing AP'), (t) => sumRows(parts('Closing AP'), t), 'last');
+    payable('ox|ap|hq', (t) => (has('ox|hq|total') ? P('ox|hq|total', t) : '0'), dflt);
+    if (has('ox|ap|hq')) w.claim('oxo:ap:hq:close', OPEX, w.addr('ox|ap|hq').row, 1);
+    // The project roll-forward: cash paid is what leaves, so the closing ties to the payables above.
+    const prev = (k: string, t: number): string => `N(${w.refP({ sheet: OPEX, row: w.addr(k).row, col: pc(t) - 1 }, OPEX)})`;
+    row('ox|ap|open', (t) => prev('ox|ap|close', t), 'first');
+    row('ox|ap|inc', (t) => P('ox|sum|opex', t));
+    row('ox|ap|paid', (t) => `${P('ox|ap|open', t)}+${P('ox|ap|inc', t)}-${sumRows(closeKeys, t)}`);
+    row('ox|ap|close', (t) => `${P('ox|ap|open', t)}+${P('ox|ap|inc', t)}-${P('ox|ap|paid', t)}`, 'last');
 
     // ── What later tabs read: the visible rows, named once here ─────────────
     for (const o of outs) w.claim(`oxo:${o.asset.id}:total`, OPEX, w.addr(o.total).row, 1);
-    for (const [lk, gk] of hospGroupRow) for (const [g, k] of gk) w.claim(`oxo:${lk}:grp:${g}`, OPEX, w.addr(k).row, 1);
-    if (hqTotalK) w.claim('oxo:hq:total', OPEX, w.addr(hqTotalK).row, 1);
+    if (has('ox|hq|total')) w.claim('oxo:hq:total', OPEX, w.addr('ox|hq|total').row, 1);
 
     const formulas = w.formulas.get(OPEX) ?? 0;
     return [{
       sheet: OPEX, status: 'live' as const, formulas,
-      note: 'Opex: each line\'s statement shows the years it operates and its inflation factor, every cost line has a row (zeros and switched-off lines included), every total sums the rows above it, and the payables roll forward from the statements. A line\'s mode and category are fixed at export.',
+      note: 'Opex: each line\'s operating statement shows the years it operates and its inflation factor, then revenue down to EBITDA; every cost line has a row (zeros included, switched-off lines at the foot), and every total sums the rows above it. HQ, one summary by line and the payables follow. A line\'s mode and category are fixed at export.',
     }];
   },
 };

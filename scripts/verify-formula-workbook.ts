@@ -218,7 +218,7 @@ function isInputsEcho(sheet: string, f: string): boolean {
     || t(String.raw`^IF\(ISNUMBER\((${R})\),\1,`)
     || t(String.raw`^IF\(N\((${R})\)>0,N\(\1\),`) || t(String.raw`^IF\((${R})>0,\1,`);
 }
-function inputsDoor(wb: ExcelJS.Workbook, a: { sheet: string; row: number; col: number }, value: number): { at: { sheet: string; row: number; col: number }; value: number } {
+function inputsDoor(wb: ExcelJS.Workbook, a: { sheet: string; row: number; col: number }, value: number | string): { at: { sheet: string; row: number; col: number }; value: number | string } {
   const v = wb.getWorksheet(a.sheet)?.getCell(a.row, a.col).value as unknown as { formula?: string } | null;
   const f = v && typeof v === 'object' ? v.formula : undefined;
   if (!f || a.sheet === 'Inputs') return { at: a, value };
@@ -229,7 +229,7 @@ function inputsDoor(wb: ExcelJS.Workbook, a: { sheet: string; row: number; col: 
   if (refs.length > 1 && /^(?:N\()?(?:'Inputs'|Inputs)!\$?[A-Z]+\$\d+\)?-/.test(f)) {
     const ax = wb.getWorksheet('Inputs')!.getCell(Number(refs[1][2]), col(refs[1][1])).value as unknown;
     const axv = ax && typeof ax === 'object' && 'result' in (ax as object) ? Number((ax as { result: unknown }).result) : Number(ax);
-    return { at, value: value + axv };
+    return { at, value: typeof value === 'number' ? value + axv : value };
   }
   return { at, value };
 }
@@ -237,7 +237,7 @@ function inputsDoor(wb: ExcelJS.Workbook, a: { sheet: string; row: number; col: 
 /** `variant`: the live model has no instance of the branch under test, so a copy is
  *  made that has one (a structural edit, re-run through the platform and exported
  *  afresh) and the input change is tested on THAT workbook. */
-type Perturbation = { label: string; cell: string; value: number; edit: (s: Snap) => void; variant?: (s: Snap) => void; movesRevenue: boolean; col?: number } | { label: string; skip: string };
+type Perturbation = { label: string; cell: string; value: number | string; edit: (s: Snap) => void; variant?: (s: Snap) => void; movesRevenue: boolean; col?: number } | { label: string; skip: string };
 /**
  * THE INPUT CHANGES, each target chosen by a RULE from the model (never a fixed
  * id), so the test keeps meaning the same thing as the project changes. A rule
@@ -506,17 +506,22 @@ function perturbations(input: LiveExportInputs, reg: CellRegistry): Perturbation
       edit: (s) => { (s.assets as any[]).find((q) => q.id === a.id).revenue.lease.operationsStartYearOverride = shownStart + 1; } });
   } else out.push({ label: 'lease revenue inputs', skip: 'no lease line' });
 
-  // Opex (stage 3c): a line value on each card (a share of revenue, a share of GOP
-  // that was zero, a rate per sqm that was zero), an inflation rate, the DPO.
+  // Opex (stage 3c): a line value typed on Inputs (a share of revenue, a share of GOP
+  // that was zero, a rate per sqm that was zero), a line switched off, an inflation rate, the DPO.
+  // The formulas read Inputs directly (2026-10-28): oxv| is a line's value, oxon| its On / Off.
   const opexLine = (a: any, pred: (l: any) => boolean): { i: number; l: any } | undefined => {
     const ls = (a?.opex?.lines ?? []) as any[]; const i = ls.findIndex(pred); return i >= 0 ? { i, l: ls[i] } : undefined;
   };
-  const cardKey = (a: any, name: string): string => `opexin|${a.id}||${name}`;
+  const cardKey = (a: any, name: string): string => `oxv|${a.id}|${((a.opex?.lines ?? []) as any[]).findIndex((l) => l.name === name)}`;
   const setLine = (id: string, i: number, v: number) => (s: Snap): void => { (s.assets as any[]).find((q) => q.id === id).opex.lines[i].value = v; };
   const hotA = hotL ? earner(hotL) : undefined;
   const ga = opexLine(hotA, (l) => l.mode === 'pct_of_total_rev' && l.value > 0 && !l.disabled);
-  if (hotA && ga) out.push({ movesRevenue: false, label: `hotel opex, ${ga.l.name} +5 points of total revenue`, cell: cardKey(hotA, ga.l.name), col: RC.OPEN + 1, value: ga.l.value + 0.05, edit: setLine(hotA.id, ga.i, ga.l.value + 0.05) });
+  if (hotA && ga) out.push({ movesRevenue: false, label: `hotel opex, ${ga.l.name} +5 points of total revenue`, cell: cardKey(hotA, ga.l.name), col: 5, value: ga.l.value + 0.05, edit: setLine(hotA.id, ga.i, ga.l.value + 0.05) });
   else out.push({ label: 'a hotel opex share of revenue', skip: 'none' });
+  const sw = opexLine(hotA, (l) => l.mode !== 'pct_of_gop' && l.value > 0 && !l.disabled && l.name !== ga?.l.name);
+  if (hotA && sw) out.push({ movesRevenue: false, label: `hotel opex, ${sw.l.name} switched Off on Inputs`, cell: `oxon|${hotA.id}|${sw.i}`, col: 7, value: 'Off',
+    edit: (s) => { (s.assets as any[]).find((q) => q.id === hotA.id).opex.lines[sw.i].disabled = true; } });
+  else out.push({ label: 'a hotel opex line switched off', skip: 'none' });
   // HOTEL AND LEASE RECEIVABLE DAYS ARE LIVE INPUTS (2026-10-25, founder): typed on Inputs, a
   // line's own days move its operating receivable and so its cash, never its revenue. Each is
   // typed into the line's Inputs cell on the model as it is (where the line states none and
@@ -534,12 +539,12 @@ function perturbations(input: LiveExportInputs, reg: CellRegistry): Perturbation
   if (leaseAr) out.push({ movesRevenue: false, label: `lease receivable days typed on Inputs (${leaseAr.label}, the line states none) to 60`, cell: arIn(leaseAr)!, col: 2, value: 60, edit: setDays(leaseAr, 'lease', 60) });
   else out.push({ label: 'lease receivable days', skip: 'no lease line with receivable days on Inputs' });
   const inc = opexLine(hotA, (l) => l.mode === 'pct_of_gop' && !l.disabled);
-  if (hotA && inc) out.push({ movesRevenue: false, label: `hotel opex, ${inc.l.name} (on GOP) ${inc.l.value} to ${inc.l.value + 0.08}`, cell: cardKey(hotA, inc.l.name), col: RC.OPEN + 1, value: inc.l.value + 0.08, edit: setLine(hotA.id, inc.i, inc.l.value + 0.08) });
+  if (hotA && inc) out.push({ movesRevenue: false, label: `hotel opex, ${inc.l.name} (on GOP) ${inc.l.value} to ${inc.l.value + 0.08}`, cell: cardKey(hotA, inc.l.name), col: 5, value: inc.l.value + 0.08, edit: setLine(hotA.id, inc.i, inc.l.value + 0.08) });
   else out.push({ label: 'a hotel opex line on GOP', skip: 'none' });
   const leaseA = leaseL ? earner(leaseL) : undefined;
   const rm = opexLine(leaseA, (l) => l.mode === 'per_sqm_year' && l.useAssetDefault !== false && !l.disabled);
   if (leaseA && rm) {
-    out.push({ movesRevenue: false, label: `lease opex, ${rm.l.name} ${rm.l.value} to ${rm.l.value + 50} per sqm (inflated)`, cell: cardKey(leaseA, rm.l.name), col: RC.OPEN + 1, value: rm.l.value + 50, edit: setLine(leaseA.id, rm.i, rm.l.value + 50) });
+    out.push({ movesRevenue: false, label: `lease opex, ${rm.l.name} ${rm.l.value} to ${rm.l.value + 50} per sqm (inflated)`, cell: cardKey(leaseA, rm.l.name), col: 5, value: rm.l.value + 50, edit: setLine(leaseA.id, rm.i, rm.l.value + 50) });
     const di = leaseA.opex?.defaultIndexation;
     if (di?.method && di.method !== 'none') {
       const r2 = (di.rate ?? 0) + 0.01;
@@ -549,7 +554,7 @@ function perturbations(input: LiveExportInputs, reg: CellRegistry): Perturbation
     }
   } else out.push({ label: 'a lease opex rate per sqm', skip: 'none' });
   const dflt = st.project.opexAp?.defaultApDays ?? 0;
-  out.push({ movesRevenue: false, label: `project default DPO ${dflt} to ${dflt + 45} days`, cell: 'opexin|__ap__||Project Default DPO (days)', col: RC.TOTAL, value: dflt + 45,
+  out.push({ movesRevenue: false, label: `project default DPO ${dflt} to ${dflt + 45} days`, cell: 'oxin|dpo|default', col: 2, value: dflt + 45,
     edit: (s) => { s.project.opexAp = { ...(s.project.opexAp ?? {}), defaultApDays: dflt + 45 }; } });
 
   // P&L (stage 5): the tax rate, which strikes tax on profit before tax less the gain.

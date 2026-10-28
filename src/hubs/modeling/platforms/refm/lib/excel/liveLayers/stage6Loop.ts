@@ -404,7 +404,9 @@ export const stage6Loop: LiveLayer = {
       if (a.strategy === 'Lease') return has(`rvc:${l.key}:rev`) ? (t) => P(`rvc:${l.key}:rev`, t) : () => '0';
       return has(`rvc:${a.id}:cash`) ? (t) => P(`rvc:${a.id}:cash`, t) : () => '0';
     };
-    const opexPaid = (a: Asset): F => (has(`oxo:ap:${a.id}:lessPaid`) ? (t) => `-${P(`oxo:ap:${a.id}:lessPaid`, t)}` : () => '0');
+    // Opex cash paid (2026-10-28): the opex less the rise in its closing payable on the Opex tab.
+    const paidOf = (opexKey: string, closeKey: string, t: number): string => `${has(opexKey) ? P(opexKey, t) : '0'}-(${P(closeKey, t)}-N(${P(closeKey, t, -1)}))`;
+    const opexPaid = (a: Asset): F => (has(`oxo:ap:${a.id}:close`) ? (t) => paidOf(`oxo:${a.id}:total`, `oxo:ap:${a.id}:close`, t) : () => '0');
     const classOf = (pick: (a: Asset) => boolean): F => (t) => visible.filter(pick).map((a) => `(${cashRev(a)(t)})-(${opexPaid(a)(t)})`).join('+') || '0';
     const kRes = find(M3, 'Residential cash collection'), kHosp = find(M3, 'Hospitality EBITDA'), kRet = find(M3, 'Retail NOI');
     const kFeeM3 = find(M3, '(-) Fund management fee'), kHq = find(M3, 'HQ overheads and marketing paid'), kEsc = find(M3, 'Escrow: pre-sales cash held and released'), kTaxM3 = find(M3, 'Tax paid');
@@ -419,7 +421,7 @@ export const stage6Loop: LiveLayer = {
     if (!kAr) return values('The financing could not be made live for this model: the Method 3 table does not carry the operating receivables row.');
     const arKeys = lines.filter((l) => l.form !== 'sell').map((l) => `rvc:${l.key}:opar`).filter(has);
     put(kAr, (t) => (arKeys.length ? `-(${arKeys.map((k) => `${P(k, t)}-N(${P(k, t, -1)})`).join('+')})` : '0'));
-    put(kHq, (t) => `${has('oxo:ap:hq:lessPaid') ? P('oxo:ap:hq:lessPaid', t) : '0'}${has('cx1e:total') ? `-${P('cx1e:total', t)}` : ''}`);
+    put(kHq, (t) => `${has('oxo:ap:hq:close') ? `-(${paidOf('oxo:hq:total', 'oxo:ap:hq:close', t)})` : '0'}${has('cx1e:total') ? `-${P('cx1e:total', t)}` : ''}`);
     const escNet = 'esc||C. Cash Flow Impact (project totals)|Net escrow cash flow';
     put(kEsc, (t) => (has(escNet) ? P(escNet, t) : '0'));
     const kFeeTot = `fin|${FEES}|Total fund fees`;

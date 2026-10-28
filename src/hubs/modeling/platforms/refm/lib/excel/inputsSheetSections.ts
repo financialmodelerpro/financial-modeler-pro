@@ -1050,7 +1050,8 @@ function opexInflationInputs(c: SheetCursor, who: string, key: string, cfg: unkn
   const ix = normalizeOpexIndexation(cfg) as { method?: string; rate?: number; startYear?: number };
   if (ix.method !== 'yoy_compound' && ix.method !== 'single_rate') return;
   kv(c, `${who} inflation: rate %`, ix.rate ?? 0, NUMFMT.pct2, true, undefined, undefined, `oxin|${key}|rate`);
-  kv(c, `${who} inflation: counted from year`, axisYear + (ix.startYear ?? 0), NUMFMT.year, true, undefined, key === 'hq' ? undefined : 'Never before the line starts operating.', `oxin|${key}|from`);
+  // An asset's inflation never counts from before it operates (assetOpex.ts); the label says so.
+  kv(c, key === 'hq' ? `${who} inflation: counted from year` : 'Inflation counted from (or the operations start, if later)', axisYear + (ix.startYear ?? 0), NUMFMT.year, true, undefined, undefined, `oxin|${key}|from`);
 }
 
 export function emitOpexInputs(c: SheetCursor, state: FinancialsResolverState, axisYear: number): void {
@@ -1069,7 +1070,9 @@ export function emitOpexInputs(c: SheetCursor, state: FinancialsResolverState, a
     const all = host.opex?.lines ?? [];
     if (all.length === 0) { note(c, 'No opex lines on this line.'); c.r += 1; continue; }
     headers(c, ['Line item', 'Category', 'Mode', 'Rate', 'Value', 'Inflation', 'On']);
-    for (const l of all) {
+    // The live workbook reads each line's value and On / Off here (2026-10-28): the Opex cards are gone.
+    const live = isLiveLayout();
+    all.forEach((l, i) => {
       const fixed = isFixedCostOpexMode(l.mode);
       const yoy = l.rateMode === 'yoy';
       setLabel(c.ws.getCell(c.r, 1), l.name, { indent: 1 });
@@ -1077,15 +1080,15 @@ export function emitOpexInputs(c: SheetCursor, state: FinancialsResolverState, a
       setInput(c.ws.getCell(c.r, 3), OPEX_MODE_LABELS[l.mode] ?? String(l.mode), '@');
       setInput(c.ws.getCell(c.r, 4), yoy ? 'YoY' : 'Single', '@');
       setInput(c.ws.getCell(c.r, 5), l.value, opexValFmt(String(l.mode)));
-      linkHere(c, c.r, 5, `opexin|${host.id}||${l.name}@6`);
+      if (live) registerCell(`oxv|${host.id}|${i}`, c.ws, c.ws.getCell(c.r, 5)); else linkHere(c, c.r, 5, `opexin|${host.id}||${l.name}@6`);
       if (!fixed) derived(c.ws.getCell(c.r, 6), 'auto via revenue', '@');
       else if (yoy) derived(c.ws.getCell(c.r, 6), 'supplied by YoY rates', '@');
       else if (l.useAssetDefault !== false) derived(c.ws.getCell(c.r, 6), `Inherits: ${summarizeOpexIndexation(host.opex?.defaultIndexation)}`, '@');
       else setInput(c.ws.getCell(c.r, 6), summarizeOpexIndexation(l.indexation), '@');
       setInput(c.ws.getCell(c.r, 7), l.disabled ? 'Off' : 'On', '@');
-      linkHere(c, c.r, 7, `opexin|${host.id}||${l.name}@8`);
+      if (live) registerCell(`oxon|${host.id}|${i}`, c.ws, c.ws.getCell(c.r, 7)); else linkHere(c, c.r, 7, `opexin|${host.id}||${l.name}@8`);
       c.r += 1;
-    }
+    });
     c.r += 1;
   }
   const hq = hqOpexLinesInForce(p.hqOpex?.lines);
@@ -1096,23 +1099,24 @@ export function emitOpexInputs(c: SheetCursor, state: FinancialsResolverState, a
       opexInflationInputs(c, 'HQ', 'hq', p.hqOpex?.defaultIndexation, axisYear);
     }
     headers(c, ['Line item', 'Category', 'Mode', 'Value', 'Inflation', 'On']);
-    for (const l of hq) {
+    const live = isLiveLayout();
+    hq.forEach((l, i) => {
       setLabel(c.ws.getCell(c.r, 1), l.name, { indent: 1 });
       setInput(c.ws.getCell(c.r, 2), OPEX_CATEGORY_LABELS[l.category] ?? String(l.category), '@');
       setInput(c.ws.getCell(c.r, 3), OPEX_MODE_LABELS[l.mode] ?? String(l.mode), '@');
       setInput(c.ws.getCell(c.r, 4), l.value, opexValFmt(String(l.mode)));
-      linkHere(c, c.r, 4, `opexin|__hq__||${l.name}@6`);
+      if (live) registerCell(`oxv|hq|${i}`, c.ws, c.ws.getCell(c.r, 4)); else linkHere(c, c.r, 4, `opexin|__hq__||${l.name}@6`);
       setInput(c.ws.getCell(c.r, 5), summarizeOpexIndexation(l.indexation), '@');
       setInput(c.ws.getCell(c.r, 6), l.disabled ? 'Off' : 'On', '@');
-      linkHere(c, c.r, 6, `opexin|__hq__||${l.name}@8`);
+      if (live) registerCell(`oxon|hq|${i}`, c.ws, c.ws.getCell(c.r, 6)); else linkHere(c, c.r, 6, `opexin|__hq__||${l.name}@8`);
       c.r += 1;
-    }
+    });
     c.r += 1;
   }
   if (ordered.length === 0 && hq.length === 0) { note(c, 'No operating lines: opex applies to Operate and Lease lines.'); c.r += 1; }
   setSectionHeader(c.ws.getRow(c.r), 'Accounts Payable (DPO)', 3); c.r += 1;
-  kv(c, 'Project Default DPO (days)', p.opexAp?.defaultApDays ?? 0, NUMFMT.int, true, 'DpoDays', 'Blank or 0 = pay on incurrence (no AP).', 'inp=opexin|__ap__||Project Default DPO (days)@4#dpo');
-  kv(c, 'Days basis', p.opexAp?.daysPerYear ?? 365, NUMFMT.int, p.opexAp?.daysPerYear !== undefined || isLiveLayout(), undefined, undefined, isLiveLayout() ? 'inp=opexin|__ap__||Days basis@4' : undefined);
+  kv(c, 'Project Default DPO (days)', p.opexAp?.defaultApDays ?? 0, NUMFMT.int, true, 'DpoDays', 'Blank or 0 = pay on incurrence (no AP).', isLiveLayout() ? 'oxin|dpo|default' : 'inp=opexin|__ap__||Project Default DPO (days)@4#dpo');
+  kv(c, 'Days basis', p.opexAp?.daysPerYear ?? 365, NUMFMT.int, p.opexAp?.daysPerYear !== undefined || isLiveLayout(), undefined, undefined, isLiveLayout() ? 'oxin|dpo|days' : undefined);
   if (ordered.length > 0) {
     const liveDpo = isLiveLayout();
     // Live layout: the override only (blank = the project default); the days in force are worked out on Opex.

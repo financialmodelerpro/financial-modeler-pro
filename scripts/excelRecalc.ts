@@ -37,7 +37,7 @@ export function excelAvailable(): { ok: true } | { ok: false; reason: string } {
 
 export const cellKey = (sheet: string, row: number, col: number): string => `${sheet}!R${row}C${col}`;
 
-export function recalcInExcel(xlsxPath: string, sets: Array<{ ref: string; value: number }> = []): ExcelRecalc {
+export function recalcInExcel(xlsxPath: string, sets: Array<{ ref: string; value: number | string }> = []): ExcelRecalc {
   const dir = mkdtempSync(join(tmpdir(), 'fmp-xl-'));
   const out = join(dir, 'cells.tsv');
   try {

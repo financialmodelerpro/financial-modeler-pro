@@ -333,12 +333,12 @@ export const stage4Schedules: LiveLayer = {
         row(F('A4', '(−) Release'), (t) => p(B('Less: Release of Locked Funds'), t), 'sumPrior');
         row(F('A4', 'Closing Balance'), (t) => p(B('Closing Balance'), t), 'last');
       } else if (tbl.key === 'L1') {
-        const O = (label: string): string => `opex|__project__|ap|${label}`;
-        if (!has(O('Closing AP'))) continue;
-        row(F('L1', 'Opening AP'), (t) => p(O('Opening AP'), t), 'first');
-        row(F('L1', '(+) Opex incurred'), (t) => p(O('Opex Incurred'), t), 'sumPrior');
-        row(F('L1', '(−) Cash paid'), (t) => p(O('Less: Cash Paid'), t), 'sumPrior');
-        row(F('L1', 'Closing AP'), (t) => p(O('Closing AP'), t), 'last');
+        // Opex's project roll-forward (2026-10-28): cash paid is a positive row there, an outflow here.
+        if (!has('ox|ap|close')) continue;
+        row(F('L1', 'Opening AP'), (t) => p('ox|ap|open', t), 'first');
+        row(F('L1', '(+) Opex incurred'), (t) => p('ox|ap|inc', t), 'sumPrior');
+        row(F('L1', '(−) Cash paid'), (t) => `-${p('ox|ap|paid', t)}`, 'sumPrior');
+        row(F('L1', 'Closing AP'), (t) => p('ox|ap|close', t), 'last');
       }
     }
     claim('schv:A3:close', F('A3', 'Closing inventory'));

@@ -332,16 +332,17 @@ export const stage5Statements: LiveLayer = {
     const inKindOf = (a: Asset): F => { const k = capexRowsOf(a).inKind; return (t) => k.map((x) => R(x, t)).join('+') || '0'; };
     // Cash collected: the line's row in Revenue's summary (a hotel or lease line's revenue less the rise in its receivable).
     const revRcv = (a: Asset): F => { const l = lineForAsset(lines, a.id); return l && earner(a) ? keyF(`rvc:${l.key}:collected`) : () => '0'; };
-    // The Opex tab shows cash paid as a negative row ("Less: Cash Paid").
-    const opexPaid = (a: Asset): F => neg(keyF(`oxo:ap:${a.id}:lessPaid`));
-    const hqPaid: F = neg(keyF('oxo:ap:hq:lessPaid'));
+    // Opex cash paid (2026-10-28): the opex less the rise in its closing payable on the Opex tab.
+    const paidOf = (opexKey: string, closeKey: string): F => (has(closeKey) ? (t) => `${keyF(opexKey)(t)}-(${delta(keyF(closeKey))(t)})` : () => '0');
+    const opexPaid = (a: Asset): F => paidOf(`oxo:${a.id}:total`, `oxo:ap:${a.id}:close`);
+    const hqPaid: F = paidOf('oxo:hq:total', 'oxo:ap:hq:close');
     const sellEarners = visible.filter((a) => (a.strategy === 'Sell' || a.strategy === 'Sell + Manage') && has(`rvc:${a.id}:cash`));
     const lineSeries = (k: string): F => (t) => sellEarners.map((a) => { const l = lineForAsset(lines, a.id); return l && has(`rvc:${l.key}:${k}`) ? R(`rvc:${l.key}:${k}`, t) : '0'; }).join('+') || '0';
     const resAr = lineSeries('ar');
     const unearned = lineSeries('ur');
     const escB = (label: string): string => `esc||B. Escrow Balance Roll-Forward|${label}`;
     const escClose: F = keyF(escB('Closing Balance'));
-    const apClose: F = keyF('opex|__project__|ap|Closing AP');
+    const apClose: F = keyF('ox|ap|close');
     const opArProject: F = (t) => lines.filter((l) => l.form !== 'sell').map((l) => `rvc:${l.key}:opar`).filter(has).map((k) => R(k, t)).join('+') || '0';
     const facs = state.financingTranches ?? [];
     const originF = (origin: 'new' | 'existing') => {

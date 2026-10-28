@@ -48,6 +48,7 @@ import { buildEmptyInputAdvisories, emptyInputAdvisoryText, buildIntegrityChecks
 import { buildCostOfSalesReport } from '../reports/cosReports';
 import { buildOpexReport, OPEX_AP_BASIS, OPEX_AP_TOTAL_BASIS } from '../reports/opexReports';
 import { planCapexSpread, planCapexBlends, followedRule, type SpreadRow } from './liveLayers/capexSpread';
+import { planOpexStatement, oxKey, type OpexCostRow } from './liveLayers/opexPlan';
 import { isRetailCompanion } from '@/src/core/calculations/retailCompanion';
 import { isParcelDrivenLandLine, resolvePhasingSource } from '@/src/core/calculations/capexPhasing';
 import { buildPLRows, buildPhaseEbitdaReconciliationRows, phaseEbitdaFooting, PHASE_RECON_LINE, taxBasisNote, buildDirectCFRows, buildIndirectCFRows, buildBSRows, buildBsReconciliationRows, buildBsFeederTables, BS_FEEDER_SECTIONS, BS_RECONCILIATION_CAPTION, buildFundFeeBasisRows, buildFundCapitalRows, fundFeeBasisBaseCell, totalColumnHeading, totalColumnNote, TOTAL_COLUMN_HEADINGS, TOTAL_COLUMN_NOTES, FUND_CAPITAL_BASES_TITLE, FUND_CAPITAL_BASES_NOTE, FUND_CAPITAL_BASE_TAG, type M4ReportCtx, type FundFeeBasisRow } from '../reports/m4Reports';
@@ -4103,8 +4104,9 @@ function addOpex(ctx: EmitCtx): OpexLinks {
     return out;
   };
   const padded = (arr: readonly number[] | undefined): number[] => Array.from({ length: N }, (_, i) => arr?.[i] ?? 0);
+  if (isLiveLayout()) return addOpexLive(ctx, ws, em, revLines);
 
-  const inflationRows = (label: string, cfg: IndexationConfig, years: number[]): void => {
+  const inflationRows =(label: string, cfg: IndexationConfig, years: number[]): void => {
     em.scalarRow(label, summarizeOpexIndexation(cfg), '@', { input: true, indent: 0 });
     if (cfg.method === 'yoy_per_period') em.periodRow('Growth %', padded(cfg.growthPerPeriod), years, NUMFMT.pct, { input: true });
   };
@@ -4252,6 +4254,143 @@ function addOpex(ctx: EmitCtx): OpexLinks {
 
   // hospRow / retailRow have no per-strategy rollup row on the platform; they
   // feed nothing (addReturns voids the registry), so they point at the total.
+  return { hospRow: totalRow, retailRow: totalRow, hqRow, totalRow };
+}
+
+// ── Opex, THE LIVE LAYOUT (2026-10-28, founder): per line, one operating ──────
+// statement from revenue to EBITDA (its years in operation and its inflation
+// factor first), then HQ, one short summary and the payables. No input cards:
+// the formulas read Inputs. Rows are keyed by `opexPlan.ts`, which stage3Opex
+// reads too; every value here is the platform's.
+function addOpexLive(ctx: EmitCtx, ws: ExcelJS.Worksheet, em: ReturnType<typeof makeRevOpexEmitters>, revLines: RevenueLine[]): OpexLinks {
+  const { snap, state } = ctx;
+  const N = snap.axisLength;
+  const z = (): number[] => new Array<number>(N).fill(0);
+  const padded = (arr: readonly number[] | undefined): number[] => Array.from({ length: N }, (_, i) => arr?.[i] ?? 0);
+  const addInto = (acc: number[], v: readonly number[]): void => { for (let t = 0; t < N; t++) acc[t] += v[t] ?? 0; };
+  const sumOf = (rows: number[][]): number[] => { const acc = z(); for (const v of rows) addInto(acc, v); return acc; };
+  em.setRegScope(null);
+  const keyed = (key: string, row: number): void => registerCell(key, ws, ws.getCell(row, LBL_COL));
+  const head = (text: string): void => { const r = em.cursor(); setLabel(ws.getCell(r, LBL_COL), text, { bold: true }); em.gap(); };
+  const money = (key: string, label: string, v: readonly number[], opts: Parameters<typeof em.moneyRow>[2] = {}): number => { const r = em.moneyRow(label, [...v], opts); keyed(key, r); return r; };
+  const tables = buildOpexReport(snap, state, { allLines: true });
+  const lineRows: Array<{ line: RevenueLine; rev: number[]; opex: number[]; ebitda: number[] }> = [];
+
+  for (const section of REVENUE_SECTIONS) {
+    const st = tables.filter((t) => t.lineKey && t.section === section && t.title.endsWith('Operating statement'));
+    if (st.length === 0) continue;
+    em.groupBand(`${section}: ${REVENUE_SECTION_META[section]}`);
+    for (const tb of st) {
+      const line = revLines.find((l) => l.key === tb.lineKey);
+      const a = line?.members.find((m) => (m.strategy === 'Operate' || m.strategy === 'Lease') && snap.opex.byAsset.has(m.id));
+      if (!line || !a) continue;
+      const isHotel = a.strategy === 'Operate';
+      const byLabel = new Map<string, M4Row>();
+      for (const r of tb.rows) if (!byLabel.has(r.label)) byLabel.set(r.label, r);
+      const vals = (label: string): number[] => padded(byLabel.get(label)?.values);
+      const K = (id: string): string => oxKey(line.key, id);
+      const per = snap.opex.byAsset.get(a.id)?.perLinePerPeriod ?? [];
+      const stored = (a.opex?.lines ?? []) as OpexLine[];
+      const plan = planOpexStatement(line.key, stored, isHotel);
+      const costVals = (row: OpexCostRow): number[] => sumOf(row.idxs.map((i) => padded(per[i])));
+      em.subTitle(revenueLineName(line));
+      money(K('io'), 'In operations (1 = yes)', vals('In operations (1 = yes)'), { indent: 1, numFmt: NUMFMT.int });
+      if (byLabel.has('Inflation factor while operating')) money(K('fac'), 'Inflation factor while operating', vals('Inflation factor while operating'), { indent: 1, numFmt: FACTOR_FMT, noTotal: true });
+      let rev: number[];
+      if (isHotel) {
+        money(K('rev:rooms'), 'Rooms revenue', vals('Rooms revenue'), { indent: 1 });
+        money(K('rev:fb'), 'F&B revenue', vals('F&B revenue'), { indent: 1 });
+        money(K('rev:other'), 'Other revenue', vals('Other revenue'), { indent: 1 });
+        rev = vals('Total revenue');
+        money(K('rev'), 'Total revenue', rev, { style: 'subtotal' });
+      } else {
+        rev = vals('Lease revenue');
+        money(K('rev'), 'Lease revenue', rev, { style: 'subtotal' });
+      }
+      const groupVals = new Map<string, number[]>();
+      for (const g of plan.groups) {
+        const active = g.rows.filter((r) => !r.off);
+        groupVals.set(g.group, sumOf(g.rows.map(costVals)));
+        if (active.length === 0 && !g.totalKey) continue;
+        head(g.label);
+        for (const r of active) money(r.key, r.name, costVals(r), { indent: 1 });
+        if (g.totalKey) money(g.totalKey, g.totalLabel, groupVals.get(g.group)!, { style: 'subtotal' });
+        if (isHotel && g.group === 'departmental') money(K('dp'), 'Departmental profit', vals('Departmental profit'), { style: 'subtotal' });
+        if (isHotel && g.group === 'undistributed') {
+          money(K('gop'), 'Gross operating profit, GOP', vals('Gross operating profit, GOP'), { style: 'subtotal' });
+          money(K('gopm'), 'GOP margin', vals('GOP margin'), { indent: 1, numFmt: NUMFMT.pct, totalValue: byLabel.get('GOP margin')?.totalValue });
+        }
+      }
+      const opex = vals('Total operating expenses');
+      const ebitda = vals('EBITDA, net operating income');
+      money(K('opex'), 'Total operating expenses', opex, { style: 'subtotal' });
+      money(K('ebitda'), 'EBITDA, net operating income', ebitda, { style: 'total' });
+      money(K('ebm'), 'EBITDA margin', vals('EBITDA margin'), { indent: 1, numFmt: NUMFMT.pct, totalValue: byLabel.get('EBITDA margin')?.totalValue });
+      if (plan.off.length) {
+        head('Switched off');
+        const labelOf = new Map(plan.groups.map((g) => [g.group, g.label] as const));
+        for (const r of plan.off) money(r.key, r.name, costVals(r), { indent: 1, basis: labelOf.get(r.group) });
+      }
+      em.gap();
+      lineRows.push({ line, rev, opex, ebitda });
+    }
+  }
+
+  // HQ, project-wide: the factor, every line, the total.
+  const hqLines = hqOpexLinesInForce(state.project.hqOpex?.lines as OpexLine[] | undefined);
+  const hqTotal = padded(snap.opex.hq.totalOpexPerPeriod);
+  let hqRow = -1;
+  if (hqLines.length) {
+    em.subTitle('HQ & Corporate Overheads (project-wide)');
+    const hqTb = tables.find((t) => t.title.startsWith('HQ & Corporate Overheads'));
+    const fac = hqTb?.rows.find((r) => r.label === 'Inflation factor');
+    if (fac) money('ox|hq|fac', 'Inflation factor', padded(fac.values), { indent: 1, numFmt: FACTOR_FMT, noTotal: true });
+    const hqOf = (i: number): number[] => padded(snap.opex.hq.perLinePerPeriod[i]);
+    hqLines.forEach((ln, i) => { if (!ln.disabled) money(`ox|hq|c${i}`, ln.name, hqOf(i), { indent: 1 }); });
+    hqRow = money('ox|hq|total', 'Total HQ opex', hqTotal, { style: 'subtotal' });
+    if (hqLines.some((ln) => ln.disabled)) {
+      head('Switched off');
+      hqLines.forEach((ln, i) => { if (ln.disabled) money(`ox|hq|c${i}`, ln.name, hqOf(i), { indent: 1 }); });
+    }
+    em.gap();
+  }
+
+  // ONE SUMMARY: revenue, opex and EBITDA by line, HQ, the project total.
+  em.subTitle('Summary by line');
+  const block = (id: 'rev' | 'opex' | 'ebitda', title: string, pick: (x: typeof lineRows[number]) => number[], hq: 'add' | 'less' | null, totalLabel: string): number => {
+    head(title);
+    for (const x of lineRows) money(`ox|sum|${id}|${x.line.key}`, revenueLineName(x.line), pick(x), { indent: 1 });
+    const total = sumOf(lineRows.map(pick));
+    if (hq && hqLines.length) {
+      money(`ox|sum|${id}|hq`, hq === 'add' ? 'HQ overheads' : 'Less: HQ overheads', hqTotal, { indent: 1 });
+      for (let t = 0; t < N; t++) total[t] += hq === 'add' ? hqTotal[t] : -hqTotal[t];
+    }
+    return money(`ox|sum|${id}`, totalLabel, total, { style: 'subtotal' });
+  };
+  block('rev', 'Revenue', (x) => x.rev, null, 'Total revenue');
+  const totalRow = block('opex', 'Operating expenses', (x) => x.opex, 'add', 'Total project opex');
+  block('ebitda', 'EBITDA', (x) => x.ebitda, 'less', 'Total EBITDA');
+  em.gap();
+
+  // PAYABLES: each line's closing payable and HQ's, then one project roll-forward.
+  em.groupBand('Accounts payable');
+  em.colHeaders([[LBL_COL, 'Closing payables', 'left'], [META_B, 'Days payable (0 = cash basis)', 'right']]);
+  const lineState = { assets: state.assets, phases: state.phases, parcels: state.parcels };
+  const days = (r: number, d: number): void => { const c = ws.getCell(r, META_B); c.value = d; c.numFmt = NUMFMT.int; c.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } }; };
+  for (const rl of planReportLines(lineState, (a) => snap.ap.byAsset.has(a.id))) {
+    const members = rl.assetIds.map((id) => snap.ap.byAsset.get(id)).filter((x): x is NonNullable<typeof x> => !!x);
+    const pooled = poolResults(members);
+    const l = lineForAsset(revLines, members[0].assetId);
+    const r = money(`ox|ap|${rl.assetIds.join('+')}`, l ? revenueLineName(l) : lineTitle(rl, lineState), padded(pooled.result.perPeriod), { indent: 1, totalLast: true });
+    days(r, members[0].effectiveApDays);
+  }
+  days(money('ox|ap|hq', 'HQ overheads', padded(snap.ap.hq.result.perPeriod), { indent: 1, totalLast: true }), snap.ap.hq.apDays);
+  head('Payables roll-forward');
+  const apt = snap.ap.projectTotals;
+  money('ox|ap|open', 'Opening payables', padded(apt.openingApPerPeriod), { indent: 1, totalValue: apt.openingApPerPeriod[0] ?? 0 });
+  money('ox|ap|inc', 'Opex incurred', padded(apt.opexIncurredPerPeriod), { indent: 1 });
+  money('ox|ap|paid', 'Less: cash paid', padded(apt.cashPaidPerPeriod), { indent: 1 });
+  money('ox|ap|close', 'Closing payables', padded(apt.closingApPerPeriod), { style: 'total', totalLast: true });
   return { hospRow: totalRow, retailRow: totalRow, hqRow, totalRow };
 }
 

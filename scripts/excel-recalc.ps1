@@ -32,7 +32,9 @@ try {
     foreach ($s in $Sets.Split(';')) {
       if ($s.Trim() -eq '') { continue }
       $eq = $s.LastIndexOf('=')
-      $ref = $s.Substring(0, $eq); $val = [double]::Parse($s.Substring($eq + 1), [System.Globalization.CultureInfo]::InvariantCulture)
+      # A number is typed as a number, anything else (an On / Off switch) as text.
+      $ref = $s.Substring(0, $eq); $raw = $s.Substring($eq + 1); $num = 0.0
+      if ([double]::TryParse($raw, [System.Globalization.NumberStyles]::Float, [System.Globalization.CultureInfo]::InvariantCulture, [ref]$num)) { $val = $num } else { $val = $raw }
       $bang = $ref.LastIndexOf('!')
       $sheet = $ref.Substring(0, $bang).Trim("'"); $addr = $ref.Substring($bang + 1)
       $wb.Worksheets.Item($sheet).Range($addr).Value2 = $val
