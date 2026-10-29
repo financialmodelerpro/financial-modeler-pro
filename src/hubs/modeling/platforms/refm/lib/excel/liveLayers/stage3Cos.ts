@@ -106,7 +106,7 @@ export const stage3Cos: LiveLayer = {
       const Bk = (label: string): string => `esc||B. Escrow Balance Roll-Forward|${label}`;
       const Cc = (label: string): string => `esc||C. Cash Flow Impact (project totals)|${label}`;
       const heldKeys: string[] = [];
-      const releases: Array<{ held: string; rel: () => string }> = [];
+      const releases: Array<{ held: string; rel: () => string; line: string }> = [];
       for (const el of escLines) {
         const host = state.assets.find((a) => a.id === el.assetIds[0]) as Asset;
         const rl = lineOfAsset(host.id);
@@ -127,19 +127,25 @@ export const stage3Cos: LiveLayer = {
         const eff = (): string => cell(TOTAL_COL), until = (): string => cell(OPEN_COL), relY = (): string => cell(OPEN_COL + 1);
         row(Bk(`${name}: held`), (t) => `IF(${Y(t)}<=MAX(${Y0()},MIN(${YN()},${until()})),MAX(0,${p(`rvc:${rl.key}:cashPre`, t)})*MAX(0,${eff()}),0)`);
         heldKeys.push(Bk(`${name}: held`));
-        releases.push({ held: Bk(`${name}: held`), rel: relY });
+        releases.push({ held: Bk(`${name}: held`), rel: relY, line: rl.key });
         w.claim(`escc:${rl.key}:held`, REV, w.addr(Bk(`${name}: held`)).row, 1);
         w.claim(`escc:${rl.key}:in`, REV, r, 1);
         // The release year in force, by its own key: the phase cash flows read it (never a column offset).
         w.claim(`escc:${rl.key}:release`, REV, r, OPEN_COL + 1);
       }
       row(Bk('Total Additions'), (t) => sumKeys(heldKeys, t));
-      // A line releases everything it has held so far, in its release year (clamped to the workbook's years).
-      row(Bk('Less: Release of Locked Funds'), (t) => `-(${releases.map((x) => {
+      // A line releases everything it has held so far, in its release year (clamped to the workbook's years):
+      // one row per line (the phase cash flows link it), and the total is their SUM.
+      const relKeys: string[] = [];
+      for (const x of releases) {
+        const k = x.held.replace(/: held$/, ': released');
+        if (!has(k)) continue;
         const hr = w.addr(x.held).row;
-        w.refP({ sheet: REV, row: hr, col: pc(t) }, REV);
-        return `(${Y(t)}=MAX(${Y0()},MIN(${YN()},${x.rel()})))*SUM($${colOf(pc(0))}$${hr}:${colOf(pc(t))}$${hr})`;
-      }).join('+') || '0'})`);
+        row(k, (t) => { w.refP({ sheet: REV, row: hr, col: pc(t) }, REV); return `(${Y(t)}=MAX(${Y0()},MIN(${YN()},${x.rel()})))*SUM($${colOf(pc(0))}$${hr}:${colOf(pc(t))}$${hr})`; });
+        relKeys.push(k);
+        w.claim(`escc:${x.line}:released`, REV, w.addr(k).row, 1);
+      }
+      row(Bk('Less: Release of Locked Funds'), (t) => `-(${sumKeys(relKeys, t)})`);
       row(Bk('Closing Balance'), (t) => `MAX(0,${p(Bk('Closing Balance'), t, -1)}+${p(Bk('Total Additions'), t)}+${p(Bk('Less: Release of Locked Funds'), t)})`, 'last');
       row(Bk('Opening Balance'), (t) => p(Bk('Closing Balance'), t, -1), 'none');
       row(Cc('Less: cash locked in escrow'), (t) => `-${p(Bk('Total Additions'), t)}`);

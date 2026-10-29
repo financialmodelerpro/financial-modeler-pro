@@ -207,6 +207,22 @@ export function financingPlan(state: FinancialsResolverState, snap: Snap = compu
     const proceeds = zeros();
     if (snap.disposal.booked) proceeds[snap.disposal.exitIdx] = snap.disposal.proceeds;
     per('fl:proceeds', 'Exit proceeds (the held assets sold, in the exit year)', proceeds, 'Timeline\'s exit year: the income of the year Inputs names (the exit year or the year before) valued at the exit terms');
+    // EXIT PROCEEDS BY PHASE (2026-10-29): each phase's share of the proceeds is its held lines'
+    // income in the basis year over the project's, so the phases add to the project exactly.
+    if (state.phases.length > 1) {
+      const M = snap.disposal.metricIdx;
+      for (const ph of state.phases) {
+        const v = zeros();
+        for (const pa of snap.perAssetPL.values()) {
+          if (pa.strategy !== 'Operate' && pa.strategy !== 'Lease') continue;
+          if (state.assets.find((a) => a.id === pa.assetId)?.phaseId !== ph.id) continue;
+          for (let t = 0; t < N; t++) v[t] += (pa.revenuePerPeriod[t] ?? 0) - (pa.opexPerPeriod[t] ?? 0);
+        }
+        per(`fl:ph:${ph.id}:noi`, `${ph.name}: income of its held assets (NOI)`, v, 'Revenue less opex of the phase\'s hotel and lease lines', { indent: 1 });
+        const share = (noi[M] ?? 0) !== 0 ? (v[M] ?? 0) / noi[M] : 0;
+        per(`fl:ph:${ph.id}:proceeds`, `${ph.name}: exit proceeds`, proceeds.map((x) => x * share), 'The exit proceeds x the phase\'s share of the income in the basis year', { indent: 1 });
+      }
+    }
   }
   per('fl:collected', 'Revenue: cash collected', sl(dcf.revenueReceivedPerPeriod), 'Revenue: each line\'s cash collected');
   per('fl:opexPaid', '(-) Opex paid, lines and HQ', add(sl(dcf.opexPaidPerPeriod), sl(dcf.hqOpexPaidPerPeriod)), 'Opex: each line\'s opex less the rise in its payable');

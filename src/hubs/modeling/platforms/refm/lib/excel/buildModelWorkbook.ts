@@ -51,6 +51,7 @@ import { planCapexSpread, planCapexBlends, followedRule, type SpreadRow } from '
 import { planOpexStatement, oxKey, type OpexCostRow } from './liveLayers/opexPlan';
 import { financingPlan } from './liveLayers/financingPlan';
 import { plPlan } from './liveLayers/plPlan';
+import { cfPlan } from './liveLayers/cfPlan';
 import { isRetailCompanion } from '@/src/core/calculations/retailCompanion';
 import { isParcelDrivenLandLine, resolvePhasingSource } from '@/src/core/calculations/capexPhasing';
 import { buildPLRows, buildPhaseEbitdaReconciliationRows, phaseEbitdaFooting, PHASE_RECON_LINE, taxBasisNote, buildDirectCFRows, buildIndirectCFRows, buildBSRows, buildBsReconciliationRows, buildBsFeederTables, BS_FEEDER_SECTIONS, BS_RECONCILIATION_CAPTION, buildFundFeeBasisRows, buildFundCapitalRows, fundFeeBasisBaseCell, totalColumnHeading, totalColumnNote, TOTAL_COLUMN_HEADINGS, TOTAL_COLUMN_NOTES, FUND_CAPITAL_BASES_TITLE, FUND_CAPITAL_BASES_NOTE, FUND_CAPITAL_BASE_TAG, type M4ReportCtx, type FundFeeBasisRow } from '../reports/m4Reports';
@@ -3527,6 +3528,18 @@ function addRevenue(ctx: EmitCtx): { revLinks: RevLinks; cosLinks: CosLinks } {
       em.moneyRow(total, tot, { style: 'total' });
       em.gap();
     }
+    // The balances at the year end, all lines (2026-10-29): the indirect cash flow reads their change.
+    {
+      const ic = ctx.snap.indirectCF;
+      let ar = 0, ur = 0;
+      const arV = Array.from({ length: N }, (_, t) => (ar -= ic.changeInArPerPeriod[t] ?? 0));
+      const urV = Array.from({ length: N }, (_, t) => (ur += ic.changeInUnearnedPerPeriod[t] ?? 0));
+      em.tableTitle('Balances at year end');
+      em.setRegLine('__project__'); em.setRegTable('bal');
+      em.moneyRow('Receivables, all lines', arV, { style: 'subtotal', totalLast: true });
+      em.moneyRow('Unearned revenue, all lines', urV, { style: 'subtotal', totalLast: true });
+      em.gap();
+    }
   };
   const lineMeta = (l: RevenueLine): string => l.isStrip ? 'ground-floor retail strip carved from its hosts'
     : l.isOperateCompanion ? 'Operate companion' : plotsOf(l);
@@ -4127,6 +4140,8 @@ function addRevenue(ctx: EmitCtx): { revLinks: RevLinks; cosLinks: CosLinks } {
       em.moneyRow('Opening Balance', opening, { indent: 1, noTotal: true });
       for (const row of rows) em.moneyRow(`${row.name}: held`, row.result.heldPerPeriod, { indent: 1 });
       em.moneyRow('Total Additions', esc.heldPerPeriod, { style: 'subtotal' });
+      // Each line's release, its own row (2026-10-29): the phase cash flows link it.
+      for (const row of rows) em.moneyRow(`${row.name}: released`, row.result.releasePerPeriod, { indent: 1 });
       em.moneyRow('Less: Release of Locked Funds', esc.releasePerPeriod.slice(0, N).map((v) => -v), { indent: 1 });
       em.moneyRow('Closing Balance', esc.cumulativeBalancePerPeriod, { style: 'total', totalLast: true });
       em.tableTitle('Escrow cash flow');
@@ -5534,8 +5549,51 @@ function addProfitLoss(ctx: EmitCtx): void {
 }
 
 // ── Cash Flow (full detailed mirror: Direct + Indirect + per-phase) ───────────
+/**
+ * THE LIVE CASH FLOW (2026-10-29, founder): a statement that only links, from `cfPlan`: the direct
+ * method (operations, investing, financing, net and closing cash), the indirect method's operating
+ * cash with its check, each phase's operations and investing, and the phases to the project. The
+ * values are the platform's; stage 5 writes every row's formula by its key.
+ */
+function addCashFlowLive(ctx: EmitCtx): void {
+  const { wb, snap, state } = ctx;
+  const N = snap.axisLength;
+  const ws = wb.addWorksheet(SHEETS.cashflow, { properties: { tabColor: { argb: ARGB.navy } } });
+  writeSheetHeader(ws, snap, N, 'Cash Flow', 'Direct method (operations, investing, financing, net and closing cash), the indirect method\'s operating cash with its check, each phase\'s operations and investing, and the phases to the project net cash flow.', { label: 'Line', feeds: 'Revenue (cash collected, escrow), Opex (opex and its payables), Capex (capex, selling and marketing), the P&L (the indirect method) and Financing (fund fees, zakat, disposal proceeds and every financing flow).', totalLabel: 'Total / Closing' });
+  const last = lastActiveCol(N);
+  const put = (r: number, c: number, v: number): void => {
+    const cell = ws.getCell(r, c);
+    cell.value = v; cell.numFmt = NUMFMT.money; cell.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } };
+  };
+  let r = 6;
+  for (const row of cfPlan(state, snap)) {
+    if (row.kind === 'gap') { r += 1; continue; }
+    registerCell(row.key, ws, ws.getCell(r, LBL_COL));
+    if (row.kind === 'section') { setSectionHeader(ws.getRow(r), row.label, last, ARGB.accent); r += 1; continue; }
+    if (row.kind === 'head') {
+      setLabel(ws.getCell(r, LBL_COL), row.label, { bold: true });
+      fillRange(ws, r, 1, r, last, ARGB.subtotal);
+      for (let c = 1; c <= last; c++) ws.getCell(r, c).font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.navyDark } };
+      r += 1;
+      continue;
+    }
+    setLabel(ws.getCell(r, LBL_COL), row.label, { indent: row.indent, bold: !!row.style });
+    const vals = row.values ?? [];
+    for (let t = 0; t < N; t++) put(r, pcol(t), vals[t] ?? 0);
+    put(r, TOTAL_COL, row.total === 'first' ? (vals[0] ?? 0) : row.total === 'last' ? (vals[N - 1] ?? 0) : vals.slice(0, N).reduce((s, v) => s + (v ?? 0), 0));
+    if (row.style === 'total') {
+      fillRange(ws, r, 1, r, last, ARGB.navy);
+      for (let c = 1; c <= last; c++) ws.getCell(r, c).font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.white } };
+    } else if (row.style === 'subtotal') {
+      for (let c = 1; c <= last; c++) ws.getCell(r, c).font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.navyDark } };
+    }
+    r += 1;
+  }
+}
+
 function addCashFlow(ctx: EmitCtx): void {
   const { wb, snap, state } = ctx;
+  if (isLiveLayout()) return addCashFlowLive(ctx);
   const N = snap.axisLength;
   const labels = m4Labels(state);
   const mk = (filterPhaseId: string): M4ReportCtx => ({ snap, state, labels, filterPhaseId, fmt: (v: number) => String(v), allRows: isLiveLayout() });

@@ -63,7 +63,7 @@ export const stage7cChecks: LiveLayer = {
     const ids: Array<{ label: string; a: string; b: string | null; mag: string }> = [
       { label: 'Balance sheet balances (Assets = L + E)', a: 'bs|__all__||TOTAL ASSETS', b: 'bs|__all__||TOTAL LIABILITIES + EQUITY', mag: 'bs|__all__||TOTAL ASSETS' },
       { label: 'Cash flow closing == balance sheet cash', a: 'cf|direct||Closing cash', b: 'bs|__all__||Cash', mag: 'bs|__all__||Cash' },
-      { label: 'Direct cash flow == Indirect cash flow', a: 'cf|direct||Net Cash Flow', b: 'cf|indirect||Net Cash Flow', mag: 'cf|direct||Net Cash Flow' },
+      { label: 'Direct cash flow == Indirect cash flow', a: 'cf|direct||Cash Flow from Operations', b: 'cf|indirect||Cash Flow from Operations', mag: 'cf|direct||Cash Flow from Operations' },
       { label: 'Balance sheet reconciliation bridge, unexplained', a: 'bsr|__all__||Unexplained (must be 0)', b: null, mag: 'bs|__all__||TOTAL ASSETS' },
       // The financing loop solves its tax on its own profit before tax: it must be the P&L's, every year.
       { label: LOOP_PBT_CHECK, a: 'fl:pbt', b: `pl|__all__||${pbtLabel}`, mag: `pl|__all__||${pbtLabel}` },

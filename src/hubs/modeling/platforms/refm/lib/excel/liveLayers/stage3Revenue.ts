@@ -489,6 +489,14 @@ export const stage3Revenue: LiveLayer = {
       if (id === 'sv') claim('rvc:__project__:salesValue', tk);
     }
 
+    // The balances at the year end, all lines (2026-10-29): the indirect cash flow reads their change.
+    {
+      const arK = 'rev|__project__|bal|Receivables, all lines', urK = 'rev|__project__|bal|Unearned revenue, all lines';
+      const arParts = lines.flatMap((l) => (l.form === 'sell' ? [`rvc:${l.key}:ar`] : [`rvc:${l.key}:opar`])).filter(has);
+      const urParts = lines.filter((l) => l.form === 'sell').map((l) => `rvc:${l.key}:ur`).filter(has);
+      if (has(arK)) { row(arK, (t) => arParts.map((k) => P(k, t)).join('+') || '0', 'last'); claim('rvc:__project__:ar', arK); }
+      if (has(urK)) { row(urK, (t) => urParts.map((k) => P(k, t)).join('+') || '0', 'last'); claim('rvc:__project__:ur', urK); }
+    }
     for (const c of checks) c();
 
     return [

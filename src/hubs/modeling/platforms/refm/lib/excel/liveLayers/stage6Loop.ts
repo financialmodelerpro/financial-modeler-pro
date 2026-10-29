@@ -278,6 +278,20 @@ export const stage6Loop: LiveLayer = {
       const income = `IF(${IN('ret:tvBasis')}="Exit year",${P('fl:noi', t)},N(${P('fl:noi', t, -1)}))`;
       return `${exitF(t)}*${terminalValueFormula(w, retCfg, income, true)}`;
     });
+    // Exit proceeds by phase: the proceeds x the phase's share of the held income in the basis year.
+    {
+      const basisOf = (key: string, t: number): string => `IF(${IN('ret:tvBasis')}="Exit year",${P(key, t)},N(${P(key, t, -1)}))`;
+      for (const ph of phases) {
+        const kN = `fl:ph:${ph.id}:noi`, kP = `fl:ph:${ph.id}:proceeds`;
+        if (!has(kN) || !has(kP)) continue;
+        const hp = held.filter((a) => a.phaseId === ph.id);
+        const rev = [...new Set(hp.map((a) => lineForAsset(lines, a.id)).filter((l): l is NonNullable<typeof l> => !!l).map((l) => (l.form === 'operate' ? `rvc:${l.key}:total` : `rvc:${l.key}:rev`)).filter(has))];
+        const opx = hp.map((a) => `oxo:${a.id}:total`).filter(has);
+        put(kN, (t) => `${rev.map((k) => P(k, t)).join('+') || '0'}-(${opx.map((k) => P(k, t)).join('+') || '0'})`);
+        put(kP, (t) => (booked ? `IF(${basisOf('fl:noi', t)}=0,0,${P('fl:proceeds', t)}*${basisOf(kN, t)}/${basisOf('fl:noi', t)})` : '0'));
+        claim(`fnc:ph:${ph.id}:proceeds`, kP);
+      }
+    }
     put('fl:collected', (t) => P('rev|__project__|sum-cash|Total cash collected', t));
     put('fl:opexPaid', (t) => `-${P('ox|ap|paid', t)}`);
     put('fl:mkt', (t) => (has('cx1e:total') ? `-${P('cx1e:total', t)}` : '0'));
