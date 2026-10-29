@@ -592,8 +592,23 @@ function perturbations(input: LiveExportInputs, reg: CellRegistry): Perturbation
   // headroom, the sweep and dividends all turn on it), and escrow, whose rows the
   // statements print only while non-zero (a total must carry them unshown).
   const minC = st.project.financing?.minimumCashReserve ?? 0;
-  out.push({ movesRevenue: false, label: `the minimum cash reserve ${minC} to ${minC + 15_000_000}`, cell: 'fin|1. Project Financing Settings|Minimum Cash Reserve', col: RC.TOTAL, value: minC + 15_000_000,
+  out.push({ movesRevenue: false, label: `the minimum cash reserve ${minC} to ${minC + 15_000_000}`, cell: 'fin:in:min', value: minC + 15_000_000,
     edit: (s) => { (s.project.financing as { minimumCashReserve?: number }).minimumCashReserve = minC + 15_000_000; } });
+  {
+    const trL = (st.financingTranches ?? [])[0];
+    if (trL) {
+      const sp = trL.creditSpreadPct ?? 0;
+      out.push({ movesRevenue: false, label: `the interest rate of ${trL.name} +1 point (its spread ${sp}% to ${sp + 1}%)`, cell: `trsp:${trL.id}`, value: (sp + 1) / 100,
+        edit: (s) => { (s.financingTranches as any[]).find((x) => x.id === trL.id).creditSpreadPct = sp + 1; } });
+    }
+    if ((st.financingTranches ?? []).some((x: any) => x.repaymentMethod === 'cash_sweep' || x.cashSweepConfig?.enabled === true)) {
+      out.push({ movesRevenue: false, label: 'the sweep ratio 100% to 50%', cell: 'fin:in:sweepRatio', value: 0.5,
+        edit: (s) => { s.project.financing = { ...(s.project.financing ?? {}), cashSweep: { ...((s.project.financing as any)?.cashSweep ?? {}), sweepRatioPct: 50 } } as never; } });
+    }
+    const y0 = Number(st.phases.reduce((m: number, p: any) => Math.min(m, p.startDate ? new Date(p.startDate).getUTCFullYear() : 9999), 9999));
+    out.push({ movesRevenue: true, label: 'the exit year to 2037', cell: 'inp=ret|Exit Year@4', value: 2037,
+      edit: (s) => { s.project.returns = { ...(s.project.returns ?? {}), exitYearOffset: 2037 - y0 } as never; } });
+  }
   const held = st.project.escrow?.heldPct ?? 0;
   if (held === 0 && reg.get('escin|pct')) {
     out.push({ movesRevenue: false, label: 'escrow held on pre-sales cash 0% to 20% (rows the statements print only while non-zero)', cell: 'escin|pct', col: 2, value: 0.2,
@@ -668,19 +683,19 @@ function perturbations(input: LiveExportInputs, reg: CellRegistry): Perturbation
       trs(s).push({ ...structuredClone(base), id: 'tranche_mezz_test', name: 'Mezzanine', facilitySharePct: 40, creditSpreadPct: spread + 3, cashSweepConfig: { priority: 50 }, ...extra });
     };
     // B: two loans on the sweep, 60 / 40, the second at a higher spread and FIRST in the sweep order.
-    out.push({ movesRevenue: false, label: 'B: two loans on the sweep (60 / 40, the mezzanine first), its spread +1 point', cell: 'fin|Mezzanine (new facility)|Credit Spread %', col: RC.TOTAL, value: (spread + 4) / 100,
+    out.push({ movesRevenue: false, label: 'B: two loans on the sweep (60 / 40, the mezzanine first), its spread +1 point', cell: 'trsp:tranche_mezz_test', value: (spread + 4) / 100,
       variant: (s) => mezz(s, {}),
       edit: (s) => { trs(s).find((t) => t.id === 'tranche_mezz_test').creditSpreadPct = spread + 4; } });
     // C: one loan on equal repayment, as an annuity, over six years; the periods cut to four.
-    out.push({ movesRevenue: false, label: 'C: one loan on equal repayment (annuity, 6 years), the periods to 4', cell: `fin|${tr0.name} (new facility)|Repayment Periods`, col: RC.TOTAL, value: 4,
+    out.push({ movesRevenue: false, label: 'C: one loan on equal repayment (annuity, 6 years), the periods to 4', cell: `fin:in:tr:${tr0.id}:n`, value: 4,
       variant: (s) => { Object.assign(trs(s)[0], { repaymentMethod: 'equal_repayment', equalRepaymentSubMethod: 'equal_total', repaymentPeriods: 6 }); },
       edit: (s) => { trs(s)[0].repaymentPeriods = 4; } });
     // C: equal principal from a stated year; the start moved a year later.
-    out.push({ movesRevenue: false, label: 'C: one loan on equal principal from 2032 (5 years), the start to 2033', cell: `fin|${tr0.name} (new facility)|Repayment Start Year`, col: RC.TOTAL, value: 2033,
+    out.push({ movesRevenue: false, label: 'C: one loan on equal principal from 2032 (5 years), the start to 2033', cell: `fin:in:tr:${tr0.id}:start`, value: 2033,
       variant: (s) => { Object.assign(trs(s)[0], { repaymentMethod: 'equal_repayment', equalRepaymentSubMethod: 'equal_principal', repaymentPeriods: 5, repaymentStartYear: 2032 }); },
       edit: (s) => { trs(s)[0].repaymentStartYear = 2033; } });
     // B and C together: the senior on the sweep, the mezzanine amortising; the mezzanine's spread +1 point.
-    out.push({ movesRevenue: false, label: 'B and C: the senior on the sweep beside an amortising mezzanine (annuity, 6 years), its spread +1 point', cell: 'fin|Mezzanine (new facility)|Credit Spread %', col: RC.TOTAL, value: (spread + 4) / 100,
+    out.push({ movesRevenue: false, label: 'B and C: the senior on the sweep beside an amortising mezzanine (annuity, 6 years), its spread +1 point', cell: 'trsp:tranche_mezz_test', value: (spread + 4) / 100,
       variant: (s) => mezz(s, { repaymentMethod: 'equal_repayment', equalRepaymentSubMethod: 'equal_total', repaymentPeriods: 6 }),
       edit: (s) => { trs(s).find((t) => t.id === 'tranche_mezz_test').creditSpreadPct = spread + 4; } });
     // YEAR-ON-YEAR (2026-09-29): one loan repaid 10 / 20 / 30 / 40% from 2032. A year's % typed at
@@ -689,7 +704,7 @@ function perturbations(input: LiveExportInputs, reg: CellRegistry): Perturbation
     const yoy = (s: Snap): void => { Object.assign(trs(s)[0], { repaymentMethod: 'year_on_year_pct', repaymentStartYear: 2032, yearOnYearPctSchedule: [10, 20, 30, 40] }); };
     out.push({ movesRevenue: false, label: 'Year-on-year repayment (10 / 20 / 30 / 40% from 2032): the 2033 share to 30%', cell: `yoy:${tr0.id}`, col: 3, value: 0.3,
       variant: yoy, edit: (s) => { trs(s)[0].yearOnYearPctSchedule = [10, 30, 30, 40]; } });
-    out.push({ movesRevenue: false, label: 'Year-on-year repayment: the start to 2033, the schedule moving with it', cell: `fin|${tr0.name} (new facility)|Repayment Start Year`, col: RC.TOTAL, value: 2033,
+    out.push({ movesRevenue: false, label: 'Year-on-year repayment: the start to 2033, the schedule moving with it', cell: `fin:in:tr:${tr0.id}:start`, value: 2033,
       variant: yoy, edit: (s) => { trs(s)[0].repaymentStartYear = 2033; } });
     // EXISTING LOANS (2026-09-29): 150m raised in 2028 (inside the model's years, drawn as cash that
     // year), 7%, interest from 2028, equal principal from 2031 over five years. Its balance at its
@@ -700,16 +715,16 @@ function perturbations(input: LiveExportInputs, reg: CellRegistry): Perturbation
         interbankRatePct: 5, creditSpreadPct: 2, repaymentMethod: 'equal_repayment', equalRepaymentSubMethod: 'equal_principal', remainingRepaymentPeriods: 5, repaymentStartYear: 2031, cashSweepConfig: undefined, facilitySharePct: undefined, ...o });
     };
     const exOf = (s: Snap): any => trs(s).find((t) => t.id === 'tranche_existing_test');
-    out.push({ movesRevenue: false, label: 'Existing loan (150m raised 2028, equal principal from 2031): its balance to 200m', cell: `fin|${EX}|Opening Balance`, col: RC.TOTAL, value: 200_000_000,
+    out.push({ movesRevenue: false, label: 'Existing loan (150m raised 2028, equal principal from 2031): its balance to 200m', cell: 'fin:in:tr:tranche_existing_test:open', value: 200_000_000,
       variant: existing(), edit: (s) => { exOf(s).openingBalance = 200_000_000; } });
-    out.push({ movesRevenue: false, label: 'Existing loan: its spread +1 point', cell: `fin|${EX}|Credit Spread %`, col: RC.TOTAL, value: 0.03,
+    out.push({ movesRevenue: false, label: 'Existing loan: its spread +1 point', cell: 'trsp:tranche_existing_test', value: 0.03,
       variant: existing(), edit: (s) => { exOf(s).creditSpreadPct = 3; } });
-    out.push({ movesRevenue: false, label: 'Existing loan on the sweep beside the senior (existing repaid first): its spread +1 point', cell: `fin|${EX}|Credit Spread %`, col: RC.TOTAL, value: 0.03,
+    out.push({ movesRevenue: false, label: 'Existing loan on the sweep beside the senior (existing repaid first): its spread +1 point', cell: 'trsp:tranche_existing_test', value: 0.03,
       variant: existing({ repaymentMethod: 'cash_sweep', remainingRepaymentPeriods: 0 }), edit: (s) => { exOf(s).creditSpreadPct = 3; } });
   } else out.push({ label: 'B and C: facility shapes', skip: 'no facility with a stated spread' });
   // STAGE E: dividends on EBITDA (the payout sizes off each phase's EBITDA); the payout cut.
   if (st.project.dividendPolicy && reg.get('fin|Dividend Policy|Payout Ratio')) {
-    out.push({ movesRevenue: false, label: 'E: dividends on EBITDA, the payout ratio to 60%', cell: 'fin|Dividend Policy|Payout Ratio', col: RC.TOTAL, value: 0.6,
+    out.push({ movesRevenue: false, label: 'E: dividends on EBITDA, the payout ratio to 60%', cell: 'fin:in:payout', value: 0.6,
       variant: (s) => { s.project.dividendPolicy = { ...s.project.dividendPolicy, mode: 'pct_of_ebitda' }; },
       edit: (s) => { s.project.dividendPolicy = { ...s.project.dividendPolicy, payoutRatio: 60 }; } });
   } else out.push({ label: 'E: dividends on EBITDA', skip: 'no dividend policy' });
@@ -720,11 +735,11 @@ function perturbations(input: LiveExportInputs, reg: CellRegistry): Perturbation
   const noDividends = (s: Snap): void => { delete (s.project as any).dividendPolicy; for (const ph of s.phases as any[]) delete ph.dividendPolicy; };
   if (reg.get('fin|1. Project Financing Settings|Minimum Cash Reserve')) {
     const minC = Number(st.project.financing?.minimumCashReserve ?? 0);
-    out.push({ movesRevenue: false, label: 'No dividend policy (dividends off): the minimum cash reserve +15m', cell: 'fin|1. Project Financing Settings|Minimum Cash Reserve', col: RC.TOTAL, value: minC + 15_000_000,
+    out.push({ movesRevenue: false, label: 'No dividend policy (dividends off): the minimum cash reserve +15m', cell: 'fin:in:min', value: minC + 15_000_000,
       variant: noDividends, edit: (s) => { (s.project.financing as any).minimumCashReserve = minC + 15_000_000; } });
   }
   if (reg.get('fin|Dividend Policy|Pay Dividends')) {
-    out.push({ movesRevenue: false, label: 'No dividend policy: dividends switched on (1 at the Inputs door, On on Financing)', cell: 'fin|Dividend Policy|Pay Dividends', col: RC.TOTAL, value: 1,
+    out.push({ movesRevenue: false, label: 'No dividend policy: dividends switched on (1 at the Inputs door, On on Financing)', cell: 'fin:in:divOn', value: 1,
       variant: noDividends, edit: (s) => { s.project.dividendPolicy = { enabled: true }; } });
   }
   // STAGE D: the first phase's plots fund their land cash 50 / 50. Under a Method 3
@@ -735,21 +750,21 @@ function perturbations(input: LiveExportInputs, reg: CellRegistry): Perturbation
   const plots0 = ((st.parcels ?? []) as any[]).filter((p) => p.phaseId === ph0?.id);
   if (ph0 && plots0.length) {
     const minC2 = st.project.financing?.minimumCashReserve ?? 0;
-    out.push({ movesRevenue: false, label: `D: ${ph0.name}'s plots fund their land cash 50 / 50, and the minimum cash reserve +15m`, cell: 'fin|1. Project Financing Settings|Minimum Cash Reserve', col: RC.TOTAL, value: minC2 + 15_000_000,
+    out.push({ movesRevenue: false, label: `D: ${ph0.name}'s plots fund their land cash 50 / 50, and the minimum cash reserve +15m`, cell: 'fin:in:min', value: minC2 + 15_000_000,
       variant: (s) => { (s.project.financing as any).parcelFunding = plots0.map((p) => ({ parcelId: p.id, debtPct: 50, equityPct: 50, fundingType: 'custom_split' })); },
       edit: (s) => { (s.project.financing as any).minimumCashReserve = minC2 + 15_000_000; } });
   } else out.push({ label: 'D: parcel funding', skip: 'no plots in the first phase' });
   // STAGE A: Methods 1 and 2 on copies; the ratio moved at its Inputs door. And D where it
   // bites: under Method 1 the plots' land cash split changes the draw.
   const m1 = (s: Snap): void => { const f = s.project.financing as any; f.fundingMethod = 1; f.fixedRatio = { debtPct: 70, equityPct: 30 }; };
-  out.push({ movesRevenue: false, label: 'A: Method 1 (70 / 30 of capex), the debt share to 60', cell: 'fin|2a. Method 1 Configuration|Debt %', col: RC.TOTAL, value: 0.6,
+  out.push({ movesRevenue: false, label: 'A: Method 1 (70 / 30 of capex), the debt share to 60', cell: 'fin:in:debt', value: 0.6,
     variant: m1, edit: (s) => { (s.project.financing as any).fixedRatio = { debtPct: 60, equityPct: 30 }; } });
   if (ph0 && plots0.length) {
-    out.push({ movesRevenue: false, label: `A and D: Method 1 with ${ph0.name}'s plots at 50 / 50, their debt share to 80`, cell: `fin|4. Land Funding (per phase, from the Capex results)|${ph0.name}, Debt %`, col: RC.TOTAL, value: 0.8,
+    out.push({ movesRevenue: false, label: `A and D: Method 1 with ${ph0.name}'s plots at 50 / 50, their debt share to 80`, cell: `fin:in:land:${ph0.id}:debt`, value: 0.8,
       variant: (s) => { m1(s); (s.project.financing as any).parcelFunding = plots0.map((p) => ({ parcelId: p.id, debtPct: 50, equityPct: 50, fundingType: 'custom_split' })); },
       edit: (s) => { for (const c of (s.project.financing as any).parcelFunding) c.debtPct = 80; } });
   }
-  out.push({ movesRevenue: false, label: 'A: Method 2 (capex net of pre-sales, 70 / 30), the debt share to 60', cell: 'fin|2a. Method 2 Configuration|Debt %', col: RC.TOTAL, value: 0.6,
+  out.push({ movesRevenue: false, label: 'A: Method 2 (capex net of pre-sales, 70 / 30), the debt share to 60', cell: 'fin:in:debt', value: 0.6,
     variant: (s) => { const f = s.project.financing as any; f.fundingMethod = 2; f.netFundingConfig = { debtPct: 70, equityPct: 30 }; },
     edit: (s) => { (s.project.financing as any).netFundingConfig = { debtPct: 60, equityPct: 30 }; } });
   // STAGE G: the fund size pinned to a typed target, which the structure fee charges on.
@@ -928,7 +943,7 @@ function formulaCells(wb: ExcelJS.Workbook): Map<string, { formula: string; resu
     const capReads = backwardReads(wb).filter((x) => x.from === 'Financing' && x.to === 'P&L');
     const capLabels = new Set(capReads.map((x) => String(wb.getWorksheet('Financing')!.getCell(x.row, 1).value ?? '').trim()));
     check('A12h each phase dividend cap links to the phase P&L EBITDA, and only the cap rows read the P&L',
-      capReads.length > 0 && [...capLabels].every((l) => /: EBITDA \(per the phase P&L\)$/.test(l)), [...capLabels].join('; '));
+      capReads.length > 0 && [...capLabels].every((l) => /: EBITDA \(the phase P&L\)$/.test(l)), [...capLabels].join('; '));
     const copy2 = buildModelWorkbook({ ...opts, liveLayout: true });
     copy2.getWorksheet('Financing')!.getCell(2, 9).value = { formula: "'P&L'!F20+1", result: 0 } as unknown as ExcelJS.CellValue;
     const p2 = exportShapeProblems(copy2);

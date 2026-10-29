@@ -95,10 +95,6 @@ export function fixAtExport(ws: ExcelJS.Worksheet, row: number, col: number, why
  */
 export const DEAD_SWITCHES = {
   feeMatrix: 'fee distribution matrix (Returns)',
-  openingBalance: 'facility opening balance (Financing)',
-  idcCapitalise: 'facility IDC capitalise (Financing)',
-  interestStart: 'facility interest start year (Financing)',
-  originationYear: 'facility origination year (Financing)',
   zakatDays: 'zakat payment days (Financing)',
   reserveCap: 'statutory reserve cap (Balance Sheet)',
   // (2026-10-25: hotel and lease receivable days are LIVE inputs, never on this list:
@@ -178,8 +174,6 @@ export function inputsUnreadProblems(wb: ExcelJS.Workbook, allowed: ReadonlySet<
  * never a live input whose wiring is missing.
  */
 export const INERT_INPUTS = {
-  repayPeriods: 'facility repayment periods (Financing): read by nothing while the loan repays by cash sweep',
-  facilityFees: 'facility upfront and commitment fees (Financing): the platform charges neither',
   openingFixedAssets: 'opening land and building NBV (Schedules): zero for a phase that is not operating at the model start, and not built live',
   growthG: 'growth g (Returns): read by nothing while the exit cap rate is typed and the exit metric is not grown',
   discountRate: 'discount rate (Returns): NPV on Returns is printed as a value, not yet a formula',

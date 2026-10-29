@@ -66,7 +66,7 @@ export const stage7cChecks: LiveLayer = {
       { label: 'Direct cash flow == Indirect cash flow', a: 'cf|direct||Net Cash Flow', b: 'cf|indirect||Net Cash Flow', mag: 'cf|direct||Net Cash Flow' },
       { label: 'Balance sheet reconciliation bridge, unexplained', a: 'bsr|__all__||Unexplained (must be 0)', b: null, mag: 'bs|__all__||TOTAL ASSETS' },
       // The financing loop solves its tax on its own profit before tax: it must be the P&L's, every year.
-      { label: LOOP_PBT_CHECK, a: 'fin|Profit before tax inside the financing loop|= Profit before tax', b: `pl|__all__||${pbtLabel}`, mag: `pl|__all__||${pbtLabel}` },
+      { label: LOOP_PBT_CHECK, a: 'fl:pbt', b: `pl|__all__||${pbtLabel}`, mag: `pl|__all__||${pbtLabel}` },
       // The phases foot to the project EBITDA (2026-10-25): the reconciliation under the phase P&Ls.
       { label: PHASE_EBITDA_CHECK_LABEL, a: `pl|${PHASE_RECON_LINE}||${PHASE_RECON.sum}`, b: `pl|__all__||${finLabels.ebitda}`, mag: `pl|__all__||${finLabels.ebitda}` },
     ];

@@ -291,8 +291,13 @@ async function main(): Promise<void> {
     };
     const charged = snapOn.fundFees.fundSize.amount;
     const feeFreeSize = fundSizeOf(snapOff), withFeesSize = fundSizeOf(snapOn);
-    check('the fee charges on the FEE-FREE funding requirement, exactly', near(charged, feeFreeSize, 0.01),
-      `charged ${M(charged)} vs fee-free ${M(feeFreeSize)}`);
+    // THE RULE MOVED ON 2026-10-29 (founder): the base is the funding need WITH THE FEES LEFT OUT,
+    // on the real pass (the fee reaches it only through tax), so this asserts that rule. It sits a
+    // little below the fee-free figure here because a build year pays tax and the fees lower it.
+    const fnd = snapOn.financing.funding;
+    const exFee = sum(computeFundingGap(snapOn).method3Waterfall.feeBaseRequirementPerPeriod) * (Math.max(0, fnd.debtPct) + Math.max(0, fnd.equityPct)) / 100;
+    check('the fee charges on the real-pass funding requirement with the fees left out, exactly', near(charged, exFee, 0.01),
+      `charged ${M(charged)} vs need without the fees ${M(exFee)} (fee-free pass ${M(feeFreeSize)})`);
     check('and NOT on the with-fees requirement (so the freeze is not vacuous)',
       Math.abs(charged - withFeesSize) > 1_000_000,
       `charged ${M(charged)} vs with-fees ${M(withFeesSize)} (the fees raised the requirement by ${M(withFeesSize - feeFreeSize)})`);

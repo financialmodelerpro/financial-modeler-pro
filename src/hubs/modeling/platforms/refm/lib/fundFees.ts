@@ -362,6 +362,8 @@ export interface FundFeeInputs {
    */
   totalEquity?: ResolvedCapital;
   debtFacility?: ResolvedCapital;
+  /** The period a one-off fee is charged in: the year of the first draw (2026-10-29). Absent, the first period. */
+  firstChargeIdx?: number;
 }
 
 /**
@@ -412,10 +414,11 @@ export function computeFundFeeSchedule(input: FundFeeInputs): FundFeeSchedule {
       }
       // Timing decides WHICH periods actually carry the charge.
       if (spec.timing === 'one_time') {
-        // Charged once, at the start. Later periods keep a zero basis so a
+        // Charged once, in the year of the first draw. Other periods keep a zero basis so a
         // reader cannot mistake the constant base for a recurring charge.
-        amount[0] = spec.kind === 'rate' ? basis[0] * rate : flat;
-        for (let t = 1; t < N; t++) basis[t] = 0;
+        const at = Math.max(0, Math.min(N - 1, Math.round(input.firstChargeIdx ?? 0)));
+        amount[at] = spec.kind === 'rate' ? basis[at] * rate : flat;
+        for (let t = 0; t < N; t++) if (t !== at) basis[t] = 0;
       } else {
         for (let t = 0; t < N; t++) amount[t] = spec.kind === 'rate' ? basis[t] * rate : flat;
       }

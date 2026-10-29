@@ -124,6 +124,18 @@ function cfg(method: 1 | 2 | 3 | 4, extra: Partial<ProjectFinancingConfig> = {})
   check('M3 no-gap: min-cash buffer placed (capex sizing, sum 500)', approx(r3.minCashByPeriod.reduce((s, v) => s + v, 0), 500));
 }
 
+// ── A FED gap of zero draws nothing (2026-10-29, founder: "if the funding need is 0, debt is 0") ──
+// The silent fallback to capex applied to a fed zero gap too, so a project whose own cash covered
+// its capex borrowed on all of it. Only an UNFED gap (the solve's first pass) sizes from capex now.
+{
+  const zeroGap = { method2PerPeriod: capex.perPeriod.exclLandInKind.map(() => 0), method3PerPeriod: capex.perPeriod.exclLandInKind.map(() => 0) };
+  const z3 = computeFundingRequirement(capex, cfg(3, { cashDeficitConfig: { initialCash: 0, minimumCashReserve: 0, debtPct: 75, equityPct: 25 }, minimumCashReserve: 500 }), zeroGap);
+  check('M3 fed zero gap: custom debt is all zero', !!z3.customDebtByPeriod && z3.customDebtByPeriod.every((v) => v === 0));
+  check('M3 fed zero gap: custom equity is all zero', !!z3.customEquityByPeriod && z3.customEquityByPeriod.every((v) => v === 0));
+  check('M3 fed zero gap: no minimum-cash lump is added', z3.minCashByPeriod.every((v) => v === 0));
+  check('M3 fed zero gap: nothing selected', z3.selectedByPeriod.every((v) => v === 0));
+}
+
 // ── Method 1 still adds the min-cash buffer (regression guard) ─────────
 {
   const r = computeFundingRequirement(capex, cfg(1, { fixedRatio: { debtPct: 70, equityPct: 30 }, minimumCashReserve: 500 }), gap);

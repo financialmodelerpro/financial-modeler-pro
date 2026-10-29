@@ -618,7 +618,8 @@ export function emitReturnsSection(c: SheetCursor, state: FinancialsResolverStat
     if (isLiveLayout() && cfg.terminalMethod === 'cap_rate' && cfg.capRateSource === 'manual' && !cfg.applyGrowthToTerminal) registerCell(inertKey(INERT_INPUTS.growthG, c.sheetName, gRow, 2), c.ws, c.ws.getCell(gRow, 2));
   }
   if (cfg.terminalMethod !== 'none') {
-    kv(c, 'Terminal value basis', cfg.terminalValueBasis === 'exit_year' ? 'Exit year' : 'Year before exit', '@', stored.terminalValueBasis !== undefined);
+    // Live: typed here and read by Financing's exit proceeds (2026-10-29): 'Exit year' or 'Year before exit'.
+    kv(c, 'Terminal value basis', cfg.terminalValueBasis === 'exit_year' ? 'Exit year' : 'Year before exit', '@', isLiveLayout() || stored.terminalValueBasis !== undefined, undefined, undefined, isLiveLayout() ? 'ret:tvBasis' : undefined);
   }
   if (cfg.terminalMethod === 'cap_rate') {
     const manual = cfg.capRateSource === 'manual';

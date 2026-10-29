@@ -139,14 +139,14 @@ export function computeFundingRequirement(
     // two-pass), so the P&L / Cash Flow / Balance Sheet draw the gap-sized
     // amount, consistent with Module 1.
     //
-    // FALLBACK: when no gap is fed (degenerate / direct core call), size
-    // from CAPEX via the standard (non-custom) split so the statements are
-    // never left unfunded. An all-zero custom curve would otherwise trip
-    // useCustom in debtEquity.ts and zero all funding (the 2026-06-01
-    // regression), so custom arrays are set ONLY when the gap is real.
+    // WHEN NO GAP IS FED (a direct core call, or the solve's first pass, which has none yet),
+    // size from CAPEX via the standard split so that pass is not left unfunded.
+    //
+    // A FED GAP OF ZERO DRAWS NOTHING (2026-10-29, founder: "if the funding need is 0, debt is
+    // 0"). It used to fall back to capex here too, so a project whose own cash covered its
+    // capex silently borrowed on the whole of it.
     const gapForDisplay = selectedMethodId === 2 ? m2PerPeriod : m3PerPeriod;
-    const gapTotal = selectedMethodId === 2 ? m2 : m3;
-    if (gapInputs && gapTotal > 0) {
+    if (gapInputs) {
       selectedByPeriod = gapForDisplay.slice();
       customDebtByPeriod = gapForDisplay.map((v) => v * debtFrac);
       customEquityByPeriod = gapForDisplay.map((v) => v * equityFrac);
@@ -171,7 +171,7 @@ export function computeFundingRequirement(
   // again would double-count it.
   const minCashReserve = Math.max(0, financingConfig.minimumCashReserve ?? 0);
   const minCashByPeriod = new Array<number>(N).fill(0);
-  const method3GapSized = selectedMethodId === 3 && !!gapInputs && m3 > 0;
+  const method3GapSized = selectedMethodId === 3 && !!gapInputs;
   if (minCashReserve > 0 && N > 0 && !method3GapSized) {
     let firstCapexIdx = -1;
     for (let i = 0; i < N; i++) {

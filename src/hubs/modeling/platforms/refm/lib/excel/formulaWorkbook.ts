@@ -225,7 +225,7 @@ function orderTabs(wb: ExcelJS.Workbook): void {
 export const LOOP_LINKS: ReadonlyArray<{ from: string; to: string; fromRow?: RegExp }> = [
   { from: 'Schedules', to: 'Financing' },
   { from: 'Capex', to: 'Financing' },
-  { from: 'Financing', to: 'P&L', fromRow: /: EBITDA \(per the phase P&L\)$/ },
+  { from: 'Financing', to: 'P&L', fromRow: /: EBITDA \(the phase P&L\)$/ },
 ];
 const rowLabel = (wb: ExcelJS.Workbook, sheet: string, row: number): string => String(wb.getWorksheet(sheet)?.getCell(row, 1).value ?? '').trim();
 const isLoopLink = (wb: ExcelJS.Workbook, b: { from: string; to: string; row: number }): boolean =>

@@ -847,6 +847,11 @@ export interface Method3WaterfallSnapshot {
   /** Net cash required to maintain min cash = max(0, minCash − Cash Available). */
   netCashRequiredPerPeriod: number[];
   totalNetCashRequired: number;
+  /** THE FUND FEE BASE (2026-10-29, founder): the funding need with the fund fees left out, on
+   *  the solve the fees are part of. On the equity path the fee is already added back, so it is
+   *  the need itself; on the deficit path the fee is added back here. No finance cost is in
+   *  either (the sizing has none), so it is the need excluding capitalised interest. */
+  feeBaseRequirementPerPeriod: number[];
 }
 
 export interface FundingGapSnapshot {
@@ -1528,6 +1533,7 @@ export function computeFundingGap(snap: ProjectFinancialsSnapshot): FundingGapSn
   const managementFeeEquityDrawPerPeriod = zeros(N);
   const idcHeadroomPerPeriod = zeros(N);
   const closingCashAfterFundingPerPeriod = zeros(N);
+  const feeBaseRequirementPerPeriod = zeros(N);
   let openingC = snap.bs.historicalOpeningCashTotal;
   for (let t = 0; t < N; t++) {
     openingCashPerPeriod[t] = openingC;
@@ -1582,6 +1588,7 @@ export function computeFundingGap(snap: ProjectFinancialsSnapshot): FundingGapSn
     const spendingThisPeriod = (cashFromInvPerPeriod[t] ?? 0) < -0.005;
     const netReq = spendingThisPeriod ? Math.max(0, minCashReserve - cashAvail) : 0;
     netCashRequiredPerPeriod[t] = netReq;
+    feeBaseRequirementPerPeriod[t] = spendingThisPeriod ? Math.max(0, minCashReserve - (cashAvail + (feeFundedByEquity ? 0 : fee))) : 0;
     const afterBase = cashAvail + netReq;
     // THE FEE EQUITY DRAW: only while construction is spending, and only as
     // far as keeps cash at the minimum once the fee has been paid out of the
@@ -1626,6 +1633,7 @@ export function computeFundingGap(snap: ProjectFinancialsSnapshot): FundingGapSn
     minCashReserve,
     netCashRequiredPerPeriod,
     totalNetCashRequired: netCashRequiredPerPeriod.reduce((s, v) => s + v, 0),
+    feeBaseRequirementPerPeriod,
   };
 
   return {
@@ -3159,121 +3167,111 @@ export function computeFinancialsSnapshot(
     return computeFinancialsSnapshotOnce(state, opts);
   }
 
-  // ── Fund layer Step 3: the fee schedule is resolved BEFORE the solver ────
+  // ── Fund layer: the fee schedule is sized on the REAL pass, inside the solve ──
   //
-  // The funding requirement is solved iteratively below. If the fees were
-  // computed inside that loop from anything the solver moves, a bigger
-  // drawdown could produce a bigger fee, which is the circular dependency the
-  // guideline forbids. So the schedule is built ONCE here, from a fee-free
-  // pass, and then handed to every iteration as a constant.
+  // THE BASE IS THE FUNDING NEED WITH THE FEES LEFT OUT, ON THE SOLVE THE FEES ARE PART OF
+  // (2026-10-29, founder, superseding the fee-free pass of 2026-08-05). The fees enter that
+  // need only through tax (a fee lowers profit, so a construction year that pays tax pays a
+  // little less), never directly: on the equity path the fee is added back before the need is
+  // sized, on the deficit path `feeBaseRequirementPerPeriod` adds it back. So the fee cannot
+  // feed its own base, and the base is the need the solve actually draws, which is what the
+  // live workbook can show on one loop. Measured on FMP - MARINA GATE: 742,913,203 either
+  // way as saved; with Phase 1 one construction year shorter the fee-free pass read 88,105
+  // more than the real need, all in the one build year that pays zakat.
   //
-  // The cost is one extra full snapshot when the fund toggle is ON. When it is
-  // off, `resolveFundTerms` reports disabled, this whole block is skipped, and
-  // the function behaves exactly as it did before the fund layer existed,
-  // which is what scripts/verify-fund-layer-guard.ts pins.
+  // The schedule is resolved from each pass and handed to the next, and the solve stops when
+  // it no longer moves (1 currency unit, the solve's own stop). The fee-free pass still seeds
+  // it and stays the NAV basis: a fee on the post-fee NAV would feed its own base.
+  //
+  // When the toggle is off, `resolveFundTerms` reports disabled, this block is skipped, and
+  // the function behaves exactly as it did before the fund layer existed, which is what
+  // scripts/verify-fund-layer-guard.ts pins.
   const fundTerms = resolveFundTerms(state.project);
   if (fundTerms.enabled) {
-    // The fee-free pass goes straight to the solver, NOT back through this
-    // function: recursing here would re-enter this branch and never terminate.
+    // The fee-free pass goes straight to the solver, NOT back through this function:
+    // recursing here would re-enter this branch and never terminate.
     const feeFree = computeFeeFreeSnapshot(state);
-    const baseRequirement = Math.max(0, feeFree.financing.funding.selectedWithMinCash ?? 0);
-    const baseDebtRequirement = baseRequirement * Math.max(0, feeFree.financing.funding.debtPct ?? 0) / 100;
-    const baseEquityRequirement = baseRequirement * Math.max(0, feeFree.financing.funding.equityPct ?? 0) / 100;
-    const schedule = computeFundFeeSchedule({
-      terms: fundTerms,
-      axisLength: feeFree.axisLength,
-      // NAV is NET assets, so a debt drawdown does not move it: cash and debt
-      // rise together. Belt and braces on top of the freeze above.
-      closingNavPerPeriod: feeFree.bs.totalEquityPerPeriod,
-      // The facility limit comes from the model's stated facilities, never from
-      // the drawn balance. Both sources are inputs: `principal` and `ltvPct`
-      // are typed on the tranche, and capex comes from the cost lines and
-      // carries no IDC, so neither moves with the funding solve.
-      facilityLimit: resolveFacilityLimit({
-        tranches: state.financingTranches,
-        capexTotal: feeFree.financing.capex.totals.exclLandInKind,
-        manualLimit: fundTerms.facilityLimit,
-        override: fundTerms.facilityLimitOverride,
-      }),
-      // FUND SIZE = THE SELECTED METHOD'S FUNDING REQUIREMENT, split at its
-      // base debt / equity ratio (2026-08-19, matching the reference, whose
-      // fee bases are "Base Requirement" x the debt or equity share). This
-      // REPLACES the 2026-08-05 rule that summed every draw the model made
-      // (equity cash + in kind + existing, debt including capitalised IDC):
-      // the fee is now charged on the capital the development REQUIRES, not on
-      // what the solve happened to draw, so IDC drawdowns, the fee's own equity
-      // draw, land in kind and pre-existing capital are all outside the base.
-      //
-      // Still resolved HERE, from the fee-free pass, and FROZEN before the
-      // solver: on the deficit path the fee raises the requirement, so reading
-      // it inside the loop would let the fee feed its own base. `fund_size_solved`
-      // stays in CIRCULAR_FEE_BASES and stays forbidden.
-      //
-      // `selectedWithMinCash` is the requirement of whichever method is
-      // selected: Method 3 is the deficit total (the minimum cash is inside it),
-      // Methods 1 / 2 / 4 add the minimum cash buffer, which is what the
-      // reference's Base Requirement (capex + land + minimum cash) does.
-      fundSize: resolveFundSize({
-        equityTotal: baseEquityRequirement,
-        debtTotal: baseDebtRequirement,
-        manualSize: fundTerms.fundSize,
-        override: fundTerms.fundSizeOverride,
-      }),
-      // The two components as bases in their own right (2026-08-10): the annual
-      // fees charge on equity alone, the arranging fee on debt alone. Read from
-      // the SAME fee-free pass and frozen with everything else, and resolved
-      // independently of `fundSize` so a fundSizeOverride cannot zero them.
-      totalEquity: {
-        amount: Math.max(0, baseEquityRequirement),
-        source: baseEquityRequirement > 0 ? 'model' : 'none',
-        // NAMED FOR WHAT IT IS, AND WHY IT IS NOT THE CASH EQUITY (2026-09-21).
-        // The base is the equity raised to BUILD, frozen on the fee-free pass;
-        // the cash equity on Financing also funds the fees themselves, so it is
-        // higher (on FMP - MARINA GATE, 240.2m against this 222.9m, the 17.3m
-        // being the equity drawn for the fees). Charging the fees on that would
-        // be circular, which is exactly why the base is frozen first.
-        explanation: `From your model: the equity share (${feeFree.financing.funding.equityPct.toFixed(0)}%) of the selected method's funding requirement, frozen before the solve. Excludes in-kind and existing equity, and the equity raised to pay these fees.`,
-      },
-      debtFacility: {
-        amount: Math.max(0, baseDebtRequirement),
-        source: baseDebtRequirement > 0 ? 'model' : 'none',
-        explanation: `From your model: the debt share (${feeFree.financing.funding.debtPct.toFixed(0)}%) of the selected method's funding requirement, frozen before the solve. Not the facility ceiling.`,
-      },
-    });
     /**
-     * THE FUND STOPS CHARGING AT THE EXIT (2026-09-15, founder: "the fund has
-     * sold what it managed"). The held assets are sold in the exit year and
-     * trade no more after it, so the frozen schedule charges nothing after that
-     * year either: every fee's amount, its total and the schedule total. The
-     * basis each fee was measured on is left as it is. Cut here, before the
-     * solver, so the P&L, the cash flow, the fee basis, fee income and the
-     * waterfall all read the one stopped schedule. Before this, on the live
-     * project with the exit moved to 2035, 3.67m a year was charged in 2036 to
-     * 2038 with nothing left to pay it, and closing cash ended at -11.01m.
+     * THE FUND STOPS CHARGING AT THE EXIT (2026-09-15, founder: "the fund has sold what it
+     * managed"). The held assets are sold in the exit year and trade no more after it, so the
+     * schedule charges nothing after that year either. Before this, on the live project with
+     * the exit moved to 2035, 3.67m a year was charged in 2036 to 2038 with nothing left to pay
+     * it, and closing cash ended at -11.01m.
      */
     const feeExitCfg = resolveReturnsConfig(state.project, feeFree.axisLength);
     const feeStopIdx = feeExitCfg.terminalMethod !== 'none' ? feeExitCfg.exitYearOffset : Number.POSITIVE_INFINITY;
     const cutFees = (arr: number[]): number[] => arr.map((v, t) => (t > feeStopIdx ? 0 : v));
-    const stoppedSchedule: FundFeeSchedule = feeStopIdx < feeFree.axisLength - 1
-      ? (() => {
-        const lines = schedule.lines.map((l) => {
-          const amountPerPeriod = cutFees(l.amountPerPeriod);
-          return { ...l, amountPerPeriod, total: amountPerPeriod.reduce((t, v) => t + v, 0) };
-        });
-        const totalPerPeriod = cutFees(schedule.totalPerPeriod);
-        return { ...schedule, lines, totalPerPeriod, total: totalPerPeriod.reduce((t, v) => t + v, 0) };
-      })()
-      : schedule;
-    return computeFinancialsSnapshotSolved(state, stoppedSchedule);
+    const sizeFees = (src: ProjectFinancialsSnapshot): FundFeeSchedule => {
+      const fnd = src.financing.funding;
+      // FUND SIZE = THE SELECTED METHOD'S FUNDING REQUIREMENT, split at its base debt / equity
+      // ratio (2026-08-19, matching the reference, whose fee bases are "Base Requirement" x the
+      // debt or equity share): the capital the development REQUIRES, so capitalised interest,
+      // the fee's own equity draw, land in kind and pre-existing capital are all outside it.
+      // Method 3 is the deficit with the fee left out; Methods 1 / 2 / 4 size on capex and
+      // pre-sales (plus the minimum cash), which the fees do not move.
+      const perPeriod = fnd.selectedMethodId === 3
+        ? computeFundingGap(src).method3Waterfall.feeBaseRequirementPerPeriod
+        : fnd.totalFundingNeedByPeriod;
+      const baseRequirement = Math.max(0, perPeriod.reduce((a, v) => a + (v ?? 0), 0));
+      const baseDebtRequirement = baseRequirement * Math.max(0, fnd.debtPct ?? 0) / 100;
+      const baseEquityRequirement = baseRequirement * Math.max(0, fnd.equityPct ?? 0) / 100;
+      // ONE-OFF FEES ARE CHARGED IN THE YEAR OF THE FIRST DRAW (2026-10-29, founder), the first
+      // year the base requirement is drawn, never simply the first model year.
+      const firstDraw = perPeriod.findIndex((v) => (v ?? 0) > 0);
+      const schedule = computeFundFeeSchedule({
+        terms: fundTerms,
+        axisLength: src.axisLength,
+        firstChargeIdx: firstDraw >= 0 ? firstDraw : 0,
+        // NAV is NET assets; read from the fee-free pass so a NAV fee cannot feed its own base.
+        closingNavPerPeriod: feeFree.bs.totalEquityPerPeriod,
+        // The facility limit comes from the model's stated facilities, never from the drawn
+        // balance: `principal` and `ltvPct` are typed on the tranche, and capex carries no IDC.
+        facilityLimit: resolveFacilityLimit({
+          tranches: state.financingTranches,
+          capexTotal: src.financing.capex.totals.exclLandInKind,
+          manualLimit: fundTerms.facilityLimit,
+          override: fundTerms.facilityLimitOverride,
+        }),
+        fundSize: resolveFundSize({
+          equityTotal: baseEquityRequirement,
+          debtTotal: baseDebtRequirement,
+          manualSize: fundTerms.fundSize,
+          override: fundTerms.fundSizeOverride,
+        }),
+        // The two components as bases in their own right (2026-08-10): the annual fees charge on
+        // equity alone, the arranging fee on debt alone, resolved independently of `fundSize` so
+        // a fundSizeOverride cannot zero them.
+        totalEquity: {
+          amount: Math.max(0, baseEquityRequirement),
+          source: baseEquityRequirement > 0 ? 'model' : 'none',
+          // NAMED FOR WHAT IT IS, AND WHY IT IS NOT THE CASH EQUITY (2026-09-21): the cash equity
+          // on Financing also funds the fees themselves, so it is higher (on FMP - MARINA GATE,
+          // 240.2m against this 222.9m, the 17.3m being the equity drawn for the fees).
+          explanation: `From your model: the equity share (${fnd.equityPct.toFixed(0)}%) of the selected method's funding requirement, with the fund fees left out. Excludes in-kind and existing equity, and the equity raised to pay these fees.`,
+        },
+        debtFacility: {
+          amount: Math.max(0, baseDebtRequirement),
+          source: baseDebtRequirement > 0 ? 'model' : 'none',
+          explanation: `From your model: the debt share (${fnd.debtPct.toFixed(0)}%) of the selected method's funding requirement, with the fund fees left out. Not the facility ceiling.`,
+        },
+      });
+      if (!(feeStopIdx < src.axisLength - 1)) return schedule;
+      const lines = schedule.lines.map((l) => {
+        const amountPerPeriod = cutFees(l.amountPerPeriod);
+        return { ...l, amountPerPeriod, total: amountPerPeriod.reduce((t, v) => t + v, 0) };
+      });
+      const totalPerPeriod = cutFees(schedule.totalPerPeriod);
+      return { ...schedule, lines, totalPerPeriod, total: totalPerPeriod.reduce((t, v) => t + v, 0) };
+    };
+    return computeFinancialsSnapshotSolved(state, sizeFees(feeFree), sizeFees);
   }
 
   return computeFinancialsSnapshotSolved(state, undefined);
 }
 
 /**
- * THE FEE-FREE PASS, the solve the fund fee schedule is sized on (above): the
- * same fixed point with no fees in it. Exported for the formula-linked
- * workbook, which shows this solve on Financing as the fees' base.
+ * THE FEE-FREE PASS: the same fixed point with no fees in it. It seeds the fee sizing above
+ * and is its NAV basis.
  */
 export function computeFeeFreeSnapshot(state: FinancialsResolverState): ProjectFinancialsSnapshot {
   return computeFinancialsSnapshotSolved(state, undefined);
@@ -3289,8 +3287,11 @@ export function computeFeeFreeSnapshot(state: FinancialsResolverState): ProjectF
  */
 function computeFinancialsSnapshotSolved(
   state: FinancialsResolverState,
-  fundFees: FundFeeSchedule | undefined,
+  fundFeesIn: FundFeeSchedule | undefined,
+  /** Re-sizes the fund fees from a pass (the fund layer); absent, the schedule is held as given. */
+  sizeFees?: (snap: ProjectFinancialsSnapshot) => FundFeeSchedule,
 ): ProjectFinancialsSnapshot {
+  let fundFees = fundFeesIn;
   const finCfg = state.project.financing ?? DEFAULT_PROJECT_FINANCING_CONFIG;
   const fundingMethod = finCfg.fundingMethod;
   // Always true since 2026-08-18: IDC is funded cash-first and borrows only
@@ -3312,7 +3313,7 @@ function computeFinancialsSnapshotSolved(
   // No circular input => single pass (Methods 1 + 4, no conditional IDC, no sweep).
   // `fundFees` rides along on every pass as a constant, here and below.
   let snap = computeFinancialsSnapshotOnce(state, fundFees ? { fundFees } : undefined);
-  if (!needsIteration) return snap;
+  if (!needsIteration && !sizeFees) return snap;
 
   // Iterate to a fixed point. TOL is in currency units; MAX_ITERS caps the
   // work (convergence is geometric for sub-100% interest rates, so a handful
@@ -3330,12 +3331,14 @@ function computeFinancialsSnapshotSolved(
     );
     const idcDelta = maxArrDelta(derived.idcCashBudget, applied.idcCashBudget);
     const sweepDelta = maxArrDelta(derived.sweepBudget, applied.sweepBudget);
-    if (iter > 0 && gapDelta < TOL && idcDelta < TOL && sweepDelta < TOL) break;
-    if (!derived.fundingGap && !derived.idcCashBudget && !derived.sweepBudget) break; // nothing to feed
+    // The fund fees are re-sized from this pass (their base is the need with the fees left
+    // out, so a fee moves it only through tax) and settle with everything else.
+    const nextFees = sizeFees ? sizeFees(snap) : fundFees;
+    const feeDelta = sizeFees && nextFees && fundFees ? maxArrDelta(nextFees.totalPerPeriod, fundFees.totalPerPeriod) : 0;
+    if (iter > 0 && gapDelta < TOL && idcDelta < TOL && sweepDelta < TOL && feeDelta < TOL) break;
+    if (!derived.fundingGap && !derived.idcCashBudget && !derived.sweepBudget && feeDelta < TOL) break; // nothing to feed
     applied = derived;
-    // The fee schedule is passed through UNCHANGED. It is never part of
-    // `derived`, so no iteration can revise it: the solver may raise funding to
-    // cover the fees, and that higher funding cannot come back as a bigger fee.
+    fundFees = nextFees;
     snap = computeFinancialsSnapshotOnce(state, fundFees ? { ...derived, fundFees } : derived);
   }
   return snap;

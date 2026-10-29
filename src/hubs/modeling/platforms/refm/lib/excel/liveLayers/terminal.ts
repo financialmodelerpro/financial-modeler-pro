@@ -48,5 +48,5 @@ export function terminalValueFormula(w: LiveWriter, cfg: TvConfig, income: strin
   const inc = cfg.applyGrowthToTerminal ? `${income}*(1+${at(TV_KEYS.growth)})` : income;
   if (cfg.terminalMethod === 'exit_multiple') return `MAX(0,${inc})*MAX(0,${at(TV_KEYS.multiple)})`;
   const cap = at(TV_KEYS.capRate);
-  return `IF(${cap}<=0.000000001,0,MAX(0,${inc}/${cap}))`;
+  return `IF(${cap}>0,MAX(0,${inc}/${cap}),0)`;
 }

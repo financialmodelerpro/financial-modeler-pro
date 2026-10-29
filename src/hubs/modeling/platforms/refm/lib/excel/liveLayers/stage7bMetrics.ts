@@ -84,7 +84,7 @@ export const stage7bMetrics: LiveLayer = {
       return r;
     };
     const vis = (sheet: string, key: string, t: number): string => w.refP({ sheet, row: w.addr(key).row, col: pc(t) }, RET);
-    const fnc = (key: string, t: number): string => { const a = w.addr(key); const r = w.refP({ sheet: a.sheet, row: a.row, col: pc(t) }, RET); return LOOP_NEGATIVE.has(key) ? `(-${r})` : r; };
+    const fnc = (key: string, t: number): string => { if (!w.has(key)) return '0'; const a = w.addr(key); const r = w.refP({ sheet: a.sheet, row: a.row, col: pc(t) }, RET); return LOOP_NEGATIVE.has(key) ? `(-${r})` : r; };
     const plKey = (re: RegExp): string | undefined => w.reg.keys().find((k) => k.startsWith('pl|__all__||') && re.test(k.slice('pl|__all__||'.length)));
     const patKey = plKey(/^Profit after /), ebitdaKey = plKey(/^EBITDA$/);
     const missing: string[] = [];

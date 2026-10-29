@@ -75,6 +75,8 @@ Consequences worth knowing: the annual fees are now charged in period 0 as well,
 
 ### And one more layer: the schedule is FROZEN before the solver
 
+> **SUPERSEDED FOR THE CAPITAL BASES 2026-10-29 (founder).** Fund size, capex equity and the debt facility are now sized on the REAL pass: the funding need with the fees left out (`feeBaseRequirementPerPeriod` on the deficit path), re-sized each iteration and settled with the solve (`sizeFees`). The fee reaches that need only through tax, so it still cannot feed its own base; the fee-free pass seeds the iteration and stays the NAV basis. One-off fees fall in the year of the first draw. Measured on FMP - MARINA GATE: identical as saved; with Phase 1 one build year shorter the base is the real need (88,100 below the fee-free figure). The history below is kept.
+
 Declaring linear bases is not sufficient on its own. `computeFinancialsSnapshot` is an iterative fixed point, and a fee computed INSIDE that loop would drift every iteration. So when the toggle is on, the engine runs a **fee-free pass** first, builds the fee schedule from it, and then threads that schedule UNCHANGED into every iteration. It is never part of the derived circular inputs, so no iteration can revise it. See Step 3 below.
 
 ---
