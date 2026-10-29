@@ -50,6 +50,7 @@ import { buildOpexReport, OPEX_AP_BASIS, OPEX_AP_TOTAL_BASIS } from '../reports/
 import { planCapexSpread, planCapexBlends, followedRule, type SpreadRow } from './liveLayers/capexSpread';
 import { planOpexStatement, oxKey, type OpexCostRow } from './liveLayers/opexPlan';
 import { financingPlan } from './liveLayers/financingPlan';
+import { plPlan } from './liveLayers/plPlan';
 import { isRetailCompanion } from '@/src/core/calculations/retailCompanion';
 import { isParcelDrivenLandLine, resolvePhasingSource } from '@/src/core/calculations/capexPhasing';
 import { buildPLRows, buildPhaseEbitdaReconciliationRows, phaseEbitdaFooting, PHASE_RECON_LINE, taxBasisNote, buildDirectCFRows, buildIndirectCFRows, buildBSRows, buildBsReconciliationRows, buildBsFeederTables, BS_FEEDER_SECTIONS, BS_RECONCILIATION_CAPTION, buildFundFeeBasisRows, buildFundCapitalRows, fundFeeBasisBaseCell, totalColumnHeading, totalColumnNote, TOTAL_COLUMN_HEADINGS, TOTAL_COLUMN_NOTES, FUND_CAPITAL_BASES_TITLE, FUND_CAPITAL_BASES_NOTE, FUND_CAPITAL_BASE_TAG, type M4ReportCtx, type FundFeeBasisRow } from '../reports/m4Reports';
@@ -5373,8 +5374,57 @@ function addSchedulesLive(ctx: EmitCtx, ws: ExcelJS.Worksheet, E: ReturnType<typ
 }
 
 // ── P&L (full detailed mirror via the shared platform row-builder) ────────────
+/**
+ * THE LIVE P&L (2026-10-29, founder): one standard statement from `plPlan`, revenue to profit after
+ * zakat, with phase blocks to EBITDA and the reconciliation to the project EBITDA. The values are
+ * the platform's; the statements layer (stage 5) writes every row's formula by its key. No fund fee
+ * basis block (the basis is on Financing beside the fee calculation) and no sentence rows (on the
+ * Guide).
+ */
+function addProfitLossLive(ctx: EmitCtx): void {
+  const { wb, snap, state } = ctx;
+  const N = snap.axisLength;
+  const labels = m4Labels(state);
+  const ws = wb.addWorksheet(SHEETS.pl, { properties: { tabColor: { argb: ARGB.navy } } });
+  writeSheetHeader(ws, snap, N, 'P&L', `Revenue to ${labels.pat}, then each phase to ${labels.ebitda}, then the reconciliation of the phases to the project ${labels.ebitda}.`, { label: 'Line', feeds: 'Revenue, Schedules (cost of sales, depreciation), Opex, Capex (selling and marketing) and the financing loop (fund fees, interest, gain on disposal, zakat).' });
+  const last = lastActiveCol(N);
+  const put = (r: number, c: number, v: number, fmt: string): void => {
+    const cell = ws.getCell(r, c);
+    cell.value = v; cell.numFmt = fmt; cell.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } };
+  };
+  const pctOf = (key: string): number => {
+    if (key === 'project:taxRate') return Math.max(0, state.project.tax?.rate ?? 0);
+    const spec = FUND_FEE_SPECS.find((s) => `ft:${s.label}` === key);
+    return spec ? Number((resolveFundTerms(state.project) as unknown as Record<string, number>)[spec.key]) || 0 : 0;
+  };
+  let r = 6;
+  for (const row of plPlan(state, snap)) {
+    if (row.kind === 'gap') { r += 1; continue; }
+    registerCell(row.key, ws, ws.getCell(r, LBL_COL));
+    if (row.kind === 'section') {
+      setSectionHeader(ws.getRow(r), row.label, last, ARGB.accent);
+      r += 1;
+      continue;
+    }
+    const label = row.labelRate ? `${row.label}, ${(pctOf(row.rateKey!) * 100).toFixed(1)}% ${row.labelRate}` : row.label;
+    setLabel(ws.getCell(r, LBL_COL), label, { indent: row.indent, bold: !!row.style });
+    if (row.rateKey) put(r, META_B, pctOf(row.rateKey), row.rateFmt === 'money' ? NUMFMT.money : NUMFMT.pct2);
+    const vals = row.values ?? [];
+    for (let t = 0; t < N; t++) put(r, pcol(t), vals[t] ?? 0, NUMFMT.money);
+    put(r, TOTAL_COL, vals.slice(0, N).reduce((s, v) => s + (v ?? 0), 0), NUMFMT.money);
+    if (row.style === 'total') {
+      fillRange(ws, r, 1, r, last, ARGB.navy);
+      for (let c = 1; c <= last; c++) ws.getCell(r, c).font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.white } };
+    } else if (row.style === 'subtotal') {
+      for (let c = 1; c <= last; c++) ws.getCell(r, c).font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.navyDark } };
+    }
+    r += 1;
+  }
+}
+
 function addProfitLoss(ctx: EmitCtx): void {
   const { wb, snap, state, labelMoney } = ctx;
+  if (isLiveLayout()) return addProfitLossLive(ctx);
   const N = snap.axisLength;
   const labels = m4Labels(state);
   // `fmt` stays String so a row's totalOverride round-trips back to a number in
@@ -6919,6 +6969,17 @@ function buildGuideContent(ws: ExcelJS.Worksheet, snap: ReturnType<typeof comput
 // wording on a project without the fund layer, and an NPV sentence that names
 // no Case Comparison on a one-case project; the PDF reads the same tabGuide().
 type SheetGuides = Record<string, GuideLine[]>;
+/** The capital-base note, once, beside the fee calculation (2026-10-29: it sat as a sentence row on the P&L). */
+const LIVE_CAPITAL_NOTE = 'Fund fees: capex equity and the debt facility are amounts of capital, not fees. They are the funding need with the fees left out, split at the debt and equity shares, and the fund size is their sum. Capex equity is below the cash equity drawn because it excludes the equity raised to pay the fees themselves.';
+/** The live P&L's guide (2026-10-29): its own order, and the zakat rule as the platform calculates it. */
+function livePlGuide(fundOn: boolean): Array<{ kind: 'inputs' | 'logic' | 'feeds'; text: string }> {
+  return [
+    { kind: 'inputs', text: `Revenue recognised by line from Revenue, cost of sales and depreciation from Schedules, operating expenses by line and HQ from Opex, selling and marketing from Capex, ${fundOn ? 'the fund fees, ' : ''}interest, the gain on disposal and zakat from Financing, and the zakat rate on Inputs.` },
+    { kind: 'logic', text: `Revenue less cost of sales = gross profit; less operating expenses${fundOn ? ' and the fund fees' : ''} = EBITDA; less depreciation and interest expensed, plus the gain on disposal = profit before zakat; less zakat = profit after zakat. Every subtotal is a SUM of the rows above it. Revenue and operating expenses use the same groups (Residential, Hospitality, Standalone Commercial, Retail Ground Floor), each line named with its phase. A phase block stops at EBITDA, with its own selling and marketing and no HQ${fundOn ? ' or fund fees' : ''}; the reconciliation adds the phases, HQ${fundOn ? ' and the fund fees' : ''} back to the project EBITDA.` },
+    { kind: 'logic', text: 'Zakat is charged each year on that year\'s profit before zakat, at the rate on Inputs (the gain on disposal excluded unless the project includes it). A loss year is charged nothing and carries nothing forward. On a corporate income tax basis, losses carry forward and the relief in a year is capped at 25% of its taxable profit.' },
+    { kind: 'feeds', text: 'Profit after zakat to retained earnings on the Balance Sheet and to the top of the indirect cash flow; EBITDA to the covenants on Returns.' },
+  ];
+}
 function workbookGuides(ctx: { fundOn: boolean; caseComparison: boolean }): SheetGuides {
   return {
     [SHEETS.summary]: tabGuide('summary', ctx),
@@ -6926,11 +6987,11 @@ function workbookGuides(ctx: { fundOn: boolean; caseComparison: boolean }): Shee
     [SHEETS.timeline]: tabGuide('timeline', ctx),
     [SHEETS.landArea]: tabGuide('landArea', ctx),
     [SHEETS.capex]: tabGuide('capex', ctx),
-    [SHEETS.financing]: tabGuide('financing', ctx),
+    [SHEETS.financing]: isLiveLayout() && ctx.fundOn ? [...tabGuide('financing', ctx), { kind: 'logic' as const, text: LIVE_CAPITAL_NOTE }] : tabGuide('financing', ctx),
     [SHEETS.revenue]: tabGuide('revenue', ctx),
     [SHEETS.opex]: tabGuide('opex', ctx),
     [SHEETS.schedules]: tabGuide('schedules', ctx),
-    [SHEETS.pl]: tabGuide('pl', ctx),
+    [SHEETS.pl]: isLiveLayout() ? livePlGuide(ctx.fundOn) : tabGuide('pl', ctx),
     [SHEETS.cashflow]: tabGuide('cashflow', ctx),
     [SHEETS.balsheet]: tabGuide('balsheet', ctx),
     [SHEETS.returns]: tabGuide('returns', ctx),

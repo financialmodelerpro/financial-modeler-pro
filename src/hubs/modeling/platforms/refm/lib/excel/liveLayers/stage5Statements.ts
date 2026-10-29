@@ -36,19 +36,16 @@
 import type { LayerContext, LiveLayer } from '../formulaWorkbook';
 import { capexMethodOf } from './stage2Capex';
 import { LiveWriter } from './writer';
-import { accT } from './excelText';
 import { PERIOD_COLS } from '../buildModelWorkbook';
-import { defaultDecimals } from '../styles';
 import { withResolvedAssetNames } from '@/src/core/calculations/assetName';
 import { isRevenueSubUnit, isLandValueLine } from '@/src/core/calculations';
 import { getFinancialLabels, defaultTerminologyForCountry } from '@/src/core/calculations/financials';
 import { computeFinancialsSnapshot } from '../../financials-resolvers';
-import { FEE_BASE_LABELS, FUND_FEE_SPECS } from '../../fundTerms';
+import { FUND_FEE_SPECS } from '../../fundTerms';
 import { planRevenueLines, lineForAsset } from '../../revenueLines';
-import { buildPLRows, buildDirectCFRows, buildIndirectCFRows, buildBSRows, SELLING_EXPENSE_LABEL, PHASE_RECON, PHASE_RECON_LINE } from '../../reports/m4Reports';
+import { plPlan } from './plPlan';
+import { buildDirectCFRows, buildIndirectCFRows, buildBSRows, SELLING_EXPENSE_LABEL } from '../../reports/m4Reports';
 import { planReportLines, lineRowLabel } from '../../reports/lineRows';
-import { hospitalityStatementsByLine, hospitalityRevenueParts, hospitalityCostParts, HOSPITALITY_COST_GROUPS } from '../../reports/hospitalityStatement';
-import { revenueBySection } from '../../reports/revenueSections';
 import type { Asset, CostLine } from '../../state/module1-types';
 import type { M4Row } from '../../../components/modules/_shared/m4Table';
 
@@ -123,10 +120,6 @@ export const stage5Statements: LiveLayer = {
       // THE LINE'S ROW IN REVENUE'S SUMMARY (2026-10-27): revenue recognised, one row per line.
       return keyF(`rvc:${l.key}:recognised`);
     };
-    // Cost of sales is a LINE's (its rows on Schedules): it reads on the line's first plot, 0 on the others.
-    const assetCos = (a: Asset): F => { const l = lineForAsset(lines, a.id); return l && l.host.id === a.id ? keyF(`cosc:${l.key}:cos`) : () => '0'; };
-    const assetOpex = (a: Asset): F => keyF(`oxo:${a.id}:total`);
-    const hq: F = keyF('oxo:hq:total');
     const expensedKeys = w.reg.keys().filter((k) => k.startsWith('cxe:') && k.split(':').length === 3);
     // A phase charges only the marketing its own plots spent (2026-10-25, m4Reports phaseSellingExpense):
     // the `cxe:<asset>:<line>` rows of the assets in that phase; the project view takes them all.
@@ -135,186 +128,64 @@ export const stage5Statements: LiveLayer = {
       const ks = phaseId === ALL ? expensedKeys : expensedKeys.filter((k) => phaseOfAsset.get(k.split(':')[1]) === phaseId);
       return (t) => ks.map((k) => R(k, t)).join('+') || '0';
     };
-    const projDep: F = (t) => `-${R('schv:__project__:dep', t)}`;
-    const disposed: F = (t) => `-(${['schv:__project__:landDisp', 'schv:__project__:disp'].filter(has).map((k) => R(k, t)).join('+') || '0'})`;
     const feeIdx = FUND_FEE_SPECS.map((_, i) => i).filter((i) => has(`fnc:fee:${i}`));
     const feesF: F = (t) => feeIdx.map((i) => R(`fnc:fee:${i}`, t)).join('+') || '0';
 
-    // ── Labels that carry a figure ───────────────────────────────────────────
-    const scale = ctx.opts.displayScale ?? 'full';
-    const dp = scale === 'full' ? 0 : (ctx.opts.displayDecimals ?? defaultDecimals(scale));
-    const money = (e: string): string => accT(e, scale, dp);
+    // ── THE P&L, ROW BY ROW FROM `plPlan` (2026-10-29) ────────────────────────
+    // Each line links its source once (a cost is one minus sign), and every subtotal is a SUM of
+    // the rows above it. The zakat label carries the rate on Inputs; column B carries each fee's
+    // rate (and the zakat rate) as a number linked to Inputs.
     const q = (s: string): string => s.replace(/"/g, '""');
     const labelWrites: Array<{ sheet: string; key: string; formula: string }> = [];
-    /** fundFeeLineLabel, as a formula: the fee's rate and the base it is charged on. */
-    const feeLabelF = (i: number): string | null => {
-      const line = snap.fundFees.lines[i];
-      const spec = FUND_FEE_SPECS[i];
-      if (!line || !spec || line.base === 'flat_amount' || !has(`ft:${spec.label}`)) return null;
-      const capKey = line.base === 'fund_size' ? 'ftcap:Fund size' : line.base === 'total_equity' ? 'ftcap:Capex equity' : line.base === 'debt_facility' ? 'ftcap:Debt facility' : '';
-      // A typed fund size (the override) is not their sum, so the capital block is not printed: it is the Inputs figure.
-      const typedSize = line.base === 'fund_size' && !has(capKey) && has('ft:Fund size (typed target)');
-      if (!capKey || (!has(capKey) && !typedSize)) return null;
-      const base = typedSize ? `MAX(0,N(${w.ref('ft:Fund size (typed target)')}))` : w.refA(w.addr(capKey));
-      const pct = `TEXT(N(${w.ref(`ft:${spec.label}`)}),"0.00%")`;
-      const name = q(FEE_BASE_LABELS[line.base] ?? line.base);
-      const years = `COLUMNS(${w.rangeA(PL, 3, pc(0), pc(N - 1))})`;
-      const span = line.timing === 'annual' ? `&IF(${years}>1,", "&${years}&" periods","")` : '';
-      return `"${q(line.label)} ("&${pct}&" of ${name}"&IF(${base}<>0," "&${money(base)}${span},", "&${money('0')}&" over the life")&")"`;
-    };
-
-    // ── THE P&L ──────────────────────────────────────────────────────────────
     const writes: Array<[string, string, F, 'sum' | 'first' | 'last']> = [];
     let refused = '';
-    /** The project's cost of sales (the whole-project view's), for the indirect cash flow. */
-    let cosTotalF: F = () => '0';
-    const doView = (phaseId: string): void => {
-      const phaseFiltered = phaseId !== ALL;
-      const matches = (a: { phaseId: string }): boolean => !phaseFiltered || a.phaseId === phaseId;
-      const rows: M4Row[] = buildPLRows({ snap, state, labels, filterPhaseId: phaseId, fmt: (v: number) => String(v), labelFmt: (v: number) => String(v), allRows: true });
-      const residential = visible.filter((a) => (a.strategy === 'Sell' || a.strategy === 'Sell + Manage') && matches(a));
-      const hosp = visible.filter((a) => a.strategy === 'Operate' && matches(a));
-      const retail = visible.filter((a) => a.strategy === 'Lease' && matches(a));
-      const hospLines = hospitalityStatementsByLine(snap, state, new Set(hosp.map((a) => a.id)));
-      const byId = new Map(state.assets.map((a) => [a.id, a] as const));
-      const lineF = (ids: Set<string>, pick: (a: Asset) => F): Array<{ label: string; f: F }> =>
-        planReportLines(state, (a) => ids.has(a.id)).map((line) => ({ label: lineRowLabel(line, state), f: sumF(line.assetIds.map((id) => pick(byId.get(id)!))) }));
-      const groups = new Map<string, Array<{ label: string; f: F }>>();
-      const heads = new Map<string, F>();
-      const secFs: F[] = [];
-      for (const sec of revenueBySection(snap, state, matches)) {
-        const inSec = new Set(sec.assetIds);
-        const g = `pl-rev-${sec.key}`;
-        const f = sumF(sec.assetIds.map((id) => assetRev(byId.get(id)!)));
-        heads.set(g, f); secFs.push(f);
-        const members: Array<{ label: string; f: F }> = [];
-        for (const h of hospLines) {
-          if (!h.line.members.some((m) => inSec.has(m.id))) continue;
-          const earnerLine = lineForAsset(lines, h.line.members[0].id);
-          const keyOf = ['rooms', 'fb', 'other'];
-          hospitalityRevenueParts(h.statement).forEach((p, i) => {
-            const k = earnerLine ? `rvc:${earnerLine.key}:${keyOf[i]}` : '';
-            members.push({ label: `${h.line.label}: ${p.label}`, f: k ? keyF(k) : () => '0' });
-          });
-        }
-        members.push(...lineF(new Set(visible.filter((a) => inSec.has(a.id) && a.strategy !== 'Operate').map((a) => a.id)), assetRev));
-        groups.set(g, members);
-      }
-      const totalRev = sumF(secFs);
-      const cosTotal = sumF(residential.map(assetCos));
-      if (!phaseFiltered) cosTotalF = cosTotal;
-      heads.set('pl-cos', neg(cosTotal));
-      groups.set('pl-cos', lineF(new Set(residential.map((a) => a.id)), assetCos).map((m) => ({ label: m.label, f: neg(m.f) })));
-      const hospOpex = sumF(hosp.map(assetOpex));
-      heads.set('pl-opex-hosp', neg(hospOpex));
-      const hospMembers: Array<{ label: string; f: F }> = [];
-      for (const h of hospLines) {
-        hospitalityCostParts(h.statement).forEach((p, i) => {
-          hospMembers.push({ label: `${h.line.label}: ${p.label}`, f: neg(keyF(`oxo:${h.line.key}:grp:${HOSPITALITY_COST_GROUPS[i]}`)) });
-        });
-      }
-      groups.set('pl-opex-hosp', hospMembers);
-      const retailOpex = sumF(retail.map(assetOpex));
-      heads.set('pl-opex-ret', neg(retailOpex));
-      groups.set('pl-opex-ret', lineF(new Set(retail.map((a) => a.id)), assetOpex).map((m) => ({ label: m.label, f: neg(m.f) })));
-
-      const seen = new Map<string, number>();
-      const keyFor = (label: string): string => { const b = `pl|${phaseId}||${label}`; const n = seen.get(b) ?? 0; seen.set(b, n + 1); return n ? `${b}~${n}` : b; };
-      const cursor = new Map<string, number>();
-      const K = (label: string): string => `pl|${phaseId}||${label}`;
-      const cell = (label: string): F => keyF(K(label));
-      const opexRows: string[] = [];
-      const feeRows: string[] = [];
-      const usedFees = new Set<number>();
-      // Each group's line and the rows shown under it; the revenue groups' lines for the total.
-      const headKey = new Map<string, string>();
-      const memberKeys = new Map<string, string[]>();
-      const revHeads: string[] = [];
-      // A fund fee's label carries its base, so a fee row is found by the fee's own name.
-      const feeOf = (r: M4Row): number => (phaseFiltered || r.indent !== 1 ? -1
-        : snap.fundFees.lines.findIndex((l, i) => !usedFees.has(i) && r.label.startsWith(`${l.label} (`)));
-      for (const r of rows) {
-        if (r.isSection && (r.collapseRole !== 'header' || r.values.length === 0)) continue;
-        const fee = feeOf(r);
-        const key = fee >= 0
-          ? (w.reg.keys().find((k) => k.startsWith(`pl|${phaseId}||${snap.fundFees.lines[fee].label} (`)) ?? '')
-          : keyFor(r.label);
-        if (!has(key)) { refused = `the row "${r.label}" is not where the P&L put it`; return; }
-        const g = r.collapseGroup;
-        const L = r.label;
-        let f: F | undefined;
-        if (g && r.collapseRole === 'header') {
-          f = heads.get(g); headKey.set(g, key);
-          if (g.startsWith('pl-opex')) opexRows.push(key);
-          if (g.startsWith('pl-rev-')) revHeads.push(key);
-        } else if (g && r.collapseRole === 'member') {
-          const i = cursor.get(g) ?? 0; cursor.set(g, i + 1);
-          const m = groups.get(g)?.[i];
-          if (!m || m.label !== L) { refused = `the ${g} rows do not match (${L} against ${m?.label ?? 'nothing'})`; return; }
-          f = m.f;
-          memberKeys.set(g, [...(memberKeys.get(g) ?? []), key]);
-        } else if (L === 'Total Revenue') f = revHeads.length ? sumKeysF([...revHeads]) : totalRev;
-        else if (L.startsWith('HQ Expenses')) { f = neg(hq); opexRows.push(key); }
-        else if (L.startsWith(SELLING_EXPENSE_LABEL)) { f = neg(sellingExpOf(phaseId)); opexRows.push(key); }
-        else if (L === 'Total Operating Expenses') { const rs = [...opexRows]; f = (t) => rs.map((k) => R(k, t)).join('+') || '0'; }
-        else if (L === labels.ebitda && phaseFiltered) f = (t) => `${cell('Total Revenue')(t)}+${has(K('Residential cost of sales')) ? cell('Residential cost of sales')(t) : `-(${cosTotal(t)})`}+${cell('Total Operating Expenses')(t)}`;
-        else if (!phaseFiltered) {
-          if (fee >= 0) {
-            usedFees.add(fee); feeRows.push(key);
-            f = has(`fnc:fee:${fee}`) ? (t) => `-${R(`fnc:fee:${fee}`, t)}` : () => '0';
-            const lf = feeLabelF(fee);
-            if (lf) labelWrites.push({ sheet: PL, key, formula: lf });
-          } else if (L === 'Total Fund Management Fee') { const rs = [...feeRows]; f = (t) => rs.map((k) => R(k, t)).join('+') || '0'; }
-          else if (L === labels.ebitda) f = (t) => `${cell('Total Revenue')(t)}+${has(K('Residential cost of sales')) ? cell('Residential cost of sales')(t) : `-(${cosTotal(t)})`}+${cell('Total Operating Expenses')(t)}${has(K('Total Fund Management Fee')) ? `+${cell('Total Fund Management Fee')(t)}` : ''}`;
-          else if (L === 'Depreciation & Amortization') f = neg(projDep);
-          else if (L === labels.ebit) f = (t) => `${cell(labels.ebitda)(t)}+${cell('Depreciation & Amortization')(t)}`;
-          else if (L === 'Interest & financing cost') f = keyF('fnc:main:intexp');
-          else if (L === 'Gain on Disposal of Operating Assets') f = (t) => `${keyF('fnc:proceeds')(t)}-(${disposed(t)})`;
-          else if (L === labels.pbt) f = (t) => `${cell(labels.ebit)(t)}+${cell('Interest & financing cost')(t)}${has(K('Gain on Disposal of Operating Assets')) ? `+${cell('Gain on Disposal of Operating Assets')(t)}` : ''}`;
-          else if (L.startsWith(`${labels.tax} (`)) {
-            // The loop's tax, on the loop's own profit before tax (Checks: it equals this P&L's).
-            f = (t) => `-${R('fnc:tax', t)}`;
-            labelWrites.push({ sheet: PL, key, formula: `"${q(labels.tax)} ("&TEXT(N(${w.ref('project:taxRate')}),"0.00%")&")"` });
-          } else if (L === labels.pat) {
-            const taxKey = w.reg.keys().find((k) => k.startsWith(`pl|${phaseId}||${labels.tax} (`)) as string;
-            f = (t) => `${cell(labels.pbt)(t)}+${R(taxKey, t)}`;
-          }
-        }
-        if (!f) { refused = `no rule for the P&L row "${L}"`; return; }
-        writes.push([PL, key, f, 'sum']);
-      }
-      // A group's line is the sum of the rows shown under it.
-      for (const [g, hk] of headKey) {
-        const ms = memberKeys.get(g);
-        if (!ms?.length) continue;
-        const at = writes.findIndex((x) => x[1] === hk);
-        if (at >= 0) writes[at] = [PL, hk, sumKeysF(ms), 'sum'];
-      }
+    const cosTotalF: F = () => '0';
+    /** A subtotal: SUM over a block of rows, or SUM of the rows named. */
+    const sumOfF = (keys: string[]): F => (t) => {
+      const ks = keys.filter(has);
+      if (!ks.length) return '0';
+      const rows = ks.map((k) => w.addr(k).row);
+      const together = ks.length > 1 && rows.every((r, i) => i === 0 || r === rows[i - 1] + 1);
+      return together ? `SUM(${R(ks[0], t)}:${R(ks[ks.length - 1], t)})` : `SUM(${ks.map((k) => R(k, t)).join(',')})`;
     };
-    doView(ALL);
-    for (const ph of state.phases) if (!refused && w.reg.keys().some((k) => k.startsWith(`pl|${ph.id}||`))) doView(ph.id);
-    if (refused) return [{ sheet: PL, status: 'values' as const, formulas: 0, note: `The P&L could not be made live for this model: ${refused}.` }];
-    // THE PHASE EBITDA RECONCILIATION (2026-10-25): each phase's EBITDA row, the project's HQ and fund fees,
-    // their sum, the project EBITDA row and the difference, all read off the rows above.
-    {
-      const RK = (label: string): string => `pl|${PHASE_RECON_LINE}||${label}`;
-      const sumKeys: string[] = [];
-      const put = (label: string, f: F, inSum: boolean): void => {
-        if (!has(RK(label))) return;
-        writes.push([PL, RK(label), f, 'sum']);
-        if (inSum) sumKeys.push(RK(label));
-      };
-      for (const ph of state.phases) {
-        const k = `pl|${ph.id}||${labels.ebitda}`;
-        put(PHASE_RECON.phase(ph.name), has(k) ? keyF(k) : () => '0', true);
+    /** A cost: its source rows, negated once. */
+    const costOf = (keys: string[]): F => (t) => {
+      const ks = keys.filter(has);
+      if (!ks.length) return '0';
+      return ks.length === 1 ? `-${R(ks[0], t)}` : `-(${ks.map((k) => R(k, t)).join('+')})`;
+    };
+    const rateWrites: Array<{ key: string; rateKey: string }> = [];
+    for (const row of plPlan(state, snap)) {
+      if (row.kind !== 'row') continue;
+      if (!has(row.key)) { refused = `the row "${row.label}" is not on the P&L`; break; }
+      let f: F | undefined;
+      if (row.sum) f = sumOfF(row.sum);
+      else if (row.src) {
+        const s = row.src;
+        switch (s.kind) {
+          case 'rev': f = keyF(`rvc:${s.line}:recognised`); break;
+          case 'cos': f = costOf([`cosc:${s.line}:cos`]); break;
+          case 'opex': f = costOf(s.assetIds.map((id) => `oxo:${id}:total`)); break;
+          case 'hq': f = costOf(['oxo:hq:total']); break;
+          case 'mkt': f = costOf(s.phaseId === ALL && has('cx1e:total') ? ['cx1e:total'] : expensedKeys.filter((k) => s.phaseId === ALL || phaseOfAsset.get(k.split(':')[1]) === s.phaseId)); break;
+          case 'fee': f = costOf([`fnc:fee:${s.index}`]); break;
+          case 'dep': f = keyF('schv:__project__:dep'); break;
+          case 'int': f = keyF('fnc:main:intexp'); break;
+          case 'gain': f = keyF('fl:gain'); break;
+          case 'tax': f = costOf(['fnc:tax']); break;
+          case 'link': f = keyF(s.key); break;
+          case 'diff': f = (t) => `${R(s.a, t)}-${R(s.b, t)}`; break;
+        }
       }
-      put(PHASE_RECON.hq, neg(hq), true);
-      const feeTotal = `pl|${ALL}||Total Fund Management Fee`;
-      put(PHASE_RECON.fees, has(feeTotal) ? keyF(feeTotal) : neg(feesF), true);
-      put(PHASE_RECON.sum, sumKeysF([...sumKeys]), false);
-      put(PHASE_RECON.project, keyF(`pl|${ALL}||${labels.ebitda}`), false);
-      put(PHASE_RECON.diff, (t) => `${R(RK(PHASE_RECON.sum), t)}-${R(RK(PHASE_RECON.project), t)}`, false);
+      if (!f) { refused = `no rule for the P&L row "${row.label}"`; break; }
+      writes.push([PL, row.key, f, 'sum']);
+      if (row.rateKey) {
+        if (!has(row.rateKey)) { refused = `the rate of "${row.label}" is not on Inputs`; break; }
+        rateWrites.push({ key: row.key, rateKey: row.rateKey });
+      }
+      if (row.labelRate && row.rateKey) labelWrites.push({ sheet: PL, key: row.key, formula: `"${q(row.label)}, "&TEXT(N(${w.ref(row.rateKey)}),"0.0%")&" ${q(row.labelRate)}"` });
     }
+    if (refused) return [{ sheet: PL, status: 'values' as const, formulas: 0, note: `The P&L could not be made live for this model: ${refused}.` }];
     const plWrites = writes.splice(0);
     const out: Array<{ sheet: string; status: 'live' | 'partial' | 'values'; note: string; formulas: number }> = [];
 
@@ -647,12 +518,10 @@ export const stage5Statements: LiveLayer = {
       }
     };
     apply(plWrites);
+    for (const x of rateWrites) w.fA({ sheet: PL, row: w.addr(x.key).row, col: PERIOD_COLS.META_B }, `N(${w.ref(x.rateKey)})`);
     // The labels that carry a figure.
-    // A label the twin printed short (over 60 characters, its bracket cut) stays the twin's words (2026-10-20).
     for (const l of labelWrites) {
       const at = { sheet: l.sheet, row: w.addr(l.key).row, col: LBL_COL };
-      const now = wb.getWorksheet(l.sheet)!.getCell(at.row, at.col).value;
-      if (typeof now === 'string' && !now.includes('(')) continue;
       w.fA(at, l.formula);
     }
     out.push({ sheet: PL, status: 'live', formulas: w.formulas.get(PL) ?? 0,
