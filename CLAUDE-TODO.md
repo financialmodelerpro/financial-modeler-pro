@@ -2,6 +2,30 @@
 
 > Forward-looking only: active follow-ups, in-progress work, backlog, legacy reference. Completed phase narratives live in **CLAUDE-FEATURES.md** (archive) and `git log` (authoritative). Do not re-add "Recently Completed" sections here when closing a phase, write the closure into CLAUDE-FEATURES.md instead.
 
+## START HERE 2026-10-29 (session end): FINANCING, P&L AND CASH FLOW REBUILT; NEXT IS THE BALANCE SHEET
+
+Done today (detail in CHANGELOG 2026-10-29): Financing is one loop (fund fees sized on the real pass in the engine, 353 rows to 99), the P&L is one standard statement (129 to 97), the Cash Flow only links (170 to 151). No session-end suite since 2026-10-25: run it first.
+
+- **Cash Flow follow-ups:**
+  - phase disposal proceeds on the platform's phase cash flow screen (the workbook shows each phase's share; the screen shows none);
+  - capex as cash only, plus a "Land contributed in kind (non-cash)" row in investing;
+  - a "Cash paid" row per line on Opex, so opex paid on the Cash Flow is one link.
+- **Balance Sheet (next):**
+  - return of capital vs dividends (diagnose first);
+  - the statutory reserve cap;
+  - zakat payment days;
+  - debt total as a SUM.
+- **Still to do:** Returns (the fixed exit columns P and Q, NPV as text, the repeated fee basis, IRR computed many times), then Summary and Checks.
+- **Close-out list:**
+  - data validation on the % inputs;
+  - the schema banner check (C1);
+  - the area-labels check;
+  - the long Table 7 GFA formulas;
+  - a per-key opex test on a project with a per-key line;
+  - the live workbook for projects with existing operations;
+  - zakat on the proper zakat base (a later engine feature);
+  - a full verifier run at the end.
+
 ## START HERE 2026-10-25 (session end): THE LIVE WORKBOOK, TAB BY TAB; NEXT IS WHAT IS OPEN ON INPUTS, THEN TIMELINE
 
 Done today (CHANGELOG 2026-10-25): phase P&L / CF carry their own costs; the dividend cap is the phase P&L EBITDA; Inputs holds only what the model reads (duplicates, derived values and platform-only defaults off, grids keyed by year of the phase, no start year at export, input blue, plain labels, the unread-input check); hotel and lease receivable days live and guarded.
