@@ -39,8 +39,10 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
   const sb = getServerClient();
 
   const cert = await fetchCert(sb, uuid);
-  if (!cert) {
-    return { title: 'Certificate Not Found | Financial Modeler Pro' };
+  // Same rule as the page body: a revoked (non-Issued) certificate must not
+  // advertise itself in link previews.
+  if (!cert || cert.cert_status !== 'Issued') {
+    return { title: 'Certificate Not Found | Financial Modeler Pro', robots: { index: false } };
   }
 
   const name   = cert.full_name ?? 'Student';

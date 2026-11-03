@@ -75,7 +75,10 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
     fetchLogo(),
   ]);
 
-  const studentName = (cert?.full_name as string | null) ?? 'Student';
+  // A revoked (non-Issued) certificate must not show a name in link previews.
+  const studentName = cert?.cert_status === 'Issued'
+    ? ((cert?.full_name as string | null) ?? 'Student')
+    : 'Certificate Not Found';
   const courseName  = (cert?.course as string | null) ?? (cert?.course_code as string | null) ?? 'Financial Modeling';
   const grade       = (cert?.grade as string | null) ?? '';
   const issued      = formatDate((cert?.issued_at as string | null) ?? (cert?.issued_date as string | null));
