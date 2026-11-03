@@ -663,21 +663,36 @@ function perturbations(input: LiveExportInputs, reg: CellRegistry): Perturbation
       edit: (s) => { s.project.fundTerms = { ...s.project.fundTerms, hurdleRatePct: h }; } });
   } else out.push({ label: 'the hurdle rate', skip: 'no fund layer on this model' });
   const partners = (st.project.partners ?? []) as any[];
-  if (partners.length >= 2 && reg.get('retg|Equity Partners|% share|1')) {
+  if (partners.length >= 2 && reg.get('retin:share:cash:0')) {
     const c0 = (partners[0].cashPct ?? 0) + 20;
-    out.push({ movesRevenue: false, label: `${partners[0].name}'s share of the new cash equity to ${c0}%`, cell: 'retg|Equity Partners|% share|1', value: c0 / 100,
+    out.push({ movesRevenue: false, label: `${partners[0].name}'s share of the new cash equity to ${c0}%`, cell: 'retin:share:cash:0', value: c0 / 100,
       edit: (s) => { (s.project.partners as any[])[0].cashPct = c0; } });
-    out.push({ movesRevenue: false, label: `an agreed share of 60% typed for ${partners[0].name}`, cell: 'retg|Equity Partners|Agreed % (override)|1', value: 0.6,
+    out.push({ movesRevenue: false, label: `an agreed share of 60% typed for ${partners[0].name}`, cell: 'retin:agreed:0', value: 0.6,
       edit: (s) => { (s.project.partners as any[])[0].manualShareholdingPct = 60; } });
   } else out.push({ label: 'a partner\'s share', skip: 'fewer than two equity partners' });
   // RE Metrics (stage 7b): the DSCR threshold raised above the worst year, so the
   // covenant must flip from Pass to Breach (the branch the model does not show).
   const covs = (st.project.covenants ?? DEFAULT_COVENANTS) as any[];
   const dscrCov = covs.find((c) => c.metric === 'dscr');
-  if (dscrCov && reg.get(`retg|Lender Covenants|${dscrCov.label}|2`)) {
-    out.push({ movesRevenue: false, label: `the DSCR covenant threshold ${dscrCov.threshold} to 50 (Pass to Breach)`, cell: `retg|Lender Covenants|${dscrCov.label}|2`, value: 50,
+  if (dscrCov && reg.get(`retin:cov:${dscrCov.label}`)) {
+    out.push({ movesRevenue: false, label: `the DSCR covenant threshold ${dscrCov.threshold} to 50 (Pass to Breach)`, cell: `retin:cov:${dscrCov.label}`, value: 50,
       edit: (s) => { s.project.covenants = covs.map((c) => (c === dscrCov ? { ...c, threshold: 50 } : { ...c })); } });
-  } else out.push({ label: 'the DSCR covenant threshold', skip: 'no DSCR covenant on the Returns sheet' });
+  } else out.push({ label: 'the DSCR covenant threshold', skip: 'no DSCR covenant threshold on Inputs' });
+  // NPV IS A FORMULA ON THE DISCOUNT RATE (2026-11-03): the rate +1 point moves every stream's NPV and nothing else.
+  {
+    const dr = Number(ret.discountRate ?? 0.1) + 0.01;
+    out.push({ movesRevenue: false, label: `the discount rate to ${(dr * 100).toFixed(1)}% (each stream's NPV)`, cell: 'ret|Discount Rate (%)', col: RC.TOTAL, value: dr,
+      edit: (s) => { s.project.returns = { ...(s.project.returns ?? {}), discountRate: dr }; } });
+  }
+  // THE FEE SPLIT READS THE SHARES ON INPUTS (2026-11-03): the first matrix row's performance fee share +20 points.
+  {
+    const m0 = (ft?.feeDistribution ?? [])[0];
+    if (ft?.enabled && m0 && reg.get('ftm:0:perf')) {
+      const v = Math.min(1, (m0.performanceFeePct ?? 0) + 0.2);
+      out.push({ movesRevenue: false, label: `${m0.partyName || 'the first earner'}'s performance fee share to ${(v * 100).toFixed(0)}% (the fee split)`, cell: 'ftm:0:perf', value: v,
+        edit: (s) => { const t0 = s.project.fundTerms as any; s.project.fundTerms = { ...t0, feeDistribution: (t0.feeDistribution as any[]).map((r, i) => (i === 0 ? { ...r, performanceFeePct: v } : { ...r })) }; } });
+    } else out.push({ label: 'a performance fee share on Inputs', skip: 'no fee distribution matrix on Inputs' });
+  }
   // STAGES B AND C (2026-09-28): the facility shapes no live project has, each on a
   // COPY of this model (a variant), which must first recalculate to the platform in
   // Excel as exported, then follow an input typed at its Inputs door.
@@ -1279,6 +1294,8 @@ function formulaCells(wb: ExcelJS.Workbook): Map<string, { formula: string; resu
       const pPlain = buildModelWorkbook({ ...pOpts, liveLayout: true });
       // (2026-10-25: no "years moved since export" cell any more: the Inputs grids are keyed by
       // phase year, so a moved phase carries its typed years with it and nothing is relative to the export.)
+      // A TEST WHOSE TARGET IS GONE FAILS (2026-11-03): it never passes by typing into nothing.
+      if (!base.registry.get(pt.cell)) { check(`C ${pt.label}: the cell it types into (${pt.cell}) is on the workbook`, false, 'no such registered cell'); continue; }
       const a0 = base.registry.need(pt.cell);
       const aMod = { ...a0, col: pt.col ?? a0.col };
       // INPUTS IS THE ONE PLACE A USER TYPES (stage9InputLinks, 2026-09-28): where the
@@ -1298,7 +1315,7 @@ function formulaCells(wb: ExcelJS.Workbook): Map<string, { formula: string; resu
       // A PENDING cell (it reads a figure a later stage computes: capitalised interest, which
       // moves with capex, revenue and timing alike) may lag ANY input change; it is counted.
       // Every other live cell must follow the change exactly.
-      check(`C ${pt.label}: ${moved} live cells move on the platform, and Excel agrees on every live cell${lagging.length ? ` (${lagging.length} pending cells lag: they read what the financing solve or Returns still owns, stages 6 and 7)` : ''}${cmp.layout.length ? `; ${cmp.layout.length} cells the platform lays out differently after the change (the live workbook keeps its exported layout: ${cmp.layout.slice(0, 4).join(', ')}${cmp.layout.length > 4 ? ', ...' : ''})` : ''}`,
+      check(`C ${pt.label}: ${moved} live cells move on the platform, and ${hard.length ? `Excel DIFFERS on ${hard.length} live cells` : "Excel agrees on every live cell"}${lagging.length ? ` (${lagging.length} pending cells lag: they read what the financing solve or Returns still owns, stages 6 and 7)` : ''}${cmp.layout.length ? `; ${cmp.layout.length} cells the platform lays out differently after the change (the live workbook keeps its exported layout: ${cmp.layout.slice(0, 4).join(', ')}${cmp.layout.length > 4 ? ', ...' : ''})` : ''}`,
         moved > 0 && hard.length === 0,
         hard.slice(0, Number(process.env.SHOWN ?? 8)).map((x) => x.msg).join('\n        '));
       if (pt.variant) { const { unlinkSync } = await import('node:fs'); unlinkSync(base.path); }

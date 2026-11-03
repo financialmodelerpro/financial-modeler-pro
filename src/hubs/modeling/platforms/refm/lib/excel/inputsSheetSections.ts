@@ -605,9 +605,9 @@ export function emitReturnsSection(c: SheetCursor, state: FinancialsResolverStat
   const stored = state.project.returns ?? {};
   setSectionHeader(c.ws.getRow(c.r), 'Returns Assumptions', 3); c.r += 1;
   const drRow = kv(c, 'Discount Rate (%)', cfg.discountRate, NUMFMT.pct, stored.discountRate !== undefined, 'DiscountRate', undefined, 'inp=ret|Discount Rate (%)@4');
-  if (isLiveLayout()) registerCell(inertKey(INERT_INPUTS.discountRate, c.sheetName, drRow, 2), c.ws, c.ws.getCell(drRow, 2));
+  void drRow;
   kv(c, 'Exit Year', snap.projectStartYear + cfg.exitYearOffset, NUMFMT.year, stored.exitYearOffset !== undefined, 'ExitYear', undefined, 'inp=ret|Exit Year@4');
-  kv(c, 'Terminal Value Method', TERMINAL_METHOD_LABELS[cfg.terminalMethod] ?? cfg.terminalMethod, '@', stored.terminalMethod !== undefined);
+  kv(c, 'Terminal Value Method', TERMINAL_METHOD_LABELS[cfg.terminalMethod] ?? cfg.terminalMethod, '@', stored.terminalMethod !== undefined, undefined, undefined, isLiveLayout() ? 'ret:tvMethod' : undefined);
   if (cfg.terminalMethod === 'exit_multiple') kv(c, 'Exit Multiple (x stabilised NOI)', cfg.exitMultiple, NUMFMT.mult, stored.exitMultiple !== undefined, 'ExitMultiple', undefined, 'inp=ret|Exit Multiple (x stabilised NOI)@4');
   if (cfg.terminalMethod === 'perpetuity' || cfg.terminalMethod === 'cap_rate') {
     const gRow = kv(c, 'Growth g (%)', cfg.perpetuityGrowth, NUMFMT.pct2, stored.perpetuityGrowth !== undefined, 'PerpetuityGrowth', undefined, 'inp=ret|Growth g (%)@4');
@@ -623,7 +623,7 @@ export function emitReturnsSection(c: SheetCursor, state: FinancialsResolverStat
       manual ? `Set by you (WACC less growth would be ${(cfg.capRateDerived * 100).toFixed(2)}%).` : 'WACC less growth, derived.', manual ? 'inp=ret|Exit Cap Rate (%)@4' : undefined);
   }
   if (cfg.terminalMethod !== 'none') {
-    kv(c, 'Terminal metric', cfg.applyGrowthToTerminal ? 'Grown by (1 + g)' : 'Exit year as is', '@', stored.applyGrowthToTerminal !== undefined);
+    kv(c, 'Terminal metric', cfg.applyGrowthToTerminal ? 'Grown by (1 + g)' : 'As stated, not grown', '@', stored.applyGrowthToTerminal !== undefined, undefined, undefined, isLiveLayout() ? 'ret:tvMetric' : undefined);
   }
   c.r += 1;
   if (!isLiveLayout()) return;
@@ -651,7 +651,7 @@ export function emitReturnsSection(c: SheetCursor, state: FinancialsResolverStat
       vals.forEach((v, i) => { setInput(c.ws.getCell(c.r, 2 + i), v, NUMFMT.pct2); registerCell(`${key}:${i}`, c.ws, c.ws.getCell(c.r, 2 + i)); });
       c.r += 1;
     };
-    axis('Sales price change', defaultSensitivityValues('sales_price_pct', cfg.discountRate), 'sensin:price');
+    axis('Operating cash flow change', defaultSensitivityValues('sales_price_pct', cfg.discountRate), 'sensin:price');
     axis('Exit cap rate', defaultSensitivityValues('exit_cap_rate', cfg.discountRate), 'sensin:cap');
     c.r += 1;
   }
@@ -665,14 +665,14 @@ export function emitReturnsSection(c: SheetCursor, state: FinancialsResolverStat
   effective.forEach((p, j) => {
     setLabel(c.ws.getCell(c.r, 1), p.name);
     setInput(c.ws.getCell(c.r, 2), pct(p.cashPct), NUMFMT.pct2);
-    registerCell(`inp=retg|Equity Partners|% share|${j + 1}`, c.ws, c.ws.getCell(c.r, 2));
+    registerCell(`retin:share:cash:${j}`, c.ws, c.ws.getCell(c.r, 2));
     setInput(c.ws.getCell(c.r, 3), pct(p.inKindPct), NUMFMT.pct2);
-    registerCell(`inp=retg|Equity Partners|% share~1|${j + 1}`, c.ws, c.ws.getCell(c.r, 3));
+    registerCell(`retin:share:kind:${j}`, c.ws, c.ws.getCell(c.r, 3));
     setInput(c.ws.getCell(c.r, 4), pct(p.existingPct), NUMFMT.pct2);
-    registerCell(`inp=retg|Equity Partners|% share~2|${j + 1}`, c.ws, c.ws.getCell(c.r, 4));
+    registerCell(`retin:share:ex:${j}`, c.ws, c.ws.getCell(c.r, 4));
     const ag = c.ws.getCell(c.r, 5);
     if (ps[j]?.shareholdingIsManual) setInput(ag, ps[j].shareholdingPct, NUMFMT.pct2); else { markInput(ag); ag.numFmt = NUMFMT.pct2; }
-    registerCell(`inp=retg|Equity Partners|Agreed % (override)|${j + 1}#blank`, c.ws, ag);
+    registerCell(`retin:agreed:${j}`, c.ws, ag);
     c.r += 1;
   });
   c.r += 1;
@@ -684,7 +684,7 @@ export function emitReturnsSection(c: SheetCursor, state: FinancialsResolverStat
       setLabel(c.ws.getCell(c.r, 1), cov.label);
       setLabel(c.ws.getCell(c.r, 2), cov.operator === 'min' ? 'at least' : 'at most');
       setInput(c.ws.getCell(c.r, 3), cov.threshold, cov.metric === 'ltv' || cov.metric === 'debt_yield' ? NUMFMT.pct2 : NUMFMT.mult);
-      registerCell(`inp=retg|Lender Covenants|${cov.label}|2`, c.ws, c.ws.getCell(c.r, 3));
+      registerCell(`retin:cov:${cov.label}`, c.ws, c.ws.getCell(c.r, 3));
       c.r += 1;
     }
     c.r += 1;

@@ -1325,6 +1325,16 @@ test can only be skipped when its own target is missing.
 
 **The trap to avoid:** a test guarded by a different key from the one it uses. Gate a test on its own target,
 and give every guard an `else` that reports the skip by name.
+
+### 3.37 A failing input-change line said "Excel agrees on every live cell", and a truncated read believed it
+
+**Symptom (2026-11-03):** on 2026-11-03 (morning) the exit-year-to-2037 test was reported as "Excel matches the platform on all 983 cells that move; only 12 Returns cells differ in layout". In fact several hundred cells on Revenue, Opex, Schedules, Financing, the P&L and the statements differed: the held lines kept trading after the earlier exit in Excel, while the engine stops them.
+
+**Mechanism:** the C check's label was a fixed sentence, "N live cells move on the platform, and Excel agrees on every live cell", printed on the FAIL line as well as the PASS one. The failing cells were listed below it, and the read that summarised the run (`grep -A3`) showed only the first three, all on Summary.
+
+**Fix:** the label states the result: "Excel DIFFERS on N live cells" when any cell differs. Count the listed cells by sheet (`SHOWN=2000`) before saying what a failure is.
+
+**The trap to avoid:** a status line whose words do not depend on the status, and a summary taken from the first lines of a list.
 `verify-formula-workbook` A12j to A12p.
 
 **The same day, the replacement proxy failed too:** "read by a formula" passed the hotel and lease receivable days,

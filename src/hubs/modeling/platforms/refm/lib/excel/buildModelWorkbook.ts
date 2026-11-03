@@ -53,6 +53,7 @@ import { financingPlan } from './liveLayers/financingPlan';
 import { plPlan } from './liveLayers/plPlan';
 import { cfPlan } from './liveLayers/cfPlan';
 import { bsPlan } from './liveLayers/bsPlan';
+import { returnsPlan } from './liveLayers/returnsPlan';
 import { isRetailCompanion } from '@/src/core/calculations/retailCompanion';
 import { isParcelDrivenLandLine, resolvePhasingSource } from '@/src/core/calculations/capexPhasing';
 import { buildPLRows, buildPhaseEbitdaReconciliationRows, phaseEbitdaFooting, PHASE_RECON_LINE, taxBasisNote, buildDirectCFRows, buildIndirectCFRows, buildBSRows, buildBsReconciliationRows, buildBsFeederTables, BS_FEEDER_SECTIONS, BS_RECONCILIATION_CAPTION, buildFundFeeBasisRows, buildFundCapitalRows, fundFeeBasisBaseCell, totalColumnHeading, totalColumnNote, TOTAL_COLUMN_HEADINGS, TOTAL_COLUMN_NOTES, FUND_CAPITAL_BASES_TITLE, FUND_CAPITAL_BASES_NOTE, FUND_CAPITAL_BASE_TAG, type M4ReportCtx, type FundFeeBasisRow } from '../reports/m4Reports';
@@ -833,12 +834,14 @@ function addAssumptions(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFin
     if (matrix.length) {
       setSectionHeader(ws.getRow(r), 'Fee distribution matrix (shares are not normalised)', 4); r += 1;
       ['Party', 'Commission %', 'Developer fee %', 'Performance fee %'].forEach((h, i) => setColHeader(ws.getCell(r, i + 1), h, i === 0 ? 'left' : 'right')); r += 1;
-      for (const m of matrix) {
+      for (const [mi, m] of matrix.entries()) {
         setLabel(ws.getCell(`A${r}`), m.partyName || m.partyId);
         setInput(ws.getCell(`B${r}`), m.commissionPct ?? 0, NUMFMT.pct2);
         setInput(ws.getCell(`C${r}`), m.developerFeePct ?? 0, NUMFMT.pct2);
         setInput(ws.getCell(`D${r}`), m.performanceFeePct ?? 0, NUMFMT.pct2);
-        for (const col of [2, 3, 4]) { fixedAt(r, col, 'How the fees are shared among earners is built in at export.'); registerCell(deadSwitchKey(DEAD_SWITCHES.feeMatrix, 'Inputs', r, col), ws, ws.getCell(r, col)); }
+        // The performance fee share is live (Returns splits the fee by it); the other two are read by nothing.
+        if (isLiveLayout()) registerCell(`ftm:${mi}:perf`, ws, ws.getCell(r, 4));
+        for (const col of isLiveLayout() ? [2, 3] : [2, 3, 4]) { fixedAt(r, col, 'How the fees are shared among earners is built in at export.'); registerCell(deadSwitchKey(DEAD_SWITCHES.feeMatrix, 'Inputs', r, col), ws, ws.getCell(r, col)); }
         r += 1;
       }
       r += 1;
@@ -5718,6 +5721,70 @@ function addBalanceSheet(ctx: EmitCtx): void {
   }
 }
 
+/**
+ * THE LIVE RETURNS TAB (2026-11-03): the rows of `returnsPlan`, printed with the platform's values;
+ * stage 7 writes their formulas. Money is in millions (the units line says so), every figure a number.
+ */
+function addReturnsLive(ctx: EmitCtx): RetLinks {
+  const { wb, snap, state, currency } = ctx;
+  const N = snap.axisLength;
+  const ws = wb.addWorksheet(SHEETS.returns, { properties: { tabColor: { argb: ARGB.navy } } });
+  let rs: ReturnsSnapshot | null = null;
+  try { rs = computeReturnsSnapshot(snap, state.project); } catch { rs = null; }
+  writeSheetHeader(ws, snap, N, 'Returns', 'The FCFF, FCFE and distribution streams with one IRR, MOIC and NPV each, the equity partners, fee income, sources and uses, development economics, the exit, the sensitivity grid, the real estate metrics and the exit-year analysis.', { label: 'Line', feeds: 'The Cash Flow, Financing, the Balance Sheet, the P&L, Revenue, Schedules and the returns settings on Inputs.', totalLabel: 'Total / Value' });
+  ws.getCell(2, LBL_COL).value = `${currency} m`;
+  if (!rs) return { rs };
+  const last = lastActiveCol(N);
+  const plan = returnsPlan(state, snap, rs, { includeSensitivity: ctx.includeSensitivity === true });
+  const put = (r: number, c: number, v: number | string | null, fmt: string | undefined, bold = false): void => {
+    const cell = ws.getCell(r, c);
+    if (v === null || v === undefined || v === '') return;
+    cell.value = v;
+    cell.numFmt = typeof v === 'string' ? '@' : (fmt ?? NUMFMT.money);
+    if (typeof v === 'string') cell.alignment = { horizontal: 'right' };
+    cell.font = { name: 'Calibri', size: BODY_SIZE, bold, color: { argb: ARGB.formula } };
+  };
+  let r = 6;
+  for (const row of plan.rows) {
+    if (row.kind === 'gap') { r += 1; continue; }
+    registerCell(row.key, ws, ws.getCell(r, LBL_COL));
+    if (row.kind === 'section') { setSectionHeader(ws.getRow(r), row.label, last, ARGB.accent); r += 1; continue; }
+    if (row.kind === 'head') {
+      setLabel(ws.getCell(r, LBL_COL), row.label, { bold: true });
+      fillRange(ws, r, 1, r, last, ARGB.subtotal);
+      for (let c = 1; c <= last; c++) ws.getCell(r, c).font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.navyDark } };
+      r += 1;
+      continue;
+    }
+    if (row.kind === 'cols') {
+      setLabel(ws.getCell(r, LBL_COL), row.label, { bold: true });
+      for (const [c, t] of row.cols ?? []) setColHeader(ws.getCell(r, c), t);
+      r += 1;
+      continue;
+    }
+    if (row.label) setLabel(ws.getCell(r, LBL_COL), row.label, { indent: row.indent, bold: !!row.style });
+    const bold = !!row.style;
+    if (row.kind === 'p') {
+      const vals = row.values ?? [];
+      const from = row.from ?? 1;
+      for (let s = from; s <= N; s++) put(r, OPEN_COL + s, vals[s] ?? (row.nullAs ?? 0), row.fmt, bold);
+      const tot = row.total ?? 'sum';
+      if (tot === 'sum') put(r, TOTAL_COL, vals.slice(from, N + 1).reduce<number>((a, v) => a + (v ?? 0), 0), row.fmt, bold);
+      else if (tot === 'last') put(r, TOTAL_COL, vals[N] ?? 0, row.fmt, bold);
+    }
+    for (const c of row.cells ?? []) {
+      registerCell(`${row.key}|${c.col}`, ws, ws.getCell(r, c.col));
+      put(r, c.col, c.v === null ? '' : c.v, c.fmt, bold || !!c.bold);
+    }
+    if (row.style === 'total') {
+      fillRange(ws, r, 1, r, last, ARGB.navy);
+      for (let c = 1; c <= last; c++) ws.getCell(r, c).font = { ...(ws.getCell(r, c).font ?? {}), name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.white } };
+    }
+    r += 1;
+  }
+  return { rs };
+}
+
 // ── Case reports, built once per export ───────────────────────────────────────
 // The Module 5 Case Comparison sub-tab and the Module 6 Comparison both read the
 // same report, and every case is a full engine run, so it is computed once per
@@ -5764,6 +5831,7 @@ const sensValueLabel = (v: SensitivityVariable, x: number): string =>
  *  printed here, and nothing they show is left out. */
 function addReturns(ctx: EmitCtx, revLinks: RevLinks, opexLinks: OpexLinks, fin: FinLinks): RetLinks {
   void revLinks; void opexLinks; void fin;
+  if (isLiveLayout()) return addReturnsLive(ctx);
   const { wb, snap, lm, state, currency } = ctx;
   const N = snap.axisLength;
   const ws = wb.addWorksheet(SHEETS.returns, { properties: { tabColor: { argb: ARGB.navy } } });

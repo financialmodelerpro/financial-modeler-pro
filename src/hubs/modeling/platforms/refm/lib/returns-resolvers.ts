@@ -304,7 +304,7 @@ export interface ReturnsSnapshot {
  *  (Under a FULL sweep plus full payout the two streams legitimately coincide,
  *  because nothing is discretionary. That is an outcome, not a definition, and
  *  the fixed-schedule fixture is what proves the difference is real.) */
-function trappedCashFrom(
+export function trappedCashFrom(
   snap: ProjectFinancialsSnapshot,
   n: number,
 ): number[] {

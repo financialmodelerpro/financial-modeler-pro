@@ -94,7 +94,7 @@ export function fixAtExport(ws: ExcelJS.Worksheet, row: number, col: number, why
  * any other unread value. Remove a name here when its tab reads it.
  */
 export const DEAD_SWITCHES = {
-  feeMatrix: 'fee distribution matrix (Returns)',
+  feeMatrix: 'fee distribution matrix: the commission and developer fee shares (read by nothing in the model)',
   // (2026-10-25: hotel and lease receivable days are LIVE inputs, never on this list:
   // Schedules builds each line's operating receivable from them, and the check protects them.)
 } as const;
@@ -174,7 +174,6 @@ export function inputsUnreadProblems(wb: ExcelJS.Workbook, allowed: ReadonlySet<
 export const INERT_INPUTS = {
   openingFixedAssets: 'opening land and building NBV (Schedules): zero for a phase that is not operating at the model start, and not built live',
   growthG: 'growth g (Returns): read by nothing while the exit cap rate is typed and the exit metric is not grown',
-  discountRate: 'discount rate (Returns): NPV on Returns is printed as a value, not yet a formula',
 } as const;
 export type InertInput = typeof INERT_INPUTS[keyof typeof INERT_INPUTS];
 export const inertKey = (name: InertInput, sheet: string, row: number, col: number): string => `inert:${name}|${sheet}!R${row}C${col}`;

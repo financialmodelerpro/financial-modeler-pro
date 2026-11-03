@@ -137,7 +137,9 @@ export const stage7dSummary: LiveLayer = {
     // ── The years ────────────────────────────────────────────────────────────
     const yearCell = (t: number): X | null => cellX(`tl:year:${pc(t)}`);
     const Xi = resolveReturnsConfig(state.project, N).exitYearOffset;
-    const startY = yearCell(0), exitY = yearCell(Xi);
+    // The exit year is the one on Inputs, through Returns (2026-11-03): a Timeline column would stay put when it changes.
+    const startY = yearCell(0), exitY = cellX('ret|Exit Year', TOTAL_COL);
+    void Xi;
     const yearsOk = figure(startY, rs.yearLabels[0]) && figure(exitY, rs.exitYearLabel);
     put('sum|fact|Horizon', 'the horizon years', yearsOk, () => `"${N} yrs ("&${yearW(startY!)}&" to "&TEXT(${startY!.f}+${N - 1},"0")&")"`);
     put('sum|fact|Exit year', 'the exit year', yearsOk, () => yearW(exitY!));
@@ -216,20 +218,19 @@ export const stage7dSummary: LiveLayer = {
     }
 
     // Returns cards that print the Summary's own words.
-    const card = (tile: string, cardKey: string): void => {
-      const key = `retk|${cardKey}`;
-      const src = has(key) ? w.addr(key) : null;
-      const same = !!src && isFormula(src.sheet, src.row, src.col) && has(`sum|tile|${tile}`)
-        && w.platformValue(src) === w.platformValue(w.addr(`sum|tile|${tile}`));
-      put(`sum|tile|${tile}`, tile, same, () => w.refA(src!));
+    // Returns keeps its figures as numbers (2026-11-03); the Summary prints them in its own words.
+    const card = (tile: string, key: string, kind: 'money' | 'pct'): void => {
+      const src = has(key) ? w.addr(key, TOTAL_COL) : null;
+      const ok = !!src && isFormula(src.sheet, src.row, src.col) && has(`sum|tile|${tile}`);
+      put(`sum|tile|${tile}`, tile, ok, () => { const c = w.refA(src!); return kind === 'money' ? T(c) : `IF(ISNUMBER(${c}),${pctW(c)},"n/a")`; });
     };
-    card('Gross Development Value', 'Development economics|Gross Development Value');
-    card('Total Development Cost', 'Development economics|Total Development Cost');
-    card(METRIC_LABELS.developmentSurplusAfter, `Development economics|${METRIC_LABELS.developmentSurplusAfter}`);
-    card('Development Margin', 'Development economics|Development Margin');
-    card('Peak Equity', '2. RE Metrics|Peak Equity');
-    card('Total Financing Cost', 'Development economics|Total Financing Cost');
-    card('Cap Rate at Exit', 'Coverage and profitability detail|Cap Rate at Exit');
+    card('Gross Development Value', 'ret|de|gdv', 'money');
+    card('Total Development Cost', 'ret|de|tdc', 'money');
+    card(METRIC_LABELS.developmentSurplusAfter, 'ret|de|after', 'money');
+    card('Development Margin', 'ret|de|margin', 'pct');
+    card('Peak Equity', 'rm|peakeq', 'money');
+    card('Total Financing Cost', 'ret|de|fin', 'money');
+    card('Cap Rate at Exit', 'rm|cap', 'pct');
 
     // ── Funding requirement by year, the Method 3 need from the live solve ────
     {
@@ -322,7 +323,7 @@ export const stage7dSummary: LiveLayer = {
     }
 
     // ── Exit and cash ────────────────────────────────────────────────────────
-    const tv = cellX('retx|Terminal value, booked as proceeds from disposal'), gain = cellX('retx|Gain on disposal');
+    const tv = cellX('ret|x|tv', TOTAL_COL), gain = cellX('ret|x|gain', TOTAL_COL);
     put('sum|tile|Terminal value', 'the terminal value', figure(tv, ov.exit.terminalValue), () => T(tv!.f));
     put('sum|tile|Gain on disposal', 'the gain on disposal', figure(gain, ov.exit.gainOnDisposal), () => T(gain!.f));
     const bsLive = (label: string): boolean => {

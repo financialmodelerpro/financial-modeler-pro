@@ -27,7 +27,7 @@ import { LiveWriter } from './writer';
 import { PERIOD_COLS } from '../buildModelWorkbook';
 import { CHECK_REL_TOL, PHASE_EBITDA_CHECK_LABEL } from '../../reports/checksReport';
 import { PHASE_RECON, PHASE_RECON_LINE } from '../../reports/m4Reports';
-import { irrOf, accT } from './excelText';
+import { accT } from './excelText';
 import { NUMFMT } from '../styles';
 import { computeFinancialsSnapshot } from '../../financials-resolvers';
 import { LOOP_PBT_CHECK } from '../buildModelWorkbook';
@@ -106,76 +106,47 @@ export const stage7cChecks: LiveLayer = {
       liveIds.push(id.label);
     }
 
-    // ── The headline returns ───────────────────────────────────────────────
-    const FCFF = 'retr|FCFF Build-Up (unlevered, to all capital providers)|= FCFF (unlevered project)';
-    const FCFE = 'retr|FCFE Build-Up (levered, free cash to equity)|= FCFE (levered equity)';
-    const retKeys = reg.keys().filter((k) => k.startsWith('retr|'));
-    const DDM = retKeys.find((k) => /^retr\|(Dividend Discount Model \(DDM\), before performance fee|Distributed Equity Build-Up \(Dividend Discount Model\))\|= Net Equity Cash Flow \(dividend basis\)$/.test(k));
-    const NET = 'retr|Dividend Discount Model (DDM), after performance fee|= Net Cash Flow (after performance fee)';
-    const FEE = retKeys.find((k) => /^retr\|Performance Fee \(hold to .*\|Performance Fee$/.test(k));
-    /** A stream row on Returns, inception column included, or null where it is not live. */
-    const stream = (key: string | undefined): string | null => {
-      if (!key || !has(key)) return null;
-      const a = w.addr(key);
-      for (let s = 0; s <= N; s++) if (!isFormula(RET, a.row, OPEN_COL + s)) return null;
-      return w.rangeA(RET, a.row, OPEN_COL, OPEN_COL + N);
-    };
-    const moic = (r: string): string => `IF(-SUMIF(${r},"<0")>0,SUMIF(${r},">0")/-SUMIF(${r},"<0"),"n/a")`;
-    const pair = (label: string, rng: () => string | null): boolean => {
+    // ── The headline returns: links to the one IRR and MOIC per stream on Returns (2026-11-03) ──
+    const D0 = PERIOD_COLS.TOTAL_COL;
+    const live = (key: string, col: number): boolean => has(`${key}|${col}`) && isFormula(RET, w.addr(`${key}|${col}`).row, col);
+    const pair = (label: string, src: string): boolean => {
       const key = `chk|ret|${label}`;
       if (!has(key)) return true;
-      w.reset();
-      const r = rng();
-      if (!r) { w.reset(); return false; }
+      if (!live(src, D0) || !live(src, D0 + 1)) return false;
       const a = w.addr(key);
-      // A choice of stream (net where a fee is charged) is made once, outside the IRR, so the
-      // formula does not repeat it in every guess (2026-10-20).
-      const choice = /^IF\((.+),(.+),(.+)\)$/.exec(r);
-      w.fA(a, choice && !choice[2].includes(',') && !choice[3].includes(',')
-        ? `IF(${choice[1]},IFERROR(${irrOf(choice[2])},"n/a"),IFERROR(${irrOf(choice[3])},"n/a"))`
-        : `IFERROR(${irrOf(r)},"n/a")`, { numFmt: NUMFMT.pct2 });
-      w.reset();
-      const r2 = rng()!;
-      w.fA({ sheet: CHK, row: a.row, col: a.col + 1 }, moic(r2), { numFmt: NUMFMT.mult });
+      w.reset(); w.fA(a, w.refA(w.addr(`${src}|${D0}`), CHK), { numFmt: NUMFMT.pct2 });
+      w.reset(); w.fA({ sheet: CHK, row: a.row, col: a.col + 1 }, w.refA(w.addr(`${src}|${D0 + 1}`), CHK), { numFmt: NUMFMT.mult });
       return true;
     };
     const retOk: boolean[] = [];
-    retOk.push(pair('Project IRR (FCFF)', () => stream(FCFF)));
-    retOk.push(pair('Equity IRR (FCFE)', () => stream(FCFE)));
-    retOk.push(pair('Distributed Equity IRR', () => stream(DDM)));
-    // Net of the performance fee where one is charged, the gross stream where none
-    // is: the rule the Returns card itself follows (distributedReturnPair).
-    retOk.push(pair('Distributed Equity IRR (net of performance fee)', () => {
-      const net = stream(NET), gross = stream(DDM);
-      if (!net || !gross || !FEE || !has(FEE)) return null;
-      const f = w.addr(FEE);
-      const feeTotal = `SUM(${w.rangeA(RET, f.row, OPEN_COL, OPEN_COL + N)})`;
-      return `IF(${feeTotal}>0,${net},${gross})`;
-    }));
-    // The gross row is the next one: where no fee is charged the net row reads it (a shorter formula).
+    retOk.push(pair('Project IRR (FCFF)', 'ret|h|fcff'));
+    retOk.push(pair('Equity IRR (FCFE)', 'ret|h|fcfe'));
+    retOk.push(pair('Distributed Equity IRR', 'ret|h|ddm'));
+    retOk.push(pair('Distributed Equity IRR (gross)', 'ret|h|ddm'));
+    // Net of the performance fee where one is charged, the gross stream where none is (distributedReturnPair).
     {
-      const nk = 'chk|ret|Distributed Equity IRR (net of performance fee)', gk = 'chk|ret|Distributed Equity IRR (gross)';
-      const net = stream(NET);
-      if (has(nk) && has(gk) && net && FEE && has(FEE)) {
-        const f = w.addr(FEE);
-        w.fA(w.addr(nk), `IF(SUM(${w.rangeA(RET, f.row, OPEN_COL, OPEN_COL + N)})>0,IFERROR(${irrOf(net)},"n/a"),${w.refA(w.addr(gk), CHK)})`, { numFmt: NUMFMT.pct2 });
+      const key = 'chk|ret|Distributed Equity IRR (net of performance fee)';
+      if (has(key)) {
+        const ok = live('ret|h|net', D0) && live('ret|h|ddm', D0) && has('rs|wf:fee');
+        retOk.push(ok);
+        if (ok) {
+          const fee = `SUM(${w.rangeA(RET, w.addr('rs|wf:fee').row, OPEN_COL, OPEN_COL + N)})`;
+          const a = w.addr(key);
+          const pick = (col: number): string => `IF(${fee}>0,${w.refA(w.addr(`ret|h|net|${col}`), CHK)},${w.refA(w.addr(`ret|h|ddm|${col}`), CHK)})`;
+          w.reset(); w.fA(a, pick(D0), { numFmt: NUMFMT.pct2 });
+          w.reset(); w.fA({ sheet: CHK, row: a.row, col: a.col + 1 }, pick(D0 + 1), { numFmt: NUMFMT.mult });
+        }
       }
     }
-    retOk.push(pair('Distributed Equity IRR (gross)', () => stream(DDM)));
     const returnsLive = retOk.every(Boolean);
 
-    // ── The performance fee no earner takes: the live fee total less the earners' shares of it ──
-    if (has('chk|note|perf')) {
-      const perfRow = reg.keys().find((k) => k === 'retr|Fee Income by Period|Performance Fee');
-      const shareKeys = reg.keys().filter((k) => k.startsWith('retg|Fund Fee Income by Earner|') && k.endsWith('|3') && !/\|(Unallocated|Total)\|3$/.test(k));
-      if (perfRow && shareKeys.length) {
-        const pr = w.addr(perfRow);
-        const tot = `SUM(${w.rangeA(RET, pr.row, OPEN_COL, OPEN_COL + N)})`;
-        const S = `(${shareKeys.map((k) => `MAX(0,IFERROR(VALUE(${w.ref(k)}),0))`).join('+')})`;
-        const a = w.addr('chk|note|perf');
-        w.fA(a, `MAX(0,${tot}-${S}*${tot})`);
-        w.fA({ sheet: CHK, row: a.row, col: a.col + 1 }, `TEXT(1-${S},"0.0%")&" of the performance fee goes to no earner"`);
-      }
+    // ── The performance fee no earner takes, from Returns' split by the shares on Inputs ──
+    if (has('chk|note|perf') && has('ret|fe|un|5') && has('rs|fee:perf')) {
+      const a = w.addr('chk|note|perf');
+      const un = w.refA(w.addr('ret|fe|un|5'), CHK);
+      const tot = `SUM(${w.rangeA(RET, w.addr('rs|fee:perf').row, OPEN_COL + 1, OPEN_COL + N)})`;
+      w.reset(); w.fA(a, un);
+      w.reset(); w.fA({ sheet: CHK, row: a.row, col: a.col + 1 }, `TEXT(IF(${tot}>0,${un}/${tot},0),"0.0%")&" of the performance fee goes to no earner"`);
     }
 
     if (!liveIds.length && !returnsLive) {
