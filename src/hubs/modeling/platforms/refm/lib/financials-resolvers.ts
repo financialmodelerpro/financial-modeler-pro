@@ -350,11 +350,16 @@ export interface ProjectBS {
    *  cumulative). Used by the Retained Earnings Schedule to show the
    *  (-) transfer line; statutoryReservePerPeriod above is cumulative. */
   statutoryReserveTransferPerPeriod: number[];
-  /** M4 Pass 2P (2026-05-24): per-period DIVIDEND distribution. Zero
-   *  today (Dividend policy lands in a follow-up pass); field present
-   *  so the RE Schedule and downstream consumers can wire to it without
-   *  schema churn. */
+  /** Per-period DISTRIBUTIONS to equity, in total (the cash waterfall's
+   *  dividends): split below into dividends and a return of capital. */
   dividendsPerPeriod: number[];
+  /** THE SPLIT OF A DISTRIBUTION (2026-11-03, founder): the part covered by the
+   *  retained earnings available (opening plus profit after tax, less the reserve
+   *  transfer) is a DIVIDEND and reduces retained earnings ... */
+  dividendsDeclaredPerPeriod: number[];
+  /** ... and the excess is a RETURN OF CAPITAL and reduces share capital. The two
+   *  add to dividendsPerPeriod in every year. */
+  returnOfCapitalPerPeriod: number[];
   // Check
   totalLiabilitiesAndEquityPerPeriod: number[];
   bsDifferencePerPeriod: number[];
@@ -2812,9 +2817,6 @@ function computeFinancialsSnapshotOnce(
     ? project.shareCapital
     : priorEquityTotal;
   const shareCapital = zeros(N);
-  for (let t = 0; t < N; t++) {
-    shareCapital[t] = openingShareCapital + equityCumulative[t];
-  }
   const reserveRate = Math.max(0, project.statutoryReserve?.transferRate ?? 0);
   const reserveCapPct = Math.max(0, project.statutoryReserve?.capOfShareCapital ?? 0);
   const reserveArr = zeros(N);
@@ -2825,19 +2827,42 @@ function computeFinancialsSnapshotOnce(
   const dividendsArr = dividends.totalDividendsPerPeriod.slice(0, N);
   while (dividendsArr.length < N) dividendsArr.push(0);
   const retained = zeros(N);
+  // A DISTRIBUTION IS A DIVIDEND UP TO THE RETAINED EARNINGS AVAILABLE, AND A RETURN
+  // OF CAPITAL BEYOND THEM (2026-11-03, founder). Each year, in this order:
+  //   1. share capital before this year's return: the opening plus every equity draw
+  //      to date, less the capital returned in earlier years;
+  //   2. the reserve transfer: the rate x a positive profit after tax, capped at the
+  //      cap x that share capital less the reserve already held;
+  //   3. the dividend: the distribution, up to the retained earnings available
+  //      (opening + profit after tax - the transfer, floored at zero);
+  //   4. the return of capital: the rest, never more than the share capital, so any
+  //      excess beyond it stays a dividend rather than vanishing.
+  // Total equity, cash and every distribution are unchanged by the split.
+  const dividendsDeclaredArr = zeros(N);
+  const returnOfCapitalArr = zeros(N);
   let runningReserve = 0;
   let runningRetained = 0;
+  let capitalReturned = 0;
   for (let t = 0; t < N; t++) {
+    const shareBefore = openingShareCapital + equityCumulative[t] - capitalReturned;
     const transfer = reserveRate > 0
       ? Math.max(0, pat[t]) * reserveRate
       : 0;
-    const cap = reserveCapPct > 0 ? shareCapital[t] * reserveCapPct : Infinity;
+    const cap = reserveCapPct > 0 ? Math.max(0, shareBefore) * reserveCapPct : Infinity;
     const allowed = Math.max(0, Math.min(transfer, cap - runningReserve));
     runningReserve += allowed;
-    runningRetained += pat[t] - allowed - (dividendsArr[t] ?? 0);
+    const dist = dividendsArr[t] ?? 0;
+    const available = Math.max(0, runningRetained + pat[t] - allowed);
+    const roc = Math.max(0, Math.min(dist - Math.min(dist, available), Math.max(0, shareBefore)));
+    const div = dist - roc;
+    capitalReturned += roc;
+    runningRetained += pat[t] - allowed - div;
     reserveArr[t] = runningReserve;
     reserveTransferArr[t] = allowed;
     retained[t] = runningRetained;
+    dividendsDeclaredArr[t] = div;
+    returnOfCapitalArr[t] = roc;
+    shareCapital[t] = shareBefore - roc;
   }
   const totalEquity = zeros(N);
   for (let t = 0; t < N; t++) totalEquity[t] = shareCapital[t] + reserveArr[t] + retained[t];
@@ -2872,6 +2897,8 @@ function computeFinancialsSnapshotOnce(
     totalEquityPerPeriod: totalEquity,
     statutoryReserveTransferPerPeriod: reserveTransferArr,
     dividendsPerPeriod: dividendsArr,
+    dividendsDeclaredPerPeriod: dividendsDeclaredArr,
+    returnOfCapitalPerPeriod: returnOfCapitalArr,
     totalLiabilitiesAndEquityPerPeriod: totalLandE,
     bsDifferencePerPeriod: bsDiff,
     historicalOpeningCashTotal,

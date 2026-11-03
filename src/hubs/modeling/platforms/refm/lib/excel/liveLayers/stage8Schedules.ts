@@ -1,22 +1,9 @@
 /**
- * stage8Schedules.ts (2026-09-28)
+ * stage8Schedules.ts (2026-09-28): STAGE 8, THE P&L FUND FEE BASIS, LIVE.
  *
- * STAGE 8: THE SCHEDULES TABLES THE FINANCING FEEDS, LIVE. Stage 4 made the
- * roll-forwards the operating model owns live; these four read the financing
- * solve (stage 6), so they waited for it:
- *
- *   - (the capitalised interest pool copy on Schedules was removed 2026-10-28:
- *     each held asset's table carries its interest, and the project its total);
- *   - L3, debt outstanding by tranche: the balance sheet's debt (the live
- *     financing takes exactly one facility, so the tranche IS the total);
- *   - E1, equity: cash drawn (development and management fee) and land in kind
- *     from the Cash Flow, closing on the balance sheet's share capital;
- *   - E2, retained earnings: profit after tax from the P&L, the statutory
- *     reserve transfer and the dividends paid, closing on the balance sheet.
- *
- * Each table is a roll-forward whose closing row reads the statement it feeds,
- * so a table that stopped footing would show it in its own rows. A row this
- * layer has no rule for leaves its table the platform's values, and says so.
+ * The financing-fed Schedules tables this file also wrote are gone (2026-11-03): the debt by
+ * facility sits on the Balance Sheet itself (bsPlan), and the equity, statutory reserve and
+ * retained earnings roll-forwards close there too (stage 5).
  *
  * No em dashes in this file.
  */
@@ -28,94 +15,6 @@ import { computeFinancialsSnapshot } from '../../financials-resolvers';
 import { resolveReturnsConfig } from '../../returns-resolvers';
 import { resolveFundTerms, FUND_FEE_SPECS } from '../../fundTerms';
 
-const SCH = 'Schedules';
-type F = (t: number) => string;
-
-export const stage8Schedules: LiveLayer = {
-  name: 'stage 8: the financing-fed schedules',
-  apply(ctx: LayerContext) {
-    const { wb, reg } = ctx;
-    const state = ctx.opts.state;
-    const w = new LiveWriter(wb, reg, ctx.pending);
-    const has = (k: string): boolean => w.has(k);
-    if (!has('fnc:main:interest')) return [];
-    const snap = computeFinancialsSnapshot(state);
-    const N = snap.axisLength;
-    const { OPEN_COL, TOTAL_COL } = PERIOD_COLS;
-    const pc = (t: number): number => OPEN_COL + 1 + t;
-
-    // A visible statement row, a year at a time; a solve row on its working sheet.
-    const vis = (key: string): F | null => (has(key) ? (t) => `N(${w.refP({ sheet: w.addr(key).sheet, row: w.addr(key).row, col: pc(t) })})` : null);
-    // A figure of the financing loop (stage6Loop, an outflow row read negated) or a working row, a year at a time.
-    const calc = (key: string): F | null => (has(key) ? (t) => `N(${key.startsWith('fnc:') ? loopAt(w, key, t) : w.perP(key, t)})` : null);
-
-    const done: string[] = [], kept: string[] = [];
-    /**
-     * One roll-forward table: the rules for each of its rows by label, the
-     * opening chained to the closing of the year before. Every row the table
-     * carries must have a rule, or the whole table stays the platform's values.
-     */
-    const table = (name: string, prefix: string, rules: Record<string, F | null | 'opening'>, closingLabel?: string): void => {
-      const keys = reg.keys().filter((k) => k.startsWith(prefix));
-      const label = (k: string): string => k.slice(prefix.length);
-      const missing = keys.filter((k) => !(label(k) in rules) || rules[label(k)] === null);
-      if (!keys.length || missing.length) { kept.push(`${name}${missing.length ? ` (no rule for ${missing.map(label).join(', ')})` : ''}`); return; }
-      const closeKey = closingLabel ? `${prefix}${closingLabel}` : null;
-      if (closeKey && !has(closeKey)) { kept.push(name); return; }
-      for (const k of keys) {
-        const rule = rules[label(k)]!;
-        const r = w.addr(k).row;
-        // The table's own tab: Schedules, or the Balance Sheet for debt, equity and retained earnings.
-        const SH = w.addr(k).sheet;
-        for (let t = 0; t < N; t++) {
-          const f = rule === 'opening'
-            // The year before's closing (before year 1, the prior column the closing row carries).
-            ? `N(${w.refP({ sheet: SH, row: w.addr(closeKey!).row, col: pc(t - 1) })})`
-            : rule(t);
-          w.fA({ sheet: SH, row: r, col: pc(t) }, f);
-        }
-        // The Total / Closing column: a balance shows its last year, a flow its sum, read
-        // off how the platform totalled this row (fixedAssetReports' `aggregation`).
-        const tot = w.platformValue({ sheet: SH, row: r, col: TOTAL_COL });
-        if (typeof tot === 'number') {
-          const vals = Array.from({ length: N }, (_, t) => Number(w.platformValue({ sheet: SH, row: r, col: pc(t) }) ?? 0));
-          const last = vals[N - 1] ?? 0, sum = vals.reduce((s, v) => s + v, 0);
-          const near = (a: number, b: number): boolean => Math.abs(a - b) <= Math.max(0.005, Math.abs(b) * 1e-9);
-          const balance = /opening|closing|cumulative|outstanding/i.test(label(k));
-          const kind = near(tot, last) && (balance || !near(tot, sum)) ? 'last' : near(tot, sum) ? 'sum' : null;
-          if (kind === 'last') w.fA({ sheet: SH, row: r, col: TOTAL_COL }, w.refA({ sheet: SH, row: r, col: pc(N - 1) }));
-          else if (kind === 'sum') w.fA({ sheet: SH, row: r, col: TOTAL_COL }, `SUM(${w.rangeA(SH, r, pc(0), pc(N - 1))})`);
-        }
-      }
-      done.push(name);
-    };
-
-    // ── L3, debt outstanding by tranche ───────────────────────────────────────
-    {
-      const debt = vis('bs|__all__||Debt (long-term)');
-      const tranches = state.financingTranches ?? [];
-      const rules: Record<string, F | null> = { 'Total Debt Outstanding': debt };
-      // Each facility's own closing balance from the solve, nothing after the exit
-      // (the balance sheet's rule), so the tranche rows add up to the total.
-      const booked = snap.disposal.booked;
-      for (const t of tranches) {
-        const b = calc(`fnc:main:tr:${t.id}:bal`);
-        // Nothing after the exit: the Timeline's exit flag, one formula across.
-        rules[t.name] = b ? (i) => (booked && has('tl:flag:exit') ? `(1-N(${w.perP('tl:flag:exit', i)}))*${b(i)}` : b(i)) : null;
-      }
-      table('debt outstanding by tranche', 'sch|L3||', rules);
-    }
-
-    // E1, E2 and the statutory reserve close on the Balance Sheet, which writes them (stage 5).
-
-    void TOTAL_COL;
-    if (!done.length) return [];
-    return [{
-      sheet: SCH, status: 'partial' as const, formulas: w.formulas.get(SCH) ?? 0,
-      note: `Also live: ${done.join(', ')}, from the financing solve, the Cash Flow and the balance sheet, each closing on the statement it feeds.${kept.length ? ` The platform's values: ${kept.join('; ')}.` : ''}`,
-    }];
-  },
-};
 
 /**
  * STAGE 8: THE P&L FUND FEE BASIS BLOCK, LIVE. The capital bases are the

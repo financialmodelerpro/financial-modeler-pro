@@ -2,15 +2,22 @@
 
 > Forward-looking only: active follow-ups, in-progress work, backlog, legacy reference. Completed phase narratives live in **CLAUDE-FEATURES.md** (archive) and `git log` (authoritative). Do not re-add "Recently Completed" sections here when closing a phase, write the closure into CLAUDE-FEATURES.md instead.
 
+## START HERE 2026-11-03 (session end): THE BALANCE SHEET ONLY LINKS; DISTRIBUTIONS SPLIT INTO DIVIDENDS AND A RETURN OF CAPITAL
+
+Done today (detail in CHANGELOG 2026-11-03): the engine books a distribution beyond the retained earnings available as a return of capital (every surface); the live Balance Sheet only links (77 rows to 51), the debt total is the SUM of the facilities, the reserve cap and zakat days are always read, the bridge is gone; the three Cash Flow follow-ups below are DONE. No session-end suite since 2026-10-25: run it first.
+
+- **Next: Returns** (the fixed exit columns P and Q, which still fail the exit-2037 check on 12 cells; NPV as text; the repeated fee basis; IRR computed many times), then Summary and Checks.
+- The 2026-10-29 close-out list below stands.
+
 ## START HERE 2026-10-29 (session end): FINANCING, P&L AND CASH FLOW REBUILT; NEXT IS THE BALANCE SHEET
 
 Done today (detail in CHANGELOG 2026-10-29): Financing is one loop (fund fees sized on the real pass in the engine, 353 rows to 99), the P&L is one standard statement (129 to 97), the Cash Flow only links (170 to 151). No session-end suite since 2026-10-25: run it first.
 
-- **Cash Flow follow-ups:**
+- **Cash Flow follow-ups (DONE 2026-11-03):**
   - phase disposal proceeds on the platform's phase cash flow screen (the workbook shows each phase's share; the screen shows none);
   - capex as cash only, plus a "Land contributed in kind (non-cash)" row in investing;
   - a "Cash paid" row per line on Opex, so opex paid on the Cash Flow is one link.
-- **Balance Sheet (next):**
+- **Balance Sheet (DONE 2026-11-03):**
   - return of capital vs dividends (diagnose first);
   - the statutory reserve cap;
   - zakat payment days;

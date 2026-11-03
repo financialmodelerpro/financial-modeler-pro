@@ -18,6 +18,7 @@
  * state only.
  */
 import { lineReceivableDays } from '../receivableDays';
+import { phaseProceedsPerPeriod } from './phaseProceeds';
 import { hospitalityStatementsByLine, hospitalityRevenueParts, hospitalityCostParts } from './hospitalityStatement';
 import type { ProjectFinancialsSnapshot, FinancialsResolverState } from '../financials-resolvers';
 import { getFinancialLabels, defaultTerminologyForCountry } from '@/src/core/calculations/financials';
@@ -823,8 +824,11 @@ function buildInvestmentRows(ctx: M4ReportCtx, capexSubtotal: number[], cfiSubto
     [...residentialAssets, ...hospitalityAssets, ...retailAssets],
     (id) => snap.perAssetCF.get(id)?.landInKindPerPeriod ?? [],
   );
+  // A phase's share of the exit proceeds (2026-11-03, phaseProceeds.ts): its held lines' income in the
+  // basis year over the project's, so the phases add to the project.
+  const phaseProceeds = scoped ? phaseProceedsPerPeriod(snap, state, filterPhaseId) : null;
   const capexCashShown = scoped ? capexRendered.map((v) => -v) : capexSubtotal;
-  const cfiCashShown = scoped ? capexRendered.map((v) => -v) : cfiSubtotal;
+  const cfiCashShown = scoped ? capexRendered.map((v, t) => -v + (phaseProceeds![t] ?? 0)) : cfiSubtotal;
   const capexShown = capexCashShown.map((v, t) => v - (inKindAll[t] ?? 0));
   const cfiShown = cfiCashShown.map((v, t) => v - (inKindAll[t] ?? 0));
   if ((all || inKindAll.some((v) => v !== 0))) {
@@ -834,9 +838,8 @@ function buildInvestmentRows(ctx: M4ReportCtx, capexSubtotal: number[], cfiSubto
     rows.push({ label: 'Land In-Kind (non-cash, matched by In-Kind Equity below)', values: inKindAll.map((v) => -v), indent: 1 });
   }
   rows.push({ label: 'Total Capex', values: capexShown, isSubtotal: true, priorValue: -priorPreCapex });
-  // The held assets sold at the exit (2026-09-14). Project level, so a phase
-  // filter, whose subtotal is built from the rows above, does not show it.
-  const proceedsShown = scoped ? new Array<number>(N).fill(0) : (snap.directCF.proceedsFromDisposalPerPeriod ?? []);
+  // The held assets sold at the exit (2026-09-14); a phase shows its share (2026-11-03).
+  const proceedsShown = phaseProceeds ?? (snap.directCF.proceedsFromDisposalPerPeriod ?? []);
   if ((all || proceedsShown.some((v) => v !== 0))) {
     rows.push({ label: 'Proceeds from Disposal of Operating Assets', values: proceedsShown, indent: 1 });
   }
@@ -1605,12 +1608,15 @@ export function buildEquityRollForwardRows(ctx: M4FeederCtx): M4Row[] {
   const priorExisting = existingDrawsRaw.reduce((s, v) => s + v, 0);
   const existingAxisZeros = zeros();
   const priorClosing = priorExisting;
+  // The capital returned (2026-11-03): the part of a distribution beyond the retained earnings.
+  const returned = (snap.bs.returnOfCapitalPerPeriod ?? []).slice(0, N);
+  while (returned.length < N) returned.push(0);
   const opening = zeros();
   const closing = zeros();
   let running = priorClosing;
   for (let t = 0; t < N; t++) {
     opening[t] = running;
-    running += (cashDraws[t] ?? 0) + (inKindDraws[t] ?? 0);
+    running += (cashDraws[t] ?? 0) + (inKindDraws[t] ?? 0) - (returned[t] ?? 0);
     closing[t] = running;
   }
   const rows: M4Row[] = [
@@ -1621,6 +1627,7 @@ export function buildEquityRollForwardRows(ctx: M4FeederCtx): M4Row[] {
   if (Math.abs(priorExisting) > 0.5) {
     rows.push({ label: '(+) Existing equity (pre-axis carry-forward)', values: existingAxisZeros, indent: 1, priorValue: priorExisting });
   }
+  rows.push({ label: '(−) Return of capital', values: returned.map((v) => -v), indent: 1, priorValue: 0 });
   rows.push({ label: 'Closing equity (cumulative)', values: closing, isTotal: true, totalIsBalance: true, totalOverride: fmt(closing[N - 1] ?? 0), priorValue: priorClosing });
   return rows;
 }
@@ -1632,7 +1639,7 @@ export function buildRetainedEarningsRows(ctx: M4FeederCtx): M4Row[] {
   const zeros = (): number[] => new Array<number>(N).fill(0);
   const pat = snap.pl.patPerPeriod.slice(0, N);
   const reserveTransfer = snap.bs.statutoryReserveTransferPerPeriod.slice(0, N);
-  const dividends = snap.bs.dividendsPerPeriod.slice(0, N);
+  const dividends = (snap.bs.dividendsDeclaredPerPeriod ?? snap.bs.dividendsPerPeriod).slice(0, N);
   const closing = snap.bs.retainedEarningsPerPeriod.slice(0, N);
   while (pat.length < N) pat.push(0);
   while (reserveTransfer.length < N) reserveTransfer.push(0);
@@ -1698,8 +1705,8 @@ export function buildBsFeederTables(ctx: M4FeederCtx): M4FeederTable[] {
     { key: 'L1', section: 'LIABILITIES', title: 'L1. Accounts Payable: Roll-Forward (project)', caption: 'DPO-driven AP. Opening + Opex Incurred − Cash Paid = Closing. Configure DPO in M3 Opex Output.', rows: buildApFeederRows(ctx) },
     { key: 'L2', section: 'LIABILITIES', title: 'L2. Unearned Revenue (Off-plan advances): Roll-Forward (project)', caption: 'Opening + Pre-sales contracts signed (sale value) − Revenue recognized at handover = Closing. Liability until residential units hand over.', rows: buildUnearnedRows(ctx) },
     { key: 'L3', section: 'LIABILITIES', title: 'L3. Debt Outstanding by Tranche (project)', caption: 'Per-tranche outstanding balance. Drawdowns add; principal repayments subtract; interest is recorded in the P&L.', rows: buildDebtOutstandingRows(ctx) },
-    { key: 'E1', section: 'EQUITY', title: 'E1. Equity Cumulative Roll-Forward (project, split by type)', caption: 'Opening + Cash + In-Kind + Existing = Closing. Cash equity flows through Cash Flow (financing block); In-Kind equity is non-cash (land contributed in-kind, recognised on BS as Land + Share Capital simultaneously); Existing equity carries pre-existing operational-phase equity forward at axis start.', rows: buildEquityRollForwardRows(ctx) },
-    { key: 'E2', section: 'EQUITY', title: 'E2. Retained Earnings Roll-Forward (project)', caption: 'Opening RE + PAT − Statutory reserve transfer − Dividends = Closing RE. Dividends follow the dividend policy set in Module 1 Financing (Pay Dividends and the payout ratio) and reduce retained earnings in the year they are declared.', rows: buildRetainedEarningsRows(ctx) },
+    { key: 'E1', section: 'EQUITY', title: 'E1. Equity Cumulative Roll-Forward (project, split by type)', caption: 'Opening + Cash + In-Kind + Existing - Return of capital = Closing. A distribution beyond the retained earnings available is a return of capital and reduces share capital. Cash equity flows through Cash Flow (financing block); In-Kind equity is non-cash (land contributed in-kind, recognised on BS as Land + Share Capital simultaneously); Existing equity carries pre-existing operational-phase equity forward at axis start.', rows: buildEquityRollForwardRows(ctx) },
+    { key: 'E2', section: 'EQUITY', title: 'E2. Retained Earnings Roll-Forward (project)', caption: 'Opening RE + PAT − Statutory reserve transfer − Dividends = Closing RE. A dividend is a distribution up to the retained earnings available; the rest is a return of capital (E1). Distributions follow the dividend policy set in Module 1 Financing (Pay Dividends and the payout ratio) and reduce retained earnings in the year they are declared.', rows: buildRetainedEarningsRows(ctx) },
   ];
 }
 

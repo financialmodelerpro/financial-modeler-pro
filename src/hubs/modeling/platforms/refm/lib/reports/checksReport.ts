@@ -212,7 +212,7 @@ export const PHASE_EBITDA_CHECK_LABEL = 'Phase EBITDA reconciles to project EBIT
 export function buildIntegrityChecks(
   snap: ChecksSource,
   /** From `phaseEbitdaFooting` (m4Reports); the check is added only where a caller passes it. */
-  extra: { phaseEbitda?: { fromPhases: number[]; project: number[] } } = {},
+  extra: { phaseEbitda?: { fromPhases: number[]; project: number[] }; noBridge?: boolean } = {},
 ): IntegrityCheck[] {
   const n = snap.axisLength;
   const bs = snap.bs;
@@ -226,8 +226,9 @@ export function buildIntegrityChecks(
     mk('Balance sheet balances (Assets = L + E)', bs.totalAssetsPerPeriod, lPlusE, bs.totalAssetsPerPeriod, 'assets'),
     mk('Cash flow closing == balance sheet cash', snap.directCF.closingCashPerPeriod, bs.cashPerPeriod, bs.cashPerPeriod, 'cash'),
     mk('Direct cash flow == Indirect cash flow', snap.directCF.netCashFlowPerPeriod, snap.indirectCF.netCashFlowPerPeriod, snap.directCF.netCashFlowPerPeriod, 'net cash flow'),
-    mk(BRIDGE_CHECK_LABEL, unexplained, unexplained.map(() => 0), bs.totalAssetsPerPeriod, 'unexplained',
-      'The "Unexplained (must be 0)" row of the reconciliation bridge on the Balance Sheet.'),
+    // The live workbook carries no bridge (2026-11-03): its balance check row is the check.
+    ...(extra.noBridge ? [] : [mk(BRIDGE_CHECK_LABEL, unexplained, unexplained.map(() => 0), bs.totalAssetsPerPeriod, 'unexplained',
+      'The "Unexplained (must be 0)" row of the reconciliation bridge on the Balance Sheet.')]),
     ...(extra.phaseEbitda
       ? [mk(PHASE_EBITDA_CHECK_LABEL, extra.phaseEbitda.fromPhases, extra.phaseEbitda.project, extra.phaseEbitda.project, 'EBITDA',
         'The Phase EBITDA Reconciliation under the phase P&Ls.')]

@@ -296,11 +296,26 @@ export const stage3Opex: LiveLayer = {
     }
     payable('ox|ap|hq', (t) => (has('ox|hq|total') ? P('ox|hq|total', t) : '0'), dflt);
     if (has('ox|ap|hq')) w.claim('oxo:ap:hq:close', OPEX, w.addr('ox|ap|hq').row, 1);
-    // The project roll-forward: cash paid is what leaves, so the closing ties to the payables above.
-    const prev = (k: string, t: number): string => `N(${w.refP({ sheet: OPEX, row: w.addr(k).row, col: pc(t) - 1 }, OPEX)})`;
+    // Cash paid per line: its opex less the rise in its payable (the opening column holds the balance before the first year).
+    const prev = (k: string, t: number): string => w.refP({ sheet: OPEX, row: w.addr(k).row, col: pc(t) - 1 }, OPEX);
+    const paidKeys: string[] = [];
+    const paidRow = (key: string, opexKey: string | undefined, apKey: string): void => {
+      if (!has(key)) return;
+      row(key, (t) => `${opexKey ? P(opexKey, t) : '0'}-(${P(apKey, t)}-${prev(apKey, t)})`);
+      paidKeys.push(key);
+    };
+    for (const rl of planReportLines(lineState, (a) => snap.ap.byAsset.has(a.id))) {
+      const o = outs.find((x) => rl.assetIds.includes(x.asset.id));
+      const key = `ox|paid|${rl.assetIds.join('+')}`;
+      paidRow(key, o?.total, `ox|ap|${rl.assetIds.join('+')}`);
+      if (o && has(key)) w.claim(`oxo:paid:${o.asset.id}`, OPEX, w.addr(key).row, 1);
+    }
+    paidRow('ox|paid|hq', has('ox|hq|total') ? 'ox|hq|total' : undefined, 'ox|ap|hq');
+    if (has('ox|paid|hq')) w.claim('oxo:paid:hq', OPEX, w.addr('ox|paid|hq').row, 1);
+    // The project roll-forward: the cash paid rows above leave, so the closing ties to the payables above.
     row('ox|ap|open', (t) => prev('ox|ap|close', t), 'first');
     row('ox|ap|inc', (t) => P('ox|sum|opex', t));
-    row('ox|ap|paid', (t) => `${P('ox|ap|open', t)}+${P('ox|ap|inc', t)}-${sumRows(closeKeys, t)}`);
+    row('ox|ap|paid', (t) => sumRows(paidKeys, t));
     row('ox|ap|close', (t) => `${P('ox|ap|open', t)}+${P('ox|ap|inc', t)}-${P('ox|ap|paid', t)}`, 'last');
 
     // ── What later tabs read: the visible rows, named once here ─────────────

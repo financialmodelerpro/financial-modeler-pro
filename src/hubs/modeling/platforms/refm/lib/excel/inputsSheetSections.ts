@@ -30,7 +30,7 @@ import {
   buildStandardsView, buildAssetAreaTables, buildSubUnitLines, type ViewCell, type AssetAreaTables,
 } from '../../components/modules/_shared/assetInputsView';
 import { registerCell } from './cellRegistry';
-import { DEAD_SWITCHES, deadSwitchKey, INERT_INPUTS, inertKey } from './liveLayers/inputAudit';
+import { INERT_INPUTS, inertKey } from './liveLayers/inputAudit';
 import { normaliseAssetTypeId, resolveRetailSlotTypeId } from '../state/assetTypeStandards';
 import { phaseHasModelCapex } from '@/src/core/calculations/modelCapex';
 import { hqOpexLinesInForce, normalizeOpexIndexation } from '@/src/core/calculations/opex';
@@ -578,16 +578,12 @@ export function emitStatementInputsSection(c: SheetCursor, state: FinancialsReso
     undefined, p.financialTerminology === undefined ? 'Not set: follows the country.' : undefined);
   kv(c, `${zakat ? 'Zakat' : 'Tax'} Rate (%)`, p.tax?.rate ?? 0, NUMFMT.pct2, true, 'TaxRate', undefined, 'project:taxRate');
   kv(c, `${zakat ? 'Zakat' : 'Tax'} on the disposal gain`, p.tax?.applyToDisposalGain === true ? 'Charge it on the gain at exit' : 'Not charged on the gain at exit', '@', true);
-  // Live where a lag was stated at export (the payable rows exist); a zero lag prints no payable.
-  const lag = (p.tax?.paymentDays ?? 0) > 0;
-  const payRow = kv(c, `${zakat ? 'Zakat' : 'Tax'} payment (days)`, p.tax?.paymentDays ?? 0, NUMFMT.int, true, undefined, undefined, lag ? 'project:taxDays' : undefined);
-  if (!lag) fixedHere(c, payRow, 2, `Days after the year end it is paid; 0 pays it in the year it is charged. A lag stated at export is live.`);
-  registerCell(deadSwitchKey(DEAD_SWITCHES.zakatDays, c.sheetName, payRow, 2), c.ws, c.ws.getCell(payRow, 2));
+  // Read by the payable on Financing (2026-11-03): 0 pays it in the year it is charged.
+  kv(c, `${zakat ? 'Zakat' : 'Tax'} payment (days)`, p.tax?.paymentDays ?? 0, NUMFMT.int, true, undefined, undefined, 'project:taxDays');
   kv(c, 'Basis', (p.tax?.basis ?? 'zakat') === 'cit' ? 'Corporate income tax (losses carried forward, 25% cap)' : 'Zakat (net worth; no loss carry-forward)', '@', true);
   kv(c, 'Statutory reserve transfer (% of PAT)', p.statutoryReserve?.transferRate ?? 0, NUMFMT.pct, true, undefined, undefined, 'project:reserveRate');
-  const capRow = kv(c, 'Statutory reserve cap (% share capital)', p.statutoryReserve?.capOfShareCapital ?? 0, NUMFMT.pct, true, undefined, undefined, 'project:reserveCap');
-  fixedHere(c, capRow, 2, 'A cap of zero at export applies no cap; a cap stated at export is live.');
-  registerCell(deadSwitchKey(DEAD_SWITCHES.reserveCap, c.sheetName, capRow, 2), c.ws, c.ws.getCell(capRow, 2));
+  // Read by the reserve transfer on the Balance Sheet (2026-11-03): 0 applies no cap.
+  kv(c, 'Statutory reserve cap (% share capital)', p.statutoryReserve?.capOfShareCapital ?? 0, NUMFMT.pct, true, undefined, undefined, 'project:reserveCap');
   kv(c, 'Share capital (explicit, 0 = auto)', p.shareCapital ?? 0, NUMFMT.money, true, undefined, undefined, 'project:shareCapital');
   // 2026-10-06: where hotel and lease lines state their OWN receivable days
   // (receivableDays.ts), the engine collects them on those, so this one door is

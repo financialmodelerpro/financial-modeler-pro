@@ -52,6 +52,7 @@ import { planOpexStatement, oxKey, type OpexCostRow } from './liveLayers/opexPla
 import { financingPlan } from './liveLayers/financingPlan';
 import { plPlan } from './liveLayers/plPlan';
 import { cfPlan } from './liveLayers/cfPlan';
+import { bsPlan } from './liveLayers/bsPlan';
 import { isRetailCompanion } from '@/src/core/calculations/retailCompanion';
 import { isParcelDrivenLandLine, resolvePhasingSource } from '@/src/core/calculations/capexPhasing';
 import { buildPLRows, buildPhaseEbitdaReconciliationRows, phaseEbitdaFooting, PHASE_RECON_LINE, taxBasisNote, buildDirectCFRows, buildIndirectCFRows, buildBSRows, buildBsReconciliationRows, buildBsFeederTables, BS_FEEDER_SECTIONS, BS_RECONCILIATION_CAPTION, buildFundFeeBasisRows, buildFundCapitalRows, fundFeeBasisBaseCell, totalColumnHeading, totalColumnNote, TOTAL_COLUMN_HEADINGS, TOTAL_COLUMN_NOTES, FUND_CAPITAL_BASES_TITLE, FUND_CAPITAL_BASES_NOTE, FUND_CAPITAL_BASE_TAG, type M4ReportCtx, type FundFeeBasisRow } from '../reports/m4Reports';
@@ -3536,6 +3537,8 @@ function addRevenue(ctx: EmitCtx): { revLinks: RevLinks; cosLinks: CosLinks } {
       const urV = Array.from({ length: N }, (_, t) => (ur += ic.changeInUnearnedPerPeriod[t] ?? 0));
       em.tableTitle('Balances at year end');
       em.setRegLine('__project__'); em.setRegTable('bal');
+      em.moneyRow('Sales receivables, sell lines', ctx.snap.bs.residentialReceivablesPerPeriod.slice(0, N), { indent: 1, totalLast: true });
+      em.moneyRow('Operating receivables, hotel and lease lines', ctx.snap.bs.arPerPeriod.slice(0, N), { indent: 1, totalLast: true });
       em.moneyRow('Receivables, all lines', arV, { style: 'subtotal', totalLast: true });
       em.moneyRow('Unearned revenue, all lines', urV, { style: 'subtotal', totalLast: true });
       em.gap();
@@ -4518,6 +4521,13 @@ function addOpexLive(ctx: EmitCtx, ws: ExcelJS.Worksheet, em: ReturnType<typeof 
     days(r, members[0].effectiveApDays);
   }
   days(money('ox|ap|hq', 'HQ overheads', padded(snap.ap.hq.result.perPeriod), { indent: 1, totalLast: true }), snap.ap.hq.apDays);
+  // CASH PAID (2026-11-03): each line's opex less the rise in its payable, so the Cash Flow links one row.
+  head('Cash paid');
+  for (const rl of planReportLines(lineState, (a) => snap.ap.byAsset.has(a.id))) {
+    const l = lineForAsset(revLines, rl.assetIds[0]);
+    money(`ox|paid|${rl.assetIds.join('+')}`, l ? revenueLineName(l) : lineTitle(rl, lineState), sumOf(rl.assetIds.map((id) => padded(snap.perAssetCF.get(id)?.opexPaidPerPeriod))), { indent: 1 });
+  }
+  money('ox|paid|hq', 'HQ overheads', padded(snap.directCF.hqOpexPaidPerPeriod).map((v) => -v), { indent: 1 });
   head('Payables roll-forward');
   const apt = snap.ap.projectTotals;
   money('ox|ap|open', 'Opening payables', padded(apt.openingApPerPeriod), { indent: 1, totalValue: apt.openingApPerPeriod[0] ?? 0 });
@@ -5560,13 +5570,25 @@ function addCashFlowLive(ctx: EmitCtx): void {
   const N = snap.axisLength;
   const ws = wb.addWorksheet(SHEETS.cashflow, { properties: { tabColor: { argb: ARGB.navy } } });
   writeSheetHeader(ws, snap, N, 'Cash Flow', 'Direct method (operations, investing, financing, net and closing cash), the indirect method\'s operating cash with its check, each phase\'s operations and investing, and the phases to the project net cash flow.', { label: 'Line', feeds: 'Revenue (cash collected, escrow), Opex (opex and its payables), Capex (capex, selling and marketing), the P&L (the indirect method) and Financing (fund fees, zakat, disposal proceeds and every financing flow).', totalLabel: 'Total / Closing' });
+  printPlanRows(ws, N, cfPlan(state, snap), 'sum');
+}
+
+/**
+ * A LIVE STATEMENT'S ROWS, PRINTED FROM ITS PLAN (the Cash Flow's `cfPlan`, the Balance Sheet's
+ * `bsPlan`): each row keyed where the formula layer finds it, with the platform's values.
+ */
+function printPlanRows(
+  ws: ExcelJS.Worksheet, N: number,
+  rows: ReadonlyArray<{ key: string; label: string; kind: 'section' | 'head' | 'row' | 'gap'; values?: number[]; style?: 'total' | 'subtotal'; indent?: number; total?: 'sum' | 'first' | 'last' | 'maxabs' }>,
+  defaultTotal: 'sum' | 'last',
+): void {
   const last = lastActiveCol(N);
   const put = (r: number, c: number, v: number): void => {
     const cell = ws.getCell(r, c);
     cell.value = v; cell.numFmt = NUMFMT.money; cell.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } };
   };
   let r = 6;
-  for (const row of cfPlan(state, snap)) {
+  for (const row of rows) {
     if (row.kind === 'gap') { r += 1; continue; }
     registerCell(row.key, ws, ws.getCell(r, LBL_COL));
     if (row.kind === 'section') { setSectionHeader(ws.getRow(r), row.label, last, ARGB.accent); r += 1; continue; }
@@ -5580,7 +5602,9 @@ function addCashFlowLive(ctx: EmitCtx): void {
     setLabel(ws.getCell(r, LBL_COL), row.label, { indent: row.indent, bold: !!row.style });
     const vals = row.values ?? [];
     for (let t = 0; t < N; t++) put(r, pcol(t), vals[t] ?? 0);
-    put(r, TOTAL_COL, row.total === 'first' ? (vals[0] ?? 0) : row.total === 'last' ? (vals[N - 1] ?? 0) : vals.slice(0, N).reduce((s, v) => s + (v ?? 0), 0));
+    const tot = row.total ?? defaultTotal;
+    put(r, TOTAL_COL, tot === 'first' ? (vals[0] ?? 0) : tot === 'last' ? (vals[N - 1] ?? 0) : tot === 'maxabs' ? Math.max(0, ...vals.slice(0, N).map((v) => Math.abs(v ?? 0)))
+      : vals.slice(0, N).reduce((sum, v) => sum + (v ?? 0), 0));
     if (row.style === 'total') {
       fillRange(ws, r, 1, r, last, ARGB.navy);
       for (let c = 1; c <= last; c++) ws.getCell(r, c).font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.white } };
@@ -5589,6 +5613,15 @@ function addCashFlowLive(ctx: EmitCtx): void {
     }
     r += 1;
   }
+}
+
+/** THE LIVE BALANCE SHEET (2026-11-03): the statement and its three equity roll-forwards, from `bsPlan`. */
+function addBalanceSheetLive(ctx: EmitCtx): void {
+  const { wb, snap, state } = ctx;
+  const N = snap.axisLength;
+  const ws = wb.addWorksheet(SHEETS.balsheet, { properties: { tabColor: { argb: ARGB.navy } } });
+  writeSheetHeader(ws, snap, N, 'Balance Sheet', 'Assets, liabilities and equity at each year end, the balance check, and the share capital, statutory reserve and retained earnings roll-forwards.', { label: 'Line', feeds: 'Schedules (land, fixed assets, inventory), Revenue (receivables, unearned revenue, escrow), Opex (payables), Financing (debt, zakat payable, equity drawn, dividends), the P&L (profit after tax) and the Cash Flow (cash).', totalLabel: 'Closing' });
+  printPlanRows(ws, N, bsPlan(state, snap), 'last');
 }
 
 function addCashFlow(ctx: EmitCtx): void {
@@ -5629,6 +5662,7 @@ function addCashFlow(ctx: EmitCtx): void {
 const BS_ROLLFORWARDS_ON_BS = new Set(['L3', 'E1', 'E2']);
 
 function addBalanceSheet(ctx: EmitCtx): void {
+  if (isLiveLayout()) return addBalanceSheetLive(ctx);
   const { wb, snap, state } = ctx;
   const N = snap.axisLength;
   const labels = m4Labels(state);
@@ -6632,7 +6666,7 @@ function addChecks(ctx: EmitCtx, capexAddrs: CapexAddrs, retLinks: RetLinks): vo
   const checkMoney = (v: number): string => `${formatAccounting(Math.abs(v), 'millions', 1)} m`;
   // The four integrity identities, named as the platform names them; the
   // fourth is the Balance Sheet's reconciliation bridge (one builder with the PDF).
-  for (const c of buildIntegrityChecks(snap, { phaseEbitda: phaseEbitdaFooting(snap, ctx.state) })) {
+  for (const c of buildIntegrityChecks(snap, { phaseEbitda: phaseEbitdaFooting(snap, ctx.state), noBridge: isLiveLayout() })) {
     // THE LIVE WORDS (2026-10-15): the residue is float noise that Excel and the engine land on
     // differently, so the live sentence states the verdict and the peak, never the ratio.
     const where = c.where ? ` ${c.where}` : '';

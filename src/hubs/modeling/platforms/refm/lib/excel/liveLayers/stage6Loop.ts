@@ -418,7 +418,7 @@ export const stage6Loop: LiveLayer = {
     }
     put('fl:tax', (t) => taxF(P('fl:taxable', t), rate0(), pc0.cit ? P('fl:taxRel', t) : undefined));
     put('fl:taxPay', (t) => `${P('fl:tax', t)}*MIN(365,MAX(0,N(${w.ref('project:taxDays')})))/365`, 'last');
-    put('fl:taxPaid', (t) => (pc0.taxLag ? `${P('fl:tax', t)}-(${P('fl:taxPay', t)}-N(${P('fl:taxPay', t, -1)}))` : P('fl:tax', t)));
+    put('fl:taxPaid', (t) => `${P('fl:tax', t)}-(${P('fl:taxPay', t)}-${P('fl:taxPay', t, -1)})`);
 
     // ── The fund fees ────────────────────────────────────────────────────────
     if (feeOn) {
@@ -488,7 +488,8 @@ export const stage6Loop: LiveLayer = {
     put('fl:div', (t) => `-(${phaseSum(t)}+${exitF(t)}*IF(AND(${divOn()}=1,${excess(t)}>0,ROUND(${P('fl:forDiv', t)}-(${phaseSum(t)}),2)>0),${P('fl:forDiv', t)}-(${phaseSum(t)}),0))`);
     why('fl:div', 'The phases\' dividends, and in the exit year all the cash above the minimum.');
     put('fl:close', (t) => `${P('fl:forDiv', t)}+${P('fl:div', t)}`, 'last');
-    put('fl:debtBs', (t) => `(1-${booked ? `SUM(${toNow('tl:flag:exit', t)})` : '0'})*(${sumF(fac, 'close', t)})`, 'last');
+    for (const f of fac) put(`fl:tr:${f.t.id}:bs`, (t) => `(1-${booked ? `SUM(${toNow('tl:flag:exit', t)})` : '0'})*${P(f.close, t)}`, 'last');
+    put('fl:debtBs', (t) => { const ks = fac.map((f) => `fl:tr:${f.t.id}:bs`).filter(has); const rs = ks.map((k) => w.addr(k).row); const tog = rs.length > 1 && rs.every((r, i) => i === 0 || r === rs[i - 1] + 1); return tog ? `SUM(${P(ks[0], t)}:${P(ks[ks.length - 1], t)})` : ks.map((k) => P(k, t)).join('+') || '0'; }, 'last');
 
     // ── The keys the later layers read ───────────────────────────────────────
     claim('fnc:capex', 'fl:capex');

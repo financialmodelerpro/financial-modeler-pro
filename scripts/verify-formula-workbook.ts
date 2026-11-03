@@ -576,6 +576,14 @@ function perturbations(input: LiveExportInputs, reg: CellRegistry): Perturbation
   if ((st.project.tax?.paymentDays ?? 0) === 0) {
     const lag = (d: number) => (s: Snap): void => { s.project.tax = { ...(s.project.tax ?? {}), paymentDays: d }; };
     out.push({ movesRevenue: false, label: 'tax payment 90 to 180 days after the year end (on a copy that pays late)', cell: 'project:taxDays', value: 180, edit: lag(180), variant: lag(90) });
+    // The payable is always worked out (2026-11-03), so the days are live on the export itself.
+    out.push({ movesRevenue: false, label: 'zakat payment 0 to 90 days after the year end (the export itself)', cell: 'project:taxDays', value: 90, edit: lag(90) });
+  }
+  // The statutory reserve cap is always read (2026-11-03): on a copy transferring 10% of profit
+  // after tax with no cap, a 5% cap of share capital binds the reserve.
+  {
+    const res = (rate: number, cap: number) => (s: Snap): void => { s.project.statutoryReserve = { transferRate: rate, capOfShareCapital: cap }; };
+    out.push({ movesRevenue: false, label: 'statutory reserve cap 0% to 5% of share capital (on a copy transferring 10%)', cell: 'project:reserveCap', value: 0.05, edit: res(0.1, 0.05), variant: res(0.1, 0) });
   }
 
   // Capex (2026-10-11): construction cost escalation, base-year rates priced into the
@@ -723,7 +731,7 @@ function perturbations(input: LiveExportInputs, reg: CellRegistry): Perturbation
       variant: existing({ repaymentMethod: 'cash_sweep', remainingRepaymentPeriods: 0 }), edit: (s) => { exOf(s).creditSpreadPct = 3; } });
   } else out.push({ label: 'B and C: facility shapes', skip: 'no facility with a stated spread' });
   // STAGE E: dividends on EBITDA (the payout sizes off each phase's EBITDA); the payout cut.
-  if (st.project.dividendPolicy && reg.get('fin|Dividend Policy|Payout Ratio')) {
+  if (st.project.dividendPolicy && reg.get('fin:in:payout')) {
     out.push({ movesRevenue: false, label: 'E: dividends on EBITDA, the payout ratio to 60%', cell: 'fin:in:payout', value: 0.6,
       variant: (s) => { s.project.dividendPolicy = { ...s.project.dividendPolicy, mode: 'pct_of_ebitda' }; },
       edit: (s) => { s.project.dividendPolicy = { ...s.project.dividendPolicy, payoutRatio: 60 }; } });
@@ -733,15 +741,15 @@ function perturbations(input: LiveExportInputs, reg: CellRegistry): Perturbation
   // dividends on must do what the platform's first policy does: the Cash Flow always prints
   // "Dividends paid" (2026-09-29), so the exit year's full payout has a row to land in.
   const noDividends = (s: Snap): void => { delete (s.project as any).dividendPolicy; for (const ph of s.phases as any[]) delete ph.dividendPolicy; };
-  if (reg.get('fin|1. Project Financing Settings|Minimum Cash Reserve')) {
+  if (reg.get('fin:in:min')) {
     const minC = Number(st.project.financing?.minimumCashReserve ?? 0);
     out.push({ movesRevenue: false, label: 'No dividend policy (dividends off): the minimum cash reserve +15m', cell: 'fin:in:min', value: minC + 15_000_000,
       variant: noDividends, edit: (s) => { (s.project.financing as any).minimumCashReserve = minC + 15_000_000; } });
-  }
-  if (reg.get('fin|Dividend Policy|Pay Dividends')) {
+  } else out.push({ label: 'the minimum cash reserve', skip: 'no fin:in:min cell (TRAPS 3.36)' });
+  if (reg.get('fin:in:divOn')) {
     out.push({ movesRevenue: false, label: 'No dividend policy: dividends switched on (1 at the Inputs door, On on Financing)', cell: 'fin:in:divOn', value: 1,
       variant: noDividends, edit: (s) => { s.project.dividendPolicy = { enabled: true }; } });
-  }
+  } else out.push({ label: 'dividends switched on', skip: 'no fin:in:divOn cell (TRAPS 3.36)' });
   // STAGE D: the first phase's plots fund their land cash 50 / 50. Under a Method 3
   // deficit the platform splits the deficit at the project ratio and the plots' split
   // moves nothing (computeFundingRequirement), so the copy must first match the
@@ -1327,11 +1335,11 @@ function formulaCells(wb: ExcelJS.Workbook): Map<string, { formula: string; resu
 
     // THE LIVE CHECKS FIRE (2026-09-28, stage 7c): a status that can only read OK
     // certifies nothing. One year of balance sheet Cash is typed over by 1,000,000:
-    // the balance, the cash tie and the bridge must read CHECK, and Direct = Indirect,
+    // the balance check and the cash tie must read CHECK (the live workbook has no bridge since 2026-11-03), and Direct = Indirect,
     // which never reads that cell, must still read OK.
     console.log('\n=== E. Real Excel, a balance typed over ===');
     {
-      const ids = ['Balance sheet balances (Assets = L + E)', 'Cash flow closing == balance sheet cash', 'Direct cash flow == Indirect cash flow', 'Balance sheet reconciliation bridge, unexplained'];
+      const ids = ['Balance sheet balances (Assets = L + E)', 'Cash flow closing == balance sheet cash', 'Direct cash flow == Indirect cash flow'];
       const statusOf = (r: ReturnType<typeof recalcInExcel>, label: string): unknown => { const a = registry.need(`chk|id|${label}`); return r.cells.get(cellKey(a.sheet, a.row, a.col - 1)); };
       const liveIds = ids.filter((l) => { const a = registry.need(`chk|id|${l}`); return formulas.has(cellKey(a.sheet, a.row, a.col - 1)); });
       check('E0 every identity on the Checks sheet is live', liveIds.length === ids.length, ids.filter((l) => !liveIds.includes(l)).join(', '));
@@ -1340,8 +1348,8 @@ function formulaCells(wb: ExcelJS.Workbook): Map<string, { formula: string; resu
       const col = PERIOD_COLS.OPEN_COL + 1 + 3; // the fourth year
       const was = rec.cells.get(cellKey(cash.sheet, cash.row, col));
       const re = recalcInExcel(path, [{ ref: `${cash.sheet}!${colLetterOf(col)}${cash.row}`, value: (typeof was === 'number' ? was : 0) + 1_000_000 }]);
-      const want: Record<string, string> = { [ids[0]]: 'CHECK', [ids[1]]: 'CHECK', [ids[2]]: 'OK', [ids[3]]: 'CHECK' };
-      check('E2 after it the balance, the cash tie and the bridge read CHECK, and Direct = Indirect still reads OK', ids.every((l) => statusOf(re, l) === want[l]), ids.map((l) => `${l}: ${String(statusOf(re, l))}`).join('; '));
+      const want: Record<string, string> = { [ids[0]]: 'CHECK', [ids[1]]: 'CHECK', [ids[2]]: 'OK' };
+      check('E2 after it the balance check and the cash tie read CHECK, and Direct = Indirect still reads OK', ids.every((l) => statusOf(re, l) === want[l]), ids.map((l) => `${l}: ${String(statusOf(re, l))}`).join('; '));
     }
   }
 

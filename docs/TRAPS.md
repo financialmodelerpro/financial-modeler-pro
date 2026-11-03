@@ -1308,6 +1308,23 @@ switches (`DEAD_SWITCHES`), each registered on its cell by the builder.
 
 **The trap to avoid:** a check that measures a proxy (the shading) for the promise (the value drives the model).
 Count the values themselves, allow exceptions by name only, and plant one to prove the check fires.
+
+### 3.36 An input change gated on a registry key a rebuild renamed stopped running, and said nothing
+
+**Symptom (2026-11-03):** asked to change the minimum cash reserve in Excel, `verify-formula-workbook --only
+"minimum cash"` ran no input change at all. Three C tests (the minimum cash reserve on a copy with dividends
+off, dividends switched on, the payout ratio on EBITDA) had not run since the Financing rebuild of 2026-10-29.
+
+**Mechanism:** each test was wrapped in `if (reg.get('fin|1. Project Financing Settings|Minimum Cash Reserve'))`
+and kin, the keys of the Financing tab before the rebuild. The rebuild moved those inputs to `fin:in:min`,
+`fin:in:divOn` and `fin:in:payout`; the old keys were gone, the `if` was false, and a false `if` with no `else`
+pushes nothing, not even a SKIP line, so the run looked complete.
+
+**Fix:** each gate reads the cell the test types into (`fin:in:min`, `fin:in:divOn`, `fin:in:payout`), so the
+test can only be skipped when its own target is missing.
+
+**The trap to avoid:** a test guarded by a different key from the one it uses. Gate a test on its own target,
+and give every guard an `else` that reports the skip by name.
 `verify-formula-workbook` A12j to A12p.
 
 **The same day, the replacement proxy failed too:** "read by a formula" passed the hotel and lease receivable days,

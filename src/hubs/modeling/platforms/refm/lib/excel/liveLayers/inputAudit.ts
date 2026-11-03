@@ -95,8 +95,6 @@ export function fixAtExport(ws: ExcelJS.Worksheet, row: number, col: number, why
  */
 export const DEAD_SWITCHES = {
   feeMatrix: 'fee distribution matrix (Returns)',
-  zakatDays: 'zakat payment days (Financing)',
-  reserveCap: 'statutory reserve cap (Balance Sheet)',
   // (2026-10-25: hotel and lease receivable days are LIVE inputs, never on this list:
   // Schedules builds each line's operating receivable from them, and the check protects them.)
 } as const;

@@ -492,7 +492,12 @@ export const stage3Revenue: LiveLayer = {
     // The balances at the year end, all lines (2026-10-29): the indirect cash flow reads their change.
     {
       const arK = 'rev|__project__|bal|Receivables, all lines', urK = 'rev|__project__|bal|Unearned revenue, all lines';
-      const arParts = lines.flatMap((l) => (l.form === 'sell' ? [`rvc:${l.key}:ar`] : [`rvc:${l.key}:opar`])).filter(has);
+      const sarK = 'rev|__project__|bal|Sales receivables, sell lines', oparK = 'rev|__project__|bal|Operating receivables, hotel and lease lines';
+      const sarParts = lines.filter((l) => l.form === 'sell').map((l) => `rvc:${l.key}:ar`).filter(has);
+      const oparParts = lines.filter((l) => l.form !== 'sell').map((l) => `rvc:${l.key}:opar`).filter(has);
+      if (has(sarK)) { row(sarK, (t) => sarParts.map((k) => P(k, t)).join('+') || '0', 'last'); claim('rvc:__project__:sar', sarK); }
+      if (has(oparK)) { row(oparK, (t) => oparParts.map((k) => P(k, t)).join('+') || '0', 'last'); claim('rvc:__project__:opar', oparK); }
+      const arParts = [sarK, oparK].filter(has);
       const urParts = lines.filter((l) => l.form === 'sell').map((l) => `rvc:${l.key}:ur`).filter(has);
       if (has(arK)) { row(arK, (t) => arParts.map((k) => P(k, t)).join('+') || '0', 'last'); claim('rvc:__project__:ar', arK); }
       if (has(urK)) { row(urK, (t) => urParts.map((k) => P(k, t)).join('+') || '0', 'last'); claim('rvc:__project__:ur', urK); }
