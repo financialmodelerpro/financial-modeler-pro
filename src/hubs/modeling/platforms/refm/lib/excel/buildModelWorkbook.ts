@@ -6825,7 +6825,7 @@ function addChecks(ctx: EmitCtx, capexAddrs: CapexAddrs, retLinks: RetLinks): vo
   }
   // An input left at zero (2026-10-05): a NOTE, never a CHECK; the export goes ahead.
   for (const a of buildEmptyInputAdvisories(ctx.state)) {
-    checkRow(`Input at zero, ${a.item}`, 'NOTE', 0, liveChk ? 'Left at zero; the model charges nothing for it' : `${emptyInputAdvisoryText(a)} Advisory, not a failure: the model charges nothing for it.`, liveChk ? `chk|zero|${a.item}` : undefined);
+    checkRow(`Input at zero, ${a.item}`, 'NOTE', liveChk ? a.zeroCount : 0, liveChk ? 'Left at zero; the model charges nothing for it' : `${emptyInputAdvisoryText(a)} Advisory, not a failure: the model charges nothing for it.`, liveChk ? `chk|zero|${a.item}` : undefined);
   }
   // A typed performance fee column short of 100% (2026-10-06): a NOTE with the amount.
   if (ctx.state.project.fundTerms?.enabled) {

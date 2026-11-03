@@ -43,7 +43,7 @@ const rs: any = {
   },
   sourcesUses: {
     existingEquity: 1282.1, newEquityCash: 0, inKindEquity: 1350.7, existingDebt: 2400, newDebt: 434.1,
-    customerCollections: 4973.2, land: 1350.7, construction: 3561.5, idc: 104.4, reservesDistributions: 5423.5,
+    customerCollections: 4973.2, land: 1350.7, construction: 3561.5, idc: 104.4, interestPaid: 104.4, reservesDistributions: 5423.5,
     totalSources: 10440, totalUses: 10440,
   },
   fundingMix: { debtPct: 0.27, cashEquityPct: 0.12, inKindEquityPct: 0.13, customerFundingPct: 0.48 },
@@ -151,7 +151,9 @@ check('sources total = 10,440', near(m.sourcesUses.totalSources, 10440));
 check('uses total = 10,440', near(m.sourcesUses.totalUses, 10440));
 check('sources & uses balance', near(m.sourcesUses.totalSources, m.sourcesUses.totalUses));
 check('sources include customer collections', m.sourcesUses.sources.some((r) => near(r.value, 4973.2)));
-check('uses include IDC', m.sourcesUses.uses.some((r) => r.label.includes('IDC') && near(r.value, 104.4)));
+// RE-AIMED 2026-11-03: sources and uses is the cash over construction (sourcesUsesRows), so the
+// interest is the interest PAID during construction, read from `interestPaid`, under its own words.
+check('uses include the interest paid during construction', m.sourcesUses.uses.some((r) => /interest/i.test(r.label) && near(r.value, 104.4)));
 
 // Financing summary.
 check('financing funding method label = Cash Deficit Funding', m.financing.fundingMethodLabel === 'Cash Deficit Funding');

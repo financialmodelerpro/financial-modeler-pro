@@ -96,7 +96,8 @@ const tierOfWord = (label: string): 'bua' | 'gfa' | null => (/\bBUA\b/.test(labe
   check('C2 and BUA beside the word BUA', /BUA/.test(lbl('sum|bua')) && near(Number(liveAt('sum|bua', 2)), BUA), `${lbl('sum|bua')}: ${String(liveAt('sum|bua', 2))}`);
   check('C3 its plot ratio is GFA over land', /^Plot ratio/.test(lbl('sum|ratio')) && Math.abs(Number(liveAt('sum|ratio', 2)) - GFA / LAND) < 1e-9, `${lbl('sum|ratio')}: ${String(liveAt('sum|ratio', 2))}`);
   // Land & Area: every column headed Total GFA or Total BUA, on the plots' total row.
-  const la = plain.getWorksheet('Land & Area')!;
+  // RE-AIMED 2026-11-03: the registry's rows are the live layout's, so the sheet is the live layout's too.
+  const la = live.getWorksheet('Land & Area')!;
   // NSA too (2026-09-29, export review item 3): both tables totalled 65,123.04 where the project NSA
   // is 68,093.28, the retail strips' lettable area being on no host row. Each table's total row,
   // under its own header row.

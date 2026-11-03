@@ -62,6 +62,8 @@ export interface REnv {
   rng(key: string, last?: number): string;
   /** A Returns row's years (no inception column). */
   rngY(key: string): string;
+  /** A Returns row's years from the first to stream index `last`. */
+  rngYTo(key: string, last: number): string;
   /** Another tab's row at stream index s (year s-1), column relative. */
   x(key: string, s: number): string;
   /** Another tab's row at stream index s, absolute. */
@@ -371,12 +373,14 @@ export function returnsPlan(state: FinancialsResolverState, snap: Snap, rs: RS, 
       ] });
     });
     rows.push({ key: 'ret|fe|un', label: 'Performance fee no earner takes', kind: 'cells', cells: [
-      { col: D + 1, v: fe.unallocatedPerformanceFee, fmt: RF.money, f: (E) => `SUM(${E.rngY('rs|fee:perf')})-SUM(${fe.earners.map((_e, k) => E.cell(`ret|fe|${k}`, D + 1)).join(',')})` },
+      { col: D + 1, v: fe.unallocatedPerformanceFee, fmt: RF.money, f: (E) => `MAX(0,SUM(${E.rngY('rs|fee:perf')})-SUM(${fe.earners.map((_e, k) => E.cell(`ret|fe|${k}`, D + 1)).join(',')}))` },
       { col: D + 2, v: fe.unallocatedPerformanceFee, fmt: RF.money, f: (E) => E.cell('ret|fe|un', D + 1) },
     ] });
     rows.push({ key: 'ret|fe|tot', label: 'Total', kind: 'cells', style: 'subtotal', cells: [D, D + 1, D + 2].map((c, i) => ({ col: c,
       v: [fe.totalManagementFee, fe.totalPerformanceFee, fe.totalManagementFee + fe.totalPerformanceFee][i], fmt: RF.money,
-      f: (E: REnv) => `SUM(${[...fe.earners.map((_e, k) => `ret|fe|${k}`), 'ret|fe|un'].filter((k) => E.has(`${k}|${c}`)).map((k) => E.cell(k, c)).join(',')})` })) });
+      // THE TOTAL IS THE FEE CHARGED (2026-11-03), as the platform states it: with shares typed over
+      // 100% the earners' rows add to more than the fund pays, and the total must not follow them.
+      f: (E: REnv) => [`SUM(${E.rngY('rs|fee:mgmt')})`, `SUM(${E.rngY('rs|fee:perf')})`, `${E.cell('ret|fe|tot', D)}+${E.cell('ret|fe|tot', D + 1)}`][i] })) });
     gap('ret|gap|e');
   }
 
@@ -680,11 +684,21 @@ export function returnsPlan(state: FinancialsResolverState, snap: Snap, rs: RS, 
   {
     head('ret|#ey', 'Exit-year analysis (selling at the end of each year)');
     rows.push({ key: 'ret|#eycols', label: 'Exit year', kind: 'cols', cols: [[D, 'Enterprise value'], [D + 1, 'Equity value'], [D + 2, 'Project IRR'], [D + 3, 'Equity IRR'], [D + 4, 'Equity MOIC'], [D + 5, 'Selected']] });
-    const first = rs.exitYears.length ? Math.min(...rs.exitYears.map((x) => x.exitIdx)) : X;
-    for (let e = first; e < N; e++) {
+    // EVERY MODEL YEAR HAS A ROW (2026-11-03): the first candidate moves with the timing (a shorter
+    // construction makes a year earlier one), so the rows cannot start where the export found it. A
+    // year is a candidate by the platform's rule (returns-resolvers): from the first year whose
+    // capitalised income is positive (the model midpoint where none is) up to the chosen exit, and
+    // the chosen exit always; any other year reads "-".
+    void X;
+    const mid = Math.min(N - 1, Math.max(0, Math.floor(N / 2)));
+    for (let e = 0; e < N; e++) {
       const x = rs.exitYears.find((q) => q.exitIdx === e);
       const key = `ret|ey|${e}`;
-      const blank = (f: Fx): Fx => (E) => `IF(${E.yrA(e + 1)}>${E.d('ret|Exit Year')},"-",${f(E)})`;
+      const basisIsExit = (E: REnv): string => `${E.d('ret|Terminal value basis')}="Exit year"`;
+      const incomeTo = (E: REnv): string => `IF(${basisIsExit(E)},COUNTIF(${E.rngYTo('rs|noi', e + 1)},">0"),COUNTIF(${E.rngYTo('rs|noi', Math.max(1, e))},">0"))`;
+      const incomeAll = (E: REnv): string => `IF(${basisIsExit(E)},COUNTIF(${E.rngYTo('rs|noi', N)},">0"),COUNTIF(${E.rngYTo('rs|noi', Math.max(1, N - 1))},">0"))`;
+      const cand = (E: REnv): string => `AND(${E.yrA(e + 1)}<=${E.d('ret|Exit Year')},OR(${E.yrA(e + 1)}=${E.d('ret|Exit Year')},${incomeTo(E)}>0,AND(${incomeAll(E)}=0,${e >= mid ? 'TRUE' : 'FALSE'})))`;
+      const blank = (f: Fx): Fx => (E) => `IF(NOT(${cand(E)}),"-",${f(E)})`;
       const income = (E: REnv): string => `IF(${E.d('ret|Terminal value basis')}="Exit year",${E.sA('rs|noi', e + 1)},${e > 0 ? E.sA('rs|noi', e) : '0'})`;
       const arr = (E: REnv, k: string, add: string): string => `${E.rng(k, e + 1)}+(${E.yrRngTo(e + 1)}=${E.yrA(e + 1)})*(${add})`;
       const moicArr = (a: string): string => `IF(SUMPRODUCT(-(${a}<0)*(${a}))>0,SUMPRODUCT((${a}>0)*(${a}))/SUMPRODUCT(-(${a}<0)*(${a})),0)`;

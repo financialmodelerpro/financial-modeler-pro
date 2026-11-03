@@ -137,11 +137,14 @@ export const stage8Capex7: LiveLayer = {
       const cost = { construction: f.construction.f, withIdc: `(${f.construction.f}+${f.idc})`, withLand: `(${f.construction.f}+${f.idc}+${f.land.f})` };
       const head = `cx7a|${l.key}|head`;
       if (has(head)) areas.forEach((a, i) => w.fA(at(head, C_TOT + 1 + i), a));
+      // SHORT FORMULAS (2026-11-03): each base divides its own cost cell by the line's areas in the
+      // heading row above it, so neither the cost nor the area expression is written twice.
+      const areaRef = (i: number): string => (has(head) ? w.refA(at(head, C_TOT + 1 + i)) : areas[i]);
       for (const b of COST_BASES) {
         const k = `cx7a|${l.key}|${b.key}`;
         if (!has(k)) continue;
         w.fA(at(k, C_TOT), cost[b.key]);
-        areas.forEach((a, i) => w.fA(at(k, C_TOT + 1 + i), perSqm(cost[b.key], a)));
+        areas.forEach((_a, i) => { const c = w.refA(at(k, C_TOT)), d = areaRef(i); w.fA(at(k, C_TOT + 1 + i), perSqm(c, d)); });
       }
       if (!l.sale || !has(`cx7b|${l.key}|sold`)) continue;
       const soldK = `cx7b|${l.key}|sold`;

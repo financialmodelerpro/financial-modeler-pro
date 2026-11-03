@@ -541,6 +541,13 @@ function perturbations(input: LiveExportInputs, reg: CellRegistry): Perturbation
   const inc = opexLine(hotA, (l) => l.mode === 'pct_of_gop' && !l.disabled);
   if (hotA && inc) out.push({ movesRevenue: false, label: `hotel opex, ${inc.l.name} (on GOP) ${inc.l.value} to ${inc.l.value + 0.08}`, cell: cardKey(hotA, inc.l.name), col: 5, value: inc.l.value + 0.08, edit: setLine(hotA.id, inc.i, inc.l.value + 0.08) });
   else out.push({ label: 'a hotel opex line on GOP', skip: 'none' });
+  // PER KEY (2026-11-03, close-out): on a copy where a hotel line is charged per key, its rate moves the
+  // line by the keys on Revenue, every year in operation, and Excel must follow it.
+  const pk = opexLine(hotA, (l) => !l.disabled && l.mode !== 'pct_of_gop' && l.rateMode !== 'yoy');
+  if (hotA && pk) {
+    const perKey = (v: number) => (s: Snap): void => { const ln = (s.assets as any[]).find((q) => q.id === hotA.id).opex.lines[pk.i]; ln.mode = 'per_room_year'; ln.value = v; };
+    out.push({ movesRevenue: false, label: `hotel opex, ${pk.l.name} charged per key, 2,000 to 2,500 a key (on a copy charging it per key)`, cell: cardKey(hotA, pk.l.name), col: 5, value: 2500, edit: perKey(2500), variant: perKey(2000) });
+  } else out.push({ label: 'a per-key hotel opex line', skip: 'no hotel opex line to charge per key' });
   const leaseA = leaseL ? earner(leaseL) : undefined;
   const rm = opexLine(leaseA, (l) => l.mode === 'per_sqm_year' && l.useAssetDefault !== false && !l.disabled);
   if (leaseA && rm) {
@@ -700,7 +707,8 @@ function perturbations(input: LiveExportInputs, reg: CellRegistry): Perturbation
   // COPY of this model (a variant), which must first recalculate to the platform in
   // Excel as exported, then follow an input typed at its Inputs door.
   const tr0 = ((st.financingTranches ?? []) as any[])[0];
-  if (tr0 && reg.get(`fin|${tr0.name} (new facility)|Credit Spread %`)) {
+  // RE-AIMED 2026-11-03: the Financing rebuild keys a tranche's spread `trsp:<id>`, the cell the tests type into.
+  if (tr0 && reg.get(`trsp:${tr0.id}`)) {
     const spread = tr0.creditSpreadPct ?? 0;
     const trs = (s: Snap): any[] => (s as any).financingTranches as any[];
     const mezz = (s: Snap, extra: Record<string, unknown>): void => {

@@ -278,6 +278,14 @@ function offlineChecks(): void {
    * others: a mention must be the registry lookup that groups a row, or the
    * keys door's own lookup, or the call to the one rule.
    */
+  /**
+   * THE INPUTS TYPE FILTER (2026-11-03): the Inputs sheet holds only what the model reads
+   * (2026-10-25), so it lists the types the visible assets use and the rows of those types. It
+   * resolves an id through normaliseAssetTypeId and prices nothing.
+   */
+  const INPUTS_TYPE_FILTER = ['src/hubs/modeling/platforms/refm/lib/excel/inputsSheetSections.ts'];
+  const isInputsFilterLine = (line: string): boolean =>
+    /from '[^']*assetTypeStandards';/.test(line) || /normaliseAssetTypeId\(/.test(line) || /typeShown\(row\.assetTypeId\)/.test(line);
   const TYPE_ROLLUP_DOORS = [
     'src/hubs/modeling/platforms/refm/lib/reports/overviewReport.ts',
   ];
@@ -314,6 +322,8 @@ function offlineChecks(): void {
     const keysDoor = KEYS_DOORS.includes(rel);
     const rollupDoor = TYPE_ROLLUP_DOORS.includes(rel);
     const src = readFileSync(f, 'utf8');
+    if (INPUTS_TYPE_FILTER.includes(rel) && !src.includes('constructionCostPerSqm') && !src.includes('revenueRate')
+      && src.split('\n').filter((l) => FORBIDDEN_TOKENS.some((t) => l.includes(t))).every(isInputsFilterLine)) continue;
     for (const tok of FORBIDDEN_TOKENS) {
       if (!src.includes(tok)) continue;
       if (door) {
@@ -356,6 +366,12 @@ function offlineChecks(): void {
         && !src.includes('revenueRateUnit')
         && !src.includes('assetTypeStandards')
         && src.split('\n').filter((l) => FORBIDDEN_TOKENS.some((t) => l.includes(t))).every(isTypeRollupLine);
+    }));
+  check('A1f the Inputs type filter only resolves ids through normaliseAssetTypeId and prices nothing, and still mentions a type (not a stale hole)',
+    INPUTS_TYPE_FILTER.every((f) => {
+      const src = readFileSync(f, 'utf8');
+      const lines = src.split('\n').filter((l) => FORBIDDEN_TOKENS.some((t) => l.includes(t)));
+      return lines.length > 0 && lines.every(isInputsFilterLine) && !src.includes('constructionCostPerSqm') && !src.includes('revenueRate');
     }));
   check('A1e the formula door is scanned (the live layers are inside the export surface) and resolves through the platform rules only (not a stale hole)',
     FORMULA_DOORS.length > 0 && FORMULA_DOORS.every((f) => {

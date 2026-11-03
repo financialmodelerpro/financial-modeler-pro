@@ -56,6 +56,7 @@ export const stage7Returns: LiveLayer = {
       rng: (key, last = N) => w.rangeA(RET, rowOf(key), sc(0), sc(last)),
       rngFrom: (key, s0) => w.rangeA(RET, rowOf(key), sc(s0), sc(N)),
       rngY: (key) => w.rangeA(RET, rowOf(key), sc(1), sc(N)),
+      rngYTo: (key, last) => w.rangeA(RET, rowOf(key), sc(1), sc(last)),
       x: (key, s) => w.perP(key, s - 1),
       xA: (key, s) => w.per(key, s - 1),
       xr: (key) => w.perRange(key, N),

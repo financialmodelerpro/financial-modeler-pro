@@ -13,6 +13,7 @@ import type { computeFinancialsSnapshot, FinancialsResolverState } from '../../f
 import type { computeReturnsSnapshot } from '../../returns-resolvers';
 import { buildOverviewReport, chargesPerformanceFee, distributedReturnPair } from '../../reports/overviewReport';
 import { buildAssetAreaTables } from '../../../components/modules/_shared/assetInputsView';
+import { nsaUsedLines } from '../inputsSheetSections';
 import { financingPlan } from './financingPlan';
 import { plPlan } from './plPlan';
 import { RF } from './returnsPlan';
@@ -168,7 +169,13 @@ export function summaryPlan(state: FinancialsResolverState, snap: Snap, rs: RS):
   one('sum|gfa', 'Total GFA', sc.gfaSqm, (E) => E.ref('chaintot:lines:tg'), RF.int, 'sqm');
   one('sum|bua', 'Total BUA (parking included)', sc.buaSqm, (E) => E.ref('chaintot:lines:bua'), RF.int, 'sqm');
   one('sum|ratio', 'Plot ratio (GFA over land)', nz(sc.plotRatio), ratio(gfaF, (E) => E.cell('sum|landsqm', B)), RF.mult);
-  one('sum|nsa', 'Saleable and leasable area (NSA)', sc.saleableSqm, (E) => E.ref('chaintot:lines:nsa'), RF.int, 'sqm');
+  // THE NSA USED (2026-11-03): the table total, with each line's NSA used (Inputs, the larger of its
+  // sub-units' area and its Stated NSA) in place of the line's table figure, as the platform counts it.
+  const usedLines = nsaUsedLines(state, areas);
+  one('sum|nsa', 'Saleable and leasable area (NSA)', sc.saleableSqm, (E) => {
+    const swaps = usedLines.filter((l) => E.has(`nsaline:${l.key}`) && E.has(lineKey(l.key, 'nsa'))).map((l) => `(${E.ref(`nsaline:${l.key}`)}-${E.ref(lineKey(l.key, 'nsa'))})`);
+    return [E.ref('chaintot:lines:nsa'), ...swaps].join('+');
+  }, RF.int, 'sqm');
   one('sum|units', 'Units (sell lines)', sc.units, (E) => sumOf(E, sellLines.map((l) => lineKey(l.key, 'units'))), RF.int);
   one('sum|keys', 'Keys (hotel lines)', sc.keys, (E) => sumOf(E, hotelLines.map((l) => lineKey(l.key, 'units'))), RF.int);
   one('sum|lease', 'Lettable area (lease lines and retail strips)', sc.leasableSqm, (E) => sumOf(E, [...leaseLines.map((l) => lineKey(l.key, 'nsa')), ...areas.companions.map((c) => compKey(c.name, 'nsa'))]), RF.int, 'sqm');

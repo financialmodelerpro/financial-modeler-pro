@@ -2,6 +2,16 @@
 
 > Forward-looking only: active follow-ups, in-progress work, backlog, legacy reference. Completed phase narratives live in **CLAUDE-FEATURES.md** (archive) and `git log` (authoritative). Do not re-add "Recently Completed" sections here when closing a phase, write the closure into CLAUDE-FEATURES.md instead.
 
+## START HERE 2026-11-03 (close-out): THE LIVE WORKBOOK REBUILD IS CLOSED
+
+Suite at b0e882ae, WITH credentials, clean tree: 194 pass / 6 fail of 200, 11,691 checks; all six fixed or re-aimed and re-run on their own (CHANGELOG 2026-11-03, close-out). The full real-Excel run of verify-formula-workbook reads every input-change test at 0 differing cells. The founder exports both workbooks for a final review next.
+
+LOGGED, NOT BUILT (founder, 2026-11-03):
+- **The live workbook for projects with existing operations** (a phase operating at the model start): the opening land and building NBV is an inert input and the shape is not built live.
+- **Zakat on the full zakat base**: the charge is rate x each year's profit; the base the rules define (equity, reserves, long-term liabilities less fixed assets) is not modelled.
+- **The Sources and Uses window ends at the last capex year** (cash or in kind): a project whose construction cash runs past its last capex year (retention, a trailing soft cost) is cut there.
+- **Fee shares typed over 100%**: the platform pays each earner share x the fee, so the earners' rows add to more than the fund pays (the Total shows the fee charged). The Fund Terms screen should refuse a sum over 100%.
+
 ## START HERE 2026-11-03 (session end): THE BALANCE SHEET ONLY LINKS; DISTRIBUTIONS SPLIT INTO DIVIDENDS AND A RETURN OF CAPITAL
 
 Done today (detail in CHANGELOG 2026-11-03): the engine books a distribution beyond the retained earnings available as a return of capital (every surface); the live Balance Sheet only links (77 rows to 51), the debt total is the SUM of the facilities, the reserve cap and zakat days are always read, the bridge is gone; the three Cash Flow follow-ups below are DONE. No session-end suite since 2026-10-25: run it first.

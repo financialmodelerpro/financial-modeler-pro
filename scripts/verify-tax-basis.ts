@@ -75,8 +75,10 @@ const S = (a: readonly number[]): number => a.reduce((s, v) => s + (v ?? 0), 0);
   // RE-AIMED 2026-10-15: the P&L no longer builds its own relief; its tax IS the financing loop's
   // (one builder, Checks proving the loop's profit before tax equals the P&L's), so the rule is
   // that the loop mirrors the cit basis through the twin and the P&L builds no second relief.
+  // RE-AIMED 2026-11-03: the loop reads the basis through financingPlan's ctx (`pc0.cit`) since
+  // 2026-10-29; the rule is that the relief is built only under the cit flag, not the spelling of the test.
   check('the live formula layer mirrors the cit basis: the financing loop builds the loss relief from the one formula twin, on the core 25% cap, and the P&L reads the loop\'s tax rather than building its own',
-    /basis === 'cit'/.test(L6) && /citReliefF\(/.test(L6) && /citPoolF\(/.test(L6) && /CIT_LOSS_RELIEF_CAP/.test(twin)
+    /if \((?:\w+\.)?cit\)[\s\S]{0,200}citReliefF\(/.test(L6) && /citReliefF\(/.test(L6) && /citPoolF\(/.test(L6) && /CIT_LOSS_RELIEF_CAP/.test(twin)
       && !/citReliefF\(|citPoolF\(/.test(L5) && /'fnc:tax'/.test(L5)
       && !/basis === 'cit'\) refuse\.push/.test(L5));
 

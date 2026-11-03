@@ -2227,6 +2227,11 @@ function computeFinancialsSnapshotOnce(
       const rev = perAssetPL.get(a.id)?.revenuePerPeriod;
       if (!rev) continue;
       const r = buildAccountsReceivableDSO({ revenuePerPeriod: rev.slice(0, N), dsoDays: lineArDays(a), daysPerYear: operatingArDaysPerYear, axisLength: N });
+      // THE LINE'S CASH IS ITS OWN RECEIVABLE'S CASH (2026-11-03): the per-asset series was revenue
+      // (cash on receipt), so the cash flow's line rows ignored the receivable days the project total
+      // applied, and the rows stopped footing to it the moment a line or the project stated days.
+      const cfA = perAssetCF.get(a.id);
+      if (cfA) for (let t = 0; t < N; t++) cfA.revenueReceivedPerPeriod[t] = r.cashReceivedPerPeriod[t] ?? 0;
       for (let t = 0; t < N; t++) {
         perPeriod[t] += r.perPeriod[t] ?? 0;
         changePerPeriod[t] += r.changePerPeriod[t] ?? 0;

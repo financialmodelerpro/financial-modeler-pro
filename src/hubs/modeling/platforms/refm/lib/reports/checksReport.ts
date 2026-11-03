@@ -364,6 +364,13 @@ export interface EmptyInputAdvisory {
   item: string;
   /** The lines it is zero on, by the line title the statements use. */
   lines: string[];
+  /** How many opex lines (per asset, and HQ) leave it at zero: what the live Checks row counts. */
+  zeroCount: number;
+}
+
+/** An opex line the zero-input note looks at, whatever its value (the live Checks row reads the same lines). */
+export function isEmptyCheckEligible(ln: { mode: string; disabled?: boolean; rateMode?: string }): boolean {
+  return !ln.disabled && EMPTY_CHECK_MODES.has(ln.mode) && ln.rateMode !== 'yoy';
 }
 
 const EMPTY_CHECK_MODES = new Set(['fixed_baseline', 'per_room_year', 'per_sqm_year']);
@@ -381,10 +388,11 @@ export function buildEmptyInputAdvisories(state: {
     const l = reportLines.find((x) => x.assetIds.includes(id));
     return l ? lineTitle(l, lineState) : id;
   };
-  const empty = (ln: EmptyCheckLine): boolean =>
-    !ln.disabled && EMPTY_CHECK_MODES.has(ln.mode) && ln.rateMode !== 'yoy' && !(Number(ln.value) > 0);
+  const empty = (ln: EmptyCheckLine): boolean => isEmptyCheckEligible(ln) && !(Number(ln.value) > 0);
   const byItem = new Map<string, string[]>();
+  const counts = new Map<string, number>();
   const add = (item: string, where: string): void => {
+    counts.set(item, (counts.get(item) ?? 0) + 1);
     const list = byItem.get(item) ?? [];
     if (!list.includes(where)) list.push(where);
     byItem.set(item, list);
@@ -394,7 +402,7 @@ export function buildEmptyInputAdvisories(state: {
     for (const ln of a.opex?.lines ?? []) if (empty(ln)) add(ln.name, titleOf(a.id));
   }
   for (const ln of state.project.hqOpex?.lines ?? []) if (empty(ln)) add(ln.name, 'HQ & Corporate Overheads');
-  return [...byItem.entries()].map(([item, lines]) => ({ item, lines }));
+  return [...byItem.entries()].map(([item, lines]) => ({ item, lines, zeroCount: counts.get(item) ?? 0 }));
 }
 
 export function emptyInputAdvisoryText(a: EmptyInputAdvisory): string {

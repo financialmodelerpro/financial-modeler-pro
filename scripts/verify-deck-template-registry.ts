@@ -271,13 +271,15 @@ async function main(): Promise<void> {
     missingVsSeed.length === 0, missingVsSeed.join(', '));
 }
 
+// EXIT BY CODE, NOT process.exit (2026-11-03): a hard exit while a fetch socket is closing trips a libuv
+// assertion on Windows (UV_HANDLE_CLOSING) that turns a clean run into a crash the runner reads as a FAIL.
 void main().then(() => {
   console.log('');
   if (failures.length === 0) {
     console.log(`verify-deck-template-registry: ${pass} passed, 0 failures`);
-    process.exit(0);
+    process.exitCode = 0; return;
   }
   console.log(`verify-deck-template-registry: ${pass} passed, ${failures.length} FAILURES`);
   for (const f of failures) console.log(`  FAIL  ${f}`);
-  process.exit(1);
-}).catch((e) => { console.error(e); process.exit(1); });
+  process.exitCode = 1;
+}).catch((e) => { console.error(e); process.exitCode = 1; });

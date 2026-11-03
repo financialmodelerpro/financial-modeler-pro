@@ -2332,8 +2332,27 @@ const DERIVED_PRICE_FIELDS: readonly string[] = ['unitPrice', 'pricePerSqm', 'pr
  * because that one keys on override paths, but they must not disagree, so a
  * change to either belongs with a look at the other.
  */
+/**
+ * AN UPDATE THAT ONLY ADDS FIELDS IS A FILL (2026-11-03): an array of objects with no id key is
+ * compared whole, so a field added inside one of its elements (the operating-year grid a sell row
+ * gained, `postSalesVelocityByOpsYear`) reads as an update of the array. Every stored value is
+ * still there, unchanged, so nothing was reinterpreted.
+ */
+function onlyAdds(before: unknown, after: unknown): boolean {
+  if (Object.is(before, after)) return true;
+  if (typeof before === 'number' && typeof after === 'number') return Math.abs(before - after) < 1e-9;
+  if (Array.isArray(before)) return Array.isArray(after) && before.length === after.length && before.every((b, i) => onlyAdds(b, after[i]));
+  if (before && typeof before === 'object') {
+    if (!after || typeof after !== 'object' || Array.isArray(after)) return false;
+    const a = after as Record<string, unknown>;
+    return Object.entries(before as Record<string, unknown>).every(([k, v]) => v === undefined || (k in a && onlyAdds(v, a[k])));
+  }
+  return false;
+}
+
 function isDerivedFill(e: ChangeLogEntry, raw: Record<string, unknown>): boolean {
   if (e.kind === 'add') return true;
+  if (e.kind === 'update' && onlyAdds((e as unknown as { before?: unknown }).before, (e as unknown as { after?: unknown }).after)) return true;
   // THE AREA BAG IS NEVER STATED (2026-09-30). `Asset.derivedAreas` is written only by the chain, on
   // every load and save (`computeAssetChain`), and no one types into it, so a load that re-derives it
   // reinterprets nothing. Found when the lobby rule changed (export review item 21) and every stored

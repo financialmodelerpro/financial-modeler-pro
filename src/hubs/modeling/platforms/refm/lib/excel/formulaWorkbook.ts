@@ -182,6 +182,7 @@ export function buildFormulaWorkbook(opts: BuildModelOptions): FormulaWorkbookRe
   // too (the fee matrix, a land line's 100% rows): blue says typed, black says worked out.
   const inputsWs = wb.getWorksheet('Inputs');
   if (inputsWs) for (const { row, col } of typedInputsCells(wb)) { const cell = inputsWs.getCell(row, col); cell.font = { ...(cell.font ?? {}), color: { argb: INPUT_ARGB.inputText } }; }
+  if (inputsWs) applyInputValidation(wb, inputsWs, registry);
   orderTabs(wb);
   writeLoopLinks(wb);
   const problems = exportShapeProblems(wb);
@@ -194,6 +195,40 @@ export function buildFormulaWorkbook(opts: BuildModelOptions): FormulaWorkbookRe
   const ar = receivableDaysProblems(wb, arDays, sched === 'live' || sched === 'partial');
   if (ar.length) throw new Error(`The live workbook failed its receivable days check: ${ar.join('; ')}.`);
   return { wb, registry, status, pending };
+}
+
+/**
+ * DATA VALIDATION ON INPUTS (2026-11-03, founder): the formulas no longer clamp, so a typed value
+ * must stay inside what the platform accepts. Every shaded share takes 0% to 100% (the sensitivity
+ * shocks -100% to 100%); every year takes 1900 to 2200, and the exit year the model's own years.
+ * A cell whose exported value is already outside its range (a negative growth rate) is left without
+ * a rule, since validating it would reject the model as exported.
+ */
+function applyInputValidation(wb: ExcelJS.Workbook, ws: ExcelJS.Worksheet, registry: CellRegistry): void {
+  const at = (k: string): string | null => { const a = registry.get(k); return a ? `${a.row}:${a.col}` : null; };
+  const shocks = new Set(registry.keys().filter((k) => k.startsWith('sensin:price:')).map(at).filter((x): x is string => !!x));
+  const exitAt = at('inp=ret|Exit Year@4');
+  // The model years are Timeline row 3, the first year in F and the last in the last column that holds one.
+  const tl = wb.getWorksheet('Timeline');
+  let lastCol = 0;
+  tl?.getRow(3).eachCell((cell, col) => { if (col >= 6 && cell.value !== null && cell.value !== undefined) lastCol = Math.max(lastCol, col); });
+  const colL = (n: number): string => { let out = ''; while (n > 0) { const m = (n - 1) % 26; out = String.fromCharCode(65 + m) + out; n = Math.floor((n - 1) / 26); } return out; };
+  for (const { row, col, value } of typedInputsCells(wb)) {
+    if (typeof value !== 'number') continue;
+    const c = ws.getCell(row, col);
+    const fmt = String(c.numFmt ?? '');
+    const id = `${row}:${col}`;
+    if (fmt.includes('%')) {
+      const lo = shocks.has(id) ? -1 : 0;
+      if (value < lo || value > 1) continue;
+      c.dataValidation = { type: 'decimal', operator: 'between', allowBlank: true, formulae: [lo, 1], showErrorMessage: true, errorTitle: 'Out of range', error: lo < 0 ? 'Enter a change between -100% and 100%.' : 'Enter a share between 0% and 100%.' };
+    } else if (fmt === '0' && Number.isInteger(value) && value >= 1900 && value <= 2200) {
+      const isExit = id === exitAt && lastCol >= 6;
+      c.dataValidation = isExit
+        ? { type: 'whole', operator: 'between', allowBlank: false, formulae: ['Timeline!$F$3', `Timeline!$${colL(lastCol)}$3`], showErrorMessage: true, errorTitle: 'Outside the model years', error: 'Enter an exit year within the model years (Timeline).' }
+        : { type: 'whole', operator: 'between', allowBlank: true, formulae: [1900, 2200], showErrorMessage: true, errorTitle: 'Not a year', error: 'Enter a year between 1900 and 2200.' };
+    }
+  }
 }
 
 /**

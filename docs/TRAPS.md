@@ -1326,6 +1326,8 @@ test can only be skipped when its own target is missing.
 **The trap to avoid:** a test guarded by a different key from the one it uses. Gate a test on its own target,
 and give every guard an `else` that reports the skip by name.
 
+**Second instance (2026-11-03, close-out):** the facility-shape tests (two loans on the sweep, the annuity, equal principal, the existing loan) were gated on `fin|<tranche> (new facility)|Credit Spread %`, also renamed on 2026-10-29. Their guard HAD an `else`, so the full run printed "no target on this model" as a FAIL; the founder's rule that a skip is a FAIL is what caught it. Now gated on `trsp:<id>`. Grep every gate in a verifier for keys the rebuilt builder no longer registers.
+
 ### 3.37 A failing input-change line said "Excel agrees on every live cell", and a truncated read believed it
 
 **Symptom (2026-11-03):** on 2026-11-03 (morning) the exit-year-to-2037 test was reported as "Excel matches the platform on all 983 cells that move; only 12 Returns cells differ in layout". In fact several hundred cells on Revenue, Opex, Schedules, Financing, the P&L and the statements differed: the held lines kept trading after the earlier exit in Excel, while the engine stops them.

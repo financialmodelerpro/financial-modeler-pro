@@ -25,7 +25,7 @@
 import type { LayerContext, LiveLayer } from '../formulaWorkbook';
 import { LiveWriter } from './writer';
 import { PERIOD_COLS } from '../buildModelWorkbook';
-import { CHECK_REL_TOL, PHASE_EBITDA_CHECK_LABEL, buildEmptyInputAdvisories } from '../../reports/checksReport';
+import { CHECK_REL_TOL, PHASE_EBITDA_CHECK_LABEL, buildEmptyInputAdvisories, isEmptyCheckEligible } from '../../reports/checksReport';
 import { PHASE_RECON, PHASE_RECON_LINE } from '../../reports/m4Reports';
 import { computeFinancialsSnapshot } from '../../financials-resolvers';
 import { LOOP_PBT_CHECK, SOURCES_USES_CHECK } from '../buildModelWorkbook';
@@ -101,22 +101,23 @@ export const stage7cChecks: LiveLayer = {
         liveIds.push(SOURCES_USES_CHECK);
       }
     }
-    // An input left at zero: its rows read the inputs, so typing a rate turns the note to OK.
+    // An input left at zero: the residue counts the lines still at zero, so the note reads OK only
+    // once every line has a rate (buildEmptyInputAdvisories: a NOTE while any line leaves it at zero).
     for (const a of buildEmptyInputAdvisories(ctx.opts.state)) {
       const key = `chk|zero|${a.item}`;
       if (!has(key)) continue;
       const cells: string[] = [];
       for (const as of ctx.opts.state.assets) {
         if (as.visible === false || (as.strategy !== 'Operate' && as.strategy !== 'Lease')) continue;
-        (as.opex?.lines ?? []).forEach((ln, i) => { if (ln.name === a.item && has(`oxv|${as.id}|${i}`)) cells.push(w.ref(`oxv|${as.id}|${i}`, 5)); });
+        (as.opex?.lines ?? []).forEach((ln, i) => { if (ln.name === a.item && isEmptyCheckEligible(ln) && has(`oxv|${as.id}|${i}`)) cells.push(w.ref(`oxv|${as.id}|${i}`, 5)); });
       }
-      (ctx.opts.state.project.hqOpex?.lines ?? []).forEach((ln, i) => { if (ln.name === a.item && has(`oxv|hq|${i}`)) cells.push(w.ref(`oxv|hq|${i}`, 4)); });
+      (ctx.opts.state.project.hqOpex?.lines ?? []).forEach((ln, i) => { if (ln.name === a.item && isEmptyCheckEligible(ln) && has(`oxv|hq|${i}`)) cells.push(w.ref(`oxv|hq|${i}`, 4)); });
       if (!cells.length) continue;
       const res = w.addr(key);
-      w.reset(); w.fA(res, `SUM(${cells.join(',')})`);
+      w.reset(); w.fA(res, cells.map((c) => `IF(${c}<=0,1,0)`).join('+'));
       const C = w.refA(res, CHK);
-      w.reset(); w.fA({ ...res, col: res.col - 1 }, `IF(${C}>0,"OK","NOTE")`);
-      w.reset(); w.fA({ ...res, col: res.col + 2 }, `IF(${C}>0,"A rate is typed","Left at zero; the model charges nothing for it")`);
+      w.reset(); w.fA({ ...res, col: res.col - 1 }, `IF(${C}>0,"NOTE","OK")`);
+      w.reset(); w.fA({ ...res, col: res.col + 2 }, `IF(${C}>0,"Left at zero; the model charges nothing for it","A rate is typed")`);
     }
     const returnsLive = true;
 
