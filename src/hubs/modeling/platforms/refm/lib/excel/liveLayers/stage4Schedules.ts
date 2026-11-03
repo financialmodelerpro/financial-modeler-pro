@@ -152,6 +152,7 @@ export const stage4Schedules: LiveLayer = {
       return `SUM(${ks.map((k) => p(k, t)).join(',')})`;
     };
     const exit = (t: number): string => (booked ? w.refP({ sheet: 'Timeline', row: w.addr('tl:flag:exit').row, col: pc(t) }, here) : '0');
+    const upto = (t: number): string => (has('tl:flag:upto') ? `${w.refP({ sheet: 'Timeline', row: w.addr('tl:flag:upto').row, col: pc(t) }, here)}*` : '');
     const idxNow = (t: number): string => w.refP({ sheet: SCH, row: 4, col: pc(t) }, here);
     const claim = (name: string, key: string): void => { if (has(key)) w.claim(name, SCH, w.addr(key).row, 1); };
     const costLineOf = (id: string): Pick<CostLine, 'id' | 'catalogId'> => (state.costLines as CostLine[]).find((x) => x.id === id) ?? { id };
@@ -174,7 +175,7 @@ export const stage4Schedules: LiveLayer = {
       const dep = (addKeys: string[]) => (t: number): string => {
         const adds = addKeys.filter(has).map((k) => rng(k));
         const sum = adds.length > 1 ? `(${adds.join('+')})` : adds[0];
-        return `IF(${life}>0,SUMPRODUCT((${sum}>0)*${sum}*(${rng(hk)}<=${idxNow(t)})*(${rng(hk)}+MAX(1,INT(${life}))>${idxNow(t)}))/MAX(1,${life}),0)`;
+        return `${upto(t)}IF(${life}>0,SUMPRODUCT((${sum}>0)*${sum}*(${rng(hk)}<=${idxNow(t)})*(${rng(hk)}+MAX(1,INT(${life}))>${idxNow(t)}))/MAX(1,${life}),0)`;
       };
       // The asset's rows on Capex: Table 4 (excluding all land) is what depreciates, Table 2 less it is its land.
       const keys = l.memberIds.flatMap((id) => w.reg.keys().filter((k) => k.startsWith(`cxc:${id}:`) && k.split(':').length === 3));

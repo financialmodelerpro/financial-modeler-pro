@@ -196,28 +196,49 @@ export interface ExitAnalysis {
   capRate: number | null;
 }
 
-/** Sources & uses of capital over the hold, fully reconciled
- *  (totalSources === totalUses). */
+/**
+ * SOURCES AND USES OVER THE CONSTRUCTION PERIOD (2026-11-03, founder): the cash that came in and
+ * went out from the model start to the end of construction (the last construction or capex year),
+ * read off the cash flow, so the two totals meet by the cash identity with no balancing row. Cash
+ * still held at the end of construction is a named use.
+ */
 export interface SourcesUses {
+  /** The last year the window covers: the last year any capex is spent (cash or land in kind). */
+  constructionEndYear: number;
   existingEquity: number;
   newEquityCash: number;
   inKindEquity: number;
   existingDebt: number;
+  /** Debt drawn for capex, plus debt drawn for capitalised interest (the two below). */
   newDebt: number;
-  /** Customer collections / pre-sales cash received during the hold. */
+  newDebtCapex: number;
+  newDebtInterest: number;
+  /** Cash held before the model starts (existing operations). */
+  openingCash: number;
+  /** Cash collected from customers during construction, net of escrow held and released. */
   customerCollections: number;
-  /** Operating cash generated during the hold that funds remaining uses
-   *  (balancing source; 0 when other funding already covers the cost). */
-  operatingCash: number;
+  /** Proceeds from a disposal inside the window (an exit during construction). */
+  disposalProceeds: number;
   totalSources: number;
+  /** The development already in the ground at the model start (existing operations). */
+  existingInvestment: number;
   land: number;
   construction: number;
+  /** Interest paid during construction (the cash interest, capitalised interest drawn as debt included). */
+  interestPaid: number;
+  /** Alias of interestPaid, for readers written before 2026-11-03. */
   idc: number;
-  /** Reserves / distributions: the balancing USE when total funding exceeds
-   *  development cost (0 when funding is tight). */
-  reservesDistributions: number;
+  /** Operating costs paid during construction: what the collections fund before they reach cash (opex, selling and marketing, fund fees, zakat). */
+  operatingCosts: number;
+  debtRepaid: number;
+  distributions: number;
+  /** Cash held at the end of construction: the genuine surplus, never a plug. */
+  cashHeldAtEnd: number;
   totalUses: number;
 }
+
+/** A sources or uses row as every surface prints it. */
+export interface SourcesUsesRow { key: keyof SourcesUses; label: string; value: number }
 
 /** Capital-structure mix as fractions of total sources. */
 export interface FundingMix {

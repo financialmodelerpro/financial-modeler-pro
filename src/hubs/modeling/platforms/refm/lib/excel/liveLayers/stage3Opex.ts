@@ -178,7 +178,8 @@ export const stage3Opex: LiveLayer = {
       const ops = (t: number): string => P(`tl:flag:${p.id}:ops`, t);
       const hand = (t: number): string => P(`tl:flag:${p.id}:hand`, t);
       const startKey = RV('opsStart');
-      row(K('io'), (t) => (has(startKey) ? `(${hand(t)}+${ops(t)})*(${yearHere(t)}>=${A(startKey, TOTAL_COL)})` : ops(t)));
+      const upto = (t: number): string => (has('tl:flag:upto') ? `*${P('tl:flag:upto', t)}` : '');
+      row(K('io'), (t) => (has(startKey) ? `(${hand(t)}+${ops(t)})*(${yearHere(t)}>=${A(startKey, TOTAL_COL)})${upto(t)}` : `${ops(t)}${upto(t)}`));
       const IO = (t: number): string => P(K('io'), t);
       // Inflation counts from the later of the year on Inputs and the first operating year (assetOpex.ts):
       // the operations start on Revenue, never before the handover year.

@@ -898,7 +898,11 @@ export interface Project {
      *  saved row. */
     feeDistribution?: Array<{
       partyId: string; partyName: string;
-      performanceFeePct: number; developerFeePct: number; commissionPct: number;
+      performanceFeePct: number;
+      /** UNUSED (2026-11-03): read by nothing in the model and no longer shown; kept so a stored value is not lost. */
+      developerFeePct: number;
+      /** UNUSED (2026-11-03): as developerFeePct. */
+      commissionPct: number;
     }>;
 
     // ── LEGACY (2026-08-03, migration 208). Retired from the UI, still carried

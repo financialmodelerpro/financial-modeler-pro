@@ -380,36 +380,51 @@ export function returnsPlan(state: FinancialsResolverState, snap: Snap, rs: RS, 
     gap('ret|gap|e');
   }
 
-  // ════ SOURCES AND USES ══════════════════════════════════════════════════
+  // ════ SOURCES AND USES, OVER CONSTRUCTION ═══════════════════════════════
+  // The cash in and out from the model start to the last year any capex is spent (the engine's
+  // sourcesUses), each a sum of the Cash Flow over that window, so the totals meet with no balancing row.
   {
     const su = rs.sourcesUses;
-    head('ret|#su', 'Sources and uses of capital');
+    head('ret|#su', 'Sources and uses of capital, over construction');
+    const L = years.indexOf(su.constructionEndYear);
+    pRow('rs|con', 'In the construction window (1 up to the last capex year)', [null, ...Array.from({ length: N }, (_, t) => (t <= L ? 1 : 0))],
+      (E, s) => `IF(${E.yr(s)}<=${E.d('ret|su|end')},1,0)`, { total: 'none', fmt: RF.int });
+    one('ret|su|end', 'Construction window ends (the last capex year)', su.constructionEndYear,
+      (E) => `MAX(INDEX(((ABS(${E.rngY('rs|ff:capex')})+ABS(${E.rngY('rs|ff:kind')}))>0.5)*${E.yrRng()},0))`, RF.year);
+    const win = (E: REnv, key: string): string => `SUMPRODUCT(${E.rngY('rs|con')},${E.xr(key)})`;
+    const cf = (k: string): string => `cf|direct||${k}`;
+    const escKeys = (E: REnv): string[] => [cf('Escrow: cash held'), cf('Escrow: cash released')].filter((k) => E.has(k));
+    const collected = (E: REnv): string => [cf('Total cash collected'), ...escKeys(E)].map((k) => win(E, k)).join('+');
     const lines = planRevenueLines(state.assets, state.subUnits, state.phases, p);
-    const sells = state.assets.filter((a) => a.visible !== false && (a.strategy === 'Sell' || a.strategy === 'Sell + Manage'));
-    const preKeys = [...new Set(sells.map((a) => lineForAsset(lines, a.id)?.key).filter((k): k is string => !!k))].map((k) => `rvc:${k}:cashPre`);
-    const escB = (label: string): string => `esc||B. Escrow Balance Roll-Forward|${label}`;
+    void lines; void lineForAsset;
     const costLineOf = (id: string): Pick<CostLine, 'id' | 'catalogId'> => (state.costLines as CostLine[]).find((x) => x.id === id) ?? { id };
     const visibleIds = new Set(state.assets.filter((a) => a.visible !== false).map((a) => a.id));
     const landKeysOf = (E: REnv): string[] => KEYS.cxc(E).filter((k) => visibleIds.has(k.split(':')[1]) && isLandValueLine(costLineOf(k.split(':')[2])));
-    one('ret|Existing Equity', 'Existing equity', su.existingEquity, (E) => E.ref('retin:equity'), RF.money, { indent: 1 });
-    one('ret|New Equity (cash)', 'New equity (cash)', su.newEquityCash, (E) => E.cell('ret|pt|cash', D), RF.money, { indent: 1 });
-    one('ret|In-Kind Equity (land)', 'In-kind equity (land)', su.inKindEquity, (E) => E.cell('ret|pt|kind', D), RF.money, { indent: 1 });
-    one('ret|Existing Debt', 'Existing debt', su.existingDebt, (E) => E.ref('retin:debt'), RF.money, { indent: 1 });
-    one('ret|New Debt (incl. capitalised IDC)', 'New debt (incl. capitalised interest)', su.newDebt, (E) => `SUM(${E.xr('fnc:main:draw')})+SUM(${E.xr('fnc:main:idcdraw')})`, RF.money, { indent: 1 });
-    one('ret|Customer Collections / Pre-Sales', 'Customer collections (pre-sales, net of escrow)', su.customerCollections,
-      (E) => `${preKeys.filter((k) => E.has(k)).map((k) => `SUM(${E.xr(k)})`).join('+') || '0'}-${E.has(escB('Total Additions')) ? `SUM(${E.xr(escB('Total Additions'))})` : '0'}-${E.has(escB('Less: Release of Locked Funds')) ? `SUM(${E.xr(escB('Less: Release of Locked Funds'))})` : '0'}`, RF.money, { indent: 1 });
-    // THE PLATFORM'S BALANCING RULE (core/calculations/returns/analytics.ts sourcesUses): operating cash
-    // funds the gap where cost exceeds the other sources, reserves take the surplus where they exceed it.
-    const SRC = ['ret|Existing Equity', 'ret|New Equity (cash)', 'ret|In-Kind Equity (land)', 'ret|Existing Debt', 'ret|New Debt (incl. capitalised IDC)', 'ret|Customer Collections / Pre-Sales'];
-    const others = (E: REnv): string => `SUM(${E.d(SRC[0])}:${E.d(SRC[SRC.length - 1])})`;
-    const base = (E: REnv): string => `SUM(${E.d('ret|Land')}:${E.d('ret|IDC Capitalized During Construction')})`;
-    one('ret|Operating Cash Generated', 'Operating cash generated (funds the cost the sources above do not)', su.operatingCash, (E) => `IF(${base(E)}>${others(E)},${base(E)}-${others(E)},0)`, RF.money, { indent: 1 });
-    one('ret|Total Sources', 'Total sources', su.totalSources, (E) => `SUM(${E.d(SRC[0])}:${E.d('ret|Operating Cash Generated')})`, RF.money, { style: 'subtotal' });
-    one('ret|Land', 'Land', su.land, (E) => landKeysOf(E).map((k) => `SUM(${E.xr(k)})`).join('+') || '0', RF.money, { indent: 1 });
-    one('ret|Construction & Infrastructure', 'Construction and infrastructure', su.construction, (E) => `SUM(${E.xr('fnc:capexall')})-${E.d('ret|Land')}`, RF.money, { indent: 1 });
-    one('ret|IDC Capitalized During Construction', 'Interest capitalised during construction', su.idc, (E) => `SUM(${E.xr('fnc:main:basis')})`, RF.money, { indent: 1 });
-    one('ret|Reserves / Distributions', 'Reserves and distributions (the sources above the cost)', su.reservesDistributions, (E) => `IF(${others(E)}>${base(E)},${others(E)}-${base(E)},0)`, RF.money, { indent: 1 });
-    one('ret|Total Uses', 'Total uses', su.totalUses, (E) => `SUM(${E.d('ret|Land')}:${E.d('ret|Reserves / Distributions')})`, RF.money, { style: 'subtotal' });
+    const src: Array<[string, string, number, Fx]> = [
+      ['ret|Existing Equity', 'Existing equity', su.existingEquity, (E) => E.ref('retin:equity')],
+      ['ret|New Equity (cash)', 'Cash equity', su.newEquityCash, (E) => win(E, cf('Equity drawn in cash'))],
+      ['ret|In-Kind Equity (land)', 'Land contributed in kind', su.inKindEquity, (E) => win(E, cf('Land contributed in kind'))],
+      ['ret|Existing Debt', 'Existing debt', su.existingDebt, (E) => E.ref('retin:debt')],
+      ['ret|su|debtCapex', 'Debt drawn for capex', su.newDebtCapex, (E) => `${win(E, cf('Debt drawn'))}-${win(E, 'fnc:main:idcdraw')}`],
+      ['ret|su|debtInt', 'Debt drawn for capitalised interest', su.newDebtInterest, (E) => win(E, 'fnc:main:idcdraw')],
+      ['ret|su|open', 'Cash held at the model start', su.openingCash, (E) => E.xA(cf('Opening cash'), 1)],
+      ['ret|Customer Collections / Pre-Sales', 'Customer collections during construction (net of escrow)', su.customerCollections, collected],
+      ['ret|su|proceeds', 'Disposal proceeds during construction', su.disposalProceeds, (E) => win(E, cf('Proceeds from Disposal of Operating Assets'))],
+    ];
+    for (const [k, label, v, f] of src) one(k, label, v, f, RF.money, { indent: 1 });
+    one('ret|Total Sources', 'Total sources', su.totalSources, (E) => `SUM(${E.d(src[0][0])}:${E.d(src[src.length - 1][0])})`, RF.money, { style: 'subtotal' });
+    const use: Array<[string, string, number, Fx]> = [
+      ['ret|su|existing', 'Development in place at the model start', su.existingInvestment, (E) => E.ref('retin:hist')],
+      ['ret|Land', 'Land (cash and in kind)', su.land, (E) => landKeysOf(E).map((k) => `SUM(${E.xr(k)})`).join('+') || '0'],
+      ['ret|Construction & Infrastructure', 'Construction', su.construction, (E) => `SUM(${E.xr('fnc:capexall')})-${E.d('ret|Land')}`],
+      ['ret|su|interest', 'Interest paid during construction', su.interestPaid, (E) => `-${win(E, cf('Interest paid'))}`],
+      ['ret|su|opcost', 'Operating costs paid during construction', su.operatingCosts, (E) => `${collected(E)}-${win(E, cf('Cash Flow from Operations'))}`],
+      ['ret|su|repaid', 'Debt repaid during construction', su.debtRepaid, (E) => `-${win(E, cf('Debt repaid'))}`],
+      ['ret|su|dist', 'Distributions during construction', su.distributions, (E) => `-${win(E, cf('Dividends paid'))}`],
+      ['ret|su|held', 'Cash held at the end of construction', su.cashHeldAtEnd, (E) => `SUMPRODUCT((${E.yrRng()}=${E.d('ret|su|end')})*${E.xr(cf('Closing cash'))})`],
+    ];
+    for (const [k, label, v, f] of use) one(k, label, v, f, RF.money, { indent: 1 });
+    one('ret|Total Uses', 'Total uses', su.totalUses, (E) => `SUM(${E.d(use[0][0])}:${E.d(use[use.length - 1][0])})`, RF.money, { style: 'subtotal' });
     one('ret|S&U check', 'Sources less uses (should be zero)', su.totalSources - su.totalUses, (E) => `${E.d('ret|Total Sources')}-${E.d('ret|Total Uses')}`);
     gap('ret|gap|f');
   }
@@ -613,7 +628,7 @@ export function returnsPlan(state: FinancialsResolverState, snap: Snap, rs: RS, 
       (E) => `IF(AND(COUNTIF(${E.rngY('rs|noi')},">0")>0,${E.d('rm|stabnoi')}>0),IF(${E.d('rm|prevnoi')}>0,${E.d('ret|Basis year')}-SUMPRODUCT((${E.yrRng()}=${E.d('ret|Basis year')})*${E.rngY('rm|run')}),IFERROR(${E.ref('project:axisYear')}+MATCH(TRUE,INDEX(${E.rngY('rs|noi')}>=${E.d('rm|stabnoi')}*0.95,0),0)-1,"n/a")),"n/a")`, RF.year);
     // Funding mix, of the sources above.
     const su = (k: string): Fx => (E) => `IF(${E.d('ret|Total Sources')}>0,(${k.split('+').map((x) => E.d(x)).join('+')})/${E.d('ret|Total Sources')},"n/a")`;
-    one('rm|mixdebt', 'Funding mix: debt', rs.fundingMix.debtPct ?? 'n/a', su('ret|Existing Debt+ret|New Debt (incl. capitalised IDC)'), RF.pct);
+    one('rm|mixdebt', 'Funding mix: debt', rs.fundingMix.debtPct ?? 'n/a', su('ret|Existing Debt+ret|su|debtCapex+ret|su|debtInt'), RF.pct);
     one('rm|mixcash', 'Funding mix: cash equity', rs.fundingMix.cashEquityPct ?? 'n/a', su('ret|Existing Equity+ret|New Equity (cash)'), RF.pct);
     one('rm|mixkind', 'Funding mix: in-kind equity', rs.fundingMix.inKindEquityPct ?? 'n/a', su('ret|In-Kind Equity (land)'), RF.pct);
     one('rm|mixcust', 'Funding mix: customer collections', rs.fundingMix.customerFundingPct ?? 'n/a', su('ret|Customer Collections / Pre-Sales'), RF.pct);

@@ -339,7 +339,7 @@ async function main(): Promise<void> {
   // RE-AIMED 2026-10-06 (founder): a one-case workbook prints no Case Comparison; 3 after 2 is asserted on the multi-case workbook below.
   check('Returns mirrors Module 5 sub-tabs in order (1. Returns -> 2. RE Metrics; 3. Case Comparison only with cases)', m5(/^1\. Returns$/) > 0 && m5(/^2\. RE Metrics$/) > m5(/^1\. Returns$/) && m5(/^3\. Case Comparison$/) < 0);
   check('Returns carries the Returns sub-tab sections in screen order', (() => {
-    const order = [/^Returns Assumptions$/, /^Headline Returns$/, /^Development Economics$/, /^Equity Partners$/, /^Sources & Uses of Capital$/, /^Returns by Cash-Flow Basis$/, /^Return Cash-Flow Streams/, /^FCFF Build-Up/, /^FCFE Build-Up/, /^(Distributed Equity Build-Up|Dividend Discount Model \(DDM\), before performance fee)/, /^Exit: terminal value and gain on disposal$/, /^Sensitivity, Equity IRR \(FCFE\)$/].map(m5);
+    const order = [/^Returns Assumptions$/, /^Headline Returns$/, /^Development Economics$/, /^Equity Partners$/, /^Sources & Uses of Capital, over construction \(to \d{4}\)$/, /^Returns by Cash-Flow Basis$/, /^Return Cash-Flow Streams/, /^FCFF Build-Up/, /^FCFE Build-Up/, /^(Distributed Equity Build-Up|Dividend Discount Model \(DDM\), before performance fee)/, /^Exit: terminal value and gain on disposal$/, /^Sensitivity, Equity IRR \(FCFE\)$/].map(m5);
     return order.every((v, i) => v > 0 && (i === 0 || v > order[i - 1]) && v < m5(/^2\. RE Metrics$/));
   })());
   check('Returns carries the RE Metrics sections in screen order', (() => {

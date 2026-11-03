@@ -87,7 +87,7 @@ export { terminalEnterpriseValue, terminalEquityValue, resolveCapRate, resolveAp
 export { valueAtExit, writeOffAtExit, terminalMetricIndex, DEFAULT_TERMINAL_VALUE_BASIS } from './disposal';
 export type { TerminalValueBasis, TerminalValuation, WriteOff } from './disposal';
 export {
-  developmentEconomics, exitAnalysis, sourcesUses, fundingMix,
+  developmentEconomics, exitAnalysis, sourcesUses, sourcesUsesRows, fundingMix,
   equityExposure, stabilizationMetrics, debtAnalytics,
 } from './analytics';
 export { computePartnerReturns } from './partners';

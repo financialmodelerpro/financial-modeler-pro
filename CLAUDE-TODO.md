@@ -7,8 +7,9 @@
 Done today (detail in CHANGELOG 2026-11-03): the engine books a distribution beyond the retained earnings available as a return of capital (every surface); the live Balance Sheet only links (77 rows to 51), the debt total is the SUM of the facilities, the reserve cap and zakat days are always read, the bridge is gone; the three Cash Flow follow-ups below are DONE. No session-end suite since 2026-10-25: run it first.
 
 - **Returns DONE (later 2026-11-03):** 501 rows to 262, one IRR / MOIC / NPV per stream, NPV live, fee split from Inputs (CHANGELOG 2026-11-03).
-- **Next, OPEN: held lines stop trading after an exit before the last year, in the live workbook** (Revenue, Opex, Schedules depreciation, Financing interest, the P&L, the statements). The engine does it (`stopAfterExit`); the exit-2037 test fails on it, upstream of Returns (TRAPS 3.37).
-- **Decision for the founder: sources and uses without balancing rows** changes the funding mix the Summary prints (Marina Gate balances with a 266.0m reserves/distributions use). Kept as the platform rule for now.
+- **DONE (later 2026-11-03): the exit year is one row on Timeline** (`tl:flag:upto`); exit 2037 and 2036 agree in Excel on every live cell.
+- **DONE: sources and uses over construction, no balancing row** (engine and every surface); the developer fee and commission shares are no longer shown.
+- **Next: Summary and Checks.** No session-end suite since 2026-10-25: run it first.
 - Then Summary and Checks.
 - The 2026-10-29 close-out list below stands.
 

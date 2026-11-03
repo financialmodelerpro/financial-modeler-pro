@@ -23,6 +23,7 @@
  * readable. The renderer is pure (state in, bytes out).
  */
 import { resolveSubUnitAdr, resolveAssetAreaMetrics, computeAssetLandBreakdown } from '@/src/core/calculations';
+import { sourcesUsesRows } from '@/src/core/calculations/returns';
 
 /**
  * AREA AND LAND COME FROM THE PLATFORM'S RULES, NEVER FROM THIS FILE (2026-09-16).
@@ -1656,14 +1657,13 @@ function buildModule1(
         const totalCell = (v: number): string => `${fmt.pctRaw(v, 2)}${Math.abs(v - 100) < 0.01 ? '' : ' (not 100%)'}`;
         items.push(tTable(M1_TABS.fund, 'inputs', {
           title: 'Fee distribution (shares are not normalised)', kind: 'grid', align: 'data',
-          columns: ['Earns', 'Performance Fee', 'Developer Fee', 'Commission'],
+          columns: ['Earns', 'Performance Fee'],
           rows: [
             ...matrix.map((d) => row([
               isFundManagerRow(d) ? `${d.partyName || DEFAULT_FUND_MANAGER_NAME} (fund manager, also earns 100% of the management fees)` : (d.partyName ?? d.partyId),
-              fmt.pctRaw(d.performanceFeePct ?? 0, 2), fmt.pctRaw(d.developerFeePct ?? 0, 2), fmt.pctRaw(d.commissionPct ?? 0, 2),
+              fmt.pctRaw(d.performanceFeePct ?? 0, 2),
             ])),
-            row(['Total', totalCell(colTotal((d) => d.performanceFeePct)),
-              totalCell(colTotal((d) => d.developerFeePct)), totalCell(colTotal((d) => d.commissionPct))], 'total'),
+            row(['Total', totalCell(colTotal((d) => d.performanceFeePct))], 'total'),
           ],
         }));
       }
@@ -3524,17 +3524,15 @@ function buildModule5(returns: ReturnsSnapshot, snap: ProjectFinancialsSnapshot,
   ]);
   const su = returns.sourcesUses;
   items.push(tTable(m5Tab('Returns'), 'outputs', {
-    title: 'Sources & Uses', kind: 'grid', align: 'data', columns: ['Sources', 'Amount', 'Uses', 'Amount'],
-    rows: [
-      row(['Existing equity', fmt.money(su.existingEquity), 'Land', fmt.money(su.land)]),
-      row(['New equity (cash)', fmt.money(su.newEquityCash), 'Construction', fmt.money(su.construction)]),
-      row(['In-kind equity', fmt.money(su.inKindEquity), 'IDC', fmt.money(su.idc)]),
-      row(['Existing debt', fmt.money(su.existingDebt), 'Reserves / distributions', fmt.money(su.reservesDistributions)]),
-      row(['New debt', fmt.money(su.newDebt), '', '']),
-      row(['Customer collections', fmt.money(su.customerCollections), '', '']),
-      row(['Operating cash', fmt.money(su.operatingCash), '', '']),
-      row(['Total sources', fmt.money(su.totalSources), 'Total uses', fmt.money(su.totalUses)], 'total'),
-    ],
+    title: `Sources & Uses, over construction (to ${su.constructionEndYear})`, kind: 'grid', align: 'data', columns: ['Sources', 'Amount', 'Uses', 'Amount'],
+    rows: (() => {
+      const { sources, uses } = sourcesUsesRows(su, { omitZero: true });
+      const n = Math.max(sources.length, uses.length);
+      return [
+        ...Array.from({ length: n }, (_, i) => row([sources[i]?.label ?? '', sources[i] ? fmt.money(sources[i].value) : '', uses[i]?.label ?? '', uses[i] ? fmt.money(uses[i].value) : ''])),
+        row(['Total sources', fmt.money(su.totalSources), 'Total uses', fmt.money(su.totalUses)], 'total'),
+      ];
+    })(),
   }));
   const ee = returns.equityExposure;
   const da = returns.debtAnalytics;

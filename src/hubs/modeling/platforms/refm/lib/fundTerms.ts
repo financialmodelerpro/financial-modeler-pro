@@ -170,14 +170,18 @@ export const FUND_FEE_SPECS: readonly FeeSpec[] = [
 
 // ── Fee distribution matrix ────────────────────────────────────────────────
 
-/** The fee types that get split across parties. */
+/**
+ * The fee types that get split across parties, as the screen, the PDF and both workbooks show them.
+ * ONLY THE PERFORMANCE FEE (2026-11-03, founder): the developer fee and commission shares are read by
+ * nothing in the model, so they are no longer shown; their stored values are kept (FeeDistributionRow).
+ */
 export const FEE_DISTRIBUTION_COLUMNS = [
   { key: 'performanceFeePct', label: 'Performance Fee' },
-  { key: 'developerFeePct', label: 'Developer Fee' },
-  { key: 'commissionPct', label: 'Commission' },
 ] as const;
 
 export type FeeDistributionColumnKey = typeof FEE_DISTRIBUTION_COLUMNS[number]['key'];
+/** Every share a matrix row STORES, the two unused ones included (kept, not shown). */
+export type FeeDistributionStoredKey = 'performanceFeePct' | 'developerFeePct' | 'commissionPct';
 
 /**
  * One party's share of each fee type.
@@ -486,7 +490,7 @@ export function sanitizeFeeDistribution(input: unknown): FeeDistributionRow[] {
 }
 
 /** Column total across parties. 1 means fully allocated. */
-export function feeColumnTotal(rows: readonly FeeDistributionRow[] | undefined, col: FeeDistributionColumnKey): number {
+export function feeColumnTotal(rows: readonly FeeDistributionRow[] | undefined, col: FeeDistributionStoredKey): number {
   return (rows ?? []).reduce((sum, r) => {
     const v = r[col];
     return sum + (Number.isFinite(v) ? v : 0);
@@ -499,7 +503,7 @@ export function feeColumnTotal(rows: readonly FeeDistributionRow[] | undefined, 
  * rather than enforced, because a half-entered split is a normal intermediate
  * state, not a reason to refuse a save.
  */
-export function feeColumnBalanced(rows: readonly FeeDistributionRow[] | undefined, col: FeeDistributionColumnKey): boolean {
+export function feeColumnBalanced(rows: readonly FeeDistributionRow[] | undefined, col: FeeDistributionStoredKey): boolean {
   const total = feeColumnTotal(rows, col);
   if (total === 0) return true;
   return Math.abs(total - 1) < 1e-6;

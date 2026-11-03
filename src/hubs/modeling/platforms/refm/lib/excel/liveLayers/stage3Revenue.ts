@@ -398,7 +398,8 @@ export const stage3Revenue: LiveLayer = {
         w.fA(at(startKey, TOTAL_COL), `IF(ISNUMBER(${ov}),MAX(${sy},${ov}),${TL(p, 'hy')}+1)`);
       }
       const ioK = R('In operations (1 = yes)');
-      row(ioK, (t) => { const s = A(startKey, TOTAL_COL); return `(${yr(t)}>=${s})*(${yr(t)}<=MAX(${s},${TL(p, 'ly')}))`; });
+      const upto = (t: number): string => (has('tl:flag:upto') ? `*${w.refP({ sheet: 'Timeline', row: w.addr('tl:flag:upto').row, col: pc(t) }, REV)}` : '');
+      row(ioK, (t) => { const s = A(startKey, TOTAL_COL); return `(${yr(t)}>=${s})*(${yr(t)}<=MAX(${s},${TL(p, 'ly')}))${upto(t)}`; });
       const IO = (t: number): string => P(ioK, t);
       const opsNo = (t: number): string => `${IO(t)}*(${yr(t)}-${A(startKey, TOTAL_COL)}+1)`;
       // Occupancy: Inputs, at the line's operating year; the Total is its average over the years in operation.

@@ -18,6 +18,7 @@
  */
 
 import { buildFcffBuildup, buildFcfeBuildup } from './streamReports';
+import { sourcesUsesRows } from '@/src/core/calculations/returns';
 // The fund layer comes from the SHARED builders, exactly as the streams above
 // do. The deck owns its wording and its formatters; the builders own which rows
 // exist, in what order, and which of them carry a lifetime total.
@@ -502,20 +503,10 @@ export function buildICReportModel(input: {
   });
 
   // ── Sources & uses (verified rs.sourcesUses paths) ──
+  const suRows = sourcesUsesRows(su, { omitZero: true });
   const sourcesUses = {
-    sources: [
-      { label: 'Existing equity', value: su.existingEquity },
-      { label: 'In-kind equity (land)', value: su.inKindEquity },
-      { label: 'Existing debt', value: su.existingDebt },
-      { label: 'New debt', value: su.newDebt },
-      { label: 'Customer collections', value: su.customerCollections },
-    ] as ICKeyValue[],
-    uses: [
-      { label: 'Land', value: su.land },
-      { label: 'Construction', value: su.construction },
-      { label: 'Interest during construction (IDC)', value: su.idc },
-      { label: 'Reserves / distributions', value: su.reservesDistributions },
-    ] as ICKeyValue[],
+    sources: suRows.sources.map((x) => ({ label: x.label, value: x.value })) as ICKeyValue[],
+    uses: suRows.uses.map((x) => ({ label: x.label, value: x.value })) as ICKeyValue[],
     totalSources: su.totalSources,
     totalUses: su.totalUses,
   };

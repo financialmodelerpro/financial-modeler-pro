@@ -172,10 +172,10 @@ console.log('\n=== 3. Nothing trusts its input ===');
 
 console.log('\n=== 4. The distribution matrix is per PARTY ===');
 {
-  check('three fee-type columns', FEE_DISTRIBUTION_COLUMNS.length === 3);
-  check('the columns are Performance Fee, Developer Fee, Commission',
-    FEE_DISTRIBUTION_COLUMNS.map((c) => c.label).join('|') === 'Performance Fee|Developer Fee|Commission');
-  check('column keys are unique', new Set(FEE_DISTRIBUTION_COLUMNS.map((c) => c.key)).size === 3);
+  // ONE COLUMN SHOWN (2026-11-03, founder): the developer fee and commission shares are read by nothing in
+  // the model, so the screen, the PDF and both workbooks show the performance fee alone; the stored values stay.
+  check('one fee-type column is shown: the performance fee', FEE_DISTRIBUTION_COLUMNS.length === 1 && FEE_DISTRIBUTION_COLUMNS[0].key === 'performanceFeePct');
+  check('the stored developer fee and commission shares still sanitise (kept, not shown)', sanitizeFeeDistribution([{ partyId: 'p1', developerFeePct: 0.3, commissionPct: 0.2 }])[0].developerFeePct === 0.3);
 
   const rows = sanitizeFeeDistribution([
     { partyId: 'p1', partyName: 'Sponsor Co', performanceFeePct: 0.6, developerFeePct: 1, commissionPct: 0.5 },

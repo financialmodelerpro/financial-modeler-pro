@@ -16,6 +16,7 @@
  * Pure: reads computeFinancialsSnapshot + state, returns a workbook.
  */
 import { effectiveTrancheRatePct } from '@/src/core/calculations/financing';
+import { sourcesUsesRows } from '@/src/core/calculations/returns';
 import { buildReceivablesRollForward, buildUnearnedRollForward } from '../reports/saleRollForwardReports';
 import ExcelJS from 'exceljs';
 import { buildSaleCohortTermsBlock, saleCohortRuleText, buildSaleCohortGrid, saleCohortGridCaption } from '../reports/saleCohortReports';
@@ -832,16 +833,15 @@ function addAssumptions(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFin
     // The distribution matrix. Shares are NEVER normalised.
     const matrix = fundTerms.feeDistribution ?? [];
     if (matrix.length) {
-      setSectionHeader(ws.getRow(r), 'Fee distribution matrix (shares are not normalised)', 4); r += 1;
-      ['Party', 'Commission %', 'Developer fee %', 'Performance fee %'].forEach((h, i) => setColHeader(ws.getCell(r, i + 1), h, i === 0 ? 'left' : 'right')); r += 1;
+      // The performance fee share only (2026-11-03): the developer fee and commission shares are read by nothing.
+      setSectionHeader(ws.getRow(r), 'Performance fee shares (not normalised)', 2); r += 1;
+      ['Party', 'Performance fee %'].forEach((h, i) => setColHeader(ws.getCell(r, i + 1), h, i === 0 ? 'left' : 'right')); r += 1;
       for (const [mi, m] of matrix.entries()) {
         setLabel(ws.getCell(`A${r}`), m.partyName || m.partyId);
-        setInput(ws.getCell(`B${r}`), m.commissionPct ?? 0, NUMFMT.pct2);
-        setInput(ws.getCell(`C${r}`), m.developerFeePct ?? 0, NUMFMT.pct2);
-        setInput(ws.getCell(`D${r}`), m.performanceFeePct ?? 0, NUMFMT.pct2);
-        // The performance fee share is live (Returns splits the fee by it); the other two are read by nothing.
-        if (isLiveLayout()) registerCell(`ftm:${mi}:perf`, ws, ws.getCell(r, 4));
-        for (const col of isLiveLayout() ? [2, 3] : [2, 3, 4]) { fixedAt(r, col, 'How the fees are shared among earners is built in at export.'); registerCell(deadSwitchKey(DEAD_SWITCHES.feeMatrix, 'Inputs', r, col), ws, ws.getCell(r, col)); }
+        setInput(ws.getCell(`B${r}`), m.performanceFeePct ?? 0, NUMFMT.pct2);
+        // Live: Returns splits the fee by it. The hardcoded workbook prints it as typed.
+        if (isLiveLayout()) registerCell(`ftm:${mi}:perf`, ws, ws.getCell(r, 2));
+        else fixedAt(r, 2, 'How the performance fee is shared among earners, as set on Fund Terms.');
         r += 1;
       }
       r += 1;
@@ -1675,6 +1675,16 @@ function addPeriodFlags(ws: ExcelJS.Worksheet, snap: ReturnType<typeof computeFi
   }
   const exitIdx = resolveReturnsConfig(state.project, N).exitYearOffset;
   flagRow('tl:flag:exit', 'Exit year (1 = yes)', (t) => t === exitIdx);
+  // UP TO THE EXIT (2026-11-03): the held lines (hotel and lease) trade through the exit year and
+  // stop after it (financials-resolvers stopAfterExit); every operating line of them reads this row.
+  if (resolveReturnsConfig(state.project, N).terminalMethod !== 'none') flagRow('tl:flag:upto', 'Up to exit (1 = yes)', (t) => t <= exitIdx);
+}
+
+/** 1 up to the exit year, 0 after it (2026-11-03): the held lines stop trading after the exit (financials-resolvers stopAfterExit). */
+function upToExit(state: FinancialsResolverState, N: number): (t: number) => number {
+  const cfg = resolveReturnsConfig(state.project, N);
+  const stop = cfg.terminalMethod !== 'none' ? cfg.exitYearOffset : Number.POSITIVE_INFINITY;
+  return (t) => (t <= stop ? 1 : 0);
 }
 
 // Strategy -> display group, shared by the Land & Area and Capex groupings.
@@ -3459,7 +3469,8 @@ function addRevenue(ctx: EmitCtx): { revLinks: RevLinks; cosLinks: CosLinks } {
           em.moneyRow('Cash collected', ar.cashReceivedPerPeriod, { style: 'subtotal' });
           return ar.cashReceivedPerPeriod;
         };
-        const inOps = range(0, N - 1).map((t) => (w.operations.includes(t) ? 1 : 0));
+        const held = upToExit(state, N);
+        const inOps = range(0, N - 1).map((t) => (w.operations.includes(t) ? held(t) : 0));
         const opsYears = Math.max(1, sumAll(inOps));
         const drivers = (): void => {
           em.setRegTable('d');
@@ -4433,8 +4444,9 @@ function addOpexLive(ctx: EmitCtx, ws: ExcelJS.Worksheet, em: ReturnType<typeof 
       const plan = planOpexStatement(line.key, stored, isHotel);
       const costVals = (row: OpexCostRow): number[] => sumOf(row.idxs.map((i) => padded(per[i])));
       em.subTitle(revenueLineName(line));
-      money(K('io'), 'In operations (1 = yes)', vals('In operations (1 = yes)'), { indent: 1, numFmt: NUMFMT.int });
-      if (byLabel.has('Inflation factor while operating')) money(K('fac'), 'Inflation factor while operating', vals('Inflation factor while operating'), { indent: 1, numFmt: FACTOR_FMT, noTotal: true });
+      const held = upToExit(state, N);
+      money(K('io'), 'In operations (1 = yes)', vals('In operations (1 = yes)').map((v, t) => v * held(t)), { indent: 1, numFmt: NUMFMT.int });
+      if (byLabel.has('Inflation factor while operating')) money(K('fac'), 'Inflation factor while operating', vals('Inflation factor while operating').map((v, t) => v * held(t)), { indent: 1, numFmt: FACTOR_FMT, noTotal: true });
       let rev: number[];
       if (isHotel) {
         money(K('rev:rooms'), 'Rooms revenue', vals('Rooms revenue'), { indent: 1 });
@@ -5342,7 +5354,7 @@ function addSchedulesLive(ctx: EmitCtx, ws: ExcelJS.Worksheet, E: ReturnType<typ
       if (dCtx.booked) money(K('disp'), 'Building: (−) disposed at exit', D((s) => s.startsWith('(−) Disposed at Exit')), { indent: 1 });
       money(K('close'), 'Building: closing', D((s) => s.startsWith('Closing NBV')), { ...balance, style: 'subtotal' });
       if (withIdc) {
-        money(K('idcDep'), 'of which: depreciation on capitalised interest', idcDep, { indent: 2 });
+        money(K('idcDep'), 'of which: depreciation on capitalised interest', idcDep.map((v, t) => v * upToExit(state, N)(t)), { indent: 2 });
         money(K('idcNbv'), 'of which: capitalised interest, closing', D((s) => s.includes('of which: IDC NBV')), { indent: 2, noTotal: true });
       }
     };
@@ -6177,22 +6189,16 @@ function addReturns(ctx: EmitCtx, revLinks: RevLinks, opexLinks: OpexLinks, fin:
   }
 
   // ── Sources & Uses of Capital ──
-  subTitle('Sources & Uses of Capital');
-  textLine('Sources');
-  scalarRow('Existing Equity', su.existingEquity, NUMFMT.money);
-  scalarRow('New Equity (cash)', su.newEquityCash, NUMFMT.money);
-  scalarRow('In-Kind Equity (land)', su.inKindEquity, NUMFMT.money);
-  scalarRow('Existing Debt', su.existingDebt, NUMFMT.money);
-  scalarRow('New Debt (incl. capitalised IDC)', su.newDebt, NUMFMT.money);
-  scalarRow('Customer Collections / Pre-Sales', su.customerCollections, NUMFMT.money);
-  scalarRow('Operating Cash Generated', su.operatingCash, NUMFMT.money);
-  scalarRow('Total Sources', su.totalSources, NUMFMT.money, { bold: true });
-  textLine('Uses');
-  scalarRow('Land', su.land, NUMFMT.money);
-  scalarRow('Construction & Infrastructure', su.construction, NUMFMT.money);
-  scalarRow('IDC Capitalized During Construction', su.idc, NUMFMT.money);
-  scalarRow('Reserves / Distributions', su.reservesDistributions, NUMFMT.money);
-  scalarRow('Total Uses', su.totalUses, NUMFMT.money, { bold: true });
+  subTitle(`Sources & Uses of Capital, over construction (to ${su.constructionEndYear})`);
+  {
+    const { sources, uses } = sourcesUsesRows(su, { omitZero: true });
+    textLine('Sources');
+    for (const x of sources) scalarRow(x.label, x.value, NUMFMT.money);
+    scalarRow('Total Sources', su.totalSources, NUMFMT.money, { bold: true });
+    textLine('Uses');
+    for (const x of uses) scalarRow(x.label, x.value, NUMFMT.money);
+    scalarRow('Total Uses', su.totalUses, NUMFMT.money, { bold: true });
+  }
   r += 1;
 
   // ── Returns by Cash-Flow Basis ──

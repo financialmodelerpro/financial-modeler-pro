@@ -721,22 +721,33 @@ export function computeReturnsSnapshot(snap: ProjectFinancialsSnapshot, project:
     exitDebt: debtAtExit,
   });
 
-  // Customer collections = pre-sales cash received over the hold (net of
-  // escrow held, plus escrow released): real funding from buyers.
-  const customerCollections = Math.max(0,
-    sum(snap.revenue.projectTotals.presalesCashPerPeriod)
-    - sum(snap.escrow.projectTotals.heldPerPeriod)
-    + sum(snap.escrow.projectTotals.releasePerPeriod));
+  // SOURCES AND USES OVER THE CONSTRUCTION PERIOD (2026-11-03, founder): the window runs to the last
+  // year any capex is spent (cash or land in kind, so it covers every construction year that builds), and every figure is a sum of the direct
+  // cash flow over it, so the totals meet by the cash identity.
+  const capexPer = dcf.capexPerPeriod.slice(0, N).map((v, t) => Math.abs(v ?? 0) + Math.abs(dcf.equityInKindDrawdownPerPeriod?.[t] ?? 0));
+  const lastCapexIdx = capexPer.reduce((m, v, t) => (Math.abs(v ?? 0) > 0.5 ? t : m), -1);
+  const L = Math.min(N - 1, Math.max(0, lastCapexIdx));
+  const upToL = (arr: readonly number[] | undefined): number => (arr ?? []).slice(0, L + 1).reduce((s2, v) => s2 + (v ?? 0), 0);
+  const collectedL = upToL(dcf.revenueReceivedPerPeriod) + upToL(dcf.escrowHeldPerPeriod) + upToL(dcf.escrowReleasePerPeriod);
   const sourcesUsesBlock = sourcesUses({
-    existingEquity: fin.equity.totalExisting,
-    newEquityCash: fin.equity.totalCash,
-    inKindEquity: fin.equity.totalInKind,
-    existingDebt: fin.existing.debtOutstandingTotal,
-    newDebt: sum(fin.combined.totalDrawdown) + sum(fin.combined.totalInterestCapitalized),
-    customerCollections,
+    constructionEndYear: snap.yearLabels[L] ?? snap.projectStartYear + L,
+    existingEquity: existingEquity,
+    newEquityCash: upToL(dcf.equityDrawdownPerPeriod),
+    inKindEquity: upToL(dcf.equityInKindDrawdownPerPeriod),
+    existingDebt: existingDebtOpening,
+    newDebtCapex: upToL(dcf.debtDrawdownPerPeriod) - upToL(dcf.idcDrawdownPerPeriod),
+    newDebtInterest: upToL(dcf.idcDrawdownPerPeriod),
+    openingCash: snap.bs.historicalOpeningCashTotal ?? 0,
+    customerCollections: collectedL,
+    disposalProceeds: upToL(dcf.proceedsFromDisposalPerPeriod),
+    existingInvestment: existingPreCapex,
     land: fin.capex.totals.inclAllLand - fin.capex.totals.exclAllLand,
     construction: fin.capex.totals.exclAllLand,
-    idc: sum(fin.combined.totalInterestForAssetBasis),
+    interestPaid: -upToL(dcf.interestPaidPerPeriod),
+    operatingCosts: collectedL - upToL(dcf.cashFromOperationsPerPeriod),
+    debtRepaid: -upToL(dcf.debtRepaymentPerPeriod),
+    distributions: upToL(snap.dividends.totalDividendsPerPeriod),
+    cashHeldAtEnd: snap.bs.cashPerPeriod[L] ?? 0,
   });
   const fundingMixBlock = fundingMix(sourcesUsesBlock);
 

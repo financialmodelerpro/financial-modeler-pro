@@ -197,7 +197,7 @@ console.log('=== M5 Returns snapshot integration ===');
   check('PASS1: exit NOI = rs.exitNOI', near(ex.exitNOI, rs.exitNOI));
   // Sources & uses balance.
   check('PASS1: sources = uses (balanced)', near(su.totalSources, su.totalUses));
-  check('PASS1: totalUses = land + construction + IDC + reserves/distributions', near(su.totalUses, su.land + su.construction + su.idc + su.reservesDistributions));
+  check('PASS1: totalUses = every use row, cash held at the end of construction included (no balancing row)', near(su.totalUses, su.existingInvestment + su.land + su.construction + su.interestPaid + su.operatingCosts + su.debtRepaid + su.distributions + su.cashHeldAtEnd));
   check('PASS1: funding mix present (debt% computed)', rs.fundingMix.debtPct === null || (rs.fundingMix.debtPct >= 0 && rs.fundingMix.debtPct <= 1.0001));
   // Equity exposure + debt analytics present + sane.
   check('PASS1: equity totalRequired = rs.totalEquityInvested', near(rs.equityExposure.totalEquityRequired, rs.totalEquityInvested));

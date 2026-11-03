@@ -11,7 +11,7 @@
  */
 import { safeRatio } from './metrics';
 import type {
-  DevelopmentEconomics, ExitAnalysis, SourcesUses,
+  DevelopmentEconomics, ExitAnalysis, SourcesUses, SourcesUsesRow,
   EquityExposureDetail, StabilizationMetrics, DebtAnalytics,
 } from './types';
 
@@ -66,46 +66,46 @@ export function exitAnalysis(args: {
   };
 }
 
-/** Sources & uses of capital over the hold, fully reconciled. Sources =
- *  equity (existing / cash / in-kind) + debt (existing / new) + customer
- *  collections (pre-sales) + operating cash. Uses = land + construction + IDC
- *  + reserves/distributions (the balancing line when funding exceeds cost).
- *  Operating cash is the balancing SOURCE when cost exceeds the other funding;
- *  reserves/distributions is the balancing USE when funding exceeds cost, so
- *  totalSources === totalUses always. */
-export function sourcesUses(args: {
-  existingEquity: number;
-  newEquityCash: number;
-  inKindEquity: number;
-  existingDebt: number;
-  newDebt: number;
-  customerCollections: number;
-  land: number;
-  construction: number;
-  idc: number;
-}): SourcesUses {
-  const { existingEquity, newEquityCash, inKindEquity, existingDebt, newDebt, customerCollections, land, construction, idc } = args;
-  const baseUses = land + construction + idc;
-  const nonOpSources = existingEquity + newEquityCash + inKindEquity + existingDebt + newDebt + customerCollections;
-  const operatingCash = Math.max(0, baseUses - nonOpSources);        // funds the gap if cost > funding
-  const reservesDistributions = Math.max(0, nonOpSources - baseUses); // excess funding goes to reserves/distributions
-  const totalSources = nonOpSources + operatingCash;
-  const totalUses = baseUses + reservesDistributions;
-  return {
-    existingEquity,
-    newEquityCash,
-    inKindEquity,
-    existingDebt,
-    newDebt,
-    customerCollections,
-    operatingCash,
-    totalSources,
-    land,
-    construction,
-    idc,
-    reservesDistributions,
-    totalUses,
-  };
+/**
+ * Sources and uses over the construction period (2026-11-03): each figure is a sum of the cash flow
+ * over the window, so totalSources equals totalUses by the cash identity (opening cash plus every
+ * flow equals the closing cash), with cash held at the end a named use. Nothing balances it.
+ */
+export function sourcesUses(a: Omit<SourcesUses, 'newDebt' | 'idc' | 'totalSources' | 'totalUses'>): SourcesUses {
+  const newDebt = a.newDebtCapex + a.newDebtInterest;
+  const totalSources = a.existingEquity + a.newEquityCash + a.inKindEquity + a.existingDebt + newDebt + a.openingCash + a.customerCollections + a.disposalProceeds;
+  const totalUses = a.existingInvestment + a.land + a.construction + a.interestPaid + a.operatingCosts + a.debtRepaid + a.distributions + a.cashHeldAtEnd;
+  return { ...a, newDebt, idc: a.interestPaid, totalSources, totalUses };
+}
+
+/** The rows every surface prints, in one order. A row that is zero on every model of its kind
+ *  (existing operations, an exit inside construction) is left out where `omitZero` asks. */
+export function sourcesUsesRows(su: SourcesUses, opts: { omitZero?: boolean } = {}): { sources: SourcesUsesRow[]; uses: SourcesUsesRow[] } {
+  const y = su.constructionEndYear;
+  const sources: SourcesUsesRow[] = [
+    { key: 'existingEquity', label: 'Existing equity', value: su.existingEquity },
+    { key: 'newEquityCash', label: 'Cash equity', value: su.newEquityCash },
+    { key: 'inKindEquity', label: 'Land contributed in kind', value: su.inKindEquity },
+    { key: 'existingDebt', label: 'Existing debt', value: su.existingDebt },
+    { key: 'newDebtCapex', label: 'Debt drawn for capex', value: su.newDebtCapex },
+    { key: 'newDebtInterest', label: 'Debt drawn for capitalised interest', value: su.newDebtInterest },
+    { key: 'openingCash', label: 'Cash held at the model start', value: su.openingCash },
+    { key: 'customerCollections', label: 'Customer collections during construction (net of escrow)', value: su.customerCollections },
+    { key: 'disposalProceeds', label: 'Disposal proceeds during construction', value: su.disposalProceeds },
+  ];
+  const uses: SourcesUsesRow[] = [
+    { key: 'existingInvestment', label: 'Development in place at the model start', value: su.existingInvestment },
+    { key: 'land', label: 'Land (cash and in kind)', value: su.land },
+    { key: 'construction', label: 'Construction', value: su.construction },
+    { key: 'interestPaid', label: 'Interest paid during construction', value: su.interestPaid },
+    { key: 'operatingCosts', label: 'Operating costs paid during construction', value: su.operatingCosts },
+    { key: 'debtRepaid', label: 'Debt repaid during construction', value: su.debtRepaid },
+    { key: 'distributions', label: 'Distributions during construction', value: su.distributions },
+    { key: 'cashHeldAtEnd', label: `Cash held at the end of construction (${y})`, value: su.cashHeldAtEnd },
+  ];
+  if (!opts.omitZero) return { sources, uses };
+  const keep = (r: SourcesUsesRow): boolean => Math.abs(r.value) > 0.5 || r.key === 'cashHeldAtEnd';
+  return { sources: sources.filter(keep), uses: uses.filter(keep) };
 }
 
 /** Capital-structure mix as fractions of total sources (decimals). */

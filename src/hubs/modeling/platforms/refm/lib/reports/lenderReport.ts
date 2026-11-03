@@ -13,6 +13,7 @@
  */
 
 import { effectiveTrancheRatePct } from '@/src/core/calculations/financing';
+import { sourcesUsesRows } from '@/src/core/calculations/returns';
 import type { Project, FinancingTranche } from '../state/module1-types';
 import { DEFAULT_COVENANTS, type CovenantThreshold } from '../state/module1-types';
 import type { ReturnsSnapshot } from '../returns-resolvers';
@@ -133,21 +134,8 @@ export function buildLenderReportModel(input: {
       totalEquity: rs.totalEquityInvested, peakEquity: ee.equityAtRisk,
     },
     sourcesUses: {
-      sources: [
-        { label: 'Existing Equity', value: su.existingEquity },
-        { label: 'New Cash Equity', value: su.newEquityCash },
-        { label: 'In-Kind Equity', value: su.inKindEquity },
-        { label: 'Existing Debt', value: su.existingDebt },
-        { label: 'New Debt', value: su.newDebt },
-        { label: 'Customer Collections', value: su.customerCollections },
-        { label: 'Operating Cash', value: su.operatingCash },
-      ],
-      uses: [
-        { label: 'Land', value: su.land },
-        { label: 'Construction', value: su.construction },
-        { label: 'IDC (capitalised)', value: su.idc },
-        { label: 'Reserves / Distributions', value: su.reservesDistributions },
-      ],
+      sources: sourcesUsesRows(su, { omitZero: true }).sources.map((x) => ({ label: x.label, value: x.value })),
+      uses: sourcesUsesRows(su, { omitZero: true }).uses.map((x) => ({ label: x.label, value: x.value })),
       totalSources: su.totalSources,
       totalUses: su.totalUses,
     },

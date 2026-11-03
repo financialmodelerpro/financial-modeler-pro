@@ -94,7 +94,6 @@ export function fixAtExport(ws: ExcelJS.Worksheet, row: number, col: number, why
  * any other unread value. Remove a name here when its tab reads it.
  */
 export const DEAD_SWITCHES = {
-  feeMatrix: 'fee distribution matrix: the commission and developer fee shares (read by nothing in the model)',
   // (2026-10-25: hotel and lease receivable days are LIVE inputs, never on this list:
   // Schedules builds each line's operating receivable from them, and the check protects them.)
 } as const;

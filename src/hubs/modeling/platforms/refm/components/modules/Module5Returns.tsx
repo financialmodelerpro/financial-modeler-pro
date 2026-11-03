@@ -10,6 +10,7 @@
  * All math lives in returns-resolvers.ts -> core/calculations/returns.
  */
 import React, { useMemo, useState, useEffect } from 'react';
+import { sourcesUsesRows } from '@/src/core/calculations/returns';
 import { useShallow } from 'zustand/react/shallow';
 import { useModule1Store } from '../../lib/state/module1-store';
 import { planReportLines, lineTitle, type LineState } from '../../lib/reports/lineRows';
@@ -238,30 +239,17 @@ export default function Module5Returns({ activeProjectId = null }: { activeProje
       )}
 
       {/* ── Sources & Uses ── */}
-      <SectionTitle>Sources &amp; Uses of Capital</SectionTitle>
+      <SectionTitle>Sources &amp; Uses of Capital, over construction (to {su.constructionEndYear})</SectionTitle>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 'var(--sp-2)', marginBottom: 'var(--sp-3)' }}>
         <SourcesUsesTable
           title="Sources"
-          rows={[
-            ['Existing Equity', su.existingEquity],
-            ['New Equity (cash)', su.newEquityCash],
-            ['In-Kind Equity (land)', su.inKindEquity],
-            ['Existing Debt', su.existingDebt],
-            ['New Debt (incl. capitalised IDC)', su.newDebt],
-            ['Customer Collections / Pre-Sales', su.customerCollections],
-            ['Operating Cash Generated', su.operatingCash],
-          ]}
+          rows={sourcesUsesRows(su, { omitZero: true }).sources.map((x) => [x.label, x.value] as [string, number])}
           total={su.totalSources}
           fmt={fmt}
         />
         <SourcesUsesTable
           title="Uses"
-          rows={[
-            ['Land', su.land],
-            ['Construction & Infrastructure', su.construction],
-            ['IDC Capitalized During Construction', su.idc],
-            ['Reserves / Distributions', su.reservesDistributions],
-          ]}
+          rows={sourcesUsesRows(su, { omitZero: true }).uses.map((x) => [x.label, x.value] as [string, number])}
           total={su.totalUses}
           fmt={fmt}
         />

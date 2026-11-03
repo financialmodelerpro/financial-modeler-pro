@@ -439,7 +439,7 @@ export const stage6Loop: LiveLayer = {
         const rateIn = has(`ft:${spec.label}`) ? `N(${w.ref(`ft:${spec.label}`)})` : '0';
         put(k, (t) => {
           const when = spec.timing === 'one_time' ? `(${Y(t)}=${T('fl:firstDraw')})*` : '';
-          return `${alive(t)}*${when}${rateIn}${spec.kind === 'amount' ? '' : `*${baseOf(spec.base)}`}`;
+          return `${has('tl:flag:upto') ? P('tl:flag:upto', t) : alive(t)}*${when}${rateIn}${spec.kind === 'amount' ? '' : `*${baseOf(spec.base)}`}`;
         });
         feeKeys.push(k);
         w.claim(`fnc:fee:${i}`, FIN, w.addr(k).row, 1);

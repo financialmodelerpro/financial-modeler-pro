@@ -537,6 +537,7 @@ function livePeriodFlags(w: Writer, reg: CellRegistry, phaseIds: string[], yearC
   }
   if (w.has('tl:flag:exit') && w.has('inp=ret|Exit Year@4')) {
     for (const c of active) w.fAt(w.sheetCell('Timeline', rowOf('tl:flag:exit'), c), `(${yr(c)}=${R('inp=ret|Exit Year@4')})*1`);
+    if (w.has('tl:flag:upto')) for (const c of active) w.fAt(w.sheetCell('Timeline', rowOf('tl:flag:upto'), c), `(${yr(c)}<=${R('inp=ret|Exit Year@4')})*1`);
   }
   // The model years: the last is the latest last operating year; how many is last - first + 1.
   if (w.has('tl:lastYear')) w.f('tl:lastYear', `MAX(${phaseIds.map((id) => R(`tl:phase:${id}:ly`)).join(',')})`);

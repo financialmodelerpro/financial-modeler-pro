@@ -25,7 +25,7 @@ import {
 } from '../src/core/calculations/returns/metrics';
 import { computeReturns, summariseStream } from '../src/core/calculations/returns';
 import {
-  developmentEconomics, exitAnalysis, sourcesUses, fundingMix,
+  developmentEconomics, exitAnalysis, sourcesUses, sourcesUsesRows, fundingMix,
   equityExposure, stabilizationMetrics, debtAnalytics,
 } from '../src/core/calculations/returns/analytics';
 import { computePartnerReturns } from '../src/core/calculations/returns/partners';
@@ -208,17 +208,22 @@ check('summariseStream matches computeReturns', summariseStream(input.fcff, 0.1)
   check('exit: capRate = 100/1250 = 8%', near(ex.capRate, 0.08));
   check('exit: zero debt => debtYield null', exitAnalysis({ exitYearLabel: 0, exitNOI: 100, exitEBITDA: 0, exitEnterpriseValue: 1250, exitEquityValue: 1250, exitDebt: 0 }).debtYield === null);
 
-  // Sources & uses: operating cash balances the gap when cost > funding.
-  const su = sourcesUses({ existingEquity: 100, newEquityCash: 200, inKindEquity: 50, existingDebt: 0, newDebt: 300, customerCollections: 0, land: 150, construction: 600, idc: 40 });
-  check('S&U: totalUses base = 790 (no surplus)', near(su.totalUses, 790));
-  check('S&U: operatingCash = 790 − 650 = 140', near(su.operatingCash, 140));
-  check('S&U: reservesDistributions = 0 (cost > funding)', near(su.reservesDistributions, 0));
-  check('S&U: totalSources = totalUses (balanced)', near(su.totalSources, su.totalUses));
-  // Over-funded case: pre-sales push funding above cost -> reserves/distributions.
-  const su2 = sourcesUses({ existingEquity: 100, newEquityCash: 200, inKindEquity: 0, existingDebt: 0, newDebt: 300, customerCollections: 400, land: 150, construction: 600, idc: 40 });
-  check('S&U over-funded: operatingCash = 0', near(su2.operatingCash, 0));
-  check('S&U over-funded: reserves = 1000 − 790 = 210', near(su2.reservesDistributions, 210));
-  check('S&U over-funded: balanced', near(su2.totalSources, su2.totalUses));
+  // SOURCES AND USES OVER CONSTRUCTION (2026-11-03): each total is the sum of its own rows; the
+  // cash held at the end is a named use, so a consistent set of flows balances with no plug, and an
+  // inconsistent one is SHOWN as a difference, never absorbed.
+  const base = { constructionEndYear: 2030, existingEquity: 100, newEquityCash: 200, inKindEquity: 0, existingDebt: 0, newDebtCapex: 260, newDebtInterest: 40, openingCash: 0, customerCollections: 400, disposalProceeds: 0, existingInvestment: 100, land: 150, construction: 600, interestPaid: 40, operatingCosts: 30, debtRepaid: 0, distributions: 0, cashHeldAtEnd: 80 };
+  const su = sourcesUses(base);
+  check('S&U: new debt = capex debt + interest debt = 300', near(su.newDebt, 300));
+  check('S&U: total sources = 1,000, the sum of its rows', near(su.totalSources, 1000));
+  check('S&U: total uses = 1,000, the sum of its rows (cash held at the end included)', near(su.totalUses, 1000));
+  check('S&U: no balancing row: the interface carries neither operatingCash nor reservesDistributions', !('operatingCash' in su) && !('reservesDistributions' in su));
+  const su1 = sourcesUses({ ...base, cashHeldAtEnd: 70 });
+  check('S&U: a flow left out shows as a difference (10), not absorbed', near(su1.totalSources - su1.totalUses, 10));
+  const rowsAll = sourcesUsesRows(su), rowsShown = sourcesUsesRows(su, { omitZero: true });
+  check('S&U rows: every source and use has a row', rowsAll.sources.length === 9 && rowsAll.uses.length === 8);
+  check('S&U rows: the zero rows drop on a screen, the cash held at the end stays', !rowsShown.sources.some((r) => r.key === 'openingCash') && rowsShown.uses.some((r) => r.key === 'cashHeldAtEnd'));
+  check('S&U rows: the rows add to the totals', near(rowsAll.sources.reduce((x, r) => x + r.value, 0), su.totalSources) && near(rowsAll.uses.reduce((x, r) => x + r.value, 0), su.totalUses));
+  const su2 = su;
   // Funding mix sums to ~100% (customer 400/1000 = 40%, debt 300/1000 = 30%).
   const mix = fundingMix(su2);
   check('mix: customer funding = 40%', near(mix.customerFundingPct, 0.40));

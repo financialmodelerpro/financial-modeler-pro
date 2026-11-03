@@ -616,6 +616,9 @@ function perturbations(input: LiveExportInputs, reg: CellRegistry): Perturbation
     const y0 = Number(st.phases.reduce((m: number, p: any) => Math.min(m, p.startDate ? new Date(p.startDate).getUTCFullYear() : 9999), 9999));
     out.push({ movesRevenue: true, label: 'the exit year to 2037', cell: 'inp=ret|Exit Year@4', value: 2037,
       edit: (s) => { s.project.returns = { ...(s.project.returns ?? {}), exitYearOffset: 2037 - y0 } as never; } });
+    // A second, earlier exit (2026-11-03): two years of held trading stop, the rule followed by row, not by column.
+    out.push({ movesRevenue: true, label: 'the exit year to 2036', cell: 'inp=ret|Exit Year@4', value: 2036,
+      edit: (s) => { s.project.returns = { ...(s.project.returns ?? {}), exitYearOffset: 2036 - y0 } as never; } });
   }
   const held = st.project.escrow?.heldPct ?? 0;
   if (held === 0 && reg.get('escin|pct')) {
@@ -1129,6 +1132,8 @@ function formulaCells(wb: ExcelJS.Workbook): Map<string, { formula: string; resu
         planted = `${ws.name}!${colLetterOf(col)}${r}`;
       }));
     }
+    // No unread number left on Inputs (2026-11-03, the fee matrix's unused columns went): plant one in an empty cell.
+    if (!planted) { const ws = copy.getWorksheet('Inputs')!; const r = ws.rowCount + 2; const c = ws.getCell(r, 2); c.value = 123; c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE2EAF4' } } as ExcelJS.Fill; planted = `Inputs!B${r}`; }
     const caught = deadOf(copy);
     check('A11c the guard fires: a number no formula reads, shaded in a copy, is caught at exactly that cell', !!planted && caught.length === 1 && caught[0] === planted, `planted ${planted}, caught ${caught.join(', ')}`);
   }

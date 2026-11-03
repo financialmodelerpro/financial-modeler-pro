@@ -181,7 +181,7 @@ export const stage7dSummary: LiveLayer = {
     // ── Sources and uses, and the money the tiles quote ──────────────────────
     const su4 = (label: string): X | null => cellX(`ret|${label}`, TOTAL_COL);
     const land$ = su4('Land'), cons$ = su4('Construction & Infrastructure'), totSrc = su4('Total Sources');
-    const debt$ = all([su4('New Debt (incl. capitalised IDC)'), su4('Existing Debt')]);
+    const debt$ = all([cellX('ret|su|debtCapex', TOTAL_COL), cellX('ret|su|debtInt', TOTAL_COL), su4('Existing Debt')]);
     const cash$ = all([su4('New Equity (cash)'), su4('Existing Equity')]);
     const kind$ = su4('In-Kind Equity (land)');
     const tdc: X | null = land$ && cons$ ? add([land$, cons$]) : null;
