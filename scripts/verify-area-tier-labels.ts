@@ -88,9 +88,13 @@ const tierOfWord = (label: string): 'bua' | 'gfa' | null => (/\bBUA\b/.test(labe
   const plain = quiet(() => buildModelWorkbook(opts));
   const { registry } = quiet(() => buildFormulaWorkbook(opts));
   const cellAt = (key: string): unknown => { const a = registry.need(key); return plain.getWorksheet(a.sheet)!.getCell(a.row, a.col).value; };
-  check('C1 the Summary prints GFA beside the words Total GFA', String(cellAt('sum|tile|Total GFA')) === `${int(GFA)} sqm`, String(cellAt('sum|tile|Total GFA')));
-  check('C2 and BUA beside the word BUA', String(cellAt('sum|tilesub|Total GFA')) === `BUA ${int(BUA)}`, String(cellAt('sum|tilesub|Total GFA')));
-  check('C3 its plot ratio is GFA over land', String(cellAt('sum|tile|Plot ratio')) === `${(GFA / LAND).toFixed(2)}x`, String(cellAt('sum|tile|Plot ratio')));
+  // RE-AIMED 2026-11-03: the live Summary prints numbers, each beside its own label (summaryPlan).
+  const live = quiet(() => buildModelWorkbook({ ...opts, liveLayout: true }));
+  const liveAt = (key: string, col: number): unknown => { const x = registry.need(key); return live.getWorksheet(x.sheet)!.getCell(x.row, col).value; };
+  const lbl = (key: string): string => String(liveAt(key, 1));
+  check('C1 the Summary prints GFA beside the words Total GFA', /^Total GFA/.test(lbl('sum|gfa')) && near(Number(liveAt('sum|gfa', 2)), GFA), `${lbl('sum|gfa')}: ${String(liveAt('sum|gfa', 2))}`);
+  check('C2 and BUA beside the word BUA', /BUA/.test(lbl('sum|bua')) && near(Number(liveAt('sum|bua', 2)), BUA), `${lbl('sum|bua')}: ${String(liveAt('sum|bua', 2))}`);
+  check('C3 its plot ratio is GFA over land', /^Plot ratio/.test(lbl('sum|ratio')) && Math.abs(Number(liveAt('sum|ratio', 2)) - GFA / LAND) < 1e-9, `${lbl('sum|ratio')}: ${String(liveAt('sum|ratio', 2))}`);
   // Land & Area: every column headed Total GFA or Total BUA, on the plots' total row.
   const la = plain.getWorksheet('Land & Area')!;
   // NSA too (2026-09-29, export review item 3): both tables totalled 65,123.04 where the project NSA

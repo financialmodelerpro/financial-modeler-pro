@@ -24,6 +24,7 @@ import {
   resolveAssetAreaMetrics, computeAssetLandBreakdown, computeAssetUnitCount, computePhaseTimeline,
 } from '@/src/core/calculations';
 import { normaliseAssetTypeId } from '@/src/core/calculations/typeKey';
+import { buildAssetAreaTables } from '../../components/modules/_shared/assetInputsView';
 import { areaTiers, plotRatio } from '@/src/core/calculations/areaTiers';
 import { resolveAssetKeys, resolveAssetLeasableSqm } from '../revenue-resolvers';
 import { revenueBySection } from './revenueSections';
@@ -209,6 +210,10 @@ export function buildOverviewReport(
     a, state.subUnits, a.assetTypeId ? state.project.assetTypeValues?.[a.assetTypeId] : undefined,
   );
 
+  const chainUnits = new Map<string, number>();
+  for (const g of buildAssetAreaTables({ project: state.project, phases: state.phases, parcels: state.parcels, assets: state.assets, subUnits: state.subUnits, costLines: state.costLines, landAllocationMode: state.landAllocationMode }).plots) {
+    for (const c of g.chains) chainUnits.set(c.assetId, (chainUnits.get(c.assetId) ?? 0) + Math.max(0, c.chain.units ?? 0));
+  }
   const byTypeMap = new Map<string, TypeRow>();
   let landSqm = 0; let landValue = 0; let gfaSqm = 0; let buaSqm = 0; let saleableSqm = 0;
   let units = 0; let keys = 0; let leasableSqm = 0;
@@ -218,7 +223,10 @@ export function buildOverviewReport(
     const t = typeLabel(a);
     const assetKeys = a.strategy === 'Operate' ? typeValuesOf(a).keys : 0;
     const assetLeasable = a.strategy === 'Lease' ? resolveAssetLeasableSqm(a, state.subUnits) : 0;
-    const assetUnits = a.strategy === 'Sell' || a.strategy === 'Sell + Manage' ? computeAssetUnitCount(a, state.subUnits) : 0;
+    // UNITS BY THE ASSETS TAB'S RULE (2026-11-03): a sub-unit count wins where one is stated, else the
+    // units Table 3 derives (NSA over the average unit size, rounded), so the overview and Land & Area agree.
+    const stated = computeAssetUnitCount(a, state.subUnits);
+    const assetUnits = a.strategy === 'Sell' || a.strategy === 'Sell + Manage' ? (stated > 0 ? stated : chainUnits.get(a.id) ?? 0) : 0;
     landSqm += land.landSqm; landValue += land.landValue;
     // THE WORDS AND THE SUMS THROUGH ONE RULE (areaTiers): GFA excludes parking, BUA holds it.
     const tier = areaTiers(m);

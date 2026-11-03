@@ -9,7 +9,8 @@ Done today (detail in CHANGELOG 2026-11-03): the engine books a distribution bey
 - **Returns DONE (later 2026-11-03):** 501 rows to 262, one IRR / MOIC / NPV per stream, NPV live, fee split from Inputs (CHANGELOG 2026-11-03).
 - **DONE (later 2026-11-03): the exit year is one row on Timeline** (`tl:flag:upto`); exit 2037 and 2036 agree in Excel on every live cell.
 - **DONE: sources and uses over construction, no balancing row** (engine and every surface); the developer fee and commission shares are no longer shown.
-- **Next: Summary and Checks.** No session-end suite since 2026-10-25: run it first.
+- **DONE: Summary and Checks** (numbers that link; only checks that can fail). The live workbook is rebuilt end to end.
+- **Next: the close-out**: the full verifier suite first (none since 2026-10-25), then the small items below (verify-area-tier-labels C4 among them).
 - Then Summary and Checks.
 - The 2026-10-29 close-out list below stands.
 

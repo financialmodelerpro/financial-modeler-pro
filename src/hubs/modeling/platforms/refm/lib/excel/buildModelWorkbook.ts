@@ -45,7 +45,7 @@ import { revenueBySection } from '../reports/revenueSections';
 import { scheduleWithDisposal, idcWithDisposal, disposalContextOf } from '../reports/disposalSchedules';
 import { buildFinancingScheduleTables, buildCashSweepTables, financingRowBasis, type ReportTable } from '../reports/financingReports';
 import { buildFcffBuildup, buildFcfeBuildup, buildDividendBuildup, m4StreamRow, distributedTieNote } from '../reports/streamReports';
-import { buildEmptyInputAdvisories, emptyInputAdvisoryText, buildIntegrityChecks, checkDetail, buildRevenueBasisAdvisoriesFor, revenueBasisAdvisoryText, buildSaleCohortAdvisories, saleCohortAdvisoryText } from '../reports/checksReport';
+import { buildEmptyInputAdvisories, emptyInputAdvisoryText, buildIntegrityChecks, checkDetail, buildRevenueBasisAdvisoriesFor, revenueBasisAdvisoryText, buildSaleCohortAdvisories, saleCohortAdvisoryText, CHECK_REL_TOL } from '../reports/checksReport';
 import { buildCostOfSalesReport } from '../reports/cosReports';
 import { buildOpexReport, OPEX_AP_BASIS, OPEX_AP_TOTAL_BASIS } from '../reports/opexReports';
 import { planCapexSpread, planCapexBlends, followedRule, type SpreadRow } from './liveLayers/capexSpread';
@@ -55,6 +55,7 @@ import { plPlan } from './liveLayers/plPlan';
 import { cfPlan } from './liveLayers/cfPlan';
 import { bsPlan } from './liveLayers/bsPlan';
 import { returnsPlan } from './liveLayers/returnsPlan';
+import { summaryPlan, SUM_YEAR_COL } from './liveLayers/summaryPlan';
 import { isRetailCompanion } from '@/src/core/calculations/retailCompanion';
 import { isParcelDrivenLandLine, resolvePhasingSource } from '@/src/core/calculations/capexPhasing';
 import { buildPLRows, buildPhaseEbitdaReconciliationRows, phaseEbitdaFooting, PHASE_RECON_LINE, taxBasisNote, buildDirectCFRows, buildIndirectCFRows, buildBSRows, buildBsReconciliationRows, buildBsFeederTables, BS_FEEDER_SECTIONS, BS_RECONCILIATION_CAPTION, buildFundFeeBasisRows, buildFundCapitalRows, fundFeeBasisBaseCell, totalColumnHeading, totalColumnNote, TOTAL_COLUMN_HEADINGS, TOTAL_COLUMN_NOTES, FUND_CAPITAL_BASES_TITLE, FUND_CAPITAL_BASES_NOTE, FUND_CAPITAL_BASE_TAG, type M4ReportCtx, type FundFeeBasisRow } from '../reports/m4Reports';
@@ -6709,50 +6710,73 @@ function addChecks(ctx: EmitCtx, capexAddrs: CapexAddrs, retLinks: RetLinks): vo
   // prints, through the SAME rules the PDFs use (lib/reports/checksReport.ts).
   const { wb, snap } = ctx;
   const ws = wb.addWorksheet(SHEETS.checks, { properties: { tabColor: { argb: ARGB.navy } }, views: [{ showGridLines: false }] });
-  ws.getColumn(1).width = 42; ws.getColumn(2).width = 14; ws.getColumn(3).width = 18; ws.getColumn(4).width = 62;
-  setTitle(ws.getCell('A1'), 'Checks & Legend', 16);
-  let r = 3;
-  // The legend carries the same four swatches as the Cover.
-  setSectionHeader(ws.getRow(r), 'Colour legend (FAST)', 4); r += 1;
   const liveChk = isLiveLayout();
-  { const inp = ws.getCell(`A${r}`); inp.value = liveChk ? 'Input (typed on the Inputs tab; the model recalculates)' : 'Input (the assumption a user edits before re-exporting)'; markInput(inp); r += 1; }
-  { const fm = ws.getCell(`A${r}`); fm.value = liveChk ? 'Computed value (a formula over the inputs)' : 'Computed value (platform snapshot, hardcoded constant)'; fm.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } }; r += 1; }
+  ws.getColumn(1).width = 46; ws.getColumn(2).width = 10; ws.getColumn(3).width = 16; ws.getColumn(4).width = liveChk ? 16 : 62; if (liveChk) ws.getColumn(5).width = 48;
+  setTitle(ws.getCell('A1'), liveChk ? 'Checks' : 'Checks & Legend', 16);
+  let r = 3;
+  // The legend carries the same four swatches as the Cover (the live workbook leaves it to the Guide).
+  if (!liveChk) { setSectionHeader(ws.getRow(r), 'Colour legend (FAST)', 4); r += 1; }
+  if (!liveChk) {
+  { const inp = ws.getCell(`A${r}`); inp.value = 'Input (the assumption a user edits before re-exporting)'; markInput(inp); r += 1; }
+  { const fm = ws.getCell(`A${r}`); fm.value = 'Computed value (platform snapshot, hardcoded constant)'; fm.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } }; r += 1; }
   { const sc = ws.getCell(`A${r}`); sc.value = 'Section (a navy band opening a numbered section)'; fillCell(sc, ARGB.accent); sc.font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.white } }; r += 1; }
   { const tc = ws.getCell(`A${r}`); tc.value = 'Total (a navy row closing a table)'; fillCell(tc, ARGB.navy); tc.font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.white } }; r += 1; }
   r += 1;
+  }
 
-  setSectionHeader(ws.getRow(r), liveChk ? 'Verification (recomputed live from the statements in this workbook)' : 'Platform verification snapshot (results as of export)', 4); r += 1;
-  (liveChk ? ['Check', 'Status', 'Residue', 'Detail', 'Worst year'] : ['Check', 'Status', 'Residue', 'Detail']).forEach((h, i) => setColHeader(ws.getCell(r, i + 1), h, 'left')); r += 1;
-  if (liveChk) ws.getColumn(5).width = 11;
+  setSectionHeader(ws.getRow(r), liveChk ? 'Checks (live: each reconciles rows of this workbook)' : 'Platform verification snapshot (results as of export)', liveChk ? 5 : 4); r += 1;
+  (liveChk ? ['Check', 'Status', 'Residue', 'Scale', 'Detail'] : ['Check', 'Status', 'Residue', 'Detail']).forEach((h, i) => setColHeader(ws.getCell(r, i + 1), h, 'left')); r += 1;
   // TOLERANCE IS RELATIVE (checksReport.CHECK_REL_TOL): a residue is judged
   // against the peak of the quantity it reconciles, so an iterative solver's
   // round-off passes and a genuine break still shows its measured gap.
   // Row keys for the formula-linked export (cellRegistry.ts): the residue cell of each
   // identity, with its status one column to the left. Records addresses, writes nothing.
-  const checkRow = (label: string, status: 'OK' | 'CHECK' | 'NOTE', residue: number, detail: string, key?: string): void => {
+  const checkRow = (label: string, status: 'OK' | 'CHECK' | 'NOTE', residue: number, detail: string, key?: string, scale?: number): void => {
     if (key) registerCell(key, ws, ws.getCell(`C${r}`));
-    setLabel(ws.getCell(`A${r}`), label);
+    setLabel(ws.getCell(`A${r}`), liveChk ? (LIVE_CHECK_LABELS[label] ?? label) : label);
+    if (liveChk && scale !== undefined) { const sc = ws.getCell(`D${r}`); sc.value = scale; sc.numFmt = NUMFMT.money; sc.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } }; }
     const s = ws.getCell(`B${r}`); s.value = status; s.numFmt = '@'; s.font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: status === 'OK' ? ARGB.good : status === 'CHECK' ? ARGB.bad : ARGB.navyDark } };
     const c = ws.getCell(`C${r}`); c.value = residue; c.numFmt = NUMFMT.money; c.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } };
-    const d = ws.getCell(`D${r}`); d.value = detail; d.numFmt = '@'; d.font = { name: 'Calibri', size: 8.5, italic: true, color: { argb: ARGB.navyDark } }; d.alignment = { wrapText: true, vertical: 'top' };
+    const d = ws.getCell(liveChk ? `E${r}` : `D${r}`); d.value = detail; d.numFmt = '@'; d.font = { name: 'Calibri', size: 8.5, italic: true, color: { argb: ARGB.navyDark } }; d.alignment = { wrapText: true, vertical: 'top' };
     r += 1;
   };
   const checkMoney = (v: number): string => `${formatAccounting(Math.abs(v), 'millions', 1)} m`;
   // The four integrity identities, named as the platform names them; the
   // fourth is the Balance Sheet's reconciliation bridge (one builder with the PDF).
-  for (const c of buildIntegrityChecks(snap, { phaseEbitda: phaseEbitdaFooting(snap, ctx.state), noBridge: isLiveLayout() })) {
+  for (const c of buildIntegrityChecks(snap, { phaseEbitda: phaseEbitdaFooting(snap, ctx.state), noBridge: isLiveLayout(), noCashTie: isLiveLayout() })) {
     // THE LIVE WORDS (2026-10-15): the residue is float noise that Excel and the engine land on
     // differently, so the live sentence states the verdict and the peak, never the ratio.
     const where = c.where ? ` ${c.where}` : '';
     // ONE LINE (2026-10-20): the verdict, and where it fails the residue; the year in its own column.
     const liveDetail = (): string => (c.magnitude === 0 ? 'Nothing to reconcile' : c.ok ? 'Within tolerance' : `Out by ${checkMoney(c.residue)}`);
     void where;
-    checkRow(c.label, c.ok ? 'OK' : 'CHECK', c.residue, liveChk ? liveDetail() : checkDetail(c, snap.yearLabels, checkMoney), `chk|id|${c.label}`);
-    if (liveChk && !c.ok && c.magnitude !== 0) { const y = ws.getCell(`E${r - 1}`); y.value = Number(snap.yearLabels[c.atIndex] ?? c.atIndex); y.numFmt = '0'; }
+    // THE LIVE TAB COMPARES OPERATING CASH (2026-11-03): its indirect method shows operating cash only,
+    // so the row measures the two cash flows from operations and their peak, not the net cash flow.
+    if (liveChk && c.label === 'Direct cash flow == Indirect cash flow') {
+      const N0 = snap.axisLength;
+      const d0 = Array.from({ length: N0 }, (_, t) => (snap.directCF.cashFromOperationsPerPeriod[t] ?? 0) - (snap.indirectCF.cashFromOperationsPerPeriod[t] ?? 0));
+      const hi = Math.max(...d0), lo = Math.min(...d0), res = Math.abs(hi) >= Math.abs(lo) ? hi : lo;
+      const peak = Math.max(0, ...snap.directCF.cashFromOperationsPerPeriod.slice(0, N0).map((v) => Math.abs(v ?? 0)));
+      const ok = Math.abs(res) <= Math.max(0.000001, peak * CHECK_REL_TOL);
+      checkRow(c.label, ok ? 'OK' : 'CHECK', res, peak === 0 ? 'Nothing to reconcile' : ok ? 'Within tolerance' : `Out by ${checkMoney(res)}`, `chk|id|${c.label}`, peak);
+      continue;
+    }
+    checkRow(c.label, c.ok ? 'OK' : 'CHECK', c.residue, liveChk ? liveDetail() : checkDetail(c, snap.yearLabels, checkMoney), `chk|id|${c.label}`, Math.abs(c.magnitude));
   }
   // THE FINANCING LOOP'S OWN PROFIT BEFORE TAX (live layout): the loop solves its tax on it, so it must
   // equal the P&L's every year; the residue is the worst year's difference.
-  if (isLiveLayout()) checkRow(LOOP_PBT_CHECK, 'OK', 0, 'Loop profit before tax less the P&L', `chk|id|${LOOP_PBT_CHECK}`);
+  if (isLiveLayout()) {
+    const pbt = snap.pl.pbtPerPeriod.slice(0, snap.axisLength);
+    const peak = Math.max(0, ...pbt.map((v) => Math.abs(v ?? 0)));
+    checkRow(LOOP_PBT_CHECK, 'OK', 0, peak === 0 ? 'Nothing to reconcile' : 'Within tolerance', `chk|id|${LOOP_PBT_CHECK}`, peak);
+    // SOURCES EQUAL USES (2026-11-03): each total sums its own rows on Returns, so a flow left out shows here.
+    const su = (() => { try { return computeReturnsSnapshot(snap, ctx.state.project).sourcesUses; } catch { return null; } })();
+    if (su) {
+      const d0 = su.totalSources - su.totalUses;
+      const ok0 = Math.abs(d0) <= Math.max(0.000001, Math.abs(su.totalSources) * CHECK_REL_TOL);
+      checkRow(SOURCES_USES_CHECK, ok0 ? 'OK' : 'CHECK', d0, su.totalSources === 0 ? 'Nothing to reconcile' : ok0 ? 'Within tolerance' : `Out by ${checkMoney(d0)}`, `chk|id|${SOURCES_USES_CHECK}`, Math.abs(su.totalSources));
+    }
+  }
   // REVENUE'S OWN CHECKS (live layout, 2026-10-27, moved off the Revenue tab): typed velocity inside
   // the model years, pre-sales collected in full, and a handover-year downpayment that a sale in
   // that year does not use (it pays in full). Stage 3 writes their formulas.
@@ -6801,7 +6825,7 @@ function addChecks(ctx: EmitCtx, capexAddrs: CapexAddrs, retLinks: RetLinks): vo
   }
   // An input left at zero (2026-10-05): a NOTE, never a CHECK; the export goes ahead.
   for (const a of buildEmptyInputAdvisories(ctx.state)) {
-    checkRow(`Input at zero, ${a.item}`, 'NOTE', 0, liveChk ? 'Left at zero; the model charges nothing for it' : `${emptyInputAdvisoryText(a)} Advisory, not a failure: the model charges nothing for it.`);
+    checkRow(`Input at zero, ${a.item}`, 'NOTE', 0, liveChk ? 'Left at zero; the model charges nothing for it' : `${emptyInputAdvisoryText(a)} Advisory, not a failure: the model charges nothing for it.`, liveChk ? `chk|zero|${a.item}` : undefined);
   }
   // A typed performance fee column short of 100% (2026-10-06): a NOTE with the amount.
   if (ctx.state.project.fundTerms?.enabled) {
@@ -6811,6 +6835,7 @@ function addChecks(ctx: EmitCtx, capexAddrs: CapexAddrs, retLinks: RetLinks): vo
     const text = fundPerformanceFeeShortfallNote(feeReturns, checkMoney);
     if (g && text) checkRow('Performance fee unallocated', 'NOTE', g.unallocated, liveChk ? `${((1 - g.sharesTotal) * 100).toFixed(1)}% of the performance fee goes to no earner` : `${text} Advisory, not a failure.`, 'chk|note|perf');
   }
+  if (liveChk) return;
   setLabel(ws.getCell(`A${r}`), 'OK and CHECK rows are identities that must reconcile to zero within the relative tolerance. NOTE rows are advisories: the model is internally consistent, and the figure beside them measures the situation the note describes.');
   ws.getCell(`A${r}`).font = { name: 'Calibri', size: 8.5, italic: true, color: { argb: ARGB.navyDark } };
   r += 2;
@@ -6846,6 +6871,59 @@ function addChecks(ctx: EmitCtx, capexAddrs: CapexAddrs, retLinks: RetLinks): vo
     ? 'Every check above is recomputed in this workbook from its own statements: change a shaded input on the Inputs tab and they recalculate, reading CHECK the moment an identity breaks.'
     : 'This workbook is a hardcoded mirror of the platform: every figure is the platform-computed snapshot value, written as a constant. The verification results above are the platform\'s own checks as of export, not a live Excel reconciliation. Editing any cell will NOT recalculate; to run a different scenario, change the inputs in the platform and re-export.');
 }
+
+/**
+ * THE LIVE SUMMARY (2026-11-03): the rows of `summaryPlan` (the platform's Project Overview), printed
+ * with its values as numbers; stage 7d writes each formula, a link to the tab that works it out.
+ */
+function addSummaryLive(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancialsSnapshot>, opts: BuildModelOptions): void {
+  const ws = wb.addWorksheet(SHEETS.summary, { properties: { tabColor: { argb: ARGB.navy } }, views: [{ showGridLines: false }] });
+  const p = opts.state.project;
+  const cur = p.currency ?? 'SAR';
+  const N = snap.axisLength;
+  ws.getColumn(1).width = 46;
+  for (let c = 2; c <= 17; c++) ws.getColumn(c).width = 13;
+  setTitle(ws.getCell('A1'), `Summary: ${opts.projectName}`, 16);
+  setLabel(ws.getCell('A2'), `Money in ${cur} m (millions); areas in sqm; rates in ${cur} per sqm`);
+  let rs: ReturnsSnapshot | null = null;
+  try { rs = computeReturnsSnapshot(snap, p); } catch { rs = null; }
+  if (!rs) return;
+  const last = Math.max(11, SUM_YEAR_COL + N - 1);
+  const put = (r: number, c: number, v: number | string | null, fmt: string | undefined, bold = false): void => {
+    if (v === null || v === undefined || v === '') return;
+    const cell = ws.getCell(r, c);
+    cell.value = v;
+    cell.numFmt = typeof v === 'string' ? '@' : (fmt ?? NUMFMT.money);
+    if (typeof v === 'string') cell.alignment = { horizontal: 'right' };
+    cell.font = { name: 'Calibri', size: BODY_SIZE, bold, color: { argb: ARGB.formula } };
+  };
+  let r = 4;
+  for (const row of summaryPlan(opts.state, snap, rs)) {
+    if (row.kind === 'gap') { r += 1; continue; }
+    registerCell(row.key, ws, ws.getCell(r, LBL_COL));
+    if (row.kind === 'section') { setSectionHeader(ws.getRow(r), row.label, last, ARGB.accent); r += 1; continue; }
+    if (row.kind === 'head' || row.kind === 'cols') {
+      setLabel(ws.getCell(r, LBL_COL), row.label, { bold: true });
+      for (const [c, t] of row.cols ?? []) setColHeader(ws.getCell(r, c), t);
+      r += 1;
+      continue;
+    }
+    if (row.label) setLabel(ws.getCell(r, LBL_COL), row.label, { indent: row.indent, bold: !!row.style });
+    for (const c of row.cells ?? []) {
+      registerCell(`${row.key}|${c.col}`, ws, ws.getCell(r, c.col));
+      put(r, c.col, c.v, c.fmt, !!row.style || !!c.bold);
+    }
+    r += 1;
+  }
+}
+
+/** The live Checks labels, plain (2026-11-03); the keys keep the platform's labels. */
+const LIVE_CHECK_LABELS: Record<string, string> = {
+  'Balance sheet balances (Assets = L + E)': 'Balance sheet balances (assets less liabilities and equity)',
+  'Direct cash flow == Indirect cash flow': 'Operating cash: the direct method equals the indirect',
+};
+/** Sources equal uses: Returns' two totals, each a sum of its own rows. */
+export const SOURCES_USES_CHECK = 'Sources equal uses';
 
 // ── Shared cover / summary primitives ─────────────────────────────────────────
 // Both front-matter tabs (Cover, Summary) share the same B..G content band on a
@@ -7341,6 +7419,7 @@ function applyTabSubToc(
  *  page; areas, counts and rates per sqm are in full units. */
 function addSummary(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancialsSnapshot>, opts: BuildModelOptions, lm: LiveModel): void {
   void lm;
+  if (isLiveLayout()) { addSummaryLive(wb, snap, opts); return; }
   const ws = wb.addWorksheet(SHEETS.summary, { properties: { tabColor: { argb: ARGB.navy } }, views: [{ showGridLines: false }] });
   const p = opts.state.project;
   const currency = p.currency ?? 'SAR';

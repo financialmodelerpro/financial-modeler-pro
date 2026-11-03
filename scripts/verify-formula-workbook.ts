@@ -1233,7 +1233,8 @@ function formulaCells(wb: ExcelJS.Workbook): Map<string, { formula: string; resu
         n++;
         if (Math.abs(e - v.result) > tolFor(ws.name, v.result, Math.abs(v.result))) bad.push(`${k}: stored ${v.result}, Excel ${e}`);
       }));
-      check(`B5 ${n} values stored where the platform prints no figure are Excel's own`, n > 0 && bad.length === 0, bad.slice(0, 6).join('\n        '));
+      // RE-AIMED 2026-11-03: the workings blocks went (Returns, Summary), so none may be left; any that is must still be Excel's own.
+      check(`B5 ${n} values stored where the platform prints no figure are Excel's own${n === 0 ? ' (none left: no workings block)' : ''}`, bad.length === 0, bad.slice(0, 6).join('\n        '));
     }
     // B3b. The checks above are the whole proof, so their NUMBER is pinned to the sheets the platform builds.
     check(`B3b every sheet the platform builds was compared (${perSheet.size})`, perSheet.size >= wb.worksheets.filter((x) => x.state !== 'hidden' && x.name !== 'Cover' && x.name !== 'Guide').length - 1);
@@ -1343,13 +1344,13 @@ function formulaCells(wb: ExcelJS.Workbook): Map<string, { formula: string; resu
       const errs = [...rd.cells].filter(([, v]) => typeof v === 'object').map(([k]) => k);
       check('D1 no cell anywhere in the workbook shows an Excel error', errs.length === 0, errs.slice(0, 6).join(', '));
       // THE VELOCITY CHECK IS ON CHECKS (2026-10-27, founder: off the Revenue tab, its D1 warning too):
-      // one row per sub-unit, status one column left of the residue, the detail one right.
+      // one row per sub-unit, status one column left of the residue, the detail two right (the scale between).
       const velKeys = registry.keys().filter((k) => k.startsWith('chk|vel|'));
       const at = (r: ReturnType<typeof recalcInExcel>, k: string, dc: number): unknown => { const a = registry.need(k); return r.cells.get(cellKey(a.sheet, a.row, a.col + dc)); };
       const fired = velKeys.filter((k) => at(rd, k, -1) === 'CHECK');
       check(`D2 the velocity check on Checks reads CHECK for a line whose typed velocity left the model years (${fired.length} of ${velKeys.length})`, fired.length > 0, velKeys.map((k) => `${k}: ${String(at(rd, k, -1))}`).join('; '));
       // (One short line: the share outside the years, else the all-inside sentence; the Guide explains it.)
-      check('D3 its detail names the share outside the model years', fired.length > 0 && fired.every((k) => /^\d[\d.]*% of typed velocity is outside the model years$/.test(String(at(rd, k, 1)))),
+      check('D3 its detail names the share outside the model years', fired.length > 0 && fired.every((k) => /^\d[\d.]*% of typed velocity is outside the model years$/.test(String(at(rd, k, 2)))),
         fired.map((k) => String(at(rd, k, 1))).join('; '));
       check('D4 before the change every velocity check reads OK', velKeys.length > 0 && velKeys.every((k) => at(rec, k, -1) === 'OK'),
         velKeys.filter((k) => at(rec, k, -1) !== 'OK').join(', '));
@@ -1361,7 +1362,8 @@ function formulaCells(wb: ExcelJS.Workbook): Map<string, { formula: string; resu
     // which never reads that cell, must still read OK.
     console.log('\n=== E. Real Excel, a balance typed over ===');
     {
-      const ids = ['Balance sheet balances (Assets = L + E)', 'Cash flow closing == balance sheet cash', 'Direct cash flow == Indirect cash flow'];
+      // The cash tie went (2026-11-03): the live Balance Sheet links the Cash Flow's cash, so it could not fail.
+      const ids = ['Balance sheet balances (Assets = L + E)', 'Direct cash flow == Indirect cash flow'];
       const statusOf = (r: ReturnType<typeof recalcInExcel>, label: string): unknown => { const a = registry.need(`chk|id|${label}`); return r.cells.get(cellKey(a.sheet, a.row, a.col - 1)); };
       const liveIds = ids.filter((l) => { const a = registry.need(`chk|id|${l}`); return formulas.has(cellKey(a.sheet, a.row, a.col - 1)); });
       check('E0 every identity on the Checks sheet is live', liveIds.length === ids.length, ids.filter((l) => !liveIds.includes(l)).join(', '));
@@ -1370,8 +1372,8 @@ function formulaCells(wb: ExcelJS.Workbook): Map<string, { formula: string; resu
       const col = PERIOD_COLS.OPEN_COL + 1 + 3; // the fourth year
       const was = rec.cells.get(cellKey(cash.sheet, cash.row, col));
       const re = recalcInExcel(path, [{ ref: `${cash.sheet}!${colLetterOf(col)}${cash.row}`, value: (typeof was === 'number' ? was : 0) + 1_000_000 }]);
-      const want: Record<string, string> = { [ids[0]]: 'CHECK', [ids[1]]: 'CHECK', [ids[2]]: 'OK' };
-      check('E2 after it the balance check and the cash tie read CHECK, and Direct = Indirect still reads OK', ids.every((l) => statusOf(re, l) === want[l]), ids.map((l) => `${l}: ${String(statusOf(re, l))}`).join('; '));
+      const want: Record<string, string> = { [ids[0]]: 'CHECK', [ids[1]]: 'OK' };
+      check('E2 after it the balance check reads CHECK, and Direct = Indirect still reads OK', ids.every((l) => statusOf(re, l) === want[l]), ids.map((l) => `${l}: ${String(statusOf(re, l))}`).join('; '));
     }
   }
 

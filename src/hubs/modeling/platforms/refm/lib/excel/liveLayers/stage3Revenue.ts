@@ -364,7 +364,7 @@ export const stage3Revenue: LiveLayer = {
             w.fA(res, `${grids.length ? grids.map((g) => `SUM(${g.range.replace(/^\$/, 'Inputs!$')})`).join('+') : '0'}-SUM(${w.rangeA(REV, rowOf(vk), pc(0), pc(N - 1))})`, { numFmt: NUMFMT.pct2 });
             const C = w.refA(res, CHK);
             w.fA(chkCell(key, -1), `IF(${C}>0.000001,"CHECK","OK")`);
-            w.fA(chkCell(key, 1), `IF(${C}>0.000001,TEXT(${C},"0.00%")&" of typed velocity is outside the model years","All typed velocity is inside the model years")`);
+            w.fA(chkCell(key, 2), `IF(${C}>0.000001,TEXT(${C},"0.00%")&" of typed velocity is outside the model years","All typed velocity is inside the model years")`);
           }
           const ck = `chk|col|${l.key}`;
           if (has(ck)) {
@@ -372,7 +372,7 @@ export const stage3Revenue: LiveLayer = {
             w.fA(res, `SUM(${w.rangeA(REV, rowOf(preRev), pc(0), pc(N - 1))})-SUM(${w.rangeA(REV, rowOf(preCash), pc(0), pc(N - 1))})`);
             const C = w.refA(res, CHK);
             w.fA(chkCell(ck, -1), `IF(ABS(${C})<0.005,"OK","CHECK")`);
-            w.fA(chkCell(ck, 1), `IF(ABS(${C})<0.005,"Every pre-sale is collected by the handover year","Pre-sales billed less collected")`);
+            w.fA(chkCell(ck, 2), `IF(ABS(${C})<0.005,"Every pre-sale is collected by the handover year","Pre-sales billed less collected")`);
           }
           const dk = `chk|dp|${l.key}`;
           if (has(dk) && gDp) {
@@ -381,7 +381,7 @@ export const stage3Revenue: LiveLayer = {
             w.fA(res, dpAt({ ...gDp, range: gDp.range.startsWith('Inputs!') ? gDp.range : `Inputs!${gDp.range}` }, k), { numFmt: NUMFMT.pct });
             const C = w.refA(res, CHK), St = w.refA(chkCell(dk, -1), CHK);
             w.fA(chkCell(dk, -1), `IF(AND(${C}>0,${C}<1),"NOTE","OK")`);
-            w.fA(chkCell(dk, 1), `IF(${St}="NOTE","A handover-year sale pays in full; the "&TEXT(${C},"0%")&" typed is unused","No downpayment typed for the handover year")`);
+            w.fA(chkCell(dk, 2), `IF(${St}="NOTE","A handover-year sale pays in full; the "&TEXT(${C},"0%")&" typed is unused","No downpayment typed for the handover year")`);
           }
         });
         continue;
