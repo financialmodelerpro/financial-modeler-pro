@@ -6,6 +6,7 @@ Entries are grouped by their most recent date. Fuller per-day narrative for REFM
 
 ## 2026-11-04
 
+- **THE SUITE IS CLEAN: 200 pass / 0 fail of 200, 11,740 checks**, with credentials, on the clean tree at 0ae3b840 (`npx tsx scripts/run-verifiers.ts --batch 1/2`, `2/2`, `heavy`). verify-formula-workbook 234 / 0 inside it.
 - **PERFORMANCE FEE SHARES TOTAL NO MORE THAN 100%** (founder; `lib/fundTerms.ts`, one rule: `performanceFeeOverallocated`, `performanceFeeOverMessage`). Each earner takes its share of the fee as typed, so a column over 100% paid the earners more than the fund charges. The Fund Terms screen REFUSES an edit that would take the column over 100% (the cell reverts and a red line says the total and how much that row can take), and refuses to save a column already over it; the save route refuses it with a 400 and the same sentence; the workbook's Checks carries "Performance fee shares total 100% or less" (CHECK with the excess), live from the shares on Inputs. `verify-fund-terms` P1 to P9.
 
 ## 2026-11-03
