@@ -104,7 +104,7 @@ export const stage6Loop: LiveLayer = {
       if (!LIVE_REPAYMENT.has(t.repaymentMethod)) refuse.push(`repayment method ${t.repaymentMethod}`);
       if (t.interbankRatePct === undefined && t.creditSpreadPct === undefined) refuse.push('a facility rate not stated as interbank plus spread');
       if (t.cashSweepConfig?.startingYear !== undefined || t.cashSweepConfig?.sweepRatio !== undefined) refuse.push('a sweep set on the facility rather than the project');
-      if (!has(`trib:${t.id}`) || !has(`trsp:${t.id}`) || !has(`trrate:${t.id}`)) refuse.push(`the rates of ${t.name} are not on Inputs`);
+      if (!has(`trib:${t.id}`) || !has(`trsp:${t.id}`) || !has(`fl:tr:${t.id}:rate`)) refuse.push(`the rates of ${t.name} are not on Inputs and Financing`);
       const k = facilityKind(t);
       if (k !== 'sweep' && !has(`fin:in:tr:${t.id}:start`)) refuse.push(`the repayment start of ${t.name} is not on Inputs`);
       if (k !== 'sweep' && k !== 'yoy' && !has(`fin:in:tr:${t.id}:n`)) refuse.push(`the repayment periods of ${t.name} are not on Inputs`);
@@ -234,8 +234,8 @@ export const stage6Loop: LiveLayer = {
     type Fac = typeof fac[number];
     for (const f of fac) for (const k of [f.open, f.draw, f.idc, f.repaid, f.close, f.charge, f.td]) if (!has(k)) return values(`The financing could not be made live for this model: ${f.t.name}'s ${k.split(':').pop()} row is not on the Financing sheet.`);
     for (const f of fac) {
-      // The rate on Inputs: the interbank rate plus the spread typed beside it.
-      w.fA(w.addr(`trrate:${f.t.id}`), `N(${w.ref(`trib:${f.t.id}`)})+N(${w.ref(`trsp:${f.t.id}`)})`);
+      // The rate, on Financing: the interbank rate plus the spread typed on Inputs.
+      putS(`fl:tr:${f.t.id}:rate`, `N(${w.ref(`trib:${f.t.id}`)})+N(${w.ref(`trsp:${f.t.id}`)})`);
       putS(f.td, `SUM(${rowRange(f.draw)})`);
       if (f.kind === 'sweep') continue;
       const inS = IN(`fin:in:tr:${f.t.id}:start`);
@@ -258,7 +258,7 @@ export const stage6Loop: LiveLayer = {
         put(f.yoyShare, (t) => `IF(${Y(t)}<${st()},0,IF(SUM(${rowRange(f.yoyTyped)})=0,1/MAX(1,${YN()}+1-${st()}),${P(f.yoyTyped, t)}/SUM(${rowRange(f.yoyTyped)})))`);
       }
     }
-    function rate(f: Fac): string { return `MAX(0,${w.ref(`trrate:${f.t.id}`)})`; }
+    function rate(f: Fac): string { return `MAX(0,${T(`fl:tr:${f.t.id}:rate`)})`; }
 
     // ── Capex, the exit and the operating cash ───────────────────────────────
     // Capex paid in cash: Capex Table 2 less Table 5's in-kind land (2026-10-27).
@@ -311,7 +311,11 @@ export const stage6Loop: LiveLayer = {
     put('fl:need', (t) => `IF(${spending(t)},MAX(0,${MIN()}-${P('fl:avail', t)}),0)`);
     put('fl:needExFee', (t) => `IF(${spending(t)},MAX(0,${MIN()}-(${P('fl:avail', t)}+${P('fl:feeTot', t)})),0)`);
     // Methods 1 and 2: the minimum cash, drawn in the first year capex is paid.
-    const firstCapex = (): string => `IFERROR(INDEX(${yearRow()},MATCH(TRUE,INDEX(${rowRange('fl:capex')}>0,0),0)),${Y0()})`;
+    // THE FIRST YEAR A ROW IS POSITIVE, WITH NO ARRAY FORMULA (2026-11-04): MATCH(TRUE, INDEX(...,0))
+    // read #VALUE! outside Excel. SUMPRODUCT evaluates its argument as an array in Excel and LibreOffice
+    // alike: the smallest year, every year where the test fails pushed out of reach; none, the first year.
+    const firstYearWhere = (notIt: string): string => { const m = `SUMPRODUCT(MIN(${yearRow()}+(${notIt})*100000))`; return `IF(${m}>99999,${Y0()},${m})`; };
+    const firstCapex = (): string => firstYearWhere(`${rowRange('fl:capex')}<=0`);
     const minAt = (t: number): string => `IF(${Y(t)}=${firstCapex()},${MIN()},0)`;
     if (METHOD === 2) {
       const cashPre = [...new Set(visible.filter((a) => a.strategy === 'Sell' || a.strategy === 'Sell + Manage').map((a) => lineForAsset(lines, a.id)).filter((l): l is NonNullable<typeof l> => !!l && has(`rvc:${l.key}:cashPre`)).map((l) => `rvc:${l.key}:cashPre`))];
@@ -426,8 +430,8 @@ export const stage6Loop: LiveLayer = {
       // sized on capex and pre-sales, which the fees do not move). Its first year is the first draw.
       const baseKey = METHOD === 3 ? (byEq ? 'fl:need' : 'fl:needExFee') : undefined;
       const R = (): string => (baseKey ? T(baseKey) : `(${T('fl:debtDraw')}+${T('fl:eqDraw')})`);
-      const firstRow = baseKey ? `INDEX(${rowRange(baseKey)}>0,0)` : `INDEX((${rowRange('fl:debtDraw')}+${rowRange('fl:eqDraw')})>0,0)`;
-      putS('fl:firstDraw', `IFERROR(INDEX(${yearRow()},MATCH(TRUE,${firstRow},0)),${Y0()})`);
+      const notDrawn = baseKey ? `${rowRange(baseKey)}<=0` : `(${rowRange('fl:debtDraw')}+${rowRange('fl:eqDraw')})<=0`;
+      putS('fl:firstDraw', firstYearWhere(notDrawn));
       putS('fl:feeEq', `${R()}*${eF()}`);
       putS('fl:feeDebt', `${R()}*${dF()}`);
       putS('fl:feeFund', fundTerms.fundSizeOverride ? `MAX(0,N(${w.ref('ft:Fund size (typed target)')}))` : `${T('fl:feeEq')}+${T('fl:feeDebt')}`);

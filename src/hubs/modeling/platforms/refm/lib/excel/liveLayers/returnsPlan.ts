@@ -393,8 +393,12 @@ export function returnsPlan(state: FinancialsResolverState, snap: Snap, rs: RS, 
     const L = years.indexOf(su.constructionEndYear);
     pRow('rs|con', 'In the construction window (1 up to the last capex year)', [null, ...Array.from({ length: N }, (_, t) => (t <= L ? 1 : 0))],
       (E, s) => `IF(${E.yr(s)}<=${E.d('ret|su|end')},1,0)`, { total: 'none', fmt: RF.int });
+    // NO ARRAY FORMULA (2026-11-04, founder): MAX(INDEX(...,0)) read #VALUE! outside Excel. A 1/0 row says
+    // which years spend capex (cash or in kind), and the end is the largest of that row times the year.
+    const capexOn = [null, ...Array.from({ length: N }, (_, t) => (Math.abs(stream(bu.cfiPerPeriod)[t + 1] ?? 0) + Math.abs(stream(bu.inKindLandPerPeriod)[t + 1] ?? 0) > 0.5 ? 1 : 0))];
+    pRow('rs|cxon', 'Capex spent (1 = yes)', capexOn, (E, s) => `IF(ABS(${E.s('rs|ff:capex', s)})+ABS(${E.s('rs|ff:kind', s)})>0.5,1,0)`, { total: 'none', fmt: RF.int });
     one('ret|su|end', 'Construction window ends (the last capex year)', su.constructionEndYear,
-      (E) => `MAX(INDEX(((ABS(${E.rngY('rs|ff:capex')})+ABS(${E.rngY('rs|ff:kind')}))>0.5)*${E.yrRng()},0))`, RF.year);
+      (E) => `SUMPRODUCT(MAX(${E.rngY('rs|cxon')}*${E.yrRng()}))`, RF.year);
     const win = (E: REnv, key: string): string => `SUMPRODUCT(${E.rngY('rs|con')},${E.xr(key)})`;
     const cf = (k: string): string => `cf|direct||${k}`;
     const escKeys = (E: REnv): string[] => [cf('Escrow: cash held'), cf('Escrow: cash released')].filter((k) => E.has(k));
@@ -628,8 +632,11 @@ export function returnsPlan(state: FinancialsResolverState, snap: Snap, rs: RS, 
       (E, s) => `IF(AND(${E.yr(s)}<=${E.d('ret|Basis year')},${s === 1 ? '0' : E.s('rs|noi', s - 1)}>0,${E.d('rm|prevnoi')}>0),IF(${E.s('rs|noi', s)}/${s === 1 ? '1' : E.s('rs|noi', s - 1)}-1<=${E.d('ret|x|inc')}/${E.d('rm|prevnoi')}-1+${STABILISATION_GROWTH_TOLERANCE},1,0),0)`, { total: 'none', fmt: RF.int });
     pRow('rm|run', 'Stabilisation: years in a row at steady growth', runV, (E, s) => `IF(${E.s('rm|pass', s)}=1,${s === 1 ? '0' : E.s('rm|run', s - 1)}+1,0)`, { total: 'none', fmt: RF.int });
     const stabY = rs.stabilization.stabilizationYear;
+    const noiV = stream(rs.noiPerPeriod ? [0, ...rs.noiPerPeriod] : undefined);
+    pRow('rm|at95', 'NOI at 95% of the stabilised NOI or more (1 = yes)', [null, ...Array.from({ length: N }, (_, t) => (rs.stabilisedNOI > 0 && (noiV[t + 1] ?? 0) >= rs.stabilisedNOI * 0.95 ? 1 : 0))],
+      (E, s) => `IF(AND(${E.d('rm|stabnoi')}>0,${E.s('rs|noi', s)}>=${E.d('rm|stabnoi')}*0.95),1,0)`, { total: 'none', fmt: RF.int });
     one('rm|stabyear', 'Stabilisation year', stabY ?? 'n/a',
-      (E) => `IF(AND(COUNTIF(${E.rngY('rs|noi')},">0")>0,${E.d('rm|stabnoi')}>0),IF(${E.d('rm|prevnoi')}>0,${E.d('ret|Basis year')}-SUMPRODUCT((${E.yrRng()}=${E.d('ret|Basis year')})*${E.rngY('rm|run')}),IFERROR(${E.ref('project:axisYear')}+MATCH(TRUE,INDEX(${E.rngY('rs|noi')}>=${E.d('rm|stabnoi')}*0.95,0),0)-1,"n/a")),"n/a")`, RF.year);
+      (E) => `IF(AND(COUNTIF(${E.rngY('rs|noi')},">0")>0,${E.d('rm|stabnoi')}>0),IF(${E.d('rm|prevnoi')}>0,${E.d('ret|Basis year')}-SUMIF(${E.yrRng()},${E.d('ret|Basis year')},${E.rngY('rm|run')}),IFERROR(INDEX(${E.yrRng()},MATCH(1,${E.rngY('rm|at95')},0)),"n/a")),"n/a")`, RF.year);
     // Funding mix, of the sources above.
     const su = (k: string): Fx => (E) => `IF(${E.d('ret|Total Sources')}>0,(${k.split('+').map((x) => E.d(x)).join('+')})/${E.d('ret|Total Sources')},"n/a")`;
     one('rm|mixdebt', 'Funding mix: debt', rs.fundingMix.debtPct ?? 'n/a', su('ret|Existing Debt+ret|su|debtCapex+ret|su|debtInt'), RF.pct);
@@ -673,9 +680,14 @@ export function returnsPlan(state: FinancialsResolverState, snap: Snap, rs: RS, 
       one('rm|k:gla', 'Total lettable area (sqm)', l.gla, (E) => lk(E).map((k) => E.xo(`rvc:${k}:gla`)).join('+') || '0', RF.int);
       const let_ = (E: REnv): string => lk(E).map((k) => `SUM(${E.xr(`rvc:${k}:occupied`)})`).join('+') || '0';
       const avail = (E: REnv): string => lk(E).map((k) => `${E.xo(`rvc:${k}:gla`)}*COUNTIF(${E.xr(`rvc:${k}:occupied`)},">0")`).join('+') || '0';
-      one('rm|k:locc', 'Average occupancy', l.avgOccupancy ?? 'n/a', (E) => `IF((${avail(E)})>0,(${let_(E)})/(${avail(E)}),"n/a")`, RF.pct);
+      // The platform's figures behind its averages: area let = revenue over rent per sqm, available = let over occupancy.
+      const letV = l.rentPerSqm && l.rentPerSqm > 0 ? l.totalRevenue / l.rentPerSqm : 0;
+      const availV = l.avgOccupancy && l.avgOccupancy > 0 ? letV / l.avgOccupancy : 0;
+      one('rm|k:lavail', 'Area available to let over the hold (sqm-years)', availV, (E) => avail(E), RF.int, { indent: 1 });
+      one('rm|k:llet', 'Area let over the hold (sqm-years)', letV, (E) => let_(E), RF.int, { indent: 1 });
+      one('rm|k:locc', 'Average occupancy', l.avgOccupancy ?? 'n/a', (E) => `IF(${E.d('rm|k:lavail')}>0,${E.d('rm|k:llet')}/${E.d('rm|k:lavail')},"n/a")`, RF.pct);
       one('rm|k:lrev', 'Total lease revenue', l.totalRevenue, (E) => lk(E).map((k) => `SUM(${E.xr(`rvc:${k}:rev`)})`).join('+') || '0');
-      one('rm|k:rent', 'Rent per sqm let, per year', l.rentPerSqm ?? 'n/a', (E) => `IF((${let_(E)})>0,${E.d('rm|k:lrev')}/(${let_(E)}),"n/a")`, RF.rate);
+      one('rm|k:rent', 'Rent per sqm let, per year', l.rentPerSqm ?? 'n/a', (E) => `IF(${E.d('rm|k:llet')}>0,${E.d('rm|k:lrev')}/${E.d('rm|k:llet')},"n/a")`, RF.rate);
     }
     gap('ret|gap|j');
   }
@@ -683,34 +695,60 @@ export function returnsPlan(state: FinancialsResolverState, snap: Snap, rs: RS, 
   // ════ EXIT-YEAR ANALYSIS: one row per candidate year ════════════════════
   {
     head('ret|#ey', 'Exit-year analysis (selling at the end of each year)');
-    rows.push({ key: 'ret|#eycols', label: 'Exit year', kind: 'cols', cols: [[D, 'Enterprise value'], [D + 1, 'Equity value'], [D + 2, 'Project IRR'], [D + 3, 'Equity IRR'], [D + 4, 'Equity MOIC'], [D + 5, 'Selected']] });
+    // SHORT, AND NO ARRAY ARITHMETIC (2026-11-04, founder): which years are candidates is one 1/0
+    // column; each candidate's project and equity cash flows are helper rows below the table, which
+    // the IRR and MOIC cells read as plain ranges (IRR and SUMIF ignore the "" beyond the exit).
+    const noiOn = [null, ...Array.from({ length: N }, (_, t) => ((rs.noiPerPeriod?.[t] ?? 0) > 0 ? 1 : 0))];
+    pRow('ret|ey|on', 'NOI positive (1 = yes)', noiOn, (E, s) => `IF(${E.s('rs|noi', s)}>0,1,0)`, { total: 'none', fmt: RF.int });
+    const midI = Math.min(N - 1, Math.max(0, Math.floor(N / 2)));
+    // The first candidate: the first year whose capitalised income is positive (the year's own NOI
+    // under the exit-year basis, the year before's under the prior-year basis, the first year reading
+    // its own), else the model midpoint.
+    const exitBasis = cfg.terminalValueBasis === 'exit_year';
+    const capOn = noiOn.map((v, s) => (s === 0 ? null : exitBasis ? v : noiOn[s === 1 ? 1 : s - 1]));
+    const firstCap = capOn.findIndex((v, s) => s > 0 && v === 1);
+    pRow('ret|ey|cap', 'Capitalised income positive (1 = yes)', capOn,
+      (E, s) => `IF(${E.d('ret|Terminal value basis')}="Exit year",${E.s('ret|ey|on', s)},${s === 1 ? E.s('ret|ey|on', 1) : E.s('ret|ey|on', s - 1)})`, { total: 'none', fmt: RF.int });
+    one('ret|ey|first', 'First candidate exit year', years[firstCap > 0 ? firstCap - 1 : midI],
+      (E) => `IFERROR(INDEX(${E.yrRng()},MATCH(1,${E.rngY('ret|ey|cap')},0)),${E.yrA(midI + 1)})`, RF.year, { indent: 1 });
+    rows.push({ key: 'ret|#eycols', label: 'Exit year', kind: 'cols', cols: [[D, 'Enterprise value'], [D + 1, 'Equity value'], [D + 2, 'Project IRR'], [D + 3, 'Equity IRR'], [D + 4, 'Equity MOIC'], [D + 5, 'Selected'], [D + 6, 'Candidate (1 = yes)']] });
     // EVERY MODEL YEAR HAS A ROW (2026-11-03): the first candidate moves with the timing (a shorter
     // construction makes a year earlier one), so the rows cannot start where the export found it. A
     // year is a candidate by the platform's rule (returns-resolvers): from the first year whose
     // capitalised income is positive (the model midpoint where none is) up to the chosen exit, and
     // the chosen exit always; any other year reads "-".
     void X;
-    const mid = Math.min(N - 1, Math.max(0, Math.floor(N / 2)));
     for (let e = 0; e < N; e++) {
       const x = rs.exitYears.find((q) => q.exitIdx === e);
       const key = `ret|ey|${e}`;
-      const basisIsExit = (E: REnv): string => `${E.d('ret|Terminal value basis')}="Exit year"`;
-      const incomeTo = (E: REnv): string => `IF(${basisIsExit(E)},COUNTIF(${E.rngYTo('rs|noi', e + 1)},">0"),COUNTIF(${E.rngYTo('rs|noi', Math.max(1, e))},">0"))`;
-      const incomeAll = (E: REnv): string => `IF(${basisIsExit(E)},COUNTIF(${E.rngYTo('rs|noi', N)},">0"),COUNTIF(${E.rngYTo('rs|noi', Math.max(1, N - 1))},">0"))`;
-      const cand = (E: REnv): string => `AND(${E.yrA(e + 1)}<=${E.d('ret|Exit Year')},OR(${E.yrA(e + 1)}=${E.d('ret|Exit Year')},${incomeTo(E)}>0,AND(${incomeAll(E)}=0,${e >= mid ? 'TRUE' : 'FALSE'})))`;
-      const blank = (f: Fx): Fx => (E) => `IF(NOT(${cand(E)}),"-",${f(E)})`;
+      const flag = (E: REnv): string => E.cell(key, D + 6);
+      const blank = (f: Fx): Fx => (E) => `IF(${flag(E)}=0,"-",${f(E)})`;
       const income = (E: REnv): string => `IF(${E.d('ret|Terminal value basis')}="Exit year",${E.sA('rs|noi', e + 1)},${e > 0 ? E.sA('rs|noi', e) : '0'})`;
-      const arr = (E: REnv, k: string, add: string): string => `${E.rng(k, e + 1)}+(${E.yrRngTo(e + 1)}=${E.yrA(e + 1)})*(${add})`;
-      const moicArr = (a: string): string => `IF(SUMPRODUCT(-(${a}<0)*(${a}))>0,SUMPRODUCT((${a}>0)*(${a}))/SUMPRODUCT(-(${a}<0)*(${a})),0)`;
+      const guess = (E: REnv): string => `MAX(-0.9,${E.cell(key, D + 4)}^(2/${e + 2})-1)`;
+      const moic = (r: string): string => `IF(SUMIF(${r},"<0")<0,SUMIF(${r},">0")/-SUMIF(${r},"<0"),0)`;
       rows.push({ key, label: '', kind: 'cells', cells: [
         { col: 1, v: years[e], fmt: RF.year, f: (E) => E.yrA(e + 1) },
         { col: D, v: x ? x.enterpriseValue : '-', fmt: RF.money, f: blank((E) => E.tvOf(income(E))) },
         { col: D + 1, v: x ? x.equityValue : '-', fmt: RF.money, f: blank((E) => `MAX(0,${E.cell(key, D)}-MAX(0,${E.sA('rs|debt', e + 1)}))`) },
-        { col: D + 2, v: x ? irrNum(x.fcffIrr) : '-', fmt: RF.pct, f: blank((E) => `IFERROR(IRR(${arr(E, 'rs|ff:pre', E.cell(key, D))},MAX(-0.9,${E.cell(key, D + 4)}^(2/${e + 2})-1)),"n/a")`) },
-        { col: D + 3, v: x ? irrNum(x.fcfeIrr) : '-', fmt: RF.pct, f: blank((E) => `IFERROR(IRR(${arr(E, 'rs|fe:pre', `${E.cell(key, D + 1)}+${E.sA('rs|level', e + 1)}`)},MAX(-0.9,${E.cell(key, D + 4)}^(2/${e + 2})-1)),"n/a")`) },
-        { col: D + 4, v: x ? x.equityMoic : '-', fmt: RF.mult, f: blank((E) => moicArr(arr(E, 'rs|fe:pre', `${E.cell(key, D + 1)}+${E.sA('rs|level', e + 1)}`))) },
+        { col: D + 2, v: x ? irrNum(x.fcffIrr) : '-', fmt: RF.pct, f: blank((E) => `IFERROR(IRR(${E.rng(`ret|eyf|${e}`)},${guess(E)}),"n/a")`) },
+        { col: D + 3, v: x ? irrNum(x.fcfeIrr) : '-', fmt: RF.pct, f: blank((E) => `IFERROR(IRR(${E.rng(`ret|eye|${e}`)},${guess(E)}),"n/a")`) },
+        { col: D + 4, v: x ? x.equityMoic : '-', fmt: RF.mult, f: blank((E) => moic(E.rng(`ret|eye|${e}`))) },
         { col: D + 5, v: x?.isSelected ? 'Yes' : 'No', fmt: RF.text, f: (E) => `IF(${E.yrA(e + 1)}=${E.d('ret|Exit Year')},"Yes","No")` },
+        { col: D + 6, v: x ? 1 : 0, fmt: RF.int, f: (E) => `IF(AND(${E.yrA(e + 1)}<=${E.d('ret|Exit Year')},OR(${E.yrA(e + 1)}=${E.d('ret|Exit Year')},AND(${E.d('ret|ey|first')}>0,${E.yrA(e + 1)}>=${E.d('ret|ey|first')}))),1,0)` },
       ] });
+    }
+    // The cash flows each candidate's IRR and MOIC read: the stream to its year, the sale in it.
+    head('ret|#eyf', 'Exit-year analysis: the cash flows behind each row');
+    for (let e = 0; e < N; e++) {
+      const key = `ret|ey|${e}`;
+      const x = rs.exitYears.find((q) => q.exitIdx === e);
+      // The platform's figures: the stream to the candidate's year, the sale added in it; "" elsewhere.
+      const srcV = (k: string): Array<number | null> => ((rows.find((r) => r.key === k) as { values?: Array<number | null> } | undefined)?.values ?? []);
+      const valuesOf = (k: string, sale: number): Array<number | null> => Array.from({ length: N + 1 }, (_, s) => (!x || s > e + 1 ? null : (srcV(k)[s] ?? 0) + (s === e + 1 ? sale : 0)));
+      const cfRow = (k: string, label: string, src: string, add: (E: REnv) => string): void => pRow(k, label, valuesOf(src, k.startsWith('ret|eyf') ? (x?.enterpriseValue ?? 0) : (x?.equityValue ?? 0) + (level[e] ?? 0)),
+        (E, s) => `IF(${E.cell(key, D + 6)}=0,"",IF(${E.yr(s)}<=${E.yrA(e + 1)},${E.s(src, s)}+IF(${E.yr(s)}=${E.yrA(e + 1)},${add(E)},0),""))`, { from: 0, total: 'none', indent: 1, nullAs: '' });
+      cfRow(`ret|eyf|${e}`, `Project cash flow, sold in ${years[e]}`, 'rs|ff:pre', (E) => `N(${E.cell(key, D)})`);
+      cfRow(`ret|eye|${e}`, `Equity cash flow, sold in ${years[e]}`, 'rs|fe:pre', (E) => `N(${E.cell(key, D + 1)})+${E.sA('rs|level', e + 1)}`);
     }
   }
   return { rows, refused };

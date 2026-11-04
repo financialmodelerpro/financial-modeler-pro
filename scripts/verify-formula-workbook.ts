@@ -1106,6 +1106,28 @@ function formulaCells(wb: ExcelJS.Workbook): Map<string, { formula: string; resu
   const valuesWithFormulas = [...status].filter(([name, st]) => (st.status === 'values' || st.status === 'values-by-design')
     && [...formulas.keys()].some((k) => k.startsWith(`${name}!`))).map(([n]) => n);
   check('A6b a sheet reported as values carries no formula', valuesWithFormulas.length === 0, valuesWithFormulas.join(', '));
+  // A14. OPENS ANYWHERE (2026-11-04, founder): MAX(INDEX(...,0)) and MATCH(TRUE, INDEX(...,0)) read
+  // #VALUE! outside Excel. No formula may lean on array evaluation except through SUMPRODUCT, which
+  // evaluates its argument as an array in Excel and LibreOffice alike; Inputs holds typed values only;
+  // and the rows split into helper rows stay short.
+  {
+    const arrayLookups: string[] = [], long: string[] = [], inputsFormulas: string[] = [];
+    for (const ws of wb.worksheets) ws.eachRow((row, r) => row.eachCell((c, col) => {
+      const v = c.value as { formula?: string } | null;
+      if (!v || typeof v !== 'object' || typeof v.formula !== 'string') return;
+      if (/MATCH\(TRUE/.test(v.formula) || /(MAX|MIN)\(INDEX\(/.test(v.formula) || /INDEX\(--/.test(v.formula)) arrayLookups.push(`${ws.name}!${c.address}`);
+      if ((ws.name === 'Returns' || ws.name === 'Summary') && v.formula.length > 200) long.push(`${ws.name}!${c.address} (${v.formula.length})`);
+      if (ws.name === 'Inputs') inputsFormulas.push(`Inputs!${c.address}`);
+      void r; void col;
+    }));
+    check('A14a no formula relies on array evaluation outside SUMPRODUCT (no MATCH(TRUE, ...), MAX(INDEX(...)) or INDEX(--...))', arrayLookups.length === 0, arrayLookups.slice(0, 6).join(', '));
+    check('A14b Inputs holds typed values only (the combined interest rate is worked out on Financing)', inputsFormulas.length === 0, inputsFormulas.slice(0, 6).join(', '));
+    check('A14c no formula on Returns or Summary is over 200 characters (the exit-year analysis and occupancy read helper rows)', long.length === 0, long.slice(0, 6).join(', '));
+    const plWs = wb.getWorksheet('P&L');
+    let ebitAt = 0, ebitdaAt = 0, pbtAt = 0;
+    plWs?.eachRow((row, r) => { const l = String(row.getCell(1).value ?? ''); if (!ebitdaAt && /^EBITDA$/.test(l)) ebitdaAt = r; if (!ebitAt && /^EBIT$/.test(l)) ebitAt = r; if (!pbtAt && /before (zakat|tax)/i.test(l)) pbtAt = r; });
+    check('A14d the P&L strikes EBIT after depreciation and before interest', ebitdaAt > 0 && ebitAt > ebitdaAt && pbtAt > ebitAt, `EBITDA ${ebitdaAt}, EBIT ${ebitAt}, PBT ${pbtAt}`);
+  }
   // A merged block reads and writes its master, so a relabel per cell stacked the status
   // sentence once per column (2026-09-28): every status sentence is stated once per cell.
   const stacked: string[] = [];

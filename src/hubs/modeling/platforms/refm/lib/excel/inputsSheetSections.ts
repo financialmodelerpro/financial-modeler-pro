@@ -1247,6 +1247,9 @@ export function emitLandTables(c: SheetCursor, tables: AssetAreaTables): void {
     derived(ws.getCell(c.r, 4), l.plots, NUMFMT.int);
     registerCell(`chainline:${l.key}:plots`, ws, ws.getCell(c.r, 4));
     chainCells(ws, c.r, 5, l.landSqm, live ? withoutRetail(l.pooled) : l.pooled, { landscapePct: l.landscapePct, unitSize: l.avgUnitSize, slotRatio: l.slotsPerUnit }, false, absent);
+    // A HOST LINE CARRIES NO RETAIL (2026-11-04, founder): its strip's line shows it, so the retail
+    // columns are blank here, not a typed 0.
+    if (live) for (const f of ['ret', 'rslots', 'rparea'] as const) ws.getCell(c.r, 5 + CHAIN_FIELDS.indexOf(f)).value = null;
     registerChainRow(ws, c.r, 5, `chainline:${l.key}`);
     c.r += 1;
   }

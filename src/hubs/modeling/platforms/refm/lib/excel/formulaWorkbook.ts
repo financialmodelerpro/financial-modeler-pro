@@ -169,9 +169,13 @@ export function buildFormulaWorkbook(opts: BuildModelOptions): FormulaWorkbookRe
   // A CIRCULAR CELL NEEDS A STARTING VALUE (the financing loop runs through Financing, Schedules
   // and the statements): Excel iterates from each cell's cached result, and a formula with none
   // enters the loop with nothing to start from and never recovers. Run last, after every rewrite.
+  // A BLANK RESULT IS A RESULT (2026-11-04): ExcelJS's value getter hides a stored "" (the model keeps
+  // it), so this step read a formula returning "" as having none and stored 0 under it (Returns' cash on
+  // cash showed 0 stored under a blank). Ask the cell model, which holds what will be written.
   for (const ws of wb.worksheets) ws.eachRow((r) => r.eachCell((c) => {
     const v = c.value as unknown as { formula?: string; result?: unknown } | null;
-    if (v && typeof v === 'object' && typeof v.formula === 'string' && (v.result === undefined || v.result === null)) c.value = { formula: v.formula, result: 0 } as never;
+    const stored = (c as unknown as { model?: { result?: unknown } }).model?.result;
+    if (v && typeof v === 'object' && typeof v.formula === 'string' && (stored === undefined || stored === null)) c.value = { formula: v.formula, result: 0 } as never;
   }));
   // A layer's hidden working sheet is not a tab the reader sees, so it gets no status line.
   for (const ws of wb.worksheets) if (ws.state !== 'visible' && ws.state !== undefined) status.delete(ws.name);

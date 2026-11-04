@@ -25,6 +25,7 @@ import { buildIdcAllocationTables } from '../../reports/financingReports';
 import { sharesCapitalisedInterest } from '@/src/core/calculations/capitalisedInterest';
 import type { FinancingTranche } from '../../state/module1-types';
 import { expensedRowsOf } from '../expensedRows';
+import { effectiveTrancheRatePct } from '@/src/core/calculations/financing';
 
 type Snap = ReturnType<typeof computeFinancialsSnapshot>;
 export type FinFmt = 'money' | 'pct' | 'year' | 'int';
@@ -154,6 +155,7 @@ export function financingPlan(state: FinancialsResolverState, snap: Snap = compu
     const kind = facilityKind(t);
     const isEx = t.origin === 'existing';
     const td = sl(f.drawSchedule).reduce((a, v) => a + v, 0);
+    scalar(`fl:tr:${t.id}:rate`, `${t.name}: interest rate`, effectiveTrancheRatePct(t) / 100, 'pct', 'The interbank rate plus the credit spread, both typed on Inputs');
     scalar(`fl:tr:${t.id}:td`, `${t.name}: total drawn`, td, 'money', 'The facility\'s capex drawdowns over the years');
     if (kind === 'sweep') continue;
     const start = t.repaymentStartYear === undefined ? (isEx ? 0 : clamp(cend, 0, N)) : clamp(t.repaymentStartYear - Y0, 0, N);

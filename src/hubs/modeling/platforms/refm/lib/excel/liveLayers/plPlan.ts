@@ -171,9 +171,11 @@ export function plPlan(state: FinancialsResolverState, snap: Snap = computeFinan
     if (view === PL_ALL) {
       rows.push({ key: K(labels.ebitda), label: labels.ebitda, kind: 'row', style: 'total', values: sl(snap.pl.ebitdaPerPeriod), sum: ebitdaParts });
       rows.push({ key: K('Depreciation & Amortization'), label: 'Depreciation', kind: 'row', values: neg(sl(snap.pl.daPerPeriod)), src: { kind: 'dep' } });
+      // EBIT (2026-11-04, founder): EBITDA less depreciation, before interest, as the platform's P&L states it.
+      rows.push({ key: K(labels.ebit), label: labels.ebit, kind: 'row', style: 'subtotal', values: sl(snap.pl.ebitPerPeriod), sum: [K(labels.ebitda), K('Depreciation & Amortization')] });
       rows.push({ key: K('Interest & financing cost'), label: 'Interest expensed', kind: 'row', values: neg(sl(snap.pl.interestExpensePerPeriod)), src: { kind: 'int' } });
       rows.push({ key: K('Gain on Disposal of Operating Assets'), label: 'Gain on disposal', kind: 'row', values: sl(snap.pl.gainOnDisposalPerPeriod), src: { kind: 'gain' } });
-      rows.push({ key: K(labels.pbt), label: labels.pbt, kind: 'row', style: 'subtotal', values: sl(snap.pl.pbtPerPeriod), sum: [K(labels.ebitda), K('Depreciation & Amortization'), K('Interest & financing cost'), K('Gain on Disposal of Operating Assets')] });
+      rows.push({ key: K(labels.pbt), label: labels.pbt, kind: 'row', style: 'subtotal', values: sl(snap.pl.pbtPerPeriod), sum: [K(labels.ebit), K('Interest & financing cost'), K('Gain on Disposal of Operating Assets')] });
       rows.push({ key: K('zakat'), label: labels.tax, kind: 'row', values: neg(sl(snap.pl.taxPerPeriod)), src: { kind: 'tax' }, rateKey: 'project:taxRate', rateFmt: 'pct',
         labelRate: zakat ? `of ${labels.pbt.toLowerCase()}` : 'of taxable profit' });
       rows.push({ key: K(labels.pat), label: labels.pat, kind: 'row', style: 'total', values: sl(snap.pl.patPerPeriod), sum: [K(labels.pbt), K('zakat')] });

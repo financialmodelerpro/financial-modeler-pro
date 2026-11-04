@@ -1346,6 +1346,36 @@ read, or computes. The strict rule runs in the proof (A12j); the export keeps "r
 receivable days (`receivableDaysProblems`), because on a model whose Schedules is still values the strict rule fails
 dozens of cells and would block a user's export. A12s cuts the wiring on a copy and both must catch it.
 
+### 3.38 ExcelJS hides a stored "" from its value getter, and a later step stored 0 under it
+
+**Symptom (2026-11-04):** the founder's review found Returns' "Cash on cash" stored 0 in the years with no dividend,
+where the formula returns "". Every recalculation in Excel agreed, so no check caught it: the comparison reads what
+Excel computes, not what the file stores before it does.
+
+**Mechanism:** `cell.value` on a formula cell returns `{ formula, result }` but DROPS a result of "" (the cell model
+still holds it, and the writer writes `t="str"` with an empty `<v>`). The build's last step gives every formula with
+no result a starting value of 0, so the circular financing loop has something to iterate from; it asked the getter,
+saw no result, and stored 0 under every blank.
+
+**Fix:** ask `cell.model.result`, which is what will be written (`formulaWorkbook.ts`). Proof: a LibreOffice
+recalculation of the file matches every stored value.
+
+**The trap to avoid:** never test an ExcelJS formula's result through `cell.value` when "" is a possible result.
+
+### 3.39 A formula Excel evaluates as an array read #VALUE! in LibreOffice
+
+**Symptom (2026-11-04):** the construction window end (`MAX(INDEX((range>0.5)*years,0))`) read #VALUE! outside
+Excel, and Sources and Uses, the Summary funding mix and the Sources = Uses check with it. Excel was always right, so
+the real-Excel proof could not see it.
+
+**Mechanism:** `INDEX(expr,0)`, `MATCH(TRUE, INDEX(range>0,0),0)` and range arithmetic inside IRR rely on Excel
+evaluating an array without being asked to. SUMPRODUCT forces array evaluation in Excel and LibreOffice alike.
+
+**Fix:** a 1/0 helper row read by MATCH(1, row, 0) or SUMPRODUCT(MAX(row x year)); "the first year where" as
+SUMPRODUCT(MIN(years + (not it) x 100000)); each exit year's cash flows as helper rows the IRR reads as a plain
+range. `verify-formula-workbook` A14a fails on MATCH(TRUE, MAX(INDEX( and INDEX(--. Proof: a headless LibreOffice
+recalculation (unpacked with `msiexec /a`, no install needed) shows no error and matches every stored value.
+
 ## 4. PDF export (pdf-lib)
 
 ### 4.1 PDF text is glyph ids, so a naive grep returns nothing

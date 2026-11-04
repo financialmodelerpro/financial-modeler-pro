@@ -173,8 +173,9 @@ export function summaryPlan(state: FinancialsResolverState, snap: Snap, rs: RS):
   // sub-units' area and its Stated NSA) in place of the line's table figure, as the platform counts it.
   const usedLines = nsaUsedLines(state, areas);
   one('sum|nsa', 'Saleable and leasable area (NSA)', sc.saleableSqm, (E) => {
-    const swaps = usedLines.filter((l) => E.has(`nsaline:${l.key}`) && E.has(lineKey(l.key, 'nsa'))).map((l) => `(${E.ref(`nsaline:${l.key}`)}-${E.ref(lineKey(l.key, 'nsa'))})`);
-    return [E.ref('chaintot:lines:nsa'), ...swaps].join('+');
+    const used = new Set(usedLines.filter((l) => E.has(`nsaline:${l.key}`)).map((l) => l.key));
+    const lineCells = areas.lines.map((l) => (used.has(l.key) ? `nsaline:${l.key}` : lineKey(l.key, 'nsa')));
+    return sumOf(E, [...lineCells, ...areas.companions.map((c) => compKey(c.name, 'nsa'))]);
   }, RF.int, 'sqm');
   one('sum|units', 'Units (sell lines)', sc.units, (E) => sumOf(E, sellLines.map((l) => lineKey(l.key, 'units'))), RF.int);
   one('sum|keys', 'Keys (hotel lines)', sc.keys, (E) => sumOf(E, hotelLines.map((l) => lineKey(l.key, 'units'))), RF.int);
@@ -255,6 +256,7 @@ export function summaryPlan(state: FinancialsResolverState, snap: Snap, rs: RS):
   one('sum|peakdebt', 'Peak debt', ex.peakDebt, (E) => `MAX(0,MAX(${E.rngY('bs|__all__||Debt (long-term)')}))`, RF.money, M);
   one('sum|cashlow', 'Cash low point', ex.cashLow, (E) => `MIN(${E.rngY('bs|__all__||Cash')})`, RF.money, M);
   one('sum|cashlowyr', 'Year of the cash low point', ex.cashLowYear ?? 'n/a',
-    (E) => `INDEX(${E.yrRng()},MATCH(1,INDEX(--(${E.rngY('bs|__all__||Cash')}<=MIN(${E.rngY('bs|__all__||Cash')})+0.5),0),0))`, RF.year);
+    // No array formula (2026-11-04): the first year at the low point, through SUMPRODUCT.
+    (E) => `SUMPRODUCT(MIN(${E.yrRng()}+(${E.rngY('bs|__all__||Cash')}>MIN(${E.rngY('bs|__all__||Cash')})+0.5)*100000))`, RF.year);
   return rows;
 }

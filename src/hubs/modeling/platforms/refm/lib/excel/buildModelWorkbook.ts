@@ -1080,7 +1080,8 @@ function addAssumptions(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFin
     // The facilities: what each loan's repayment method uses, nothing else.
     if (state.financingTranches.length) {
       setSectionHeader(ws.getRow(r), 'Debt facilities', 11); r += 1;
-      ['Facility', 'Repayment', 'Interbank rate %', 'Credit spread %', 'Rate', 'Lender', 'Facility share %', 'Repay start (blank = auto)', 'Repay periods', 'Opening balance', 'Raised in (year)', 'Interest from (year)'].forEach((h, i) => setColHeader(ws.getCell(r, i + 1), h, i === 0 ? 'left' : 'right'));
+      // No combined rate here (2026-11-04, founder): Inputs holds typed values only; Financing works it out.
+      ['Facility', 'Repayment', 'Interbank rate %', 'Credit spread %', 'Lender', 'Facility share %', 'Repay start (blank = auto)', 'Repay periods', 'Opening balance', 'Raised in (year)', 'Interest from (year)'].forEach((h, i) => setColHeader(ws.getCell(r, i + 1), h, i === 0 ? 'left' : 'right'));
       r += 1;
       const newCount = state.financingTranches.filter((x) => x.origin !== 'existing').length;
       const sharesTyped = state.financingTranches.some((x) => x.origin !== 'existing' && typeof x.facilitySharePct === 'number');
@@ -1094,33 +1095,30 @@ function addAssumptions(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFin
         setInput(ws.getCell(`D${r}`), (t.creditSpreadPct ?? 0) / 100, NUMFMT.pct2);
         registerCell(`trib:${t.id}`, ws, ws.getCell(`C${r}`));
         registerCell(`trsp:${t.id}`, ws, ws.getCell(`D${r}`));
-        // The rate the loan charges: the two cells beside it (Financing works it out).
-        registerCell(`trrate:${t.id}`, ws, ws.getCell(`E${r}`));
-        setFormula(ws.getCell(`E${r}`), fcell('0', effectiveTrancheRatePct(t) / 100), NUMFMT.pct2);
-        setInput(ws.getCell(`F${r}`), String(t.lender || '-'), '@');
-        registerCell(`trlender:${t.id}`, ws, ws.getCell(`F${r}`));
+        setInput(ws.getCell(`E${r}`), String(t.lender || '-'), '@');
+        registerCell(`trlender:${t.id}`, ws, ws.getCell(`E${r}`));
         if (!ex && newCount > 1 && sharesTyped) {
-          setInput(ws.getCell(`G${r}`), (t.facilitySharePct ?? 0) / 100, NUMFMT.pct);
-          registerCell(`tr:${t.id}:share`, ws, ws.getCell(`G${r}`));
+          setInput(ws.getCell(`F${r}`), (t.facilitySharePct ?? 0) / 100, NUMFMT.pct);
+          registerCell(`tr:${t.id}:share`, ws, ws.getCell(`F${r}`));
         }
         if (!sw) {
           const sy = t.repaymentStartYear;
-          if (sy) setInput(ws.getCell(`H${r}`), sy, NUMFMT.year); else { const c = ws.getCell(`H${r}`); markInput(c); c.numFmt = NUMFMT.year; }
-          registerCell(`fin:in:tr:${t.id}:start`, ws, ws.getCell(`H${r}`));
+          if (sy) setInput(ws.getCell(`G${r}`), sy, NUMFMT.year); else { const c = ws.getCell(`G${r}`); markInput(c); c.numFmt = NUMFMT.year; }
+          registerCell(`fin:in:tr:${t.id}:start`, ws, ws.getCell(`G${r}`));
           if (!yoy) {
-            setInput(ws.getCell(`I${r}`), (ex ? t.remainingRepaymentPeriods : t.repaymentPeriods) ?? 0, NUMFMT.int);
-            registerCell(`fin:in:tr:${t.id}:n`, ws, ws.getCell(`I${r}`));
+            setInput(ws.getCell(`H${r}`), (ex ? t.remainingRepaymentPeriods : t.repaymentPeriods) ?? 0, NUMFMT.int);
+            registerCell(`fin:in:tr:${t.id}:n`, ws, ws.getCell(`H${r}`));
           }
         }
         if (ex) {
-          setInput(ws.getCell(`J${r}`), t.openingBalance ?? 0, NUMFMT.money);
-          setInput(ws.getCell(`K${r}`), t.originationYear ?? (snap.projectStartYear - 1), NUMFMT.year);
-          setInput(ws.getCell(`L${r}`), t.interestStartYear ?? snap.projectStartYear, NUMFMT.year);
-          registerCell(`fin:in:tr:${t.id}:open`, ws, ws.getCell(`J${r}`));
-          registerCell(`fin:in:tr:${t.id}:orig`, ws, ws.getCell(`K${r}`));
-          registerCell(`fin:in:tr:${t.id}:intStart`, ws, ws.getCell(`L${r}`));
+          setInput(ws.getCell(`I${r}`), t.openingBalance ?? 0, NUMFMT.money);
+          setInput(ws.getCell(`J${r}`), t.originationYear ?? (snap.projectStartYear - 1), NUMFMT.year);
+          setInput(ws.getCell(`K${r}`), t.interestStartYear ?? snap.projectStartYear, NUMFMT.year);
+          registerCell(`fin:in:tr:${t.id}:open`, ws, ws.getCell(`I${r}`));
+          registerCell(`fin:in:tr:${t.id}:orig`, ws, ws.getCell(`J${r}`));
+          registerCell(`fin:in:tr:${t.id}:intStart`, ws, ws.getCell(`K${r}`));
         }
-        trancheRefs.push({ id: t.id, name: t.name, openingBalance: addr('J', r), rate: addr('E', r), periods: addr('I', r) });
+        trancheRefs.push({ id: t.id, name: t.name, openingBalance: addr('I', r), rate: addr('C', r), periods: addr('H', r) });
         r += 1;
       }
       r += 1;
