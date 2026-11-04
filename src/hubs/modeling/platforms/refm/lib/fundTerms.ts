@@ -282,6 +282,30 @@ export function performanceFeeDefaultsToManager(terms: Pick<FundTerms, 'feeDistr
 }
 
 /**
+ * PERFORMANCE FEE SHARES TOTAL NO MORE THAN 100% (2026-11-04, founder). Each earner takes its
+ * share of the fee as typed (never normalised), so a column over 100% paid the earners more than
+ * the fund charges. The Fund Terms screen refuses an edit that would take the column over 100%,
+ * the save route refuses a column already over it, and the workbook's Checks reads CHECK on one.
+ */
+export const PERFORMANCE_FEE_SHARES_MAX = 1;
+export function performanceFeeSharesTotal(rows: ReadonlyArray<Pick<FeeDistributionRow, 'performanceFeePct'>>): number {
+  return rows.reduce((sum, r) => sum + Math.max(0, r.performanceFeePct ?? 0), 0);
+}
+/** By how much the typed shares exceed 100% (0 when they do not). */
+export function performanceFeeOverallocation(rows: ReadonlyArray<Pick<FeeDistributionRow, 'performanceFeePct'>>): number {
+  return Math.max(0, performanceFeeSharesTotal(rows) - PERFORMANCE_FEE_SHARES_MAX);
+}
+export function performanceFeeOverallocated(rows: ReadonlyArray<Pick<FeeDistributionRow, 'performanceFeePct'>>): boolean {
+  return performanceFeeOverallocation(rows) > 1e-9;
+}
+/** The one sentence the screen and the save route refuse with. */
+export function performanceFeeOverMessage(total: number, room?: number): string {
+  const pct = (v: number): string => `${(v * 100).toFixed(2).replace(/\.?0+$/, '')}%`;
+  return `Performance fee shares cannot total more than 100%. This would make them ${pct(total)}`
+    + (room === undefined ? '; lower a share so they total 100% or less.' : `; the other earners already take ${pct(1 - room)}, so this one can take at most ${pct(Math.max(0, room))}.`);
+}
+
+/**
  * Every entity entitled to fee income, Fund Manager first.
  *
  * The Fund Manager is ALWAYS present when the fund layer is on, even with an

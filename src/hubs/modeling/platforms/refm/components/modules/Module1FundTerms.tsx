@@ -52,6 +52,7 @@ import {
   FUND_FEE_SPECS, FEE_BASE_LABELS, FEE_TIMING_LABELS, FEE_DISTRIBUTION_COLUMNS,
   FUND_MANAGER_ROW_ID, DEFAULT_FUND_MANAGER_NAME, isFundManagerRow,
   resolveFundTerms, toFundTermsPatch, feeColumnTotal, feeColumnBalanced, performanceFeeShortfallShare, performanceFeeDefaultsToManager,
+  performanceFeeSharesTotal, performanceFeeOverallocated, performanceFeeOverMessage, PERFORMANCE_FEE_SHARES_MAX,
   type FeeDistributionColumnKey, type FeeDistributionRow, type FundTerms,
 } from '../../lib/fundTerms';
 import { resolveFacilityLimit } from '../../lib/fundFees';
@@ -152,6 +153,8 @@ export default function Module1FundTerms({ projectId }: { projectId: string | nu
   const [extended, setExtended] = useState(true);
   const [notice, setNotice] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
+  // An edit the screen refused (a performance fee column over 100%), said beside the matrix.
+  const [refusal, setRefusal] = useState<string | null>(null);
 
   // Load the parties (matrix rows) and the durable row, seeding the snapshot
   // copy from the latter ONCE per project and only when the snapshot carries no
@@ -229,6 +232,13 @@ export default function Module1FundTerms({ projectId }: { projectId: string | nu
 
   const setCell = useCallback((partyId: string, col: FeeDistributionColumnKey, decimal: number) => {
     const next = displayRows.map((r) => (r.partyId === partyId ? { ...r, [col]: decimal } : r));
+    // REFUSED, NOT TRIMMED (2026-11-04): a performance fee column over 100% pays out more than the fee.
+    if (col === 'performanceFeePct' && performanceFeeOverallocated(next) && decimal > (displayRows.find((r) => r.partyId === partyId)?.performanceFeePct ?? 0)) {
+      const others = performanceFeeSharesTotal(next.filter((r) => r.partyId !== partyId));
+      setRefusal(performanceFeeOverMessage(performanceFeeSharesTotal(next), PERFORMANCE_FEE_SHARES_MAX - others));
+      return;
+    }
+    if (col === 'performanceFeePct') setRefusal(null);
     // Orphans ride along untouched until the user saves, so an edit to one row
     // cannot quietly delete another party's numbers.
     patch({ feeDistribution: [...next, ...orphans] });
@@ -236,6 +246,7 @@ export default function Module1FundTerms({ projectId }: { projectId: string | nu
 
   const save = useCallback(async () => {
     if (!projectId || saving) return;
+    if (performanceFeeOverallocated(displayRows)) { setRefusal(performanceFeeOverMessage(performanceFeeSharesTotal(displayRows))); return; }
     setSaving(true); setNotice(null);
     // Saving is what prunes the orphans, after they have been shown.
     const cleaned: FundTerms = { ...terms, feeDistribution: displayRows };
@@ -518,6 +529,15 @@ export default function Module1FundTerms({ projectId }: { projectId: string | nu
           <div style={{ ...helpText, marginBottom: 'var(--sp-2)', fontWeight: 600 }} data-testid="fund-terms-performance-default">
             {`No performance-fee share is assigned, so ${terms.fundManagerName || DEFAULT_FUND_MANAGER_NAME} earns the whole performance fee by default.`}
             {' '}Type shares in the Performance fee column to assign it otherwise.
+          </div>
+        )}
+        {(refusal || performanceFeeOverallocated(displayRows)) && (
+          <div
+            data-testid="fund-terms-performance-over"
+            role="alert"
+            style={{ marginBottom: 'var(--sp-2)', padding: '7px 10px', borderRadius: 6, fontSize: 12, lineHeight: 1.5, background: '#FDECEC', border: '1px solid #E29A9A', color: '#8A1F1F' }}
+          >
+            <strong>{refusal ?? performanceFeeOverMessage(performanceFeeSharesTotal(displayRows))}</strong>
           </div>
         )}
         {/* Typed but short of 100% (2026-10-06): never defaulted; unallocated, said as a warning. */}

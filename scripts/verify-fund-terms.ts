@@ -46,6 +46,7 @@ import {
   feeColumnTotal, feeColumnBalanced, feeShareTotal, feeSharesBalanced,
   toFundTermsPatch, fromRow, toRow, toLegacyRow,
   FUND_MANAGER_ROW_ID, DEFAULT_FUND_MANAGER_NAME, isFundManagerRow, resolveFeeEarners,
+  performanceFeeSharesTotal, performanceFeeOverallocation, performanceFeeOverallocated, performanceFeeOverMessage,
 } from '../src/hubs/modeling/platforms/refm/lib/fundTerms';
 import { resolveFacilityLimit } from '../src/hubs/modeling/platforms/refm/lib/fundFees';
 import { PARTY_ROLES } from '../src/hubs/modeling/platforms/refm/lib/parties';
@@ -484,6 +485,36 @@ console.log('\n=== 8. The tab is wired, and honest about doing nothing yet ===')
 }
 
 console.log('\n=== 9. House style ===');
+// ── PERFORMANCE FEE SHARES TOTAL NO MORE THAN 100% (2026-11-04, founder) ──
+{
+  const row = (v: number) => ({ performanceFeePct: v });
+  check('P1 shares at exactly 100% are allowed', !performanceFeeOverallocated([row(0.6), row(0.4)]) && performanceFeeOverallocation([row(0.6), row(0.4)]) === 0);
+  check('P2 shares over 100% are refused, by the excess', performanceFeeOverallocated([row(0.8), row(0.4)]) && Math.abs(performanceFeeOverallocation([row(0.8), row(0.4)]) - 0.2) < 1e-12);
+  check('P3 short of 100% is not an over-allocation (it is the unallocated note)', !performanceFeeOverallocated([row(0.6)]));
+  check('P4 a negative share counts as zero', performanceFeeSharesTotal([row(-0.5), row(0.9)]) === 0.9);
+  const msg = performanceFeeOverMessage(1.2, 0.4);
+  check('P5 the message says the limit, the total, and what this row can take', /cannot total more than 100%/.test(msg) && /120%/.test(msg) && /at most 40%/.test(msg), msg);
+  const screen = read('src/hubs/modeling/platforms/refm/components/modules/Module1FundTerms.tsx');
+  check('P6 the screen refuses an edit that takes the column over 100% (not trimmed) and says why',
+    (() => {
+      const at = screen.indexOf("col === 'performanceFeePct' && performanceFeeOverallocated(next)");
+      const body = at >= 0 ? screen.slice(at, at + 500) : '';
+      return body.includes('setRefusal(performanceFeeOverMessage(') && body.includes('return;');
+    })() && screen.includes('data-testid="fund-terms-performance-over"'));
+  check('P7 the screen refuses to save a column already over 100%', screen.includes('if (performanceFeeOverallocated(displayRows)) { setRefusal('));
+  const route = read('app/api/refm/projects/[id]/fund-terms/route.ts');
+  check('P8 the save route refuses a column over 100% with a 400 and the one message', (() => {
+    const at = route.indexOf('if (performanceFeeOverallocated(terms.feeDistribution))');
+    const body = at >= 0 ? route.slice(at, at + 300) : '';
+    return body.includes('performanceFeeOverMessage(') && body.includes('status: 400') && at < route.indexOf('upsertFundTerms(id, terms)');
+  })());
+  const wbk = read('src/hubs/modeling/platforms/refm/lib/excel/buildModelWorkbook.ts');
+  const chk = read('src/hubs/modeling/platforms/refm/lib/excel/liveLayers/stage7cChecks.ts');
+  check('P9 the workbook Checks carries the row, live from the Inputs shares',
+    wbk.includes('checkRow(PERFORMANCE_FEE_SHARES_CHECK') && wbk.includes('performanceFeeOverallocation(fd)')
+    && chk.includes("has('chk|perfshares')") && chk.includes('`ftm:${i}:perf`'));
+}
+
 {
   const emDash = new RegExp('[\\u2014\\u2015]');
   for (const p of [

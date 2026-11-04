@@ -10,7 +10,7 @@ LOGGED, NOT BUILT (founder, 2026-11-03):
 - **The live workbook for projects with existing operations** (a phase operating at the model start): the opening land and building NBV is an inert input and the shape is not built live.
 - **Zakat on the full zakat base**: the charge is rate x each year's profit; the base the rules define (equity, reserves, long-term liabilities less fixed assets) is not modelled.
 - **The Sources and Uses window ends at the last capex year** (cash or in kind): a project whose construction cash runs past its last capex year (retention, a trailing soft cost) is cut there.
-- **Fee shares typed over 100%**: the platform pays each earner share x the fee, so the earners' rows add to more than the fund pays (the Total shows the fee charged). The Fund Terms screen should refuse a sum over 100%.
+- **DONE 2026-11-04: fee shares over 100% are refused** on the Fund Terms screen and its save route, and Checks in the workbook flags a column over 100% (CHANGELOG 2026-11-04).
 
 ## START HERE 2026-11-03 (session end): THE BALANCE SHEET ONLY LINKS; DISTRIBUTIONS SPLIT INTO DIVIDENDS AND A RETURN OF CAPITAL
 

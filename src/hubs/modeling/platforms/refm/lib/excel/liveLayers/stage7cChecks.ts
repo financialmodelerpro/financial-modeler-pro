@@ -29,6 +29,7 @@ import { CHECK_REL_TOL, PHASE_EBITDA_CHECK_LABEL, buildEmptyInputAdvisories, isE
 import { PHASE_RECON, PHASE_RECON_LINE } from '../../reports/m4Reports';
 import { computeFinancialsSnapshot } from '../../financials-resolvers';
 import { LOOP_PBT_CHECK, SOURCES_USES_CHECK } from '../buildModelWorkbook';
+import { resolveFundTerms } from '../../fundTerms';
 import { getFinancialLabels, defaultTerminologyForCountry } from '@/src/core/calculations/financials';
 
 const CHK = 'Checks';
@@ -118,6 +119,19 @@ export const stage7cChecks: LiveLayer = {
       const C = w.refA(res, CHK);
       w.reset(); w.fA({ ...res, col: res.col - 1 }, `IF(${C}>0,"NOTE","OK")`);
       w.reset(); w.fA({ ...res, col: res.col + 2 }, `IF(${C}>0,"Left at zero; the model charges nothing for it","A rate is typed")`);
+    }
+    // Performance fee shares total no more than 100%: the shares typed on Inputs, over 100%.
+    if (has('chk|perfshares')) {
+      const rowsFd = resolveFundTerms(ctx.opts.state.project).feeDistribution;
+      const shares = rowsFd.map((_r, i) => `ftm:${i}:perf`).filter(has).map((k) => w.ref(k));
+      if (shares.length === rowsFd.length) {
+        const res = w.addr('chk|perfshares');
+        w.reset(); w.fA(res, `MAX(0,SUM(${shares.join(',')})-1)`);
+        const C = w.refA(res, CHK);
+        w.reset(); w.fA({ ...res, col: res.col - 1 }, `IF(${C}>0.000001,"CHECK","OK")`);
+        w.reset(); w.fA({ ...res, col: res.col + 2 }, `IF(${C}>0.000001,"Shares total "&TEXT(1+${C},"0.0%")&"; lower a share on Inputs","Within 100%")`);
+        liveIds.push('perf shares');
+      }
     }
     const returnsLive = true;
 

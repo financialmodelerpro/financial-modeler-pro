@@ -29,7 +29,7 @@ import { getProject, getProjectForWrite } from '@/src/hubs/modeling/platforms/re
 import type { Permission } from '@/src/core/collab/projectRoles';
 import { getFundTerms, upsertFundTerms } from '@/src/hubs/modeling/platforms/refm/lib/persistence/fundTerms-server';
 import { getRefmUserId, getRefmUserContext } from '@/src/hubs/modeling/platforms/refm/lib/persistence/auth';
-import { resolveFundTerms } from '@/src/hubs/modeling/platforms/refm/lib/fundTerms';
+import { resolveFundTerms, performanceFeeOverallocated, performanceFeeOverMessage, performanceFeeSharesTotal } from '@/src/hubs/modeling/platforms/refm/lib/fundTerms';
 import { resolveUserGate } from '@/src/shared/entitlements/resolveUser';
 import { writeBlockReason } from '@/src/shared/entitlements/gate';
 
@@ -113,6 +113,10 @@ export async function PUT(req: NextRequest, ctx: { params: Promise<{ id: string 
   // cannot store a 300% carry, a NaN fee, an unknown party role, or the
   // deferred circular 'fund_size' fee base.
   const terms = resolveFundTerms({ fundTerms: body?.terms } as never);
+  // Performance fee shares total no more than 100% (2026-11-04): refused, never trimmed.
+  if (performanceFeeOverallocated(terms.feeDistribution)) {
+    return NextResponse.json({ error: performanceFeeOverMessage(performanceFeeSharesTotal(terms.feeDistribution)) }, { status: 400 });
+  }
 
   const { error, available, extended } = await upsertFundTerms(id, terms);
   if (error) return NextResponse.json({ error, available, extended }, { status: available ? 500 : 409 });

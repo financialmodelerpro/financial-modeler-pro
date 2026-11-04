@@ -4,6 +4,10 @@
 
 Entries are grouped by their most recent date. Fuller per-day narrative for REFM platform work lives in [CLAUDE-REFM.md](CLAUDE-REFM.md); per-route and migration detail in [CLAUDE-ROUTES.md](CLAUDE-ROUTES.md) and [CLAUDE-DB.md](CLAUDE-DB.md); the general lessons in [docs/TRAPS.md](docs/TRAPS.md); fund-layer standing rules in [docs/FUND_LAYER_GUIDELINE.md](docs/FUND_LAYER_GUIDELINE.md). This file is loaded on demand only and has no size limit.
 
+## 2026-11-04
+
+- **PERFORMANCE FEE SHARES TOTAL NO MORE THAN 100%** (founder; `lib/fundTerms.ts`, one rule: `performanceFeeOverallocated`, `performanceFeeOverMessage`). Each earner takes its share of the fee as typed, so a column over 100% paid the earners more than the fund charges. The Fund Terms screen REFUSES an edit that would take the column over 100% (the cell reverts and a red line says the total and how much that row can take), and refuses to save a column already over it; the save route refuses it with a 400 and the same sentence; the workbook's Checks carries "Performance fee shares total 100% or less" (CHECK with the excess), live from the shares on Inputs. `verify-fund-terms` P1 to P9.
+
 ## 2026-11-03
 
 - **THE CLOSE-OUT (founder): the full suite, the full real-Excel run, and the open items.** Suite at b0e882ae, WITH credentials, clean tree: **194 pass / 6 fail of 200, 11,691 checks**. The six, sorted:

@@ -79,7 +79,7 @@ import {
   emitLandTables, emitSubUnitAreas, LAND_CHAIN_COLS, utcMonthYear, utcYear, phaseStatusLabel, type SheetCursor,
 } from './inputsSheetSections';
 import { buildAssetAreaTables, buildAssetLandView } from '../../components/modules/_shared/assetInputsView';
-import { resolveFundTerms, FUND_FEE_SPECS } from '../fundTerms';
+import { resolveFundTerms, FUND_FEE_SPECS, performanceFeeOverallocation, PERFORMANCE_FEE_SHARES_MAX } from '../fundTerms';
 import {
   isFundActive, hasFundFeeIncome, buildFundWaterfallRows, buildFundFeeIncomeRows, buildDdmPostFeeRows,
   buildFundGrossNetRows, buildFundEarnerRows, fundPerformanceFeeDefaultNote, fundPerformanceFeeShortfallNote, performanceFeeShortfall, buildFundHeadlineCards, fundGrossNetNote,
@@ -6834,6 +6834,17 @@ function addChecks(ctx: EmitCtx, capexAddrs: CapexAddrs, retLinks: RetLinks): vo
     const g = performanceFeeShortfall(feeReturns);
     const text = fundPerformanceFeeShortfallNote(feeReturns, checkMoney);
     if (g && text) checkRow('Performance fee unallocated', 'NOTE', g.unallocated, liveChk ? `${((1 - g.sharesTotal) * 100).toFixed(1)}% of the performance fee goes to no earner` : `${text} Advisory, not a failure.`, 'chk|note|perf');
+    // PERFORMANCE FEE SHARES TOTAL NO MORE THAN 100% (2026-11-04, founder): the rule the Fund Terms
+    // screen and its save route refuse on. The residue is the share by which they exceed 100%.
+    const fd = resolveFundTerms(ctx.state.project).feeDistribution;
+    if (fd.length) {
+      const over = performanceFeeOverallocation(fd);
+      const bad = over > 1e-6;
+      checkRow(PERFORMANCE_FEE_SHARES_CHECK, bad ? 'CHECK' : 'OK', over,
+        bad ? `Shares total ${((PERFORMANCE_FEE_SHARES_MAX + over) * 100).toFixed(1)}%; lower a share${liveChk ? ' on Inputs' : ' on Fund Terms'}` : 'Within 100%',
+        liveChk ? 'chk|perfshares' : undefined);
+      ws.getCell(`C${r - 1}`).numFmt = NUMFMT.pct2;
+    }
   }
   if (liveChk) return;
   setLabel(ws.getCell(`A${r}`), 'OK and CHECK rows are identities that must reconcile to zero within the relative tolerance. NOTE rows are advisories: the model is internally consistent, and the figure beside them measures the situation the note describes.');
@@ -6918,6 +6929,9 @@ function addSummaryLive(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFin
 }
 
 /** The live Checks labels, plain (2026-11-03); the keys keep the platform's labels. */
+/** The Checks row for the performance fee shares, named once for the builder and the live layer. */
+export const PERFORMANCE_FEE_SHARES_CHECK = 'Performance fee shares total 100% or less';
+
 const LIVE_CHECK_LABELS: Record<string, string> = {
   'Balance sheet balances (Assets = L + E)': 'Balance sheet balances (assets less liabilities and equity)',
   'Direct cash flow == Indirect cash flow': 'Operating cash: the direct method equals the indirect',
