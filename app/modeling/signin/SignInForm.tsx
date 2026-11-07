@@ -32,7 +32,13 @@ function ModelingSignInInner() {
   const searchParams = useSearchParams();
   const callbackUrl  = searchParams.get('callbackUrl') ?? '/dashboard';
 
-  const [mode,     setMode]     = useState<Mode>((searchParams.get('tab') === 'signup' || searchParams.get('tab') === 'register') ? 'signup' : 'signin');
+  // Signup is ONE door: /register ("Request a trial"), which asks who the
+  // person is before any form. The inline signup tab this page used to carry
+  // posted without the qualification answer the server requires, so an old
+  // ?tab=signup link is forwarded there instead.
+  const wantsSignup = searchParams.get('tab') === 'signup' || searchParams.get('tab') === 'register';
+  useEffect(() => { if (wantsSignup) router.replace('/register'); }, [wantsSignup, router]);
+  const [mode,     setMode]     = useState<Mode>('signin');
   const [name,     setName]     = useState('');
   const [email,    setEmail]    = useState('');
   const [phoneCode,  setPhoneCode]  = useState('+1');
@@ -261,19 +267,23 @@ function ModelingSignInInner() {
 
             {/* Tab switcher */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', borderBottom: '1px solid #E5E7EB' }}>
-              {(['signin', 'signup'] as Mode[]).map(m => (
-                <button key={m} onClick={() => setMode(m)} style={{
-                  padding: '12px', border: 'none',
-                  background: mode === m ? '#fff' : '#F9FAFB',
-                  color: mode === m ? BLUE : '#6B7280',
-                  fontWeight: mode === m ? 700 : 500,
-                  fontSize: 13, cursor: 'pointer',
-                  borderBottom: mode === m ? `2px solid ${BLUE}` : '2px solid transparent',
-                  fontFamily: "'Inter', sans-serif",
-                }}>
-                  {m === 'signin' ? 'Sign In' : 'Create Account'}
-                </button>
-              ))}
+              <button onClick={() => setMode('signin')} style={{
+                padding: '12px', border: 'none',
+                background: '#fff', color: BLUE, fontWeight: 700,
+                fontSize: 13, cursor: 'pointer',
+                borderBottom: `2px solid ${BLUE}`,
+                fontFamily: "'Inter', sans-serif",
+              }}>
+                Sign In
+              </button>
+              <a href={`${process.env.NEXT_PUBLIC_APP_URL ?? 'https://app.financialmodelerpro.com'}/register`} data-testid="signin-request-trial" style={{
+                padding: '12px', background: '#F9FAFB', color: '#6B7280', fontWeight: 500,
+                fontSize: 13, textAlign: 'center', textDecoration: 'none',
+                borderBottom: '2px solid transparent',
+                fontFamily: "'Inter', sans-serif",
+              }}>
+                Request a trial
+              </a>
             </div>
 
             <div style={{ padding: '24px 36px 24px' }}>

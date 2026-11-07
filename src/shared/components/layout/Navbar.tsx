@@ -181,16 +181,14 @@ export function Navbar({
                 <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.6)' }}>Sign In</span>
               </a>
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-              <a href={`${APP_URL}/register`}
-                style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '13px', borderRadius: 10, background: '#1B4F8A', color: '#fff', textDecoration: 'none', fontSize: 13, fontWeight: 700 }}>
-                Create Account →
-              </a>
-              <a href={`${LEARN_URL}/register`}
-                style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '13px', borderRadius: 10, background: '#2EAA4A', color: '#fff', textDecoration: 'none', fontSize: 13, fontWeight: 700 }}>
-                Register Free →
-              </a>
-            </div>
+            {/* Students sign up on the Training Hub only. Modeling Hub signup
+                ("Request a trial") is linked from the Modeling Hub, platform
+                and Pricing pages, never from the header. */}
+            <a href={`${LEARN_URL}/register`} data-testid="nav-mobile-training-join"
+              style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2, padding: '12px', borderRadius: 10, background: '#2EAA4A', color: '#fff', textDecoration: 'none', textAlign: 'center' }}>
+              <span style={{ fontSize: 13, fontWeight: 700 }}>Join free →</span>
+              <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.8)' }}>Training Hub courses and certification</span>
+            </a>
           </div>
         </div>
       )}
@@ -266,14 +264,9 @@ export function Navbar({
                 <span style={{ fontSize: 11, fontWeight: 800, color: '#1B3A6B', letterSpacing: '0.06em', textTransform: 'uppercase' }}>Modeling Hub</span>
               </div>
               <a href={`${APP_URL}/signin`} onClick={() => setDropdownOpen(false)}
-                style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 16px 9px 24px', textDecoration: 'none', color: '#374151', fontSize: 13, borderBottom: '1px solid #F9FAFB' }}>
+                style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 16px 12px 24px', textDecoration: 'none', color: '#374151', fontSize: 13 }}>
                 <span style={{ fontSize: 13, color: '#6B7280' }}>🔑</span>
                 <span style={{ fontWeight: 600, color: '#1B3A6B' }}>Sign In</span>
-              </a>
-              <a href={`${APP_URL}/register`} onClick={() => setDropdownOpen(false)}
-                style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 16px 12px 24px', textDecoration: 'none', color: '#374151', fontSize: 13 }}>
-                <span style={{ fontSize: 13, color: '#6B7280' }}>✏️</span>
-                <span style={{ fontWeight: 600, color: '#1B3A6B' }}>Create Account</span>
               </a>
 
               <div style={{ height: 1, background: '#E5E7EB' }} />
@@ -288,10 +281,13 @@ export function Navbar({
                 <span style={{ fontSize: 13, color: '#6B7280' }}>🔑</span>
                 <span style={{ fontWeight: 600, color: '#1B3A6B' }}>Sign In</span>
               </a>
-              <a href={`${LEARN_URL}/register`} onClick={() => setDropdownOpen(false)}
+              <a href={`${LEARN_URL}/register`} onClick={() => setDropdownOpen(false)} data-testid="nav-training-join"
                 style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 16px 14px 24px', textDecoration: 'none', color: '#374151', fontSize: 13 }}>
                 <span style={{ fontSize: 13, color: '#6B7280' }}>✏️</span>
-                <span style={{ fontWeight: 600, color: '#1B3A6B' }}>Create Account</span>
+                <span style={{ display: 'flex', flexDirection: 'column' }}>
+                  <span style={{ fontWeight: 600, color: '#1B3A6B' }}>Join free</span>
+                  <span style={{ fontSize: 11, color: '#6B7280' }}>Courses and certification</span>
+                </span>
               </a>
             </div>
           )}

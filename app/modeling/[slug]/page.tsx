@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { NavbarServer } from '@/src/shared/components/layout/NavbarServer';
 import { PLATFORMS, getPlatform, platformPricingSegment } from '@/src/hubs/modeling/config/platforms';
+import { signupAwareCtaLabel } from '@/src/hubs/modeling/lib/requestTrial';
 import type { PlatformModule } from '@/src/hubs/modeling/config/platforms';
 import { getModules, getAllPageSections } from '@/src/shared/cms';
 import { getPlatformModules } from '@/src/shared/cms/platform-modules';
@@ -242,8 +243,8 @@ export default async function PlatformDetailPage({
     const cc = fc(ctaRaw);
     const ctaHead    = (cc?.heading as string)           || 'Ready to build your model?';
     const ctaDesc    = (cc?.description as string)       || 'Start with Module 1 - free, structured, and ready to use right now.';
-    const ctaText    = (cc?.cta_text as string)          || 'Launch Platform Free →';
     const ctaUrl     = (cc?.cta_url as string)           || '/register';
+    const ctaText    = signupAwareCtaLabel(ctaUrl, (cc?.cta_text as string) || 'Request a trial →');
 
     return (
       <div style={{ fontFamily: "'Inter', sans-serif", background: '#fff', color: '#374151', minHeight: '100vh' }}>
@@ -825,7 +826,7 @@ export default async function PlatformDetailPage({
               borderRadius: 7, textDecoration: 'none',
               border: '1.5px solid #F59E0B',
             }}>
-              Register for Updates →
+              Request a trial →
             </a>
           </div>
         </div>

@@ -10,6 +10,7 @@ import { SharedFooter } from '@/src/hubs/main/components/landing/SharedFooter';
 import { CmsField, cmsVisible } from '@/src/hubs/main/components/cms/CmsField';
 import { getServerClient } from '@/src/core/db/supabase';
 import { resolveTrialDays, withTrialDays } from '@/src/shared/entitlements/trialConfig';
+import { signupAwareCtaLabel } from '@/src/hubs/modeling/lib/requestTrial';
 
 export const revalidate = 0;
 
@@ -103,8 +104,8 @@ export default async function ModelingHubPage() {
   const heroBadge    = (h?.badge as string)              || cms(content, 'modeling_hub', 'hero_badge',    '📐 Professional Modeling Platform');
   const heroHeadline = (h?.headline as string)           || cms(content, 'modeling_hub', 'hero_headline', 'Build Institutional-Grade\nFinancial Models');
   const heroSub      = (h?.subtitle as string)           || cms(content, 'modeling_hub', 'hero_sub',      'Structured, guided workflows for every financial discipline - real estate, business valuation, LBO, FP&A, and more. Built by practitioners. Free to use.');
-  const ctaPrimary   = withTrialDays((h?.cta_primary_text as string)   || cms(content, 'modeling_hub', 'cta_primary',   'Register Free →'), trialDays);
   const ctaPriUrl    = (h?.cta_primary_url as string)    || '/register';
+  const ctaPrimary   = signupAwareCtaLabel(ctaPriUrl, withTrialDays((h?.cta_primary_text as string)   || cms(content, 'modeling_hub', 'cta_primary',   'Request a trial →'), trialDays));
   const ctaSecondary = withTrialDays((h?.cta_secondary_text as string) || cms(content, 'modeling_hub', 'cta_secondary', 'Login to Dashboard →'), trialDays);
   const ctaSecUrl    = (h?.cta_secondary_url as string)  || '/signin';
 
@@ -141,8 +142,8 @@ export default async function ModelingHubPage() {
   const bc = fc(bottomCtaRaw);
   const bottomH2      = (bc?.heading as string)      || cms(content, 'modeling_hub', 'bottom_cta_heading', 'Ready to build your first model?');
   const bottomSub     = (bc?.subtitle as string)     || (bc?.description as string) || 'Join financial professionals around the world building institutional-grade models - completely free.';
-  const bottomCtaText = withTrialDays((bc?.buttonText as string) || (bc?.cta_text as string) || 'Launch Platform Free →', trialDays);
   const bottomCtaUrl  = (bc?.buttonUrl as string)    || (bc?.cta_url as string)     || '/register';
+  const bottomCtaText = signupAwareCtaLabel(bottomCtaUrl, withTrialDays((bc?.buttonText as string) || (bc?.cta_text as string) || 'Request a trial →', trialDays));
 
   const bottomCtaVisible = bottomCtaRaw
     ? bottomCtaRaw.visible !== false

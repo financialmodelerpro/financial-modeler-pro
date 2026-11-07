@@ -36,6 +36,7 @@ interface RegisterFormProps {
 
 const NAVY = '#0D2E5A';
 const BLUE = '#1B4F8A';
+const LEARN_URL = process.env.NEXT_PUBLIC_LEARN_URL ?? 'https://learn.financialmodelerpro.com';
 
 const inputStyle: React.CSSProperties = {
   width: '100%', padding: '10px 12px', fontSize: 14,
@@ -74,6 +75,8 @@ function RegisterInner({ preLaunch, launchDate, invitedEmail, inviteToken, invit
   // cannot submit a default nobody chose.
   const [worksInRe,  setWorksInRe]  = useState<boolean | null>(null);
   const [reNote,     setReNote]     = useState('');
+  // Answer to the routing question at the top of the page (null = unanswered).
+  const [audience,   setAudience]   = useState<'professional' | null>(null);
 
   // Remember a plan chosen on the (logged-out) pricing page so the action
   // resumes after the user signs in. No dead ends for a logged-out click.
@@ -223,6 +226,57 @@ function RegisterInner({ preLaunch, launchDate, invitedEmail, inviteToken, invit
     );
   }
 
+  // ROUTING QUESTION (2026-11-07). The first thing on this page, before any
+  // form, however the person arrived (a link or the URL typed directly). A
+  // student is sent to Training Hub signup and nothing is created here; a
+  // professional continues to the existing form, whose qualification and
+  // approval are unchanged. A team invite skips it: the inviting client has
+  // already said who this person is.
+  if (!inviteToken && audience !== 'professional') {
+    const cardStyle: React.CSSProperties = {
+      display: 'block', width: '100%', textAlign: 'left', cursor: 'pointer',
+      background: '#fff', border: '1.5px solid #D1D5DB', borderRadius: 12,
+      padding: '18px 20px', fontFamily: "'Inter', sans-serif",
+    };
+    return (
+      <div style={{
+        minHeight: 'calc(100vh - 64px)', background: '#F5F7FA',
+        display: 'flex', flexDirection: 'column', alignItems: 'center',
+        justifyContent: 'center', padding: '40px 20px',
+        fontFamily: "'Inter', sans-serif",
+      }}>
+        <div data-testid="register-routing-question" style={{ width: '100%', maxWidth: 520 }}>
+          <div style={{ textAlign: 'center', marginBottom: 22 }}>
+            <div style={{ fontSize: 32, marginBottom: 8 }}>📐</div>
+            <h1 style={{ fontSize: 22, fontWeight: 800, color: NAVY, margin: 0 }}>What brings you here?</h1>
+          </div>
+          <div style={{ display: 'grid', gap: 12 }}>
+            <button
+              type="button" data-testid="register-route-learning" style={cardStyle}
+              onClick={() => { window.location.assign(`${LEARN_URL}/register`); }}
+            >
+              <div style={{ fontSize: 22, marginBottom: 6 }}>🎓</div>
+              <div style={{ fontSize: 15, fontWeight: 800, color: NAVY }}>I&apos;m learning financial modelling</div>
+              <div style={{ fontSize: 12.5, color: '#6B7280', marginTop: 4 }}>Join the Training Hub free: courses and certification.</div>
+            </button>
+            <button
+              type="button" data-testid="register-route-professional" style={cardStyle}
+              onClick={() => setAudience('professional')}
+            >
+              <div style={{ fontSize: 22, marginBottom: 6 }}>🏢</div>
+              <div style={{ fontSize: 15, fontWeight: 800, color: NAVY }}>I work on real estate projects</div>
+              <div style={{ fontSize: 12.5, color: '#6B7280', marginTop: 4 }}>Developer, fund, family office, advisor. Request a trial of the Modeling Hub.</div>
+            </button>
+          </div>
+          <div style={{ marginTop: 18, textAlign: 'center', fontSize: 12, color: '#9CA3AF' }}>
+            Already have an account?{' '}
+            <a href={`${process.env.NEXT_PUBLIC_APP_URL ?? 'https://app.financialmodelerpro.com'}/signin`} style={{ color: BLUE, fontWeight: 600, textDecoration: 'none' }}>Sign In →</a>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <>
       {/* NavbarServer rendered by page.tsx */}
@@ -239,12 +293,12 @@ function RegisterInner({ preLaunch, launchDate, invitedEmail, inviteToken, invit
             <div style={{ background: NAVY, padding: '28px 36px 24px', textAlign: 'center' }}>
               <div style={{ fontSize: 32, marginBottom: 8 }}>📐</div>
               <h1 style={{ fontSize: 20, fontWeight: 800, color: '#fff', margin: 0, marginBottom: 4 }}>
-                {inviteToken ? 'Join Your Team' : 'Create Your Account'}
+                {inviteToken ? 'Join Your Team' : 'Request a trial'}
               </h1>
               <p style={{ fontSize: 13, color: 'rgba(255,255,255,0.65)', margin: 0 }}>
                 {inviteToken
                   ? `You have been invited to join ${inviteAccountName ?? 'a team'} on Financial Modeler Pro. Access is covered by the team's subscription.`
-                  : 'Join Financial Modeler Pro · Choose a plan or start a free trial after sign-up'}
+                  : 'Tell us about you and your work. Our team reviews every trial request.'}
               </p>
             </div>
 
@@ -511,7 +565,7 @@ function RegisterInner({ preLaunch, launchDate, invitedEmail, inviteToken, invit
                 }}>
                   {loading
                     ? <><span style={{ width: 16, height: 16, border: '2px solid rgba(255,255,255,0.4)', borderTopColor: '#fff', borderRadius: '50%', display: 'inline-block', animation: 'spin 0.7s linear infinite' }} />Creating…</>
-                    : 'Create Account →'}
+                    : (inviteToken ? 'Create Account →' : 'Request a trial →')}
                 </button>
 
                 <p style={{ fontSize: 12, color: '#9CA3AF', textAlign: 'center', margin: 0 }}>

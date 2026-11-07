@@ -143,8 +143,8 @@ export default async function PricingPageBody({ initialPlatform }: { initialPlat
         <div style={{ maxWidth: 640, margin: '0 auto' }}>
           <h2 style={{ fontSize: 'clamp(24px,4vw,40px)', fontWeight: 900, color: '#fff', marginBottom: 12, lineHeight: 1.15, letterSpacing: '-0.01em' }}>Ready to get started?</h2>
           <p style={{ fontSize: 15.5, color: 'rgba(255,255,255,0.8)', marginBottom: 32, lineHeight: 1.6 }}>Start your free {trialDays}-day trial. No credit card required.</p>
-          <Link href="/register" style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: '#C9A84C', color: '#0D2E5A', fontWeight: 800, fontSize: 16, padding: '15px 44px', borderRadius: 12, textDecoration: 'none', boxShadow: '0 12px 28px -8px rgba(201,168,76,0.55)' }}>
-            Start free trial &rarr;
+          <Link href={`${process.env.NEXT_PUBLIC_APP_URL ?? 'https://app.financialmodelerpro.com'}/register`} data-testid="pricing-request-trial" style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: '#C9A84C', color: '#0D2E5A', fontWeight: 800, fontSize: 16, padding: '15px 44px', borderRadius: 12, textDecoration: 'none', boxShadow: '0 12px 28px -8px rgba(201,168,76,0.55)' }}>
+            Request a trial &rarr;
           </Link>
         </div>
       </section>

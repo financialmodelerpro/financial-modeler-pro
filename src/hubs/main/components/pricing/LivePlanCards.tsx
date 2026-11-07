@@ -240,9 +240,9 @@ export default function LivePlanCards({
                             {actions.busyKey === 'trial' ? 'Starting...' : 'Start free trial'}
                           </button>
                         ) : (
-                          <Link href={`${APP_URL}/register?plan=trial&interval=${interval}&intent=trial`} data-testid="pricing-trial-cta" aria-label={`Start a free ${trialDays}-day trial`}
+                          <Link href={`${APP_URL}/register?plan=trial&interval=${interval}&intent=trial`} data-testid="pricing-trial-cta" aria-label={`Request a free ${trialDays}-day trial`}
                             style={trialStyle}>
-                            Start free trial
+                            Request a trial
                           </Link>
                         );
                       })()}
