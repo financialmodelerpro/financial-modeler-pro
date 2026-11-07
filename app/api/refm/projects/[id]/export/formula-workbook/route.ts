@@ -11,6 +11,10 @@
  *           Refused (404, the same answer as a project that is not there)
  *           for any other account BEFORE any project data is read.
  *
+ * A PROJECT THE LIVE WORKBOOK CANNOT MODEL IS REFUSED IN WORDS (2026-11-07): 422 with
+ * code 'live_workbook_unavailable' and a plain message; the Export dialog shows it with
+ * the values workbook offered in one click. Never a 500 or a half-live file.
+ *
  * Then the ordinary export rules: signed in, a member who may export the
  * project, not read-only or lapsed, the sensitivity grid only where the plan
  * opens it. A working draft cannot be exported this way: the preview builds
@@ -24,7 +28,7 @@ import { getProjectForAction, getVersionById, getLatestVersion } from '@/src/hub
 import { listParties } from '@/src/hubs/modeling/platforms/refm/lib/persistence/parties-server';
 import { formulaExportAllowed } from '@/src/hubs/modeling/platforms/refm/lib/excel/formulaExportAccess';
 import { savedVersionInputs } from '@/src/hubs/modeling/platforms/refm/lib/excel/savedVersionInputs';
-import { generateFormulaWorkbookBuffer } from '@/src/hubs/modeling/platforms/refm/lib/excel/formulaWorkbook';
+import { generateLiveWorkbook } from '@/src/hubs/modeling/platforms/refm/lib/excel/formulaWorkbook';
 import { resolveUserGate } from '@/src/shared/entitlements/resolveUser';
 import { writeBlockReason, featureAllowed } from '@/src/shared/entitlements/gate';
 
@@ -68,11 +72,16 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   const dateLabel = new Date().toLocaleDateString('en-GB', { year: 'numeric', month: 'long', day: 'numeric' });
   const scale = body.displayScale === 'thousands' || body.displayScale === 'millions' ? body.displayScale : 'full';
   const decimals = body.displayDecimals === 1 || body.displayDecimals === 2 ? body.displayDecimals : 0;
-  const buf = await generateFormulaWorkbookBuffer({
+  const built = await generateLiveWorkbook({
     state: inputs.state as never, projectName, dateLabel, displayScale: scale, displayDecimals: decimals,
     caseComparison: inputs.caseComparison as never, parties,
     includeSensitivity: featureAllowed(gate, 'sensitivity'),
   });
+  if (!built.ok) {
+    console.warn(`[formula-workbook] refused project ${projectId}: ${built.detail.slice(0, 1000)}`);
+    return NextResponse.json({ error: built.message, code: 'live_workbook_unavailable' }, { status: 422 });
+  }
+  const buf = built.buffer;
   const base = (version.label || version.version_label || projectName).replace(/[^a-z0-9_-]+/gi, '_').slice(0, 80) || 'project';
   return new NextResponse(buf, {
     headers: {

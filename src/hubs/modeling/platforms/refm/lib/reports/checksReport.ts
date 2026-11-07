@@ -67,6 +67,9 @@ export interface IntegrityCheck {
   residue: number;
   /** Axis index of the worst period. */
   atIndex: number;
+  /** The largest and the smallest yearly difference (the residue is whichever is further from zero). */
+  hi: number;
+  lo: number;
   /** Peak magnitude of the series being reconciled, over the WHOLE horizon. */
   magnitude: number;
   /** What the magnitude is (for the detail line). */
@@ -186,14 +189,15 @@ export function relativeCheckOk(residue: number, magnitude: number): boolean {
 /** Worst absolute divergence between two series, with the PEAK magnitude to judge it by. */
 export function worstDivergence(
   a: readonly number[], b: readonly number[], mag: readonly number[], n: number,
-): { residue: number; atIndex: number; magnitude: number } {
-  let residue = 0, atIndex = 0, peak = 0;
+): { residue: number; atIndex: number; magnitude: number; hi: number; lo: number } {
+  let residue = 0, atIndex = 0, peak = 0, hi = -Infinity, lo = Infinity;
   for (let t = 0; t < n; t++) {
     const x = (a[t] ?? 0) - (b[t] ?? 0);
     if (Math.abs(x) > Math.abs(residue)) { residue = x; atIndex = t; }
+    hi = Math.max(hi, x); lo = Math.min(lo, x);
     peak = Math.max(peak, Math.abs(mag[t] ?? 0));
   }
-  return { residue, atIndex, magnitude: peak };
+  return { residue, atIndex, magnitude: peak, hi: n > 0 ? hi : 0, lo: n > 0 ? lo : 0 };
 }
 
 /**
@@ -219,7 +223,7 @@ export function buildIntegrityChecks(
   const lPlusE = bs.totalLiabilitiesPerPeriod.map((v, i) => v + (bs.totalEquityPerPeriod[i] ?? 0));
   const mk = (label: string, a: number[], b: number[], mag: number[], what: string, where?: string): IntegrityCheck => {
     const w = worstDivergence(a, b, mag, n);
-    return { label, ok: relativeCheckOk(w.residue, w.magnitude), residue: w.residue, atIndex: w.atIndex, magnitude: w.magnitude, what, where };
+    return { label, ok: relativeCheckOk(w.residue, w.magnitude), residue: w.residue, atIndex: w.atIndex, magnitude: w.magnitude, hi: w.hi, lo: w.lo, what, where };
   };
   const unexplained = snap.bsReconciliation.unexplainedPerPeriod;
   return [

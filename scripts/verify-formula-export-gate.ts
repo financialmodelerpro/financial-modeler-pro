@@ -78,7 +78,8 @@ function walk(dir: string, out: string[] = []): string[] {
   const src = readFileSync(ROUTE, 'utf8');
   const post = src.slice(src.indexOf('export async function POST'));
   const gateAt = post.indexOf('formulaExportAllowed(');
-  const reads = ['getProjectForAction(', 'getVersionById(', 'getLatestVersion(', 'listParties(', 'resolveUserGate(', 'savedVersionInputs(', 'generateFormulaWorkbookBuffer('];
+  const reads = ['getProjectForAction(', 'getVersionById(', 'getLatestVersion(', 'listParties(', 'resolveUserGate(', 'savedVersionInputs(', 'generateLiveWorkbook('];
+  // RE-AIMED 2026-11-07: the route builds through generateLiveWorkbook (the file or a plain refusal); the rule is unchanged, the build comes after the gate.
   const early = reads.filter((r) => { const at = post.indexOf(r); return at < 0 || at < gateAt; });
   check('G3 POST checks the preview account before every project, version, party and plan read', gateAt > 0 && early.length === 0, `before the gate or missing: ${early.join(', ')}`);
   check('G3b a refusal is the same 404 a missing project gives (it reveals nothing)', /if \(!\(await formulaExportAllowed\(userId\)\)\) return notFound\(\);/.test(post));

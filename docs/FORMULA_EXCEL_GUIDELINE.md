@@ -91,9 +91,9 @@ This is the working document for the build. Update the status table at the end o
 
 ## 8. Still open (in order)
 
-1. **Longest formulas left** are logic, not sums: the per-asset IDC split in the circular solve, the Summary's text sentences, the Returns fee-income text. Only helper rows would shorten them further.
+1. **DONE 2026-11-07: nothing on any tab is over 200 characters** (A14c covers every tab). Helper rows on Financing (each line's land, the cash above the minimum) and two Checks columns (largest and smallest yearly difference) carried the last long ones.
 2. **Refused, no project needs them yet**: an exit before the last year and Exit Year as a live input, reducing balance depreciation, deferred plot payment, Method 4, balloon / custom repayment, fund fees on NAV, monthly models, phase overlap, existing operations, perpetuity terminal value.
-3. **Release**: the export is still behind the founder-only preview gate (`formulaExportAccess.ts`); opening it to plans is the founder's call (feature key `excel_formula`).
+3. **Release**: the export is still behind the founder-only preview gate (`formulaExportAccess.ts`); opening it to plans is the founder's call (feature key `excel_formula`). A project it cannot model is refused in words with the values workbook offered (`liveWorkbookAvailability.ts`, 2026-11-07); the census probe is `scripts/probe-formula-workbook-projects.ts`.
 4. **Founder's call**: Summary phase EBITDA vs phase P&L (section 5).
 
 ## 9. Every figure on the visible tabs (founder, 2026-10-14)

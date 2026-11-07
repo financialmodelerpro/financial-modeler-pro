@@ -1116,13 +1116,14 @@ function formulaCells(wb: ExcelJS.Workbook): Map<string, { formula: string; resu
       const v = c.value as { formula?: string } | null;
       if (!v || typeof v !== 'object' || typeof v.formula !== 'string') return;
       if (/MATCH\(TRUE/.test(v.formula) || /(MAX|MIN)\(INDEX\(/.test(v.formula) || /INDEX\(--/.test(v.formula)) arrayLookups.push(`${ws.name}!${c.address}`);
-      if ((ws.name === 'Returns' || ws.name === 'Summary') && v.formula.length > 200) long.push(`${ws.name}!${c.address} (${v.formula.length})`);
+      // EVERY TAB (2026-11-07, founder): nothing in the workbook is over 200 characters.
+      if (v.formula.length > 200) long.push(`${ws.name}!${c.address} (${v.formula.length})`);
       if (ws.name === 'Inputs') inputsFormulas.push(`Inputs!${c.address}`);
       void r; void col;
     }));
     check('A14a no formula relies on array evaluation outside SUMPRODUCT (no MATCH(TRUE, ...), MAX(INDEX(...)) or INDEX(--...))', arrayLookups.length === 0, arrayLookups.slice(0, 6).join(', '));
     check('A14b Inputs holds typed values only (the combined interest rate is worked out on Financing)', inputsFormulas.length === 0, inputsFormulas.slice(0, 6).join(', '));
-    check('A14c no formula on Returns or Summary is over 200 characters (the exit-year analysis and occupancy read helper rows)', long.length === 0, long.slice(0, 6).join(', '));
+    check('A14c no formula on any tab is over 200 characters (helper rows and cells carry the long ones)', long.length === 0, `${long.length} over: ${long.slice(0, 6).join(', ')}`);
     const plWs = wb.getWorksheet('P&L');
     let ebitAt = 0, ebitdaAt = 0, pbtAt = 0;
     plWs?.eachRow((row, r) => { const l = String(row.getCell(1).value ?? ''); if (!ebitdaAt && /^EBITDA$/.test(l)) ebitdaAt = r; if (!ebitAt && /^EBIT$/.test(l)) ebitAt = r; if (!pbtAt && /before (zakat|tax)/i.test(l)) pbtAt = r; });

@@ -225,26 +225,27 @@ export const stage3Revenue: LiveLayer = {
      * AN INPUTS GRID (2026-10-26). Inputs registers each cell `rxgrid|<grid>@<n>`, n the
      * construction year of a construction grid or the operating year of an operating grid.
      */
-    const gridOf = (grid: string): { k0: number; n: number; range: string } | undefined => {
+    const gridOf = (grid: string): { k0: number; n: number; width: number; range: string } | undefined => {
       const ks = reg.keys().filter((k) => k.startsWith(`rxgrid|${grid}@`)).map((k) => Number(k.slice(k.lastIndexOf('@') + 1))).sort((x, y) => x - y);
       if (!ks.length) return undefined;
       const first = w.addr(`rxgrid|${grid}@${ks[0]}`), last = w.addr(`rxgrid|${grid}@${ks[ks.length - 1]}`);
       for (const k of ks) w.refA(w.addr(`rxgrid|${grid}@${k}`), REV);
-      return { k0: ks[0], n: ks.length, range: `${w.refA(first, REV)}:$${colLetter(last.col)}$${last.row}` };
+      // The grid's width is fixed at export, so a read names it rather than COLUMNS() of the range (2026-11-07: shorter).
+      return { k0: ks[0], n: ks.length, width: last.col - first.col + 1, range: `${w.refA(first, REV)}:$${colLetter(last.col)}$${last.row}` };
     };
     /** A grid read by a year counter `y` (1, 2, 3 ..., 0 outside its years); its length is read from Inputs. */
-    const atYear = (g: { k0: number; n: number; range: string } | undefined, y: string, clamp01 = false): string => {
+    const atYear = (g: { k0: number; n: number; width: number; range: string } | undefined, y: string, clamp01 = false): string => {
       if (!g) return '0';
       const k = g.k0 === 1 ? y : `${y}-${g.k0 - 1}`;
       const v = `INDEX(${g.range},${k})`;
-      return `IF(AND(${k}>=1,${k}<=COLUMNS(${g.range})),${clamp01 ? `MIN(1,MAX(0,${v}))` : v},0)`;
+      return `IF(AND(${k}>=1,${k}<=${g.width}),${clamp01 ? `MIN(1,MAX(0,${v}))` : v},0)`;
     };
     /** A downpayment at year y of the phase: past the last year typed, the last one carries forward
      *  (the engine's resolveDownpayment), so a phase lengthened in Excel keeps the platform's terms. */
-    const dpAt = (g: { k0: number; n: number; range: string } | undefined, y: string): string => {
+    const dpAt = (g: { k0: number; n: number; width: number; range: string } | undefined, y: string): string => {
       if (!g) return '0';
       const k = g.k0 === 1 ? y : `${y}-${g.k0 - 1}`;
-      return `IF(${k}>=1,MIN(1,MAX(0,INDEX(${g.range},MIN(${k},COLUMNS(${g.range}))))),0)`;
+      return `IF(${k}>=1,MIN(1,MAX(0,INDEX(${g.range},MIN(${k},${g.width})))),0)`;
     };
     /** The Timeline's construction or operating year number of phase p, in year t's column. */
     const ctr = (p: Phase, kind: 'con' | 'ops', t: number): string => w.refP({ sheet: 'Timeline', row: w.addr(`tl:ctr:${p.id}:${kind}`).row, col: pc(t) }, REV);

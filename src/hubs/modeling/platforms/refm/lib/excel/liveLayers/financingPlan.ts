@@ -183,7 +183,13 @@ export function financingPlan(state: FinancialsResolverState, snap: Snap = compu
   const lineState = { assets: state.assets, phases: state.phases, parcels: state.parcels };
   const idcLines = planReportLines(lineState, (a) => snap.idc.byAsset.has(a.id)).map((l) => ({ title: lineTitle(l, lineState), assetIds: [...l.assetIds] }));
   if (idcAssets.length) {
-    scalar('fl:sqmTot', 'Land of the assets that share capitalised interest (sqm)', idcAssets.reduce((a, x) => a + x.landSqm, 0), 'int', 'Each asset\'s land, the basis the interest is shared on');
+    // ONE LAND ROW PER LINE (2026-11-07): the total, the land under construction and each line's
+    // share of the interest read these, so no formula repeats every plot's land.
+    idcLines.forEach((l, i) => {
+      const sqmOfLine = idcAssets.filter((x) => l.assetIds.includes(x.assetId)).reduce((a, x) => a + x.landSqm, 0);
+      scalar(`fl:sqmLine:${i}`, `${l.title}: land (sqm)`, sqmOfLine, 'int', 'Land & Area: the land of the line\'s assets');
+    });
+    scalar('fl:sqmTot', 'Land of the assets that share capitalised interest (sqm)', idcAssets.reduce((a, x) => a + x.landSqm, 0), 'int', 'The lines above, the basis the interest is shared on');
     const active = zeros();
     for (const x of idcAssets) {
       const a = state.assets.find((y) => y.id === x.assetId);
@@ -343,6 +349,11 @@ export function financingPlan(state: FinancialsResolverState, snap: Snap = compu
   per('fl:repaidCash', '(-) Debt repaid (scheduled, swept and at the exit)', sl(dcf.debtRepaymentPerPeriod), 'Each facility\'s principal repaid, and the exit repayment');
   const forDiv = add(sl(dcf.openingCashPerPeriod), sl(dcf.cashFromOperationsPerPeriod), sl(dcf.cashFromInvestmentPerPeriod), sl(dcf.equityDrawdownPerPeriod), sl(dcf.debtDrawdownPerPeriod), sl(dcf.interestPaidPerPeriod), sl(dcf.debtRepaymentPerPeriod));
   per('fl:forDiv', '= Cash available for dividends', forDiv, 'Cash available less the debt repaid', { balance: true, style: 'subtotal' });
+  {
+    // The cash above the minimum (2026-11-07): each phase's dividend and the exit sweep read this row.
+    const minRes = Math.max(0, Number(state.project.financing?.minimumCashReserve ?? fin.funding.minCashReserve ?? 0) || 0);
+    per('fl:excess', 'Cash above the minimum balance', forDiv.map((v) => (Math.round((v - minRes) * 100) / 100 <= 0 ? 0 : v - minRes)), 'Cash available for dividends less the minimum cash on Inputs, never below zero', { indent: 1, balance: true });
+  }
   {
     const rowsP = [...snap.dividends.beforeSweepPhases, ...snap.dividends.afterSweepPhases];
     for (const ph of state.phases) {

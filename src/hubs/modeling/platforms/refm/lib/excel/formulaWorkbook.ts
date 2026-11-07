@@ -54,6 +54,7 @@ import { collapseSpaces } from './liveFrontMatter';
 import { linkPeriodHeaders } from './liveLayers/foundations';
 import { inputsUnreadProblems, receivableDaysProblems, cellId, typedInputsCells } from './liveLayers/inputAudit';
 import { ARGB as INPUT_ARGB } from './styles';
+import { emptyProjectRefusal, liveWorkbookRefusal, LIVE_BUILD_FAILED_MESSAGE } from './liveWorkbookAvailability';
 
 export type SheetStatus = 'live' | 'partial' | 'values' | 'values-by-design' | 'front';
 
@@ -291,6 +292,10 @@ export function exportShapeProblems(wb: ExcelJS.Workbook): string[] {
       // An empty bracket that is not a function call (`(()>0)`) is a formula Excel will not
       // open the file over (2026-10-15: an empty list of rows joined into a SUMPRODUCT).
       if (/(^|[^A-Za-z0-9_.])\(\s*\)/.test(f)) out.push(`${ws.name}!R${r}C${c} has an empty bracket, which Excel cannot read`);
+      // A function that needs an argument, called with none (2026-11-07: SUM() over a project with no
+      // assets made Excel refuse the file while LibreOffice opened it).
+      const bare = /(^|[^A-Za-z0-9_.])(SUM|SUMPRODUCT|SUMIF|MAX|MIN|AND|OR|IRR|INDEX)\(\s*\)/.exec(f);
+      if (bare) out.push(`${ws.name}!R${r}C${c} calls ${bare[2]} with nothing to add up, which Excel cannot read`);
       for (const m of f.matchAll(re)) {
         const sh = (m[1] ?? m[2]).replace(/''/g, "'");
         if (!names.has(sh)) out.push(`${ws.name}!R${r}C${c} reads the tab "${sh}", which does not exist`);
@@ -317,6 +322,28 @@ export async function generateFormulaWorkbookBuffer(opts: BuildModelOptions): Pr
   const { wb } = buildFormulaWorkbook(opts);
   const buf = await wb.xlsx.writeBuffer();
   return enableFormulaIteration(buf as ArrayBuffer);
+}
+
+/**
+ * THE EXPORT ROUTE'S ONE DOOR (2026-11-07): the file, or a refusal the user can read. A project
+ * with no asset, a build whose financing loop refuses (every statement after it would be values)
+ * and a build that fails its own checks are all refused with a plain message and the values
+ * workbook offered instead (liveWorkbookAvailability.ts). `detail` is for the server log only.
+ */
+export async function generateLiveWorkbook(opts: BuildModelOptions): Promise<
+  { ok: true; buffer: ArrayBuffer } | { ok: false; message: string; detail: string }
+> {
+  const assets = (opts.state as { assets?: Array<{ visible?: boolean }> }).assets ?? [];
+  const empty = emptyProjectRefusal(assets.filter((a) => a.visible !== false).length);
+  if (empty) return { ok: false, message: empty.message, detail: empty.reasons.join('; ') };
+  let res: FormulaWorkbookResult;
+  try { res = buildFormulaWorkbook(opts); } catch (e) {
+    return { ok: false, message: LIVE_BUILD_FAILED_MESSAGE, detail: e instanceof Error ? e.message : String(e) };
+  }
+  const refusal = liveWorkbookRefusal(res.status);
+  if (refusal) return { ok: false, message: refusal.message, detail: res.status.get('Financing')?.note ?? '' };
+  const buf = await res.wb.xlsx.writeBuffer();
+  return { ok: true, buffer: await enableFormulaIteration(buf as ArrayBuffer) };
 }
 
 // ── Honest labelling ─────────────────────────────────────────────────────────

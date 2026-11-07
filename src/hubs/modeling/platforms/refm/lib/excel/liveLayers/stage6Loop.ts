@@ -388,13 +388,30 @@ export const stage6Loop: LiveLayer = {
     const idcAssets = visible.filter(sharesCapitalisedInterest);
     const sqm = (a: Asset): string => (has(`land:${a.id}:sqm`) ? `MAX(0,N(${w.ref(`land:${a.id}:sqm`)}))` : '0');
     const conFlag = (a: Asset, t: number): string => (has(`tl:flag:${a.phaseId}:con`) ? P(`tl:flag:${a.phaseId}:con`, t) : '0');
-    putS('fl:sqmTot', idcAssets.map(sqm).join('+') || '0');
-    put('fl:sqmActive', (t) => idcAssets.map((a) => `${conFlag(a, t)}*${sqm(a)}`).join('+') || '0');
+    // Each line's land is its own row (one phase per line, so one construction flag per line).
+    const lineAssets = pc0.idcLines.map((l) => l.assetIds.map((id) => idcAssets.find((a) => a.id === id)).filter((a): a is Asset => !!a));
+    const byLine = lineAssets.every((as, i) => has(`fl:sqmLine:${i}`) && as.every((a) => a.phaseId === as[0]?.phaseId))
+      && idcAssets.every((a) => lineAssets.some((as) => as.includes(a)));
+    if (byLine) {
+      lineAssets.forEach((as, i) => putS(`fl:sqmLine:${i}`, as.map(sqm).join('+') || '0'));
+      const rs = lineAssets.map((_, i) => w.addr(`fl:sqmLine:${i}`).row);
+      const together = rs.every((r, i) => i === 0 || r === rs[i - 1] + 1);
+      putS('fl:sqmTot', together && rs.length ? `SUM(${T(`fl:sqmLine:0`)}:${T(`fl:sqmLine:${rs.length - 1}`)})` : lineAssets.map((_, i) => T(`fl:sqmLine:${i}`)).join('+') || '0');
+      put('fl:sqmActive', (t) => {
+        // Lines building on the same flag are added once and multiplied once.
+        const groups = new Map<string, string[]>();
+        lineAssets.forEach((as, i) => { if (!as[0]) return; const f = conFlag(as[0], t); groups.set(f, [...(groups.get(f) ?? []), T(`fl:sqmLine:${i}`)]); });
+        return [...groups].map(([f, cells]) => `${f}*${cells.length > 1 ? `(${cells.join('+')})` : cells[0]}`).join('+') || '0';
+      });
+    } else {
+      putS('fl:sqmTot', idcAssets.map(sqm).join('+') || '0');
+      put('fl:sqmActive', (t) => idcAssets.map((a) => `${conFlag(a, t)}*${sqm(a)}`).join('+') || '0');
+    }
     pc0.idcLines.forEach((l, i) => {
       const k = `fl:idc:${i}`;
       if (!has(k)) return;
-      const as = l.assetIds.map((id) => idcAssets.find((a) => a.id === id)).filter((a): a is Asset => !!a);
-      const sq = as.map(sqm).join('+') || '0';
+      const as = lineAssets[i];
+      const sq = byLine ? T(`fl:sqmLine:${i}`) : as.map(sqm).join('+') || '0';
       const flag = (t: number): string => (as[0] ? conFlag(as[0], t) : '0');
       put(k, (t) => `IF(${P('fl:idcBasis', t)}=0,0,IF(${P('fl:sqmActive', t)}>0,${flag(t)}*${P('fl:idcBasis', t)}*(${sq})/${P('fl:sqmActive', t)},IF(${T('fl:sqmTot')}>0,${P('fl:idcBasis', t)}*(${sq})/${T('fl:sqmTot')},0)))`);
       for (const id of l.assetIds) w.claim(`fnc:main:idc:${id}`, FIN, w.addr(k).row, 1);
@@ -469,8 +486,10 @@ export const stage6Loop: LiveLayer = {
     put('fl:exitRepay', (t) => `${exitF(t)}*MAX(0,${sumF(fac, 'close', t)})`);
     put('fl:repaidCash', (t) => `${sumF(fac, 'repaid', t)}-${P('fl:exitRepay', t)}`);
     put('fl:forDiv', (t) => `${P('fl:cash', t)}+${P('fl:repaidCash', t)}`, 'last');
-    // The cash above the minimum, to the cent.
-    const excess = (t: number): string => `IF(ROUND(${P('fl:forDiv', t)}-${MIN()},2)<=0,0,${P('fl:forDiv', t)}-${MIN()})`;
+    // The cash above the minimum, to the cent: its own row, which every dividend reads.
+    if (!has('fl:excess')) return values('The financing could not be made live for this model: the cash above the minimum has no row.');
+    put('fl:excess', (t) => `IF(ROUND(${P('fl:forDiv', t)}-${MIN()},2)<=0,0,${P('fl:forDiv', t)}-${MIN()})`, 'last');
+    const excess = (t: number): string => P('fl:excess', t);
     // Dividends by phase: a payout of the cash above the minimum, capped at the phase's EBITDA to date,
     // LINKED to the phase P&L's EBITDA row (its own marketing charged, no HQ), never rebuilt here.
     const phaseDiv: string[] = [];
@@ -482,9 +501,12 @@ export const stage6Loop: LiveLayer = {
       put(kEb, (t) => P(kPlEb, t));
       const before = [...phaseDiv];
       put(kDiv, (t) => {
-        const ex = `(${excess(t)}${before.map((k) => `-${P(k, t)}`).join('')})`;
+        const ex = before.length ? `(${excess(t)}${before.map((k) => `-${P(k, t)}`).join('')})` : excess(t);
         const budget = `MAX(0,SUM(${toNow(kEb, t)})-SUM(${toPrev(kDiv, t)}))`;
-        return `IF(AND(${divOn()}=1,${Y(t)}>=${T('fl:divStart')},${payout()}>0,${ex}>0),MIN(${onEbitda ? `MAX(0,${P(kEb, t)})` : ex}*${payout()},${ex},${budget}),0)`;
+        // The payout share is 0% to 100% and the cash above the minimum is positive here, so a payout of it
+        // never exceeds it: only a payout of EBITDA needs the cash as a cap too.
+        const cap = onEbitda ? `MIN(MAX(0,${P(kEb, t)})*${payout()},${ex},${budget})` : `MIN(${ex}*${payout()},${budget})`;
+        return `IF(AND(N(${IN('fin:in:divOn')})=1,${Y(t)}>=${T('fl:divStart')},${payout()}>0,${ex}>0),${cap},0)`;
       });
       phaseDiv.push(kDiv);
     }

@@ -68,6 +68,8 @@ export const stage7cChecks: LiveLayer = {
       // The phases foot to the project EBITDA (2026-10-25): the reconciliation under the phase P&Ls.
       { label: PHASE_EBITDA_CHECK_LABEL, a: `pl|${PHASE_RECON_LINE}||${PHASE_RECON.sum}`, b: `pl|__all__||${finLabels.ebitda}`, mag: `pl|__all__||${finLabels.ebitda}` },
     ];
+    /** The platform sheet's largest and smallest yearly difference sit this far right of the residue (F and G). */
+    const HI_OFFSET = 3;
     const tol = CHECK_REL_TOL.toExponential().toUpperCase().replace('E+', 'E');
     const liveIds: string[] = [], valueIds: string[] = [];
     /** Status from the residue and the scale beside it; one line of detail. */
@@ -83,10 +85,15 @@ export const stage7cChecks: LiveLayer = {
       const A = liveRow(id.a), B = id.b ? liveRow(id.b) : '0', M = liveRow(id.mag);
       if (!A || !B || !M) { valueIds.push(id.label); w.reset(); continue; }
       // SUMPRODUCT evaluates its argument as an array in every Excel version: the worst signed year.
+      // The largest and the smallest yearly difference sit in two cells right of the detail
+      // (2026-11-07), so the residue picks one without restating the difference four times.
       const diff = id.b ? `(${A}-${B})` : A;
-      const hi = `SUMPRODUCT(MAX(${diff}))`, lo = `SUMPRODUCT(MIN(${diff}))`;
       const res = w.addr(key);
-      w.fA(res, `IF(ABS(${hi})>=ABS(${lo}),${hi},${lo})`);
+      const hiAt = { ...res, col: res.col + HI_OFFSET }, loAt = { ...res, col: res.col + HI_OFFSET + 1 };
+      w.reset(); w.fA(hiAt, `SUMPRODUCT(MAX(${diff}))`);
+      w.reset(); w.fA(loAt, `SUMPRODUCT(MIN(${diff}))`);
+      const hi = w.refA(hiAt, CHK), lo = w.refA(loAt, CHK);
+      w.reset(); w.fA(res, `IF(ABS(${hi})>=ABS(${lo}),${hi},${lo})`);
       w.reset(); w.fA({ ...res, col: res.col + 1 }, `MAX(MAX(${M}),-MIN(${M}))`);
       finish(res);
       liveIds.push(id.label);

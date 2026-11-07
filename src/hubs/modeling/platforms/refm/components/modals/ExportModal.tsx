@@ -327,11 +327,14 @@ export default function ExportModal({
   }, [open, projectId]);
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // THE LIVE WORKBOOK REFUSED THIS PROJECT (2026-11-07): the route's plain message, shown with
+  // the values workbook offered in one click. Never an error page or a broken file.
+  const [liveRefusal, setLiveRefusal] = useState<string | null>(null);
 
   if (!open) return null;
   if (typeof document === 'undefined') return null;
 
-  const close = (): void => { setStep('options'); setError(null); onClose(); };
+  const close = (): void => { setStep('options'); setError(null); setLiveRefusal(null); onClose(); };
 
   // Registry-driven module rows (live + admin-included). Live modules are
   // selectable; coming-soon rows appear greyed.
@@ -350,7 +353,10 @@ export default function ExportModal({
     });
   const selectedKeys = moduleRows.filter((m) => selected[m.key]).map((m) => m.key);
 
-  const handleGenerate = async (): Promise<void> => {
+  const handleGenerate = async (kindArg?: typeof reportKind): Promise<void> => {
+    // The refusal panel downloads the values workbook directly, so the kind can be passed in.
+    const kind = kindArg ?? reportKind;
+    setLiveRefusal(null);
     setError(null);
     // No active project: block export (a fresh export would render the empty /
     // default store state into a numberless file). The Export control is also
@@ -367,7 +373,7 @@ export default function ExportModal({
     }
     // Entitlement gate for the chosen format. Server export paths are pure
     // client-side here, so this is the enforcement point for export access.
-    if (reportKind !== 'excel-live' && !allows(FEATURE_FOR_KIND[reportKind])) {
+    if (kind !== 'excel-live' && !allows(FEATURE_FOR_KIND[kind])) {
       setError(`This export format is not included in your current plan. Upgrade to unlock it.`);
       return;
     }
@@ -392,7 +398,7 @@ export default function ExportModal({
       setError('Could not confirm your plan for this export. Check your connection and try again.');
       return;
     }
-    if (reportKind === 'excel-live') {
+    if (kind === 'excel-live') {
       try {
         if (!projectId) throw new Error('Open a saved project to export the live workbook.');
         const res = await fetch(`/api/refm/projects/${projectId}/export/formula-workbook`, {
@@ -404,7 +410,8 @@ export default function ExportModal({
           }),
         });
         if (!res.ok) {
-          const j = await res.json().catch(() => null) as { error?: string } | null;
+          const j = await res.json().catch(() => null) as { error?: string; code?: string } | null;
+          if (j?.code === 'live_workbook_unavailable' && j.error) { setLiveRefusal(j.error); return; }
           throw new Error(j?.error || `The live workbook could not be built (${res.status}).`);
         }
         const disp = res.headers.get('Content-Disposition') ?? '';
@@ -469,7 +476,7 @@ export default function ExportModal({
         try { parties = (await listParties(projectId)).data?.parties ?? []; } catch { parties = []; }
       }
 
-      if (reportKind === 'excel') {
+      if (kind === 'excel') {
         const { generateModelWorkbookBuffer } = await import('../../lib/excel/buildModelWorkbook');
         // Same Inputs / Schedules / Outputs filter as the PDF: unticked categories
         // are hidden in the workbook (the model is formula-linked, so hiding keeps
@@ -504,7 +511,7 @@ export default function ExportModal({
       // part filter with the per-tab selection.
       const moduleSections: Record<string, { inputs: boolean; outputs: boolean; schedules: boolean }> = {};
       for (const k of selectedKeys) moduleSections[k] = { ...groupSel };
-      const bytes = reportKind === 'summary'
+      const bytes = kind === 'summary'
         ? await generateSummaryPdf({ ...common, selectedModuleKeys: [], caseComparison })
         : await generateProjectPdf({
             ...common,
@@ -513,7 +520,7 @@ export default function ExportModal({
             moduleSections,
             caseComparison,
           });
-      triggerDownload(`${safeName}${reportKind === 'summary' ? '_Summary' : ''}.pdf`, bytes as BlobPart, 'application/pdf');
+      triggerDownload(`${safeName}${kind === 'summary' ? '_Summary' : ''}.pdf`, bytes as BlobPart, 'application/pdf');
       close();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Export failed.');
@@ -852,6 +859,20 @@ export default function ExportModal({
               );
             })}
 
+            {liveRefusal && (
+              <div role="status" data-testid="export-live-refusal" style={{ background: 'var(--color-warning-bg)', border: '1px solid var(--color-warning)', borderRadius: 6, padding: '10px 12px', fontSize: 12, color: 'var(--color-heading)', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <span>{liveRefusal}</span>
+                <button
+                  type="button" data-testid="export-live-refusal-values"
+                  disabled={generating}
+                  onClick={() => { setReportKind('excel'); void handleGenerate('excel'); }}
+                  style={{ alignSelf: 'flex-start', fontSize: 12, fontWeight: 700, color: 'var(--color-on-primary-navy)', background: 'var(--color-primary)', padding: '6px 14px', borderRadius: 6, border: 'none', cursor: generating ? 'default' : 'pointer' }}
+                >
+                  Download the values workbook
+                </button>
+              </div>
+            )}
+
             {error && (
               <div role="alert" data-testid="export-modal-error" style={{ background: 'var(--color-warning-bg)', border: '1px solid var(--color-warning)', borderRadius: 6, padding: '8px 10px', fontSize: 12, color: 'var(--color-heading)' }}>
                 {error}
@@ -868,7 +889,7 @@ export default function ExportModal({
                   <button
                     type="button"
                     data-testid="export-generate-pdf"
-                    onClick={handleGenerate}
+                    onClick={() => { void handleGenerate(); }}
                     disabled={disabled}
                     style={{
                       fontSize: 13, fontWeight: 700, color: 'var(--color-on-primary-navy)',

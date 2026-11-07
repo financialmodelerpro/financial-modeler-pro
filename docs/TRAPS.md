@@ -1376,6 +1376,25 @@ SUMPRODUCT(MIN(years + (not it) x 100000)); each exit year's cash flows as helpe
 range. `verify-formula-workbook` A14a fails on MATCH(TRUE, MAX(INDEX( and INDEX(--. Proof: a headless LibreOffice
 recalculation (unpacked with `msiexec /a`, no install needed) shows no error and matches every stored value.
 
+### 3.40 `SUM()` with nothing in it: LibreOffice opens the file, Excel refuses it
+
+**Symptom (2026-11-07):** the live workbook of every project with no assets (five of the six open projects) would not
+open in Excel ("Unable to get the Open property of the Workbooks class"; interactively, a repair prompt), while
+headless LibreOffice opened and recalculated it with no error.
+
+**Mechanism:** a total built by joining a list of asset rows into `SUM(...)` wrote `SUM()` when the list was empty.
+Excel will not read a function that needs an argument called with none; LibreOffice reads it as 0. The shape check
+already refused an empty bracket that is not a function call, so a bare function call slipped past it.
+
+**Fix:** `exportShapeProblems` refuses `SUM()`, `SUMPRODUCT()`, `MAX()`, `MIN()`, `AND()`, `OR()`, `IRR()`, `INDEX()` with
+no argument, so such a build fails in words (the route answers with the plain refusal and offers the values workbook)
+rather than shipping a file Excel rejects; and a project with no assets is refused before the build
+(`liveWorkbookAvailability.ts`).
+
+**Proof:** `scripts/probe-formula-workbook-projects.ts` opens every open project's file in Excel and LibreOffice; the
+shell build now stops at "Land & Area!R20C2 calls SUM with nothing to add up". Opening a file in LibreOffice is not
+evidence that Excel will open it: test both.
+
 ## 4. PDF export (pdf-lib)
 
 ### 4.1 PDF text is glyph ids, so a naive grep returns nothing

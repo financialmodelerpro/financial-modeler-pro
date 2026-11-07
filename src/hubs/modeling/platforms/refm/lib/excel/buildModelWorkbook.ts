@@ -6709,7 +6709,7 @@ function addChecks(ctx: EmitCtx, capexAddrs: CapexAddrs, retLinks: RetLinks): vo
   const { wb, snap } = ctx;
   const ws = wb.addWorksheet(SHEETS.checks, { properties: { tabColor: { argb: ARGB.navy } }, views: [{ showGridLines: false }] });
   const liveChk = isLiveLayout();
-  ws.getColumn(1).width = 46; ws.getColumn(2).width = 10; ws.getColumn(3).width = 16; ws.getColumn(4).width = liveChk ? 16 : 62; if (liveChk) ws.getColumn(5).width = 48;
+  ws.getColumn(1).width = 46; ws.getColumn(2).width = 10; ws.getColumn(3).width = 16; ws.getColumn(4).width = liveChk ? 16 : 62; if (liveChk) { ws.getColumn(5).width = 48; ws.getColumn(6).width = 16; ws.getColumn(7).width = 16; }
   setTitle(ws.getCell('A1'), liveChk ? 'Checks' : 'Checks & Legend', 16);
   let r = 3;
   // The legend carries the same four swatches as the Cover (the live workbook leaves it to the Guide).
@@ -6722,15 +6722,18 @@ function addChecks(ctx: EmitCtx, capexAddrs: CapexAddrs, retLinks: RetLinks): vo
   r += 1;
   }
 
-  setSectionHeader(ws.getRow(r), liveChk ? 'Checks (live: each reconciles rows of this workbook)' : 'Platform verification snapshot (results as of export)', liveChk ? 5 : 4); r += 1;
-  (liveChk ? ['Check', 'Status', 'Residue', 'Scale', 'Detail'] : ['Check', 'Status', 'Residue', 'Detail']).forEach((h, i) => setColHeader(ws.getCell(r, i + 1), h, 'left')); r += 1;
+  setSectionHeader(ws.getRow(r), liveChk ? 'Checks (live: each reconciles rows of this workbook)' : 'Platform verification snapshot (results as of export)', liveChk ? 7 : 4); r += 1;
+  // The live residue picks the further from zero of the largest and smallest yearly difference, each
+  // in its own cell (2026-11-07), so its formula never restates the difference.
+  (liveChk ? ['Check', 'Status', 'Residue', 'Scale', 'Detail', 'Largest yearly difference', 'Smallest yearly difference'] : ['Check', 'Status', 'Residue', 'Detail']).forEach((h, i) => setColHeader(ws.getCell(r, i + 1), h, 'left')); r += 1;
   // TOLERANCE IS RELATIVE (checksReport.CHECK_REL_TOL): a residue is judged
   // against the peak of the quantity it reconciles, so an iterative solver's
   // round-off passes and a genuine break still shows its measured gap.
   // Row keys for the formula-linked export (cellRegistry.ts): the residue cell of each
   // identity, with its status one column to the left. Records addresses, writes nothing.
-  const checkRow = (label: string, status: 'OK' | 'CHECK' | 'NOTE', residue: number, detail: string, key?: string, scale?: number): void => {
+  const checkRow = (label: string, status: 'OK' | 'CHECK' | 'NOTE', residue: number, detail: string, key?: string, scale?: number, hiLo?: { hi: number; lo: number }): void => {
     if (key) registerCell(key, ws, ws.getCell(`C${r}`));
+    if (liveChk && hiLo) for (const [col, v] of [['F', hiLo.hi], ['G', hiLo.lo]] as const) { const x = ws.getCell(`${col}${r}`); x.value = v; x.numFmt = NUMFMT.money; x.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } }; }
     setLabel(ws.getCell(`A${r}`), liveChk ? (LIVE_CHECK_LABELS[label] ?? label) : label);
     if (liveChk && scale !== undefined) { const sc = ws.getCell(`D${r}`); sc.value = scale; sc.numFmt = NUMFMT.money; sc.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } }; }
     const s = ws.getCell(`B${r}`); s.value = status; s.numFmt = '@'; s.font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: status === 'OK' ? ARGB.good : status === 'CHECK' ? ARGB.bad : ARGB.navyDark } };
@@ -6756,17 +6759,17 @@ function addChecks(ctx: EmitCtx, capexAddrs: CapexAddrs, retLinks: RetLinks): vo
       const hi = Math.max(...d0), lo = Math.min(...d0), res = Math.abs(hi) >= Math.abs(lo) ? hi : lo;
       const peak = Math.max(0, ...snap.directCF.cashFromOperationsPerPeriod.slice(0, N0).map((v) => Math.abs(v ?? 0)));
       const ok = Math.abs(res) <= Math.max(0.000001, peak * CHECK_REL_TOL);
-      checkRow(c.label, ok ? 'OK' : 'CHECK', res, peak === 0 ? 'Nothing to reconcile' : ok ? 'Within tolerance' : `Out by ${checkMoney(res)}`, `chk|id|${c.label}`, peak);
+      checkRow(c.label, ok ? 'OK' : 'CHECK', res, peak === 0 ? 'Nothing to reconcile' : ok ? 'Within tolerance' : `Out by ${checkMoney(res)}`, `chk|id|${c.label}`, peak, { hi, lo });
       continue;
     }
-    checkRow(c.label, c.ok ? 'OK' : 'CHECK', c.residue, liveChk ? liveDetail() : checkDetail(c, snap.yearLabels, checkMoney), `chk|id|${c.label}`, Math.abs(c.magnitude));
+    checkRow(c.label, c.ok ? 'OK' : 'CHECK', c.residue, liveChk ? liveDetail() : checkDetail(c, snap.yearLabels, checkMoney), `chk|id|${c.label}`, Math.abs(c.magnitude), { hi: c.hi, lo: c.lo });
   }
   // THE FINANCING LOOP'S OWN PROFIT BEFORE TAX (live layout): the loop solves its tax on it, so it must
   // equal the P&L's every year; the residue is the worst year's difference.
   if (isLiveLayout()) {
     const pbt = snap.pl.pbtPerPeriod.slice(0, snap.axisLength);
     const peak = Math.max(0, ...pbt.map((v) => Math.abs(v ?? 0)));
-    checkRow(LOOP_PBT_CHECK, 'OK', 0, peak === 0 ? 'Nothing to reconcile' : 'Within tolerance', `chk|id|${LOOP_PBT_CHECK}`, peak);
+    checkRow(LOOP_PBT_CHECK, 'OK', 0, peak === 0 ? 'Nothing to reconcile' : 'Within tolerance', `chk|id|${LOOP_PBT_CHECK}`, peak, { hi: 0, lo: 0 });
     // SOURCES EQUAL USES (2026-11-03): each total sums its own rows on Returns, so a flow left out shows here.
     const su = (() => { try { return computeReturnsSnapshot(snap, ctx.state.project).sourcesUses; } catch { return null; } })();
     if (su) {
