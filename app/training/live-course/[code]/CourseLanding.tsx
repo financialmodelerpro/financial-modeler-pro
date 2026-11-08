@@ -16,6 +16,7 @@ import {
 import type { PageConfig, SectionKey, IconItem, IconName } from '@/src/hubs/training/lib/liveCourse/pageSections';
 import { countdownText, showEnrolledCount, visibleSections } from '@/src/hubs/training/lib/liveCourse/pageSections';
 import { formatSessionTime } from '@/src/hubs/training/lib/liveCourse/time';
+import { courseEyebrow } from '@/src/hubs/training/lib/liveCourse/paths';
 import { TimeZoneTable } from '@/src/hubs/training/components/sessions/TimeZoneTable';
 
 const NAVY = '#1B4F8A';
@@ -35,6 +36,8 @@ const ICON_COMPONENTS: Record<IconName, typeof Layers> = {
 export interface LandingData {
   page: PageConfig;
   title: string;
+  /** The course's short title (e.g. REFM), shown in the line above the title. */
+  shortTitle: string;
   tagline: string;
   bannerUrl: string | null;
   bannerAlt: string;
@@ -168,7 +171,7 @@ export function CourseLanding({
 
       {S.hero.enabled && (
         <div data-testid="landing-hero" role="img" aria-label={d.bannerAlt || d.title} style={{ ...hero, color: '#fff', borderRadius: 16, padding: 'clamp(26px,5vw,56px) clamp(20px,4vw,44px)', marginBottom: 24 }}>
-          <div style={{ fontSize: 12, letterSpacing: 1, textTransform: 'uppercase', color: GOLD, fontWeight: 800 }}>Live course · Microsoft Teams</div>
+          <div style={{ fontSize: 12, letterSpacing: 1, textTransform: 'uppercase', color: GOLD, fontWeight: 800 }} data-testid="landing-eyebrow">{courseEyebrow(d.shortTitle)}</div>
           <h1 style={{ fontSize: 'clamp(26px,4.4vw,40px)', fontWeight: 800, margin: '8px 0 8px', maxWidth: 720, lineHeight: 1.15 }}>{d.title}</h1>
           {d.tagline && <p style={{ margin: 0, opacity: 0.95, fontSize: 'clamp(15px,1.8vw,18px)', maxWidth: 680 }}>{d.tagline}</p>}
           {d.facts.length > 0 && (

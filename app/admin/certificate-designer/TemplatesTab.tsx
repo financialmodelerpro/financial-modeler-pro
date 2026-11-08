@@ -32,6 +32,13 @@ const TEMPLATE_ACCEPT: Record<keyof TemplateStatus, string> = {
 
 export function TemplatesTab() {
   const [toast, setToast] = useState('');
+  // Courses with exams off certify on model approval, not a final exam (named in the note below).
+  const [noExamCourses, setNoExamCourses] = useState<string[]>([]);
+  useEffect(() => {
+    fetch('/api/admin/live-course').then((r) => r.json())
+      .then((j: { courses?: { shortTitle?: string; courseCode: string; examsEnabled?: boolean }[] }) => setNoExamCourses((j.courses ?? []).filter((c) => c.examsEnabled === false).map((c) => c.shortTitle || c.courseCode)))
+      .catch(() => {});
+  }, []);
   const [templateStatus, setTemplateStatus] = useState<TemplateStatus>({
     '3sfm-cert': false, 'bvm-cert': false, '3sfm-badge': false, 'bvm-badge': false,
     'refm-cert': false, 'refm-badge': false,
@@ -211,7 +218,7 @@ export function TemplatesTab() {
           })}
         </div>
         <div style={{ marginTop: 14, padding: '10px 14px', background: '#EFF6FF', borderRadius: 8, fontSize: 12, color: '#1D4ED8' }}>
-          💡 After uploading templates, switch to the <strong>Certificate Layout</strong> tab to position text fields on the PDF. Certificates issue automatically the moment a student passes their final exam. If an inline issuance ever misses, use the{' '}
+          💡 After uploading templates, switch to the <strong>Certificate Layout</strong> tab to position text fields on the PDF. Exam courses issue the certificate automatically the moment a student passes the final exam. Courses with exams off{noExamCourses.length ? ` (${noExamCourses.join(', ')})` : ''} issue it when an admin approves the student's submitted model (Live Training &gt; course &gt; Submissions). If an inline issuance ever misses, use the{' '}
           <a href="/admin/training-hub/certificates" style={{ fontWeight: 700, color: '#1D4ED8' }}>Certificates</a>
           {' '}page to pick it up from the &quot;Eligible but not issued&quot; panel.
         </div>

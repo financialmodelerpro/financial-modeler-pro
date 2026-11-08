@@ -1242,6 +1242,12 @@ async function unit13(): Promise<void> {
     if (/(?<!api)\/training\/live-course\//.test(readFileSync(f, 'utf8'))) stray += f + ' ';
   }
   check('U13.13 no course link, email or calendar builds the old /training/live-course/ URL', stray === '', stray);
+  check('U13.14 the hero line carries the short title: "Live course · REFM · Microsoft Teams"', P.courseEyebrow('REFM') === 'Live course · REFM · Microsoft Teams' && P.courseEyebrow('') === 'Live course · Microsoft Teams');
+  const offers = readFileSync('app/training-sessions/PublicCourseOffers.tsx', 'utf8');
+  const landing2 = readFileSync('app/training/live-course/[code]/CourseLanding.tsx', 'utf8');
+  check('U13.15 the course page hero and the Training Sessions card use the same line, and neither hard-codes it', landing2.includes('courseEyebrow(d.shortTitle)') && offers.includes('courseEyebrow(c.shortTitle)') && !landing2.includes('>Live course · Microsoft Teams<') && !offers.includes('>Live course · Microsoft Teams<'));
+  const tpl = readFileSync('app/admin/certificate-designer/TemplatesTab.tsx', 'utf8');
+  check('U13.16 the templates note says exam-off courses certify on model approval, named from live data', tpl.includes('Courses with exams off') && tpl.includes("approves the student's submitted model") && tpl.includes('c.examsEnabled === false'));
 }
 
 (async () => {

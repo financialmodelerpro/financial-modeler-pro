@@ -231,6 +231,7 @@ export function LiveCourseClient({ courseCode, autoEnrol, signedIn, publicData, 
         d={{
           page: landing.page,
           title: course.title,
+          shortTitle: course.shortTitle,
           tagline: course.tagline,
           bannerUrl: course.bannerUrl,
           bannerAlt: course.bannerAlt,

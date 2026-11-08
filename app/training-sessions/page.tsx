@@ -94,6 +94,7 @@ async function getCourseOffers(): Promise<PublicCourseOffer[]> {
     return await Promise.all(courses.map(async (c) => ({
       courseCode: c.courseCode,
       title: c.title,
+      shortTitle: c.shortTitle,
       tagline: c.tagline,
       description: c.description,
       cardImageUrl: c.cardImageUrl,

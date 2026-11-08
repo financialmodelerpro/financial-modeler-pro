@@ -12,3 +12,9 @@ export function coursePagePath(courseCode: string): string {
 export function courseSessionPath(courseCode: string, sessionId: string): string {
   return `${coursePagePath(courseCode)}/sessions/${encodeURIComponent(sessionId)}`;
 }
+
+/** The line above a live course's title: "Live course · REFM · Microsoft Teams" (shown uppercase). */
+export function courseEyebrow(shortTitle: string | null | undefined): string {
+  const t = (shortTitle ?? '').trim();
+  return t ? `Live course · ${t} · Microsoft Teams` : 'Live course · Microsoft Teams';
+}

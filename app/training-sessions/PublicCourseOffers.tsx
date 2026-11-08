@@ -14,11 +14,12 @@
 import Link from 'next/link';
 import { formatSessionTime } from '@/src/hubs/training/lib/liveCourse/time';
 import { TimeZoneTable } from '@/src/hubs/training/components/sessions/TimeZoneTable';
-import { coursePagePath } from '@/src/hubs/training/lib/liveCourse/paths';
+import { coursePagePath, courseEyebrow } from '@/src/hubs/training/lib/liveCourse/paths';
 
 export interface PublicCourseOffer {
   courseCode: string;
   title: string;
+  shortTitle?: string;
   tagline?: string;
   description: string;
   cardImageUrl?: string | null;
@@ -72,7 +73,7 @@ export function PublicCourseOffers({ courses, isLoggedIn }: { courses: PublicCou
                 </Link>
               )}
               <div style={{ padding: '20px 24px 22px' }}>
-                <div style={{ fontSize: 12, letterSpacing: 1, textTransform: 'uppercase', color: SLATE, fontWeight: 700 }}>Live course · Microsoft Teams</div>
+                <div style={{ fontSize: 12, letterSpacing: 1, textTransform: 'uppercase', color: SLATE, fontWeight: 700 }}>{courseEyebrow(c.shortTitle)}</div>
                 <h2 style={{ fontSize: 'clamp(20px,3vw,26px)', fontWeight: 800, margin: '6px 0 4px', color: DARK }}>
                   <Link href={coursePath} style={{ color: 'inherit', textDecoration: 'none' }}>{c.title}</Link>
                 </h2>
