@@ -5,6 +5,7 @@ import { getServerClient } from '@/src/core/db/supabase';
 import { STORAGE_CACHE_REPLACEABLE } from '@/src/shared/storage/cacheControl';
 import { sendAutoNewsletter } from '@/src/shared/newsletter/autoNotify';
 import { createCalendarEventWithMeeting, isTeamsConfigured, TeamsIntegrationError } from '@/src/integrations/teams/teamsMeetings';
+import { isPublicSession } from '@/src/hubs/training/lib/liveCourse/publicVisibility';
 import { publicSessionUrl, sessionPlatformLabel } from '@/src/hubs/training/lib/liveSessions/privateSessionFields';
 
 const LEARN_URL = process.env.NEXT_PUBLIC_LEARN_URL ?? 'https://learn.financialmodelerpro.com';
@@ -172,7 +173,8 @@ export async function POST(req: NextRequest) {
   //
   // The newsletter auto-notify still fires because it targets opt-in
   // subscribers, not the training roster, and has its own duplicate-prevention.
-  if (data && data.is_published) {
+  // A private live course's session (e.g. a TEST course) is never announced.
+  if (data && data.is_published && await isPublicSession(sb, data.course_code)) {
     const nlTz = data.timezone ?? 'Asia/Riyadh';
     const dt = data.scheduled_datetime ? new Date(data.scheduled_datetime) : null;
     void sendAutoNewsletter('live_session_scheduled', data.id, {

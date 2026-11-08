@@ -7,6 +7,7 @@ import { canonicalUrl } from '@/src/shared/seo/canonical';
 import { SessionsClient, type PublicSession, type HeroContent } from './SessionsClient';
 import type { PublicCourseOffer } from './PublicCourseOffers';
 import { listLiveCourses, listCourseSessions } from '@/src/hubs/training/lib/liveCourse/courseSettings';
+import { publicSessionFilter } from '@/src/hubs/training/lib/liveCourse/publicVisibility';
 
 // Canonical lives on the learn subdomain because main-domain hits are 307'd to
 // learn (next.config.ts /training-sessions redirect). Pointing canonical at
@@ -32,6 +33,7 @@ async function getSessions(): Promise<PublicSession[]> {
       .from('live_sessions')
       .select('id, title, description, session_type, scheduled_datetime, timezone, category, banner_url, duration_minutes, max_attendees, difficulty_level, instructor_name, instructor_title, tags, is_featured, youtube_url, youtube_embed, playlist_id, live_playlists(id, name)')
       .eq('is_published', true)
+      .or(await publicSessionFilter(sb))
       .order('scheduled_datetime', { ascending: true });
 
     if (error) {

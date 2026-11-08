@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerClient } from '@/src/core/db/supabase';
+import { publicSessionFilter } from '@/src/hubs/training/lib/liveCourse/publicVisibility';
 
 export const dynamic = 'force-dynamic';
 
@@ -17,7 +18,8 @@ export async function GET(req: NextRequest) {
     let query = sb
       .from('live_sessions')
       .select('id, title, description, session_type, scheduled_datetime, timezone, category, banner_url, duration_minutes, max_attendees, difficulty_level, instructor_name, instructor_title, tags, is_featured, youtube_url, youtube_embed, playlist_id, live_playlists(id, name)')
-      .eq('is_published', true);
+      .eq('is_published', true)
+      .or(await publicSessionFilter(sb));
 
     if (type === 'upcoming') {
       query = query.in('session_type', ['upcoming', 'live']).order('scheduled_datetime', { ascending: true });

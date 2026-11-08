@@ -1,6 +1,7 @@
 import type { MetadataRoute } from 'next';
 import { getServerClient } from '@/src/core/db/supabase';
 import { PLATFORMS } from '@/src/hubs/modeling/config/platforms';
+import { publicSessionFilter } from '@/src/hubs/training/lib/liveCourse/publicVisibility';
 
 export const revalidate = 3600; // regenerate hourly
 
@@ -77,7 +78,8 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     const { data: sessions } = await sb
       .from('live_sessions')
       .select('id, updated_at, scheduled_datetime, session_type')
-      .eq('is_published', true);
+      .eq('is_published', true)
+      .or(await publicSessionFilter(sb));
     for (const ls of sessions ?? []) {
       const isRecorded = ls.session_type === 'recorded';
       // LEARN_URL because main-domain hits are 307'd to learn (see above).

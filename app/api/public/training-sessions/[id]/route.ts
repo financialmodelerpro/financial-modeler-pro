@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerClient } from '@/src/core/db/supabase';
+import { publicSessionFilter } from '@/src/hubs/training/lib/liveCourse/publicVisibility';
 
 export const dynamic = 'force-dynamic';
 
@@ -21,6 +22,7 @@ export async function GET(
       .select('id, title, description, session_type, scheduled_datetime, timezone, category, banner_url, duration_minutes, max_attendees, difficulty_level, prerequisites, instructor_name, tags, is_featured, youtube_url, youtube_embed, playlist_id, live_playlists(id, name)')
       .eq('id', id)
       .eq('is_published', true)
+      .or(await publicSessionFilter(sb))
       .single();
 
     if (!data) {
@@ -47,6 +49,7 @@ export async function GET(
         .from('live_sessions')
         .select('id, title, banner_url, session_type, scheduled_datetime, duration_minutes, instructor_name, difficulty_level, youtube_url')
         .eq('is_published', true)
+      .or(await publicSessionFilter(sb))
         .neq('id', id)
         .limit(3);
       if (data.playlist_id) rq = rq.eq('playlist_id', data.playlist_id);

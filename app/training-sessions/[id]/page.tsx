@@ -6,6 +6,7 @@ import { getServerClient } from '@/src/core/db/supabase';
 import { DetailClient, type DetailSession } from './DetailClient';
 import { EventJsonLd, BreadcrumbJsonLd } from '@/src/shared/seo/components/StructuredData';
 import { canonicalUrl } from '@/src/shared/seo/canonical';
+import { publicSessionFilter } from '@/src/hubs/training/lib/liveCourse/publicVisibility';
 
 export const dynamic = 'force-dynamic';
 
@@ -49,6 +50,7 @@ async function getSession(id: string): Promise<DetailSession | null> {
       .select('id, title, description, session_type, scheduled_datetime, timezone, category, banner_url, duration_minutes, max_attendees, difficulty_level, prerequisites, instructor_name, instructor_title, tags, is_featured, youtube_url, youtube_embed, show_like_button, playlist_id, live_playlists(id, name)')
       .eq('id', id)
       .eq('is_published', true)
+      .or(await publicSessionFilter(sb))
       .single();
 
     if (error || !data) return null;
@@ -73,6 +75,7 @@ async function getSession(id: string): Promise<DetailSession | null> {
         .from('live_sessions')
         .select('id, title, banner_url, session_type, scheduled_datetime, duration_minutes, instructor_name, difficulty_level, youtube_url')
         .eq('is_published', true)
+      .or(await publicSessionFilter(sb))
         .neq('id', id)
         .limit(3);
       if (data.playlist_id) rq = rq.eq('playlist_id', data.playlist_id);

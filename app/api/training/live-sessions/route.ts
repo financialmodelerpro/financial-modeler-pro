@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerClient } from '@/src/core/db/supabase';
 import { withoutPrivateFields } from '@/src/hubs/training/lib/liveSessions/privateSessionFields';
+import { publicSessionFilter } from '@/src/hubs/training/lib/liveCourse/publicVisibility';
 
 export const dynamic = 'force-dynamic';
 
@@ -17,7 +18,8 @@ export async function GET(req: NextRequest) {
     let query = sb
       .from('live_sessions')
       .select('*, live_playlists(id, name)')
-      .eq('is_published', true);
+      .eq('is_published', true)
+      .or(await publicSessionFilter(sb));
 
     if (type === 'upcoming') {
       query = query.in('session_type', ['upcoming', 'live']).order('scheduled_datetime', { ascending: true });

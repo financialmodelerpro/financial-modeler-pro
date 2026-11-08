@@ -6,6 +6,7 @@ import { sendTemplatedEmail, buildSessionPlaceholders } from '@/src/shared/email
 import { sendAutoNewsletter } from '@/src/shared/newsletter/autoNotify';
 import { updateMeetingOrEvent, deleteMeetingOrEvent, isTeamsConfigured } from '@/src/integrations/teams/teamsMeetings';
 import { recordingRecipientsForCourseSession } from '@/src/hubs/training/lib/liveCourse/recordings';
+import { isPublicSession } from '@/src/hubs/training/lib/liveCourse/publicVisibility';
 import { publicSessionUrl, sessionPlatformLabel } from '@/src/hubs/training/lib/liveSessions/privateSessionFields';
 
 const LEARN_URL = process.env.NEXT_PUBLIC_LEARN_URL ?? 'https://learn.financialmodelerpro.com';
@@ -151,7 +152,9 @@ export async function PATCH(
   }
 
   // ── Newsletter auto-notifications (opt-in subscribers, not training roster)
-  if (before && !before.is_published && body.is_published === true) {
+  // A private live course's session (e.g. a TEST course) is never announced.
+  const announceable = await isPublicSession(sb, courseCode);
+  if (announceable && before && !before.is_published && body.is_published === true) {
     const { data: sess } = await sb.from('live_sessions').select('*').eq('id', id).single();
     if (sess) {
       const nlTz = sess.timezone ?? 'Asia/Riyadh';
@@ -165,7 +168,7 @@ export async function PATCH(
       });
     }
   }
-  if (before && before.session_type !== 'recorded' && body.session_type === 'recorded') {
+  if (announceable && before && before.session_type !== 'recorded' && body.session_type === 'recorded') {
     const { data: sess } = await sb.from('live_sessions').select('title, youtube_url').eq('id', id).single();
     if (sess) {
       void sendAutoNewsletter('live_session_recording', id, {

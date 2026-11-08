@@ -780,6 +780,33 @@ async function unit7(): Promise<void> {
   }
 }
 
+async function unit8(): Promise<void> {
+  console.log('\n=== Public visibility: private live courses (safe live testing) ===\n');
+  const PV = await import('../src/hubs/training/lib/liveCourse/publicVisibility');
+  check('U8.1a no public course: only standalone sessions are public', PV.publicSessionOrFilter([]) === 'course_code.is.null');
+  check('U8.1b a public course\'s sessions are public too', PV.publicSessionOrFilter(['REFM']) === 'course_code.is.null,course_code.in.(REFM)');
+  const publicReaders = ['app/api/public/training-sessions/route.ts', 'app/api/public/training-sessions/[id]/route.ts', 'app/sitemap.ts', 'app/training-sessions/page.tsx', 'app/training-sessions/[id]/page.tsx', 'app/api/training/live-sessions/route.ts'];
+  const missing = publicReaders.filter((f) => {
+    const src = readFileSync(f, 'utf8');
+    const queries = (src.match(/\.eq\('is_published', true\)/g) ?? []).length;
+    const filtered = (src.match(/\.or\(await publicSessionFilter\(sb\)\)/g) ?? []).length;
+    return queries === 0 || filtered < queries;
+  });
+  check('U8.2a every public session query applies the visibility rule (page, APIs, sitemap, generic lists)', missing.length === 0, missing.join(', '));
+  check('U8.2b the session detail route is NOT filtered (enrolled students open private-course sessions)', !readFileSync('app/api/training/live-sessions/[id]/route.ts', 'utf8').includes('publicSessionFilter'));
+  const post = readFileSync('app/api/admin/live-sessions/route.ts', 'utf8');
+  const patch = readFileSync('app/api/admin/live-sessions/[id]/route.ts', 'utf8');
+  check('U8.3a creating a private-course session never emails newsletter subscribers', post.includes('data.is_published && await isPublicSession(sb, data.course_code)'));
+  check('U8.3b publishing or recording a private-course session never emails them either', (patch.match(/if \(announceable && before/g) ?? []).length === 2);
+  if (hasCreds()) {
+    const sb = await db();
+    const codes = await PV.publicCourseCodes(sb);
+    check('U8.4a REFM is a public course on live data', codes.includes('REFM'));
+    const { error } = await sb.from('live_sessions').select('id').eq('is_published', true).or(await PV.publicSessionFilter(sb)).limit(1);
+    check('U8.4b the filter is valid PostgREST on the live database', !error, error?.message ?? '');
+  }
+}
+
 (async () => {
   await unit0();
   await unit1();
@@ -790,6 +817,7 @@ async function unit7(): Promise<void> {
   await unit5();
   await unit6();
   await unit7();
+  await unit8();
   console.log(`\n${passed} passed, ${failed} failed`);
   if (failed) { console.log('Failed:'); for (const f of fails) console.log(`  - ${f}`); process.exit(1); }
 })().catch((e) => { console.error(e); process.exit(1); });
