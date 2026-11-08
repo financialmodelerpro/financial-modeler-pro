@@ -26,6 +26,8 @@ export interface CourseView {
   enrolled: boolean;
   /** Per-session progress and whether submission is unlocked (eligibility.ts). */
   eligibility: Eligibility;
+  /** The issued certificate, once the model is approved. */
+  certificate: { certificateId: string; certPdfUrl: string | null; verificationUrl: string | null } | null;
 }
 
 export async function loadCourseView(
@@ -53,10 +55,21 @@ export async function loadCourseView(
   const maps = await loadProgressMaps(sb, ids, [...new Set([lower, student.email.trim()])]);
   const eligibility = computeEligibility(course, sessions, maps.attendance.get(lower) ?? new Map(), maps.watch.get(lower) ?? new Map(), now);
 
+  const { data: cert } = await sb
+    .from('student_certificates')
+    .select('certificate_id, cert_pdf_url, verification_url, cert_status')
+    .ilike('email', lower)
+    .eq('course_code', course.courseCode)
+    .maybeSingle();
+  const certificate = cert?.certificate_id && cert.cert_status === 'Issued'
+    ? { certificateId: cert.certificate_id as string, certPdfUrl: (cert.cert_pdf_url as string | null) ?? null, verificationUrl: (cert.verification_url as string | null) ?? null }
+    : null;
+
   return {
     course,
     enrolled,
     eligibility,
+    certificate,
     sessions: sessions.map((s) => {
       const st = joinStatusFrom(enrolled, { ...s, live_url: links.get(s.id) ?? null }, course.joinOpensMinutesBefore, now);
       return {

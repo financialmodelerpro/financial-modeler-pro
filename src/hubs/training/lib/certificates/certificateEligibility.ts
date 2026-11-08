@@ -12,6 +12,8 @@
 
 import { COURSES } from '@/src/hubs/training/config/courses';
 import { getServerClient } from '@/src/core/db/supabase';
+import { getLiveCourseSettings, isLiveCourseRow } from '@/src/hubs/training/lib/liveCourse/courseSettings';
+import { loadStudentEligibility } from '@/src/hubs/training/lib/liveCourse/eligibility';
 import { getStudentProgressFromSupabase as getStudentProgress } from '@/src/hubs/training/lib/progress/progressFromSupabase';
 
 export interface EligibilityResult {
@@ -55,6 +57,25 @@ export async function checkEligibility(
     passedSessions: [], missingSessions: [],
     finalScore: null, avgScore: null,
   };
+
+  // A LIVE course (training_course_settings, no exam) is certified by
+  // attendance or recordings (liveCourse/eligibility.ts); the engine's model
+  // gate then requires an approved model. Only reached for a code that is NOT
+  // an exam course in COURSES, so 3SFM and BVM never take this branch.
+  if (!regular.length && !final) {
+    const live = await getLiveCourseSettings(getServerClient(), code);
+    if (isLiveCourseRow(live)) {
+      const e = await loadStudentEligibility(getServerClient(), normalizedEmail, code);
+      if (!e) return { ...empty, reason: 'Course not found' };
+      return {
+        ...empty,
+        eligible: e.submissionUnlocked,
+        passedSessions: e.sessions.filter((s) => s.met).map((s) => s.sessionId),
+        missingSessions: e.sessions.filter((s) => !s.met).map((s) => ({ tabKey: s.sessionId, title: s.title })),
+        reason: e.submissionUnlocked ? undefined : 'Not every session is complete (attended live or recording watched)',
+      };
+    }
+  }
   if (!regular.length || !final) {
     return { ...empty, reason: 'Course not found' };
   }

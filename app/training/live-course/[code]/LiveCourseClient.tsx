@@ -80,6 +80,14 @@ export function LiveCourseClient({ courseCode, autoEnrol }: { courseCode: string
               {notice && <div data-testid="live-course-notice" style={{ marginTop: 12, fontSize: 13 }}>{notice}</div>}
             </div>
 
+            {view.certificate && (
+              <div data-testid="live-course-certificate" style={{ background: '#E7F4EC', border: '1px solid #B7DFC5', borderRadius: 10, padding: '16px 18px', marginBottom: 20, display: 'flex', gap: 14, alignItems: 'center', flexWrap: 'wrap' }}>
+                <strong style={{ color: GREEN, fontSize: 15 }}>🏆 Certificate issued: {view.certificate.certificateId}</strong>
+                {view.certificate.certPdfUrl && <a href={view.certificate.certPdfUrl} target="_blank" rel="noopener noreferrer" style={{ color: NAVY, fontWeight: 700 }}>Download certificate</a>}
+                {view.certificate.verificationUrl && <a href={view.certificate.verificationUrl} target="_blank" rel="noopener noreferrer" style={{ color: NAVY, fontWeight: 700 }}>Verification page</a>}
+              </div>
+            )}
+
             {view.enrolled && <ProgressSummary view={view} />}
 
             <h2 style={{ fontSize: 16, fontWeight: 800, color: NAVY, margin: '0 0 10px' }}>Sessions</h2>

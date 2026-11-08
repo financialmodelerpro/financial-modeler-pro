@@ -43,6 +43,7 @@ export interface PendingCertificate {
 import { checkEligibility, type EligibilityResult } from '@/src/hubs/training/lib/certificates/certificateEligibility';
 import { getModelSubmissionStatus } from '@/src/hubs/training/lib/modelSubmission/checkApproval';
 import { COURSES } from '@/src/hubs/training/config/courses';
+import { getLiveCourseSettings, isLiveCourseRow, type LiveCourseSettings } from '@/src/hubs/training/lib/liveCourse/courseSettings';
 import { sendEmail, FROM } from '@/src/shared/email/sendEmail';
 import { certificateIssuedTemplate } from '@/src/shared/email/templates/certificateIssued';
 
@@ -655,9 +656,11 @@ export async function issueCertificateForStudent(
   const cleanEmail = email.trim().toLowerCase();
   const code = courseCode.trim().toUpperCase();
   const course = Object.values(COURSES).find(c => c.shortTitle.toUpperCase() === code);
-  if (!course) return { ok: false, error: `Unknown course code: ${code}` };
-
   const sb = getServerClient();
+  // A live course (no exam) is not in COURSES; its title and grade label come
+  // from its training_course_settings row. Exam courses are untouched.
+  const live = course ? null : await getLiveCourseSettings(sb, code);
+  if (!course && !isLiveCourseRow(live)) return { ok: false, error: `Unknown course code: ${code}` };
 
   const { data: already } = await sb
     .from('student_certificates')
@@ -669,12 +672,12 @@ export async function issueCertificateForStudent(
     return { ok: true, skipped: true, reason: 'already_issued', certificateId: already.certificate_id as string };
   }
 
-  const eligibility = await checkEligibility(cleanEmail, course.id);
+  const eligibility = await checkEligibility(cleanEmail, course ? course.id : code);
   if (!eligibility.eligible) {
     return { ok: false, error: `not_eligible: ${eligibility.reason ?? 'unknown'}` };
   }
 
-  const pending = await pendingFromEligibility(eligibility);
+  const pending = await pendingFromEligibility(eligibility, isLiveCourseRow(live) ? live : null);
   if (!pending) {
     return { ok: false, error: 'student_meta_not_found' };
   }
@@ -686,7 +689,7 @@ export async function issueCertificateForStudent(
 }
 
 /** Build a PendingCertificate from a Supabase eligibility result + student meta. */
-async function pendingFromEligibility(result: EligibilityResult): Promise<PendingCertificate | null> {
+async function pendingFromEligibility(result: EligibilityResult, live: LiveCourseSettings | null = null): Promise<PendingCertificate | null> {
   const sb = getServerClient();
   const { data: meta } = await sb
     .from('training_registrations_meta')
@@ -694,6 +697,22 @@ async function pendingFromEligibility(result: EligibilityResult): Promise<Pendin
     .eq('email', result.email)
     .maybeSingle();
   if (!meta) return null;
+  if (live) {
+    // No scores on a live course: the grade line reads the course's label.
+    return {
+      registrationId:    meta.registration_id ?? '',
+      email:             result.email,
+      studentName:       meta.name ?? '',
+      courseName:        live.title,
+      courseCode:        live.courseCode,
+      courseSubheading:  '',
+      courseDescription: live.description ?? '',
+      finalScore:        0,
+      avgScore:          0,
+      grade:             live.certificateGradeLabel,
+      completionDate:    new Date().toISOString(),
+    };
+  }
   const course = Object.values(COURSES).find(c => c.shortTitle.toUpperCase() === result.course.toUpperCase());
   if (!course) return null;
   return {

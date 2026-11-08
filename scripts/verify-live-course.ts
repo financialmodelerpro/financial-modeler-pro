@@ -744,6 +744,42 @@ async function unit6(): Promise<void> {
   }
 }
 
+async function unit7(): Promise<void> {
+  console.log('\n=== Unit 7: certificate ===\n');
+  const elig = readFileSync('src/hubs/training/lib/certificates/certificateEligibility.ts', 'utf8');
+  const engine = readFileSync('src/hubs/training/lib/certificates/certificateEngine.ts', 'utf8');
+  const review = readFileSync('app/api/admin/model-submissions/[id]/review/route.ts', 'utf8');
+
+  // The live branch is reachable ONLY for a code with no exam sessions.
+  check('U7.1a the live-course branch sits behind "no exam sessions in COURSES"', /if \(!regular\.length && !final\) \{\s*const live = await getLiveCourseSettings/.test(elig));
+  check('U7.1b a live course is eligible exactly when eligibility.ts unlocks submission', elig.includes('eligible: e.submissionUnlocked'));
+  check('U7.1c the model-approval gate in the engine is unchanged (required and not approved = held)', engine.includes('modelStatus.required && !modelStatus.hasApproved'));
+  check('U7.1d approval issues the certificate through the existing engine', review.includes('issueCertificateForStudent(studentEmail, courseCode'));
+  check('U7.1e a live course\'s certificate carries its grade label (no scores)', engine.includes('grade:             live.certificateGradeLabel'));
+  check('U7.1f the engine still refuses an unknown course', engine.includes('if (!course && !isLiveCourseRow(live)) return { ok: false, error: `Unknown course code: ${code}` }'));
+  const tmpl = readFileSync('app/api/admin/certificates/upload-template/route.ts', 'utf8');
+  check('U7.1g REFM certificate and badge templates can be uploaded where the engine reads them', tmpl.includes("templates/refm-template.pdf") && tmpl.includes("templates/refm-badge.png") && engine.includes('templates/${data.courseCode.toLowerCase()}-template.pdf'));
+  const { COURSES } = await import('../src/hubs/training/config/courses');
+  check('U7.1h 3SFM and BVM still have exam sessions in COURSES (so they never take the live branch)', COURSES['3sfm'].sessions.some((s) => s.isFinal) && COURSES['bvm'].sessions.some((s) => s.isFinal));
+
+  if (hasCreds()) {
+    const { checkEligibility } = await import('../src/hubs/training/lib/certificates/certificateEligibility');
+    const none = await checkEligibility('nobody-verify@example.com', 'REFM');
+    check('U7.2a REFM, no progress: not eligible, with the reason and every session listed as missing', !none.eligible && !!none.reason && none.reason !== 'Course not found');
+    const unknown = await checkEligibility('nobody-verify@example.com', 'ZZZZ');
+    check('U7.2b an unknown course is still "Course not found"', unknown.reason === 'Course not found');
+    // Exam courses unchanged: a student holding an issued 3SFM / BVM
+    // certificate is still eligible through the exam path.
+    const sb = await db();
+    for (const code of ['3SFM', 'BVM']) {
+      const { data: c } = await sb.from('student_certificates').select('email').eq('course_code', code).eq('cert_status', 'Issued').limit(1).maybeSingle();
+      if (!c?.email) { console.log(`        (no issued ${code} certificate on live data to replay)`); continue; }
+      const r = await checkEligibility(String(c.email), code.toLowerCase());
+      check(`U7.2c an issued ${code} holder still resolves on the exam path (scores, not live sessions)`, r.reason !== 'Not every session is complete (attended live or recording watched)' && (r.finalScore !== null || r.passedSessions.some((t) => t.startsWith(code))), JSON.stringify({ eligible: r.eligible, reason: r.reason }));
+    }
+  }
+}
+
 (async () => {
   await unit0();
   await unit1();
@@ -753,6 +789,7 @@ async function unit6(): Promise<void> {
   await unit4();
   await unit5();
   await unit6();
+  await unit7();
   console.log(`\n${passed} passed, ${failed} failed`);
   if (failed) { console.log('Failed:'); for (const f of fails) console.log(`  - ${f}`); process.exit(1); }
 })().catch((e) => { console.error(e); process.exit(1); });

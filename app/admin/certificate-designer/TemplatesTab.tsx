@@ -8,6 +8,8 @@ interface TemplateStatus {
   'bvm-cert':   boolean;
   '3sfm-badge': boolean;
   'bvm-badge':  boolean;
+  'refm-cert':  boolean;
+  'refm-badge': boolean;
 }
 
 const TEMPLATE_LABELS: Record<keyof TemplateStatus, string> = {
@@ -15,6 +17,8 @@ const TEMPLATE_LABELS: Record<keyof TemplateStatus, string> = {
   'bvm-cert':   'BVM Certificate Template (PDF)',
   '3sfm-badge': '3SFM Badge (PNG)',
   'bvm-badge':  'BVM Badge (PNG)',
+  'refm-cert':  'REFM Live Course Certificate Template (PDF)',
+  'refm-badge': 'REFM Live Course Badge (PNG)',
 };
 
 const TEMPLATE_ACCEPT: Record<keyof TemplateStatus, string> = {
@@ -22,12 +26,15 @@ const TEMPLATE_ACCEPT: Record<keyof TemplateStatus, string> = {
   'bvm-cert':   '.pdf',
   '3sfm-badge': '.png',
   'bvm-badge':  '.png',
+  'refm-cert':  '.pdf',
+  'refm-badge': '.png',
 };
 
 export function TemplatesTab() {
   const [toast, setToast] = useState('');
   const [templateStatus, setTemplateStatus] = useState<TemplateStatus>({
     '3sfm-cert': false, 'bvm-cert': false, '3sfm-badge': false, 'bvm-badge': false,
+    'refm-cert': false, 'refm-badge': false,
   });
   const [uploading, setUploading]     = useState<string | null>(null);
   const [deleting,  setDeleting]      = useState<string | null>(null);
@@ -38,6 +45,8 @@ export function TemplatesTab() {
     'bvm-cert':   useRef<HTMLInputElement>(null),
     '3sfm-badge': useRef<HTMLInputElement>(null),
     'bvm-badge':  useRef<HTMLInputElement>(null),
+    'refm-cert':  useRef<HTMLInputElement>(null),
+    'refm-badge': useRef<HTMLInputElement>(null),
   };
 
   // Check which templates already exist in storage on load
@@ -51,6 +60,8 @@ export function TemplatesTab() {
       { type: 'bvm-cert',   bucket: 'certificates', filePath: 'templates/bvm-template.pdf'  },
       { type: '3sfm-badge', bucket: 'badges',       filePath: 'templates/3sfm-badge.png'    },
       { type: 'bvm-badge',  bucket: 'badges',       filePath: 'templates/bvm-badge.png'     },
+      { type: 'refm-cert',  bucket: 'certificates', filePath: 'templates/refm-template.pdf' },
+      { type: 'refm-badge', bucket: 'badges',       filePath: 'templates/refm-badge.png'    },
     ];
     async function checkTemplates() {
       for (const { type, bucket, filePath } of checks) {

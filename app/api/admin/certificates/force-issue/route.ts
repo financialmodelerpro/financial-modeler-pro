@@ -4,6 +4,7 @@ import { authOptions } from '@/src/shared/auth/nextauth';
 import { getServerClient } from '@/src/core/db/supabase';
 import { issueCertificateForPending } from '@/src/hubs/training/lib/certificates/certificateEngine';
 import { COURSES } from '@/src/hubs/training/config/courses';
+import { getLiveCourseSettings, isLiveCourseRow } from '@/src/hubs/training/lib/liveCourse/courseSettings';
 
 // Local type to avoid depending on the Apps Script module's re-exports.
 interface PendingCertificate {
@@ -108,7 +109,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'email and courseCode required' }, { status: 400 });
     }
 
-    const course = Object.values(COURSES).find(c => c.shortTitle.toUpperCase() === code);
+    const examCourse = Object.values(COURSES).find(c => c.shortTitle.toUpperCase() === code);
+    // A live course (mig 247) is not in COURSES: its title, description and
+    // grade label come from its settings row.
+    const live = examCourse ? null : await getLiveCourseSettings(getServerClient(), code);
+    const course = examCourse ?? (isLiveCourseRow(live) ? { title: live.title, description: live.description } : null);
     if (!course) {
       return NextResponse.json({ error: `Unknown course code: ${code}` }, { status: 400 });
     }
@@ -152,7 +157,7 @@ export async function POST(req: NextRequest) {
       courseDescription: course.description ?? '',
       finalScore:        Number(passedFinal?.score ?? 0),
       avgScore:          avg,
-      grade:             '',
+      grade:             isLiveCourseRow(live) ? live.certificateGradeLabel : '',
       completionDate:    new Date().toISOString(),
     };
 

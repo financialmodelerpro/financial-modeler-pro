@@ -14,6 +14,9 @@ const TYPE_MAP: Record<string, { bucket: string; path: string; mime: string }> =
   'bvm-cert':   { bucket: 'certificates', path: 'templates/bvm-template.pdf',  mime: 'application/pdf' },
   '3sfm-badge': { bucket: 'badges',       path: 'templates/3sfm-badge.png',    mime: 'image/png'       },
   'bvm-badge':  { bucket: 'badges',       path: 'templates/bvm-badge.png',     mime: 'image/png'       },
+  // The REFM live course (mig 247): the engine reads templates/<course>-template.pdf.
+  'refm-cert':  { bucket: 'certificates', path: 'templates/refm-template.pdf', mime: 'application/pdf' },
+  'refm-badge': { bucket: 'badges',       path: 'templates/refm-badge.png',    mime: 'image/png'       },
 };
 
 export async function POST(req: NextRequest) {
