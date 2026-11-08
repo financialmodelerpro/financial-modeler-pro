@@ -958,6 +958,41 @@ async function unit9(): Promise<void> {
   }
 }
 
+async function unit10(): Promise<void> {
+  console.log('\n=== Course instructors (the live-session instructor records) ===\n');
+  const ci = await import('../src/hubs/training/lib/liveCourse/courseInstructors');
+  const ca = await import('../src/hubs/training/lib/liveCourse/courseAdmin');
+  const A = '11111111-1111-1111-1111-111111111111', B = '22222222-2222-2222-2222-222222222222', C = '33333333-3333-3333-3333-333333333333';
+  const rows = [
+    { id: B, name: 'Bea', title: 'Analyst', photo_url: 'https://cdn/b.jpg', bio: 'Bio B', active: true },
+    { id: A, name: 'Ahmad Din', title: 'Corporate Finance', credentials: 'ACCA, FMVA', active: true },
+    { id: C, name: 'Old', title: 'Gone', active: false },
+  ];
+  const out = ci.orderInstructors([A, B, C, '44444444-4444-4444-4444-444444444444'], rows);
+  check('U10.1a several instructors, in the course order', out.map((i) => i.name).join('|') === 'Ahmad Din|Bea');
+  check('U10.1b an inactive or deleted instructor is skipped', !out.some((i) => i.name === 'Old') && out.length === 2);
+  check('U10.1c name, title, credentials, photo and bio come from the profile', out[1].photoUrl === 'https://cdn/b.jpg' && out[1].bio === 'Bio B' && out[0].credentials === 'ACCA, FMVA');
+  const u = ca.courseUpdateFromBody({ instructorIds: [A, B, A] });
+  check('U10.2a instructor ids save in order, duplicates removed', u.ok && JSON.stringify(u.update.instructor_ids) === JSON.stringify([A, B]));
+  check('U10.2b a free-text value is refused (must come from the list)', !ca.courseUpdateFromBody({ instructorIds: ['Ahmad Din'] }).ok);
+  const det = readFileSync('app/admin/training-hub/live-training/[code]/CourseDetailsTab.tsx', 'utf8');
+  check('U10.3a the Details tab picks instructors; the free-text Trainer fields are gone', det.includes('<InstructorsField') && !det.includes("text('trainerName'") && det.includes("fetch('/api/admin/instructors')"));
+  const view = readFileSync('src/hubs/training/lib/liveCourse/courseView.ts', 'utf8');
+  const page = readFileSync('app/training/live-course/[code]/page.tsx', 'utf8');
+  check('U10.3b the course page reads instructors LIVE on every view (public and signed in)', view.includes('loadCourseInstructors(sb, course.instructorIds)') && page.includes('loadCourseInstructors(sb, course.instructorIds)'));
+  check('U10.3c the public page renders the instructor cards', readFileSync('app/training/live-course/[code]/LiveCourseClient.tsx', 'utf8').includes('<InstructorCard'));
+  if (hasCreds()) {
+    const sb = await db();
+    const { data: def } = await sb.from('instructors').select('id, name').eq('is_default', true).maybeSingle();
+    if (def) {
+      const live = await ci.loadCourseInstructors(sb, [def.id as string]);
+      check('U10.4a the live instructors table reads through the loader', live.length === 1 && live[0].name === def.name);
+    }
+    const { data: raw } = await sb.from('training_course_settings').select('*').eq('course_code', 'REFM').maybeSingle();
+    console.log(`        (migration 250 ${raw && 'instructor_ids' in raw ? 'APPLIED' : 'NOT YET APPLIED: instructor picks cannot be saved yet'})`);
+  }
+}
+
 (async () => {
   await unit0();
   await unit1();
@@ -970,6 +1005,7 @@ async function unit9(): Promise<void> {
   await unit7();
   await unit8();
   await unit9();
+  await unit10();
   console.log(`\n${passed} passed, ${failed} failed`);
   if (failed) { console.log('Failed:'); for (const f of fails) console.log(`  - ${f}`); process.exit(1); }
 })().catch((e) => { console.error(e); process.exit(1); });

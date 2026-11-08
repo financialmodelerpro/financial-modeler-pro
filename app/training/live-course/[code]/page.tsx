@@ -6,6 +6,7 @@ import {
   getLiveCourseSettings, isLiveCourseRow, isPubliclyVisible, canRegister, listCourseSessions,
 } from '@/src/hubs/training/lib/liveCourse/courseSettings';
 import { isValidPreviewToken } from '@/src/hubs/training/lib/liveCourse/preview';
+import { loadCourseInstructors } from '@/src/hubs/training/lib/liveCourse/courseInstructors';
 import { TrainingShell } from '@/src/hubs/training/components/TrainingShell';
 import { NavbarServer } from '@/src/shared/components/layout/NavbarServer';
 import { SharedFooter } from '@/src/hubs/main/components/landing/SharedFooter';
@@ -55,7 +56,13 @@ export default async function LiveCoursePage({
   if (!sess && !visible && !previewOk) notFound();
 
   const publicData: PublicCourseData | null = visible || previewOk
-    ? { course, sessions: await listCourseSessions(sb, course.courseCode), preview: !visible && previewOk, canRegister: canRegister(course) }
+    ? {
+        course,
+        sessions: await listCourseSessions(sb, course.courseCode),
+        instructors: await loadCourseInstructors(sb, course.instructorIds),
+        preview: !visible && previewOk,
+        canRegister: canRegister(course),
+      }
     : null;
 
   const content = (

@@ -5,7 +5,7 @@
  * page show, the images (with recommended sizes and alt text), enrolment
  * Open / Closed, and the regions in the time zone table.
  */
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import type { LiveCourseSettings } from '@/src/hubs/training/lib/liveCourse/courseSettings';
 import { DEFAULT_TIME_ZONES, regionLabel } from '@/src/hubs/training/lib/liveCourse/timeZones';
 
@@ -26,9 +26,10 @@ export const IMAGE_SPECS = {
 export function CourseDetailsTab({ course, onSaved }: { course: LiveCourseSettings; onSaved: (msg: string) => void }) {
   const [f, setF] = useState({
     title: course.title, shortTitle: course.shortTitle, tagline: course.tagline, description: course.description,
-    whoFor: course.whoFor, prerequisites: course.prerequisites, trainerName: course.trainerName, trainerTitle: course.trainerTitle,
+    whoFor: course.whoFor, prerequisites: course.prerequisites,
     enrolmentOpen: course.enrolmentOpen,
   });
+  const [instructorIds, setInstructorIds] = useState<string[]>(course.instructorIds);
   const [zones, setZones] = useState<string[]>(course.timeZones ?? DEFAULT_TIME_ZONES.map((r) => r.tz));
   const [extraZone, setExtraZone] = useState('');
   const [saving, setSaving] = useState(false);
@@ -40,7 +41,7 @@ export function CourseDetailsTab({ course, onSaved }: { course: LiveCourseSettin
       const isDefault = zones.length === DEFAULT_TIME_ZONES.length && zones.every((z, i) => z === DEFAULT_TIME_ZONES[i].tz);
       const r = await fetch(`/api/admin/live-course/${course.courseCode}`, {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...f, timeZones: isDefault ? null : zones }),
+        body: JSON.stringify({ ...f, instructorIds, timeZones: isDefault ? null : zones }),
       });
       const j = await r.json() as { error?: string };
       if (!r.ok) { setErr(j.error ?? 'Save failed.'); return; }
@@ -69,10 +70,7 @@ export function CourseDetailsTab({ course, onSaved }: { course: LiveCourseSettin
         {text('description', 'Full description', { area: true })}
         {text('whoFor', 'Who it is for', { area: true })}
         {text('prerequisites', 'Prerequisites', { area: true })}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-          {text('trainerName', 'Trainer')}
-          {text('trainerTitle', 'Trainer title')}
-        </div>
+        <InstructorsField value={instructorIds} onChange={setInstructorIds} legacy={course.trainerName ? `${course.trainerName}${course.trainerTitle ? `, ${course.trainerTitle}` : ''}` : ''} />
         <div style={{ marginBottom: 14 }}>
           <label style={label}>Enrolment</label>
           <label style={{ fontSize: 13, marginRight: 18 }}><input type="radio" checked={f.enrolmentOpen} onChange={() => setF((x) => ({ ...x, enrolmentOpen: true }))} /> Open</label>
@@ -143,6 +141,57 @@ function ImageField({ course, kind, url, alt, onSaved }: { course: LiveCourseSet
         {url && <button style={btn} onClick={async () => { await fetch(`/api/admin/live-course/${course.courseCode}/image?kind=${kind}`, { method: 'DELETE' }); onSaved('Image removed.'); }}>Remove</button>}
       </div>
       {err && <div style={{ color: '#B91C1C', fontSize: 12.5, marginTop: 6 }}>{err}</div>}
+    </div>
+  );
+}
+
+interface AdminInstructor { id: string; name: string; title: string; credentials?: string | null; photo_url?: string | null; active: boolean }
+
+/**
+ * The course's instructors: picked from the instructor records live sessions
+ * use (Admin > Instructors), several allowed, in display order. The course
+ * page reads each profile live, so editing the profile updates the page.
+ */
+function InstructorsField({ value, onChange, legacy }: { value: string[]; onChange: (ids: string[]) => void; legacy: string }) {
+  const [all, setAll] = useState<AdminInstructor[] | null>(null);
+  useEffect(() => {
+    fetch('/api/admin/instructors').then((r) => r.json()).then((j: { instructors?: AdminInstructor[] }) => setAll(j.instructors ?? [])).catch(() => setAll([]));
+  }, []);
+  const byId = new Map((all ?? []).map((i) => [i.id, i]));
+  const available = (all ?? []).filter((i) => i.active && !value.includes(i.id));
+  const move = (idx: number, d: -1 | 1) => {
+    const next = [...value]; const j = idx + d;
+    if (j < 0 || j >= next.length) return;
+    [next[idx], next[j]] = [next[j], next[idx]]; onChange(next);
+  };
+  return (
+    <div data-testid="course-instructors-field" style={{ marginBottom: 14 }}>
+      <label style={label}>Instructors</label>
+      {value.length === 0 && <div style={{ fontSize: 12.5, color: SLATE, marginBottom: 6 }}>None picked yet.{legacy ? ` The course page shows the old trainer text until you pick one: "${legacy}".` : ''}</div>}
+      <div style={{ display: 'grid', gap: 6, marginBottom: 8 }}>
+        {value.map((id, idx) => {
+          const i = byId.get(id);
+          return (
+            <div key={id} data-testid="course-instructor-row" style={{ display: 'flex', gap: 10, alignItems: 'center', border: `1px solid ${PALE}`, borderRadius: 8, padding: '6px 10px', background: '#FAFBFD' }}>
+              {i?.photo_url ? <img src={i.photo_url} alt="" style={{ width: 32, height: 32, borderRadius: '50%', objectFit: 'cover' }} /> : <div style={{ width: 32, height: 32, borderRadius: '50%', background: '#DDE7F3' }} />}
+              <div style={{ flex: 1, minWidth: 0, fontSize: 13 }}>
+                <strong>{i ? i.name : 'Instructor no longer exists'}</strong>{i?.credentials ? `, ${i.credentials}` : ''}
+                <div style={{ color: SLATE, fontSize: 12 }}>{i ? i.title : 'It will be dropped when you save.'}{i && !i.active ? ' (inactive: hidden on the course page)' : ''}</div>
+              </div>
+              <button style={{ ...btn, padding: '4px 8px' }} onClick={() => move(idx, -1)} disabled={idx === 0} aria-label="Move up">↑</button>
+              <button style={{ ...btn, padding: '4px 8px' }} onClick={() => move(idx, 1)} disabled={idx === value.length - 1} aria-label="Move down">↓</button>
+              <button style={{ ...btn, padding: '4px 8px', borderColor: '#B91C1C', color: '#B91C1C' }} onClick={() => onChange(value.filter((x) => x !== id))}>Remove</button>
+            </div>
+          );
+        })}
+      </div>
+      <select data-testid="course-instructor-add" value="" onChange={(e) => { if (e.target.value) onChange([...value, e.target.value]); }} style={{ ...input, width: 'auto', minWidth: 280 }} disabled={!all || available.length === 0}>
+        <option value="">{!all ? 'Loading instructors…' : available.length ? 'Add an instructor…' : 'Every active instructor is already added'}</option>
+        {available.map((i) => <option key={i.id} value={i.id}>{i.name}{i.title ? ` - ${i.title}` : ''}</option>)}
+      </select>
+      <div style={{ fontSize: 11.5, color: SLATE, marginTop: 4 }}>
+        Name, title, photo and bio come from the instructor&apos;s profile, so editing it in <a href="/admin/training-hub/instructors" style={{ color: NAVY }}>Instructors</a> updates the course page too.
+      </div>
     </div>
   );
 }

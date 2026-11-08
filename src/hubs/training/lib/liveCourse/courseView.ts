@@ -11,6 +11,7 @@ import { isEnrolled } from './enrolment';
 import { joinStatusFrom } from './sessionAccess';
 import { effectiveSessionType } from './joinWindow';
 import { computeEligibility, loadProgressMaps, type Eligibility } from './eligibility';
+import { loadCourseInstructors, type CourseInstructor } from './courseInstructors';
 
 export interface CourseSessionView extends CourseSession {
   state: 'upcoming' | 'live' | 'recorded';
@@ -26,6 +27,8 @@ export interface CourseView {
   enrolled: boolean;
   /** Per-session progress and whether submission is unlocked (eligibility.ts). */
   eligibility: Eligibility;
+  /** The course's instructors, read live from their profiles. */
+  instructors: CourseInstructor[];
   /** Printed on the session achievement cards. */
   student: { name: string; registrationId: string };
   /** The issued certificate, once the model is approved. */
@@ -60,6 +63,7 @@ export async function loadCourseView(
   const maps = await loadProgressMaps(sb, ids, [...new Set([lower, student.email.trim()])]);
   const eligibility = computeEligibility(course, sessions, maps.attendance.get(lower) ?? new Map(), maps.watch.get(lower) ?? new Map(), now);
 
+  const instructors = await loadCourseInstructors(sb, course.instructorIds);
   const { data: meta } = await sb.from('training_registrations_meta').select('name').eq('registration_id', student.registrationId).maybeSingle();
   const { data: cert } = await sb
     .from('student_certificates')
@@ -75,6 +79,7 @@ export async function loadCourseView(
     course,
     enrolled,
     eligibility,
+    instructors,
     student: { name: (meta?.name as string | null) ?? '', registrationId: student.registrationId },
     certificate,
     sessions: sessions.map((s) => {

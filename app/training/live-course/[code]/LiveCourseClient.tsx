@@ -13,6 +13,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { formatSessionTime } from '@/src/hubs/training/lib/liveCourse/time';
 import type { CourseView } from '@/src/hubs/training/lib/liveCourse/courseView';
 import type { LiveCourseSettings, CourseSession } from '@/src/hubs/training/lib/liveCourse/courseSettings';
+import type { CourseInstructor } from '@/src/hubs/training/lib/liveCourse/courseInstructors';
 import { JoinLiveButton } from '@/src/hubs/training/components/sessions/JoinLiveButton';
 import { TimeZoneTable } from '@/src/hubs/training/components/sessions/TimeZoneTable';
 import { SessionCertificateButton } from '@/src/hubs/training/components/sessions/SessionCertificateButton';
@@ -27,6 +28,8 @@ const PALE = '#E8EEF7';
 export interface PublicCourseData {
   course: LiveCourseSettings;
   sessions: CourseSession[];
+  /** The course's instructors, read live from their profiles. */
+  instructors: CourseInstructor[];
   /** True when shown through an admin preview link (course not public). */
   preview: boolean;
   /** A new student may register or enrol (published, enrolment open). */
@@ -89,6 +92,7 @@ export function LiveCourseClient({ courseCode, autoEnrol, signedIn, publicData }
   }
 
   const enrolled = !!view?.enrolled;
+  const instructors = view?.instructors ?? publicData?.instructors ?? [];
   const sessions: (CourseSession & Partial<CourseView['sessions'][number]>)[] = view?.sessions ?? publicData?.sessions ?? [];
   const canRegister = publicData?.canRegister ?? (course.status === 'published' && course.enrolmentOpen);
   const next = sessions.find((s) => s.scheduled_datetime && new Date(s.scheduled_datetime).getTime() > Date.now()) ?? sessions[0];
@@ -159,12 +163,20 @@ export function LiveCourseClient({ courseCode, autoEnrol, signedIn, publicData }
               <p style={{ margin: 0, fontSize: 14.5, lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{b.body}</p>
             </div>
           ))}
-          {course.trainerName && (
+          {instructors.length > 0 ? (
+            <div data-testid="live-course-instructors">
+              <h2 style={{ fontSize: 16, fontWeight: 800, color: NAVY, margin: '0 0 8px' }}>{instructors.length > 1 ? 'Instructors' : 'Instructor'}</h2>
+              <div style={{ display: 'grid', gap: 14 }}>
+                {instructors.map((i) => <InstructorCard key={i.id} i={i} />)}
+              </div>
+            </div>
+          ) : course.trainerName ? (
+            // Fallback: a course with no instructor picked shows its old free-text trainer.
             <div>
               <h2 style={{ fontSize: 16, fontWeight: 800, color: NAVY, margin: '0 0 6px' }}>Trainer</h2>
               <p style={{ margin: 0, fontSize: 14.5 }}><strong>{course.trainerName}</strong>{course.trainerTitle ? `, ${course.trainerTitle}` : ''}</p>
             </div>
-          )}
+          ) : null}
         </div>
         {next?.scheduled_datetime && (
           <TimeZoneTable iso={next.scheduled_datetime} zones={course.timeZones} title={`Next session in your region${next.course_session_no ? ` (Session ${next.course_session_no})` : ''}`} />
@@ -336,6 +348,29 @@ export function LiveCourseSubmission({ courseCode, onChange }: { courseCode: str
       <h2 style={{ fontSize: 16, fontWeight: 800, color: NAVY, margin: '0 0 10px' }}>Model submission</h2>
       {body}
       {msg && <div data-testid="submission-message" style={{ marginTop: 8, fontSize: 13, color: msg.ok ? GREEN : '#B91C1C' }}>{msg.text}</div>}
+    </div>
+  );
+}
+
+/** One instructor, from their live profile (name, title, credentials, photo, bio, links). */
+function InstructorCard({ i }: { i: CourseInstructor }) {
+  const initials = i.name.split(/\s+/).map((p) => p[0]).join('').slice(0, 2).toUpperCase();
+  return (
+    <div data-testid="live-course-instructor" style={{ display: 'flex', gap: 14, alignItems: 'flex-start' }}>
+      {i.photoUrl
+        ? <img src={i.photoUrl} alt={i.name} style={{ width: 72, height: 72, borderRadius: '50%', objectFit: 'cover', flexShrink: 0, border: `2px solid ${PALE}` }} />
+        : <div aria-hidden style={{ width: 72, height: 72, borderRadius: '50%', background: NAVY, color: '#fff', display: 'grid', placeItems: 'center', fontWeight: 800, fontSize: 22, flexShrink: 0 }}>{initials}</div>}
+      <div style={{ minWidth: 0 }}>
+        <div style={{ fontWeight: 800, fontSize: 15.5 }}>{i.name}{i.credentials ? <span style={{ fontWeight: 600, color: SLATE, fontSize: 13 }}>, {i.credentials}</span> : null}</div>
+        {i.title && <div style={{ fontSize: 13.5, color: NAVY, marginTop: 2 }}>{i.title}</div>}
+        {i.bio && <p style={{ margin: '6px 0 0', fontSize: 14, lineHeight: 1.55, whiteSpace: 'pre-wrap' }}>{i.bio}</p>}
+        {(i.linkedinUrl || i.profileUrl) && (
+          <div style={{ display: 'flex', gap: 14, marginTop: 6, fontSize: 13 }}>
+            {i.profileUrl && <a href={i.profileUrl} style={{ color: NAVY, fontWeight: 700 }}>Profile</a>}
+            {i.linkedinUrl && <a href={i.linkedinUrl} target="_blank" rel="noopener noreferrer" style={{ color: NAVY, fontWeight: 700 }}>LinkedIn</a>}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

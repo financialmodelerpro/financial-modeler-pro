@@ -53,6 +53,13 @@ export function courseUpdateFromBody(body: Record<string, unknown>): UpdateResul
     if (!r.length) errors.push('Choose at least one certification route.');
     else update.cert_routes = [...new Set(r)];
   }
+  if (body.instructorIds !== undefined) {
+    const ids = Array.isArray(body.instructorIds) ? (body.instructorIds as unknown[]).filter((x): x is string => typeof x === 'string') : null;
+    const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!ids || ids.some((x) => !uuid.test(x))) errors.push('Instructors must be chosen from the list.');
+    else if (ids.length > 10) errors.push('At most 10 instructors per course.');
+    else update.instructor_ids = [...new Set(ids)];
+  }
   if (body.timeZones !== undefined) {
     if (body.timeZones === null) update.time_zones = null;
     else if (Array.isArray(body.timeZones)) {

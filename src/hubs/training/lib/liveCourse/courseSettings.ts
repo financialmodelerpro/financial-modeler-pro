@@ -50,6 +50,8 @@ export interface LiveCourseSettings {
   certificateGradeLabel: string;
   /** Per-session completion cards on or off (mig 249; absent = on). */
   sessionCertificates: boolean;
+  /** Ordered instructors(id) shown on the course page (mig 250; absent = none). */
+  instructorIds: string[];
 }
 
 /**
@@ -116,6 +118,7 @@ export function settingsFromRow(row: Record<string, unknown>): LiveCourseSetting
     sessionDayReminder:     row.session_day_reminder !== false,
     certificateGradeLabel:  String(row.certificate_grade_label ?? 'Completed'),
     sessionCertificates:    row.session_certificates !== false,
+    instructorIds:          Array.isArray(row.instructor_ids) ? (row.instructor_ids as unknown[]).filter((x): x is string => typeof x === 'string') : [],
   };
 }
 
