@@ -17,6 +17,7 @@
  */
 import { getServerClient } from '../src/core/db/supabase';
 import { REFM_SESSIONS, REFM_COURSE_CODE, REFM_DURATION_MINUTES } from '../src/hubs/training/lib/liveCourse/seeds/refmSessions';
+import { REFM_PAGE } from '../src/hubs/training/lib/liveCourse/seeds/refmPage';
 
 const dry = process.argv.includes('--dry-run');
 const resetTimes = process.argv.includes('--reset-times');
@@ -76,6 +77,19 @@ const resetTimes = process.argv.includes('--reset-times');
     }
     created++;
   }
+
+  // The landing page content (mig 252), only when the course has none yet, so
+  // edits made in Admin > Live Training > REFM > Page sections are never overwritten.
+  const { data: pageRow, error: pageErr } = await sb.from('training_course_settings').select('page_sections').eq('course_code', REFM_COURSE_CODE).maybeSingle();
+  if (pageErr) console.log(`  page     skipped (${pageErr.message}; apply migration 252)`);
+  else if (pageRow && Object.keys((pageRow.page_sections as object) ?? {}).length === 0) {
+    console.log('  page     REFM landing page content written');
+    if (!dry) {
+      const { error: e } = await sb.from('training_course_settings').update({ page_sections: REFM_PAGE }).eq('course_code', REFM_COURSE_CODE);
+      if (e) throw new Error(e.message);
+    }
+  } else console.log('  page     kept (already has content)');
+
   console.log(`\n${dry ? '[dry run] ' : ''}${created} created, ${refreshed} refreshed. No email or newsletter was sent.`);
   console.log('Next: Admin > Live Training > REFM > Sessions > "Create missing Teams meetings".');
 })().catch((e) => { console.error(e); process.exit(1); });

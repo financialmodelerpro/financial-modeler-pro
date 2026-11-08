@@ -899,7 +899,8 @@ async function unit9(): Promise<void> {
   check('U9.5h a course\'s own regions replace the default; an invalid zone is dropped', JSON.stringify(tz.regionsFor(['Europe/London', 'Bad/Zone']).map((r) => r.tz)) === '["Europe/London"]' && tz.regionsFor(null).length === 13);
   const ttable = readFileSync('src/hubs/training/components/sessions/TimeZoneTable.tsx', 'utf8');
   check('U9.5i the table has a "Your local time" line from the browser and a collapsible card form', ttable.includes('Your local time') && ttable.includes('resolvedOptions().timeZone') && ttable.includes('See times in your region'));
-  const tzUsers = ['app/training/live-course/[code]/LiveCourseClient.tsx', 'app/training/live-sessions/[id]/page.tsx', 'app/training-sessions/[id]/DetailClient.tsx', 'app/training-sessions/PublicCourseOffers.tsx'];
+  const tzUsers = ['app/training/live-course/[code]/CourseLanding.tsx', 'app/training/live-sessions/[id]/page.tsx', 'app/training-sessions/[id]/DetailClient.tsx', 'app/training-sessions/PublicCourseOffers.tsx'];
+  // The course page renders the table through its landing layout (side card), since the landing page.
   check('U9.5j the table is on the course page, both session pages and the course card', tzUsers.every((f) => readFileSync(f, 'utf8').includes('<TimeZoneTable')));
 
   // ── Images ──
@@ -1132,6 +1133,85 @@ async function unit11(): Promise<void> {
   }
 }
 
+async function unit12(): Promise<void> {
+  console.log('\n=== Landing page: sections, instructor, countdown, testimonials ===\n');
+  const PS = await import('../src/hubs/training/lib/liveCourse/pageSections');
+  const CI = await import('../src/hubs/training/lib/liveCourse/courseInstructors');
+  const CT = await import('../src/hubs/training/lib/liveCourse/courseTestimonials');
+  const RP = await import('../src/hubs/training/lib/liveCourse/seeds/refmPage');
+
+  // ── Instructor: no raw HTML ──
+  const bio = CI.safeBio('<p>Twelve years in <strong>corporate finance</strong>.</p><script>alert(1)</script><p onclick="x()">More</p>');
+  check('U12.1a an HTML bio is sanitised: formatting kept, script and handlers removed', !!bio && bio.includes('<strong>corporate finance</strong>') && !/script|onclick/i.test(bio));
+  check('U12.1b a plain-text bio is unchanged', CI.safeBio('Plain words.') === 'Plain words.');
+  const rows = CI.orderInstructors(['a', 'b'], [
+    { id: 'a', name: 'Ahmad Din', title: 'x', is_default: true, profile_url: '/about/ahmad-din', bio: '<p>Bio</p>', active: true },
+    { id: 'b', name: 'Guest', title: 'y', is_default: false, bio: '<p>Guest <em>bio</em></p>', active: true },
+  ]);
+  check('U12.1c the founder is flagged (shown with the founder profile block)', rows[0].isFounder && !rows[1].isFounder);
+  const client = readFileSync('app/training/live-course/[code]/LiveCourseClient.tsx', 'utf8');
+  check('U12.1d an instructor card renders the sanitised bio as formatted text, never as raw tags in text', client.includes('dangerouslySetInnerHTML={{ __html: i.bio }}') && !client.includes("whiteSpace: 'pre-wrap' }}>{i.bio}</p>}"));
+  const block = readFileSync('src/hubs/main/components/landing/FounderProfileBlock.tsx', 'utf8');
+  check('U12.1e the founder block sanitises every HTML field before rendering', (block.match(/safeProfileHtml\(/g) ?? []).length >= 4 && block.includes('sanitizeArticleHtml'));
+  const home = readFileSync('app/(portal)/page.tsx', 'utf8');
+  const page = readFileSync('app/training/live-course/[code]/page.tsx', 'utf8');
+  check('U12.1f ONE founder block: the home page and the course page render the same component from the one CMS record', home.includes('<FounderProfileBlock') && !home.includes('<FounderExpand') && page.includes('<FounderProfileBlock') && page.includes("section_type === 'team'"));
+
+  // ── Sections switch off ──
+  const full = PS.resolvePage(RP.REFM_PAGE);
+  const has = { testimonials: 2, sessions: 8, instructors: 1 };
+  const fullTesti = { ...full, sections: { ...full.sections, testimonials: { ...full.sections.testimonials, ids: ['manual:x'] } } };
+  check('U12.2a REFM: every body section is visible when on', PS.visibleSections(fullTesti, has).length === PS.BODY_SECTIONS.length, PS.visibleSections(fullTesti, has).join(','));
+  let allOff = true;
+  for (const k of PS.BODY_SECTIONS) {
+    const off = { ...fullTesti, sections: { ...fullTesti.sections, [k]: { ...(fullTesti.sections[k] as object), enabled: false } } } as typeof full;
+    if (PS.visibleSections(off, has).includes(k)) allOff = false;
+  }
+  check('U12.2b each body section switched off disappears from the page', allOff);
+  const landing = readFileSync('app/training/live-course/[code]/CourseLanding.tsx', 'utf8');
+  check('U12.2c the hero and the side card / mobile bar each switch off', landing.includes('{S.hero.enabled && (') && landing.includes('const sideCard = S.sideCard.enabled && (') && landing.includes('{S.sideCard.enabled && (\n        <div className="lc-mobile-bar"'));
+  check('U12.2d testimonials hide when none are picked', !PS.visibleSections(full, has).includes('testimonials'));
+  check('U12.2e no "What you will build" section exists', !Object.values(PS.SECTION_LABELS).some((l) => /what you will build/i.test(l)));
+
+  // ── FAQ ──
+  const saved = PS.pageFromBody({ sections: { faq: { enabled: true, heading: 'FAQ', items: [{ q: 'B?', a: 'b' }, { q: 'A?', a: 'a' }, { q: '', a: 'dropped' }] } }, order: ['faq', 'curriculum'] });
+  check('U12.3a FAQ items save in order; an empty question is dropped', saved.ok && saved.page.sections.faq.items.map((f) => f.q).join('|') === 'B?|A?');
+  check('U12.3b a reordered page keeps its order, with every other section still present', saved.page.order[0] === 'faq' && saved.page.order[1] === 'curriculum' && saved.page.order.length === PS.BODY_SECTIONS.length);
+  check('U12.3c REFM has the 11 FAQ items from the brief', RP.REFM_PAGE.sections.faq.items.length === 11 && RP.REFM_PAGE.sections.faq.items[0].q === 'Is the course really free?');
+  check('U12.3d the FAQ renders as an accordion', landing.includes('data-testid="landing-faq-item"') && landing.includes('<details'));
+  const adminTab = readFileSync('app/admin/training-hub/live-training/[code]/CoursePageSectionsTab.tsx', 'utf8');
+  check('U12.3e admin can add, edit, reorder and delete FAQ items, and save the page', adminTab.includes('+ Add question') && adminTab.includes('Delete') && adminTab.includes('move(items, i, -1)') && adminTab.includes('pageSections: p'));
+  check('U12.3f the admin save validates through the same merge the page renders', readFileSync('src/hubs/training/lib/liveCourse/courseAdmin.ts', 'utf8').includes('pageFromBody(body.pageSections)'));
+
+  // ── Countdown ──
+  const now = new Date('2026-11-18T12:00:00Z').getTime();
+  const sessions = [{ id: 's1', scheduled_datetime: '2026-12-01T16:00:00Z' }, { id: 's2', scheduled_datetime: '2026-12-08T16:00:00Z' }];
+  check('U12.4a the countdown reads the next session: 13 days 4 hours before 1 Dec 7 PM KSA', PS.countdownText(PS.nextSession(sessions, now)?.scheduled_datetime, now) === '13 days 4 hours');
+  const moved = [{ id: 's1', scheduled_datetime: '2026-12-03T16:00:00Z' }, sessions[1]];
+  check('U12.4b after a reschedule it counts to the new time', PS.countdownText(PS.nextSession(moved, now)?.scheduled_datetime, now) === '15 days 4 hours');
+  check('U12.4c once a session starts, it counts to the next one', PS.nextSession(sessions, new Date('2026-12-01T17:00:00Z').getTime())?.id === 's2');
+  check('U12.4d after the last session it hides', PS.nextSession(sessions, new Date('2027-02-01').getTime()) === null && PS.countdownText(null) === null);
+
+  // ── Enrolled count ──
+  check('U12.5a the enrolled count hides below the threshold (24 of 25)', !PS.showEnrolledCount(24, 25));
+  check('U12.5b and shows at it (25 of 25)', PS.showEnrolledCount(25, 25));
+  check('U12.5c the threshold defaults to 25', PS.DEFAULT_PAGE.sections.sideCard.enrolledThreshold === 25 && RP.REFM_PAGE.sections.sideCard.enrolledThreshold === 25);
+
+  // ── Curriculum image fallback ──
+  check('U12.6a a session with no banner shows the course card image', client.includes('imageUrl={s.banner_url || course.cardImageUrl}'));
+  check('U12.6b curriculum cards show the image, number, title, KSA time, overview and the expandable details', readFileSync('src/hubs/training/components/sessions/CourseSessionCard.tsx', 'utf8').includes('data-testid="session-card-image"'));
+
+  // ── Content and testimonials ──
+  const S = RP.REFM_PAGE.sections;
+  check('U12.7a REFM content: 6 skills, 4 audiences, 3 certification steps, 4 tools', S.skills.items.length === 6 && S.whoFor.items.length === 4 && S.certification.steps.length === 3 && S.tools.items.length === 4);
+  check('U12.7b hero facts from the brief', S.hero.facts.join('|') === '8 live sessions|Tuesdays 7:00 PM KSA|Starts 1 Dec 2026|Free|Certificate');
+  check('U12.7c auto facts follow the live schedule when none are set', PS.autoFacts(sessions)[0] === '2 live sessions' && PS.autoFacts(sessions).includes('Free'));
+  check('U12.7d a testimonial pick is "source:id" from the existing system', !!CT.parsePick('manual:11111111-1111-1111-1111-111111111111') && !CT.parsePick('11111111'));
+  check('U12.7e the course page reuses the existing testimonials carousel', page.includes('<TestimonialsCarousel'));
+  check('U12.7f sample certificate and badge come from the uploaded templates and hide until they exist', page.includes('templateSamples(') && landing.includes('(d.samples.certificateUrl || d.samples.badgeUrl)'));
+  check('U12.7g the mobile layout stacks the side card and adds a fixed Register bar, with no horizontal scroll', landing.includes('@media (max-width: 900px)') && landing.includes("overflowX: 'hidden'"));
+}
+
 (async () => {
   await unit0();
   await unit1();
@@ -1146,6 +1226,7 @@ async function unit11(): Promise<void> {
   await unit9();
   await unit10();
   await unit11();
+  await unit12();
   console.log(`\n${passed} passed, ${failed} failed`);
   if (failed) { console.log('Failed:'); for (const f of fails) console.log(`  - ${f}`); process.exit(1); }
 })().catch((e) => { console.error(e); process.exit(1); });

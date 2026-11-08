@@ -6,6 +6,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { normaliseCourseCode, type CourseStatus } from './courseSettings';
 import { isValidTimeZone } from './timeZones';
+import { pageFromBody } from './pageSections';
 
 const TEXT_FIELDS: Record<string, string> = {
   title: 'title', shortTitle: 'short_title', tagline: 'tagline', description: 'description',
@@ -59,6 +60,12 @@ export function courseUpdateFromBody(body: Record<string, unknown>): UpdateResul
     if (!ids || ids.some((x) => !uuid.test(x))) errors.push('Instructors must be chosen from the list.');
     else if (ids.length > 10) errors.push('At most 10 instructors per course.');
     else update.instructor_ids = [...new Set(ids)];
+  }
+  if (body.pageSections !== undefined) {
+    // The same merge the page renders through, so what is stored is what shows.
+    const r = pageFromBody(body.pageSections);
+    if (!r.ok) errors.push(...r.errors);
+    else update.page_sections = r.page;
   }
   if (body.timeZones !== undefined) {
     if (body.timeZones === null) update.time_zones = null;

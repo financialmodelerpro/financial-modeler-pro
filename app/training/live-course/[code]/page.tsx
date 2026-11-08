@@ -11,8 +11,30 @@ import { TrainingShell } from '@/src/hubs/training/components/TrainingShell';
 import { NavbarServer } from '@/src/shared/components/layout/NavbarServer';
 import { SharedFooter } from '@/src/hubs/main/components/landing/SharedFooter';
 import { LiveCourseClient, type PublicCourseData } from './LiveCourseClient';
+import { getAllPageSections } from '@/src/shared/cms';
+import { FounderProfileBlock } from '@/src/hubs/main/components/landing/FounderProfileBlock';
+import { loadPickedTestimonials } from '@/src/hubs/training/lib/liveCourse/courseTestimonials';
+import { TestimonialsCarousel } from '../../TestimonialsCarousel';
 
 export const dynamic = 'force-dynamic';
+
+/**
+ * The course's uploaded certificate and badge templates, as samples for the
+ * certification section; null until each exists (the section then hides it).
+ */
+async function templateSamples(sb: ReturnType<typeof getServerClient>, code: string): Promise<{ certificateUrl: string | null; badgeUrl: string | null }> {
+  const c = code.toLowerCase();
+  const has = async (bucket: string, name: string) => {
+    const { data } = await sb.storage.from(bucket).list('templates', { search: name, limit: 5 });
+    return (data ?? []).some((f) => f.name === name) ? sb.storage.from(bucket).getPublicUrl(`templates/${name}`).data.publicUrl : null;
+  };
+  try {
+    const [certificateUrl, badgeUrl] = await Promise.all([has('certificates', `${c}-template.pdf`), has('badges', `${c}-badge.png`)]);
+    return { certificateUrl, badgeUrl };
+  } catch {
+    return { certificateUrl: null, badgeUrl: null };
+  }
+}
 
 export async function generateMetadata({ params }: { params: Promise<{ code: string }> }): Promise<Metadata> {
   const { code } = await params;
@@ -65,8 +87,33 @@ export default async function LiveCoursePage({
       }
     : null;
 
+  // ── Landing page data (mig 252 sections; nothing secret) ──
+  const page = course.page;
+  const instructors = publicData?.instructors ?? await loadCourseInstructors(sb, course.instructorIds);
+  const [{ count: enrolledCount }, samples, founderContent, testimonials] = await Promise.all([
+    sb.from('training_enrollments').select('id', { count: 'exact', head: true }).eq('course_code', course.courseCode),
+    templateSamples(sb, course.courseCode),
+    // THE founder profile (the home page's one CMS record), only if the founder teaches this course.
+    instructors.some((i) => i.isFounder)
+      ? getAllPageSections('home').then((secs) => (secs.find((s) => s.section_type === 'team')?.content as Record<string, unknown> | undefined) ?? null).catch(() => null)
+      : Promise.resolve(undefined),
+    page.sections.testimonials.enabled ? loadPickedTestimonials(sb, page.sections.testimonials.ids) : Promise.resolve([]),
+  ]);
+
   const content = (
-    <LiveCourseClient courseCode={course.courseCode} autoEnrol={enrol === '1'} signedIn={!!sess} publicData={publicData} />
+    <LiveCourseClient
+      courseCode={course.courseCode}
+      autoEnrol={enrol === '1'}
+      signedIn={!!sess}
+      publicData={publicData}
+      landing={{ page, enrolledCount: enrolledCount ?? 0, samples, testimonialCount: testimonials.length }}
+      founderSlot={founderContent !== undefined
+        ? <FounderProfileBlock content={founderContent} badgeOverride={page.sections.instructor.heading} />
+        : null}
+      testimonialsSlot={testimonials.length
+        ? <TestimonialsCarousel testimonials={testimonials} heading={page.sections.testimonials.heading} subheading="" />
+        : null}
+    />
   );
 
   if (sess) return <TrainingShell activeNav="dashboard">{content}</TrainingShell>;

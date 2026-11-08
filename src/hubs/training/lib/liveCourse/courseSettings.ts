@@ -15,6 +15,7 @@
  * Enrolled students keep access to their course in EVERY status.
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { resolvePage, type PageConfig } from './pageSections';
 
 export type CertRoute = 'live' | 'recording';
 export type CourseStatus = 'draft' | 'published' | 'archived';
@@ -52,6 +53,8 @@ export interface LiveCourseSettings {
   sessionCertificates: boolean;
   /** Ordered instructors(id) shown on the course page (mig 250; absent = none). */
   instructorIds: string[];
+  /** Landing page sections, merged over the defaults (mig 252). */
+  page: PageConfig;
 }
 
 /**
@@ -118,6 +121,7 @@ export function settingsFromRow(row: Record<string, unknown>): LiveCourseSetting
     sessionDayReminder:     row.session_day_reminder !== false,
     certificateGradeLabel:  String(row.certificate_grade_label ?? 'Completed'),
     sessionCertificates:    row.session_certificates !== false,
+    page:                   resolvePage(row.page_sections),
     instructorIds:          Array.isArray(row.instructor_ids) ? (row.instructor_ids as unknown[]).filter((x): x is string => typeof x === 'string') : [],
   };
 }
