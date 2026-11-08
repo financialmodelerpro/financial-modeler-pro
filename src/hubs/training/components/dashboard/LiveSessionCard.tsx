@@ -148,7 +148,9 @@ export function LiveSessionCard(props: Props) {
     // shows the actual scheduled date/time so students see WHEN to
     // join. liveUrl is consumed below for the Add-to-Calendar event
     // location too.
-    const liveUrl = session.live_url ?? '';
+    // The link comes from the student's own registration status, never the
+    // public session row (which no longer carries it).
+    const liveUrl = reg?.liveUrl ?? '';
 
     return (
       <div

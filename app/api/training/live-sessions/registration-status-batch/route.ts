@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerClient } from '@/src/core/db/supabase';
 import { getTrainingCookieSession } from '@/src/hubs/training/lib/session/trainingSessionCookie';
+import { joinDetailsFor } from '@/src/hubs/training/lib/liveSessions/privateSessionFields';
 
 export const dynamic = 'force-dynamic';
 
@@ -38,12 +39,12 @@ export async function POST(req: NextRequest) {
     const regSet = new Set((regs ?? []).map(r => r.session_id));
     const sessionMap = new Map((sessions ?? []).map(s => [s.id, s]));
 
-    const registrations: Record<string, { registered: boolean; joinLinkAvailable: boolean }> = {};
+    const registrations: Record<string, { registered: boolean; joinLinkAvailable: boolean; liveUrl: string | null }> = {};
     for (const id of sessionIds) {
       const registered = regSet.has(id);
       let joinLinkAvailable = false;
+      const session = sessionMap.get(id);
       if (registered) {
-        const session = sessionMap.get(id);
         if (session?.scheduled_datetime) {
           const now = new Date();
           const sessionTime = new Date(session.scheduled_datetime);
@@ -54,7 +55,8 @@ export async function POST(req: NextRequest) {
           joinLinkAvailable = session.live_url ? (now >= showAt && now <= endAt) : false;
         }
       }
-      registrations[id] = { registered, joinLinkAvailable };
+      // The join link goes only to the signed student's OWN registrations.
+      registrations[id] = { registered, joinLinkAvailable, liveUrl: joinDetailsFor(registered, session).liveUrl };
     }
 
     return NextResponse.json({ registrations });

@@ -123,7 +123,11 @@ export default function LiveSessionDetailPage() {
       fetch(`/api/training/live-sessions/${params.id}/register?email=${encodeURIComponent(sess.email)}`).then(r => r.json()),
       fetch(`/api/training/live-sessions/${params.id}/watched?email=${encodeURIComponent(sess.email)}`).then(r => r.json()).catch(() => null),
     ]).then(([sessionData, regData, watchJson]) => {
-      setSession(sessionData.session ?? null);
+      // The public session row carries no join link or password; the
+      // register status returns them only when this student is registered.
+      setSession(sessionData.session
+        ? { ...sessionData.session, live_url: regData.liveUrl ?? '', live_password: regData.livePassword ?? '' }
+        : null);
       setRegistered(regData.registered ?? false);
       setJoinLinkAvailable(regData.joinLinkAvailable ?? false);
       setRegCount(regData.registrationCount ?? 0);
@@ -285,6 +289,8 @@ export default function LiveSessionDetailPage() {
           const r2 = await fetch(`/api/training/live-sessions/${params.id}/register?email=${encodeURIComponent(studentSession.email)}`);
           const d2 = await r2.json();
           setJoinLinkAvailable(d2.joinLinkAvailable ?? false);
+          // Now registered: the status carries the join link and password.
+          setSession(prev => prev ? { ...prev, live_url: d2.liveUrl ?? '', live_password: d2.livePassword ?? '' } : prev);
         } catch { /* polling will catch up */ }
       } else {
         setRegisterNotice({ kind: 'err', msg: d.error ?? 'Registration failed. Please try again.' });

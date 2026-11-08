@@ -14,7 +14,7 @@ export async function GET(req: NextRequest) {
 
   if (type === 'live_session') {
     const { data } = await sb.from('live_sessions')
-      .select('id, title, description, scheduled_datetime, timezone, platform, live_url')
+      .select('id, title, description, scheduled_datetime, timezone, meeting_provider') // never live_url: a newsletter is public
       .order('scheduled_datetime', { ascending: false })
       .limit(20);
     return NextResponse.json({ items: (data ?? []).map(s => ({ id: s.id, label: `${s.title} - ${fmtDate(s.scheduled_datetime)}`, data: s })) });

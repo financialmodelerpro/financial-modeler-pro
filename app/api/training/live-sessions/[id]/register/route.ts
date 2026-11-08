@@ -3,6 +3,7 @@ import { getServerClient } from '@/src/core/db/supabase';
 import { getTrainingCookieSession } from '@/src/hubs/training/lib/session/trainingSessionCookie';
 import { sendEmail, FROM } from '@/src/shared/email/sendEmail';
 import { registrationConfirmationTemplate } from '@/src/shared/email/templates/liveSessionNotification';
+import { joinDetailsFor } from '@/src/hubs/training/lib/liveSessions/privateSessionFields';
 
 export const dynamic = 'force-dynamic';
 
@@ -166,7 +167,7 @@ export async function GET(
 
   const [{ data: reg }, { data: session }, { count }] = await Promise.all([
     sb.from('session_registrations').select('id').eq('session_id', id).eq('student_email', email.toLowerCase()).maybeSingle(),
-    sb.from('live_sessions').select('scheduled_datetime, registration_required').eq('id', id).maybeSingle(),
+    sb.from('live_sessions').select('scheduled_datetime, registration_required, live_url, live_password').eq('id', id).maybeSingle(),
     sb.from('session_registrations').select('*', { count: 'exact', head: true }).eq('session_id', id),
   ]);
 
@@ -180,9 +181,15 @@ export async function GET(
   const registered = !!reg;
   const joinLinkAvailable = registered && !!session?.scheduled_datetime;
 
+  // The join link and password go only to the signed student registered for
+  // this session; the public session routes never carry them.
+  const { liveUrl, livePassword } = joinDetailsFor(registered, session);
+
   return NextResponse.json({
     registered,
     joinLinkAvailable,
+    liveUrl,
+    livePassword,
     registrationRequired: session?.registration_required ?? true,
     registrationCount: count ?? 0,
   });

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerClient } from '@/src/core/db/supabase';
+import { withoutPrivateFields } from '@/src/hubs/training/lib/liveSessions/privateSessionFields';
 
 export const dynamic = 'force-dynamic';
 
@@ -46,8 +47,10 @@ export async function GET(req: NextRequest) {
       }
     }
 
+    // Unauthenticated route: the join link, password and dial-in never leave
+    // here. A registered student gets them from the register status routes.
     const sessions = (data ?? []).map(s => ({
-      ...s,
+      ...withoutPrivateFields(s),
       playlist: s.live_playlists,
       attachments: attachments[s.id] ?? [],
     }));

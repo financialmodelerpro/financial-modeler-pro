@@ -48,7 +48,7 @@ function fallbackEmail(eventType: string, data: ContentData): { subject: string;
     case 'live_session_scheduled':
       return {
         subject: `Upcoming Live Session: ${title}`,
-        body: `<h2>${title}</h2>${desc}${date ? `<p><strong>Date:</strong> ${date}</p>` : ''}${extra?.time ? `<p><strong>Time:</strong> ${extra.time}</p>` : ''}${extra?.platform ? `<p><strong>Platform:</strong> ${extra.platform}</p>` : ''}<p><a href="${url ?? `${LEARN_URL}/training/dashboard?tab=live-sessions`}" style="${btnStyle}">Join Session &rarr;</a></p>`,
+        body: `<h2>${title}</h2>${desc}${date ? `<p><strong>Date:</strong> ${date}</p>` : ''}${extra?.time ? `<p><strong>Time:</strong> ${extra.time}</p>` : ''}${extra?.platform ? `<p><strong>Platform:</strong> ${extra.platform}</p>` : ''}<p><a href="${url ?? `${LEARN_URL}/training/dashboard?tab=live-sessions`}" style="${btnStyle}">View &amp; Register &rarr;</a></p>`,
       };
     case 'live_session_recording':
       return {

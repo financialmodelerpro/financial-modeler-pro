@@ -8,6 +8,8 @@ export interface LiveSession {
   banner_url?: string | null;
   youtube_url?: string | null;
   live_url?: string | null;
+  /** Set by the public routes, which never carry live_url itself. */
+  has_live_url?: boolean;
   category?: string;
   instructor_name?: string;
   instructor_title?: string;
@@ -20,6 +22,8 @@ export interface LiveSession {
 export interface RegistrationStatus {
   registered: boolean;
   joinLinkAvailable: boolean;
+  /** The join link, sent only for the signed student's own registration. */
+  liveUrl?: string | null;
 }
 
 export interface WatchHistoryEntry {
@@ -42,7 +46,7 @@ const EMPTY: LiveSessionsForStudent = {
 };
 
 function hasRecording(s: LiveSession): boolean {
-  return Boolean(s.youtube_url || s.live_url);
+  return Boolean(s.youtube_url || s.live_url || s.has_live_url);
 }
 
 /**

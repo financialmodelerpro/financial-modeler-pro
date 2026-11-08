@@ -5,6 +5,7 @@ import { getServerClient } from '@/src/core/db/supabase';
 import { STORAGE_CACHE_REPLACEABLE } from '@/src/shared/storage/cacheControl';
 import { sendAutoNewsletter } from '@/src/shared/newsletter/autoNotify';
 import { createCalendarEventWithMeeting, isTeamsConfigured, TeamsIntegrationError } from '@/src/integrations/teams/teamsMeetings';
+import { publicSessionUrl, sessionPlatformLabel } from '@/src/hubs/training/lib/liveSessions/privateSessionFields';
 
 const LEARN_URL = process.env.NEXT_PUBLIC_LEARN_URL ?? 'https://learn.financialmodelerpro.com';
 const DEFAULT_SESSION_DURATION_MINUTES = 90;
@@ -164,11 +165,12 @@ export async function POST(req: NextRequest) {
     const dt = data.scheduled_datetime ? new Date(data.scheduled_datetime) : null;
     void sendAutoNewsletter('live_session_scheduled', data.id, {
       title: data.title, description: data.description ?? '',
-      url: data.live_url || `${LEARN_URL}/training/dashboard?tab=live-sessions`,
+      // Public subscribers get the public session page, never the join link.
+      url: publicSessionUrl(LEARN_URL, data.id),
       date: dt?.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', timeZone: nlTz }) ?? '',
       extra: {
         time: dt?.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: nlTz }) ?? '',
-        platform: 'YouTube',
+        platform: sessionPlatformLabel(data.meeting_provider),
       },
     });
   }

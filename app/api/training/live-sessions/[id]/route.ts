@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerClient } from '@/src/core/db/supabase';
+import { withoutPrivateFields } from '@/src/hubs/training/lib/liveSessions/privateSessionFields';
 
 export const dynamic = 'force-dynamic';
 
@@ -18,6 +19,7 @@ export async function GET(
   if (!session) return NextResponse.json({ error: 'Not found' }, { status: 404 });
 
   return NextResponse.json({
-    session: { ...session, playlist: session.live_playlists, attachments: atts ?? [] },
+    // Unauthenticated route: no join link, password or dial-in (see privateSessionFields).
+    session: { ...withoutPrivateFields(session), playlist: session.live_playlists, attachments: atts ?? [] },
   });
 }
