@@ -5,6 +5,7 @@ import { getServerClient } from '@/src/core/db/supabase';
 import { sendTemplatedEmail, buildSessionPlaceholders } from '@/src/shared/email/sendTemplatedEmail';
 import { sendAutoNewsletter } from '@/src/shared/newsletter/autoNotify';
 import { updateMeetingOrEvent, deleteMeetingOrEvent, isTeamsConfigured } from '@/src/integrations/teams/teamsMeetings';
+import { recordingRecipientsForCourseSession } from '@/src/hubs/training/lib/liveCourse/recordings';
 import { publicSessionUrl, sessionPlatformLabel } from '@/src/hubs/training/lib/liveSessions/privateSessionFields';
 
 const LEARN_URL = process.env.NEXT_PUBLIC_LEARN_URL ?? 'https://learn.financialmodelerpro.com';
@@ -27,7 +28,7 @@ export async function PATCH(
 
   const { data: before } = await sb
     .from('live_sessions')
-    .select('is_published, session_type, scheduled_datetime, recording_email_sent, teams_meeting_id, meeting_provider, title, duration_minutes, description, timezone')
+    .select('is_published, session_type, scheduled_datetime, recording_email_sent, teams_meeting_id, meeting_provider, title, duration_minutes, description, timezone, course_code')
     .eq('id', id)
     .single();
 
@@ -59,7 +60,11 @@ export async function PATCH(
 
   // A live-course session's recording is always embedded, so watch progress
   // is tracked for the recording route.
-  if (updates.course_code) updates.youtube_embed = true;
+  // The course after this edit: the new value when sent (null clears it), else the stored one.
+  const courseCode: string | null = 'course_code' in updates
+    ? (updates.course_code as string | null)
+    : ((before?.course_code as string | null | undefined) ?? null);
+  if (courseCode) updates.youtube_embed = true;
 
   if (updates.instructor_id) {
     const { data: inst } = await sb
@@ -122,11 +127,16 @@ export async function PATCH(
   ) {
     const { data: session } = await sb.from('live_sessions').select('*').eq('id', id).single();
     if (session) {
-      const { data: regs } = await sb
-        .from('session_registrations')
-        .select('student_email, student_name')
-        .eq('session_id', id)
-        .or('attended.eq.false,attended.is.null');
+      // A live-course session: every enrolled student who did not meet the
+      // live threshold for it (the recording now counts towards their
+      // certificate). Otherwise the session's registrants who did not attend.
+      const regs = courseCode
+        ? await recordingRecipientsForCourseSession(sb, id, courseCode)
+        : (await sb
+            .from('session_registrations')
+            .select('student_email, student_name')
+            .eq('session_id', id)
+            .or('attended.eq.false,attended.is.null')).data;
 
       if (regs && regs.length > 0) {
         const placeholders = buildSessionPlaceholders(session);

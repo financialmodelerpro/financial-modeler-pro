@@ -787,7 +787,11 @@ export default function LiveSessionsPage() {
     try {
       const res = await fetch(`/api/admin/live-sessions/${editSession.id}`, {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type: 'RECORDED', youtube_url: markRecordedUrl || undefined }),
+        // session_type is the column the PATCH accepts. It sent `type`, which
+        // was dropped, so the session never became recorded and the recording
+        // email never fired; only the URL saved. (A course session's recording is
+        // embedded by the server so its watch progress is tracked.)
+        body: JSON.stringify({ session_type: 'recorded', youtube_url: markRecordedUrl || undefined }),
       });
       if (res.ok) {
         toast('Session marked as recorded');

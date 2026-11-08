@@ -95,6 +95,10 @@ export function LiveCourseClient({ courseCode, autoEnrol }: { courseCode: string
                   {view.enrolled && s.state !== 'recorded' && (
                     <JoinLiveButton joinUrl={s.joinUrl} joinOpensAt={s.joinOpensAt} joinClosesAt={s.joinClosesAt} size="sm" />
                   )}
+                  {view.enrolled && s.youtube_url && (
+                    // The session player tracks skip-resistant watch time for the recording route.
+                    <a data-testid="watch-recording" href={`/training/live-sessions/${s.id}`} style={{ padding: '8px 14px', borderRadius: 8, border: `1.5px solid ${NAVY}`, color: NAVY, fontWeight: 700, fontSize: 13, textDecoration: 'none' }}>▶ Watch recording</a>
+                  )}
                   {view.enrolled && <SessionProgress e={view.eligibility.sessions.find((x) => x.sessionId === s.id)} course={view.course} />}
                 </div>
               ))}

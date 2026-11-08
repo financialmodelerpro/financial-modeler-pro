@@ -619,6 +619,37 @@ async function unit4(): Promise<void> {
   }
 }
 
+async function unit5(): Promise<void> {
+  console.log('\n=== Unit 5: recordings ===\n');
+  const R = await import('../src/hubs/training/lib/liveCourse/recordings');
+  const { client } = fakeDb({
+    training_course_settings: [REFM_ROW],
+    training_enrollments: [{ id: 'e1', registration_id: 'FMP-1', course_code: 'REFM' }, { id: 'e2', registration_id: 'FMP-2', course_code: 'REFM' }, { id: 'e3', registration_id: 'FMP-3', course_code: 'REFM' }],
+    training_registrations_meta: [{ registration_id: 'FMP-1', email: 'attended@x.com', name: 'A' }, { registration_id: 'FMP-2', email: 'missed@x.com', name: 'M' }, { registration_id: 'FMP-3', email: 'partial@x.com', name: 'P' }],
+    live_session_attendance: [
+      { id: 'a1', session_id: 's1', student_email: 'attended@x.com', intervals: [], attended_pct: 80, session_seconds: 9000, source: 'graph' },
+      { id: 'a2', session_id: 's1', student_email: 'partial@x.com', intervals: [], attended_pct: 50, session_seconds: 9000, source: 'graph' },
+    ],
+    session_watch_history: [],
+  });
+  const to = (await R.recordingRecipientsForCourseSession(client, 's1', 'REFM')).map((r) => r.student_email).sort();
+  check('U5.1a the recording email goes to enrolled students below the live threshold (missed, partial)', JSON.stringify(to) === JSON.stringify(['missed@x.com', 'partial@x.com']), JSON.stringify(to));
+  check('U5.1b an exam course has no course recipients', (await R.recordingRecipientsForCourseSession(client, 's1', '3SFM')).length === 0);
+
+  const admin = readFileSync('app/admin/training-hub/live-sessions/page.tsx', 'utf8');
+  check('U5.2a "Mark as Recorded" sends session_type (it sent `type`, which the PATCH dropped)', admin.includes("JSON.stringify({ session_type: 'recorded', youtube_url: markRecordedUrl") && !admin.includes("JSON.stringify({ type: 'RECORDED'"));
+  const patch = readFileSync('app/api/admin/live-sessions/[id]/route.ts', 'utf8');
+  const post = readFileSync('app/api/admin/live-sessions/route.ts', 'utf8');
+  check('U5.2b a course session\'s recording is always embedded (tracked), on edit and on create', /if \(courseCode\) updates\.youtube_embed = true/.test(patch) && post.includes('courseFields(body).course_code ? true'));
+  check('U5.2c the recording email for a course session uses the course recipients', patch.includes('recordingRecipientsForCourseSession(sb, id, courseCode)'));
+  const page = readFileSync('app/training/live-course/[code]/LiveCourseClient.tsx', 'utf8');
+  check('U5.3a the course page links each recording to the tracked session player', page.includes('data-testid="watch-recording"') && page.includes('/training/live-sessions/${s.id}'));
+  const detail = readFileSync('app/training/live-sessions/[id]/page.tsx', 'utf8');
+  check('U5.3b the player is not gated on a per-session registration (enrolled or new students can watch)', /const hasVideo = session\.youtube_embed && !!ytId;/.test(detail));
+  const watched = readFileSync('app/api/training/live-sessions/[id]/watched/route.ts', 'utf8');
+  check('U5.3c watch progress is merged on the server from intervals (what eligibility reads)', watched.includes('watch_intervals') && watched.includes('watch_seconds'));
+}
+
 (async () => {
   await unit0();
   await unit1();
@@ -626,6 +657,7 @@ async function unit4(): Promise<void> {
   await unit2();
   await unit3();
   await unit4();
+  await unit5();
   console.log(`\n${passed} passed, ${failed} failed`);
   if (failed) { console.log('Failed:'); for (const f of fails) console.log(`  - ${f}`); process.exit(1); }
 })().catch((e) => { console.error(e); process.exit(1); });
