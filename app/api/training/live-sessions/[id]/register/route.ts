@@ -4,6 +4,10 @@ import { getTrainingCookieSession } from '@/src/hubs/training/lib/session/traini
 import { sendEmail, FROM } from '@/src/shared/email/sendEmail';
 import { registrationConfirmationTemplate } from '@/src/shared/email/templates/liveSessionNotification';
 import { joinDetailsFor } from '@/src/hubs/training/lib/liveSessions/privateSessionFields';
+import {
+  SESSION_ACCESS_COLUMNS, studentHasSessionAccess, opensMinutesBeforeFor, joinStatusFrom, joinRouteUrl,
+  type SessionForAccess,
+} from '@/src/hubs/training/lib/liveCourse/sessionAccess';
 
 export const dynamic = 'force-dynamic';
 
@@ -112,7 +116,8 @@ export async function POST(
       sessionTime: dt ? dt.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: tz }) : '',
       timezone: tz,
       sessionUrl: `${process.env.NEXT_PUBLIC_LEARN_URL ?? 'https://learn.financialmodelerpro.com'}/training/live-sessions/${id}`,
-      liveUrl: session.live_url ?? undefined,
+      // The logged join route, so a click from the email is counted too.
+      liveUrl: session.live_url ? joinRouteUrl(id) : undefined,
     });
     await sendEmail({ to: email, subject, html, from: FROM.training });
     emailSent = true;
@@ -165,31 +170,31 @@ export async function GET(
 
   const sb = getServerClient();
 
-  const [{ data: reg }, { data: session }, { count }] = await Promise.all([
-    sb.from('session_registrations').select('id').eq('session_id', id).eq('student_email', email.toLowerCase()).maybeSingle(),
-    sb.from('live_sessions').select('scheduled_datetime, registration_required, live_url, live_password').eq('id', id).maybeSingle(),
+  const [{ data: session }, { count }] = await Promise.all([
+    sb.from('live_sessions').select(`${SESSION_ACCESS_COLUMNS}, registration_required, live_password`).eq('id', id).maybeSingle(),
     sb.from('session_registrations').select('*', { count: 'exact', head: true }).eq('session_id', id),
   ]);
+  if (!session) return NextResponse.json({ registered: false, joinLinkAvailable: false });
 
-  // CHANGE 1 (2026-04-23): Join link is available immediately upon
-  // registration. The previous behaviour gated it behind a 30-min-
-  // before-start window which left students wondering where the join
-  // button was after registering. Surfacing the join URL early lets
-  // students drop it into their calendar / pre-test their mic, while
-  // the UI still shows the scheduled date/time prominently so nobody
-  // is confused about WHEN the session actually starts.
-  const registered = !!reg;
-  const joinLinkAvailable = registered && !!session?.scheduled_datetime;
+  // Registered for the session, or enrolled in its live course. Join follows
+  // THE window (joinWindow.ts): open shortly before the start, closed at the
+  // scheduled end. The 2026-04-23 "available immediately" rule is gone: it
+  // disagreed with the dashboard cards, which used a window.
+  const registered = await studentHasSessionAccess(sb, sess!, session as SessionForAccess);
+  const status = joinStatusFrom(registered, session as SessionForAccess, await opensMinutesBeforeFor(sb, session as SessionForAccess));
 
-  // The join link and password go only to the signed student registered for
-  // this session; the public session routes never carry them.
-  const { liveUrl, livePassword } = joinDetailsFor(registered, session);
+  // The browser gets the logged join route, never the meeting link itself
+  // (it works from a calendar too, and says "not open yet" when early). The
+  // password goes only to a student with access.
+  const { livePassword } = joinDetailsFor(registered, session);
 
   return NextResponse.json({
     registered,
-    joinLinkAvailable,
-    liveUrl,
+    joinLinkAvailable: status.canJoinNow,
+    liveUrl: status.joinUrl,
     livePassword,
+    joinOpensAt: status.window?.opensAt ?? null,
+    joinClosesAt: status.window?.closesAt ?? null,
     registrationRequired: session?.registration_required ?? true,
     registrationCount: count ?? 0,
   });

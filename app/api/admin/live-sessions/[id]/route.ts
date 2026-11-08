@@ -38,17 +38,28 @@ export async function PATCH(
     'duration_minutes', 'max_attendees', 'difficulty_level', 'prerequisites', 'instructor_name',
     'tags', 'is_featured', 'live_password', 'registration_url',
     'youtube_embed', 'instructor_title', 'instructor_id',
-    'meeting_provider',
+    'meeting_provider', 'show_like_button',
+    // A live-course session (mig 247).
+    'course_code', 'course_session_no',
   ];
   for (const k of allowed) {
     if (body[k] !== undefined) {
-      if ((k === 'playlist_id' || k === 'instructor_id') && body[k] === '') {
+      if ((k === 'playlist_id' || k === 'instructor_id' || k === 'course_code' || k === 'course_session_no') && (body[k] === '' || body[k] === null)) {
         updates[k] = null;
+      } else if (k === 'course_code') {
+        updates[k] = String(body[k]).trim().toUpperCase();
+      } else if (k === 'course_session_no') {
+        const n = Number(body[k]);
+        updates[k] = Number.isInteger(n) && n > 0 ? n : null;
       } else {
         updates[k] = body[k];
       }
     }
   }
+
+  // A live-course session's recording is always embedded, so watch progress
+  // is tracked for the recording route.
+  if (updates.course_code) updates.youtube_embed = true;
 
   if (updates.instructor_id) {
     const { data: inst } = await sb

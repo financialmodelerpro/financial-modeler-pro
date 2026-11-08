@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { extractYouTubeId } from '@/src/shared/cms';
+import { effectiveSessionType } from '@/src/hubs/training/lib/liveCourse/joinWindow';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -52,18 +53,11 @@ function fmtTimeShort(iso: string): string {
   try { return new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }); } catch { return ''; }
 }
 
-export function getEffectiveType(s: { session_type: string; scheduled_datetime?: string }): string {
-  if (s.session_type === 'recorded') return 'recorded';
-  if (s.session_type === 'live') {
-    if (!s.scheduled_datetime) return 'live';
-    const endTime = new Date(s.scheduled_datetime);
-    endTime.setHours(endTime.getHours() + 3);
-    return new Date() > endTime ? 'recorded' : 'live';
-  }
-  if (s.session_type === 'upcoming' && s.scheduled_datetime) {
-    return new Date() > new Date(s.scheduled_datetime) ? 'recorded' : 'upcoming';
-  }
-  return s.session_type;
+// THE session state (liveCourse/joinWindow.ts): live from the start to the
+// scheduled end. It used to turn an upcoming session into 'recorded' at the
+// START, which hid the Join card exactly when the session began.
+export function getEffectiveType(s: { session_type: string; scheduled_datetime?: string; duration_minutes?: number | null }): string {
+  return effectiveSessionType(s);
 }
 
 // ── Component ──────────────────────────────────────────────────────────────────

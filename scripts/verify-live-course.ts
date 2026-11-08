@@ -89,11 +89,14 @@ async function unit0(): Promise<void> {
     const src = readFileSync(f, 'utf8');
     if (!src.includes("from('live_sessions')")) continue;
     readers++;
-    const selects = [...src.matchAll(/from\('live_sessions'\)\s*\.select\(\s*'([^']*)'/g)].map((m) => m[1]);
+    // String or template selects; SESSION_ACCESS_COLUMNS (sessionAccess.ts) names live_url.
+    const selects = [...src.matchAll(/from\('live_sessions'\)\s*\.select\(\s*(?:['`]([^'`]*)['`]|(SESSION_ACCESS_COLUMNS))/g)]
+      .map((m) => (m[2] ? 'live_url' : m[1].replace('${SESSION_ACCESS_COLUMNS}', 'live_url')));
     const star = selects.some((s) => s.trim().startsWith('*'));
     const named = selects.some((s) => /\b(live_url|live_password|teams_dial_in|teams_meeting_id)\b/.test(s));
     if (star) { starReaders++; if (!src.includes('withoutPrivateFields(')) offenders.push(`${f} selects * without withoutPrivateFields`); }
-    if (named) { namedReaders++; if (!src.includes('joinDetailsFor(')) offenders.push(`${f} reads a private field without joinDetailsFor`); }
+    // The one rule: joinDetailsFor (password) and joinStatusFrom / the join route (link).
+    if (named) { namedReaders++; if (!src.includes('joinDetailsFor(') && !src.includes('joinStatusFrom(') && !src.includes('studentHasSessionAccess(')) offenders.push(`${f} reads a private field without the one rule`); }
   }
   check('U0.3a routes reading live_sessions were found', readers >= 4, `found ${readers}`);
   check('U0.3b the select-* branch was exercised', starReaders >= 2, `found ${starReaders}`);
@@ -245,6 +248,7 @@ export function fakeDb(seed: Record<string, Row[]> = {}) {
       lte: (c: string, v: string) => { filters.push((r) => String(r[c] ?? '') <= v); return q; },
       order: (col: string, o?: { ascending?: boolean }) => { orderBy.push({ col, asc: o?.ascending !== false }); return q; },
       limit: (n: number) => { lim = n; return q; },
+      range: (_a: number, b: number) => { lim = b + 1; return q; },
       insert: (p: Row | Row[]) => { op = 'insert'; payload = p; return q; },
       upsert: (p: Row | Row[], o?: { onConflict?: string; ignoreDuplicates?: boolean }) => { op = 'upsert'; payload = p; conflict = (o?.onConflict ?? '').split(',').filter(Boolean); ignoreDup = !!o?.ignoreDuplicates; return q; },
       update: (p: Row) => { op = 'update'; payload = p; return q; },
@@ -308,10 +312,100 @@ async function unit1b(): Promise<void> {
   check('U1b.4h sign-in: the email-code step keeps the return link', !signin.includes("router.push('/training/dashboard')"));
 }
 
+async function unit2(): Promise<void> {
+  console.log('\n=== Unit 2: Join live, KSA times, same-day reminder ===\n');
+  const jw = await import('../src/hubs/training/lib/liveCourse/joinWindow');
+  const tm = await import('../src/hubs/training/lib/liveCourse/time');
+  const sa = await import('../src/hubs/training/lib/liveCourse/sessionAccess');
+  const dr = await import('../src/hubs/training/lib/liveCourse/dayReminder');
+
+  // A REFM session: Tue 1 Dec 2026, 7:00 PM KSA = 16:00 UTC, 150 minutes.
+  const start = '2026-12-01T16:00:00.000Z';
+  const s = { scheduled_datetime: start, duration_minutes: 150 };
+  const w = jw.joinWindowFor(s, 15)!;
+  const at = (iso: string) => new Date(iso).getTime();
+  check('U2.1a the window opens 15 minutes before the start', w.opensAt === '2026-12-01T15:45:00.000Z');
+  check('U2.1b the window closes at the scheduled end (start + 150 min)', w.closesAt === '2026-12-01T18:30:00.000Z');
+  check('U2.1c one minute before it opens: closed (before)', jw.joinStateAt(at('2026-12-01T15:44:00Z'), w) === 'before');
+  check('U2.1d at the opening minute: open', jw.joinStateAt(at('2026-12-01T15:45:00Z'), w) === 'open');
+  check('U2.1e at the scheduled end: still open', jw.joinStateAt(at('2026-12-01T18:30:00Z'), w) === 'open');
+  check('U2.1f one minute after the end: ended', jw.joinStateAt(at('2026-12-01T18:31:00Z'), w) === 'ended');
+  check('U2.1g no start time: no window', jw.joinWindowFor({ scheduled_datetime: null }, 15) === null);
+
+  // The bug: an upcoming session turned 'recorded' at its START.
+  check('U2.2a before the start: upcoming', jw.effectiveSessionType({ ...s, session_type: 'upcoming' }, at('2026-12-01T15:59:00Z')) === 'upcoming');
+  check('U2.2b ten minutes after the start: LIVE (was recorded, hiding Join)', jw.effectiveSessionType({ ...s, session_type: 'upcoming' }, at('2026-12-01T16:10:00Z')) === 'live');
+  check('U2.2c after the scheduled end: recorded', jw.effectiveSessionType({ ...s, session_type: 'upcoming' }, at('2026-12-01T18:31:00Z')) === 'recorded');
+  check('U2.2d an admin\'s recorded always wins', jw.effectiveSessionType({ ...s, session_type: 'recorded' }, at('2026-12-01T16:10:00Z')) === 'recorded');
+
+  // Bug 4: admin times are KSA wall-clock, not the admin browser's zone.
+  check('U2.3a 7:00 PM KSA is 16:00 UTC', tm.zonedWallTimeToUtc('2026-12-01', '19:00', 'Asia/Riyadh') === start);
+  check('U2.3b the same typed time in Karachi would be 14:00 UTC (the zone is honoured)', tm.zonedWallTimeToUtc('2026-12-01', '19:00', 'Asia/Karachi') === '2026-12-01T14:00:00.000Z');
+  const parts = tm.utcToZonedParts(start, 'Asia/Riyadh');
+  check('U2.3c the edit form shows it back as 2026-12-01 19:00', parts.date === '2026-12-01' && parts.time === '19:00');
+  check('U2.3d a malformed time is refused, never guessed', tm.zonedWallTimeToUtc('2026-12-01', '7pm') === null);
+  check('U2.3e display reads 7:00 PM KSA', /7:00 PM KSA$/.test(tm.formatSessionTime(start)), tm.formatSessionTime(start));
+  const admin = readFileSync('app/admin/training-hub/live-sessions/page.tsx', 'utf8');
+  check('U2.3f the admin form converts through zonedWallTimeToUtc, not the browser zone', admin.includes('zonedWallTimeToUtc(form.date') && !admin.includes('new Date(`${form.date}T${form.time}`)'));
+  check('U2.3g the admin edit form reads back through utcToZonedParts', admin.includes('utcToZonedParts(raw'));
+
+  // Access: a registration, or an enrolment in the session's course.
+  const sess = { id: 'cs1', live_url: 'https://teams.microsoft.com/l/meetup-join/x', scheduled_datetime: start, duration_minutes: 150, course_code: 'REFM' };
+  const { client } = fakeDb({
+    session_registrations: [{ id: 'r1', session_id: 'solo', student_email: 'reg@x.com' }],
+    training_enrollments: [{ id: 'e1', registration_id: 'FMP-1', course_code: 'REFM' }],
+  });
+  check('U2.4a enrolled in the course: access to its session', await sa.studentHasSessionAccess(client, { email: 'enr@x.com', registrationId: 'FMP-1' }, sess));
+  check('U2.4b not enrolled, not registered: no access', !(await sa.studentHasSessionAccess(client, { email: 'no@x.com', registrationId: 'FMP-9' }, sess)));
+  check('U2.4c registered for a standalone session: access', await sa.studentHasSessionAccess(client, { email: 'REG@x.com', registrationId: 'FMP-2' }, { id: 'solo' }));
+  const open = sa.joinStatusFrom(true, sess, 15, at('2026-12-01T16:05:00Z'));
+  check('U2.4d in the window with access: can join now', open.canJoinNow);
+  check('U2.4e the link handed out is the logged join route, never the meeting link', !!open.joinUrl && open.joinUrl.endsWith('/api/training/live-sessions/cs1/join') && !open.joinUrl.includes('teams.microsoft.com'));
+  check('U2.4f no access: no link at all', sa.joinStatusFrom(false, sess, 15, at('2026-12-01T16:05:00Z')).joinUrl === null);
+  check('U2.4g before the window: a link, but not joinable yet', (() => { const b = sa.joinStatusFrom(true, sess, 15, at('2026-12-01T12:00:00Z')); return !b.canJoinNow && b.state === 'before'; })());
+
+  // The join route logs, then redirects; every refusal goes back to the page.
+  const join = readFileSync('app/api/training/live-sessions/[id]/join/route.ts', 'utf8');
+  const logAt = join.indexOf("from('live_session_join_clicks').insert");
+  const goAt = join.indexOf('NextResponse.redirect(session.live_url');
+  check('U2.5a the join route logs the click before redirecting to Teams', logAt > 0 && goAt > logAt);
+  check('U2.5b it checks access and the window before the redirect', join.indexOf('studentHasSessionAccess(') < goAt && join.indexOf("state === 'before'") < goAt && join.indexOf("state === 'ended'") < goAt);
+  for (const f of ['app/api/training/live-sessions/[id]/register/route.ts', 'app/api/training/live-sessions/registration-status-batch/route.ts']) {
+    const src = readFileSync(f, 'utf8');
+    check(`U2.5c ${f.split('/').slice(-2).join('/')}: Join follows the one window rule`, src.includes('joinStatusFrom(') && !src.includes('180 * 60000') && !src.includes("!!session?.scheduled_datetime;"));
+  }
+  const btnUsers = ['app/training/live-sessions/[id]/page.tsx', 'src/hubs/training/components/dashboard/LiveSessionCard.tsx', 'app/training/live-course/[code]/LiveCourseClient.tsx'];
+  check('U2.5d detail page, dashboard card and course page all use THE Join button', btnUsers.every((f) => readFileSync(f, 'utf8').includes('<JoinLiveButton')));
+
+  // Same-day reminder at 9:00 AM KSA (cron 06:00 UTC).
+  check('U2.6a 19:00 KSA is later today at 09:00 KSA', dr.startsLaterToday(start, new Date('2026-12-01T06:00:00Z')));
+  check('U2.6b tomorrow is not today', !dr.startsLaterToday('2026-12-02T16:00:00Z', new Date('2026-12-01T06:00:00Z')));
+  const db2 = fakeDb({
+    training_course_settings: [REFM_ROW],
+    live_sessions: [
+      { id: 'today', title: 'Session 1', scheduled_datetime: start, course_code: 'REFM', course_session_no: 1, is_published: true, session_type: 'upcoming', day_reminder_sent_at: null },
+      { id: 'tomorrow', title: 'Session 2', scheduled_datetime: '2026-12-02T16:00:00.000Z', course_code: 'REFM', course_session_no: 2, is_published: true, session_type: 'upcoming', day_reminder_sent_at: null },
+      { id: 'solo', title: 'Standalone', scheduled_datetime: start, course_code: null, is_published: true, session_type: 'upcoming', day_reminder_sent_at: null },
+    ],
+    training_enrollments: [{ id: 'e1', registration_id: 'FMP-1', course_code: 'REFM' }, { id: 'e2', registration_id: 'FMP-2', course_code: 'REFM' }],
+    training_registrations_meta: [{ registration_id: 'FMP-1', email: 'A@x.com', name: 'A' }, { registration_id: 'FMP-2', email: 'b@x.com', name: 'B' }],
+  });
+  const mails: string[] = [];
+  const sendAll = async (items: { to: string; subject: string }[]) => { for (const i of items) mails.push(`${i.to}|${i.subject}`); return items.map(() => ({ ok: true })); };
+  const r1 = await dr.sendSessionDayReminders(db2.client, new Date('2026-12-01T06:00:00Z'), sendAll);
+  check('U2.6c today\'s course session reminds every enrolled student', r1.sessions === 1 && r1.sent === 2 && mails.every((m) => m.includes('Today: Session 1')));
+  check('U2.6d tomorrow\'s session and a standalone session are not reminded', !mails.some((m) => m.includes('Session 2') || m.includes('Standalone')));
+  const r2 = await dr.sendSessionDayReminders(db2.client, new Date('2026-12-01T06:05:00Z'), sendAll);
+  check('U2.6e a second cron run sends nothing (stamped before sending)', r2.sent === 0 && mails.length === 2);
+  const cron = readFileSync('app/api/cron/session-reminders/route.ts', 'utf8');
+  check('U2.6f the cron runs the day reminder and skips course sessions in the 1-hour pass', cron.includes('sendSessionDayReminders(') && cron.includes('if (session.course_code) continue;'));
+}
+
 (async () => {
   await unit0();
   await unit1();
   await unit1b();
+  await unit2();
   console.log(`\n${passed} passed, ${failed} failed`);
   if (failed) { console.log('Failed:'); for (const f of fails) console.log(`  - ${f}`); process.exit(1); }
 })().catch((e) => { console.error(e); process.exit(1); });

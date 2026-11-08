@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { TrainingShell } from '@/src/hubs/training/components/TrainingShell';
 import { formatSessionTime } from '@/src/hubs/training/lib/liveCourse/time';
 import type { CourseView } from '@/src/hubs/training/lib/liveCourse/courseView';
+import { JoinLiveButton } from '@/src/hubs/training/components/sessions/JoinLiveButton';
 
 const NAVY = '#1B4F8A';
 const INK = '#2A3440';
@@ -89,6 +90,9 @@ export function LiveCourseClient({ courseCode, autoEnrol }: { courseCode: string
                     <div style={{ fontWeight: 700 }}>{s.title}</div>
                     <div style={{ fontSize: 13, color: SLATE }}>{formatSessionTime(s.scheduled_datetime)}</div>
                   </div>
+                  {view.enrolled && s.state !== 'recorded' && (
+                    <JoinLiveButton joinUrl={s.joinUrl} joinOpensAt={s.joinOpensAt} joinClosesAt={s.joinClosesAt} size="sm" />
+                  )}
                 </div>
               ))}
             </div>

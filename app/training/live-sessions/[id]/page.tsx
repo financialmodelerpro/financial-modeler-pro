@@ -11,6 +11,8 @@ import { CalendarDropdown } from '@/src/hubs/training/components/CalendarDropdow
 import { extractYouTubeId } from '@/src/shared/cms';
 import type { WatchProgressPayload } from '@/src/hubs/training/components/YouTubePlayer';
 import { hydrateIntervals, serializeIntervals, type Interval } from '@/src/hubs/training/lib/watch/watchTracker';
+import { effectiveSessionType } from '@/src/hubs/training/lib/liveCourse/joinWindow';
+import { JoinLiveButton } from '@/src/hubs/training/components/sessions/JoinLiveButton';
 
 interface Attachment { id: string; file_name: string; file_url: string; file_type: string; file_size: number }
 interface Session {
@@ -33,18 +35,11 @@ function fmtTime(iso: string): string {
 const NAVY = '#0D2E5A';
 const GREEN = '#2EAA4A';
 
-function getEffectiveType(s: { session_type: string; scheduled_datetime?: string }): string {
-  if (s.session_type === 'recorded') return 'recorded';
-  if (s.session_type === 'live') {
-    if (!s.scheduled_datetime) return 'live';
-    const endTime = new Date(s.scheduled_datetime);
-    endTime.setHours(endTime.getHours() + 3);
-    return new Date() > endTime ? 'recorded' : 'live';
-  }
-  if (s.session_type === 'upcoming' && s.scheduled_datetime) {
-    return new Date() > new Date(s.scheduled_datetime) ? 'recorded' : 'upcoming';
-  }
-  return s.session_type;
+// THE session state (joinWindow.ts): live from the start to the scheduled
+// end. It used to flip an upcoming session to 'recorded' at the START, which
+// hid the Join card exactly when the session began.
+function getEffectiveType(s: { session_type: string; scheduled_datetime?: string; duration_minutes?: number | null }): string {
+  return effectiveSessionType(s);
 }
 
 function downloadIcs(title: string, desc: string, liveUrl: string, dt: string) {
@@ -94,6 +89,9 @@ export default function LiveSessionDetailPage() {
   const [studentSession, setStudentSession] = useState<{ email: string; registrationId: string } | null>(null);
   const [registered, setRegistered] = useState(false);
   const [joinLinkAvailable, setJoinLinkAvailable] = useState(false);
+  const [joinWindow, setJoinWindow] = useState<{ opensAt: string | null; closesAt: string | null }>({ opensAt: null, closesAt: null });
+  // Why the join route sent the student back here (?join=not-open etc.).
+  const [joinReason, setJoinReason] = useState('');
   const [regCount, setRegCount] = useState(0);
   const [registering, setRegistering] = useState(false);
   const [cancelling, setCancelling] = useState(false);
@@ -115,7 +113,8 @@ export default function LiveSessionDetailPage() {
 
   useEffect(() => {
     const sess = getTrainingSession();
-    if (!sess) { router.replace('/training/signin'); return; }
+    if (!sess) { router.replace(`/signin?redirect=${encodeURIComponent(`/training/live-sessions/${params.id}`)}`); return; }
+    setJoinReason(new URLSearchParams(window.location.search).get('join') ?? '');
     setStudentSession(sess);
 
     Promise.all([
@@ -130,6 +129,7 @@ export default function LiveSessionDetailPage() {
         : null);
       setRegistered(regData.registered ?? false);
       setJoinLinkAvailable(regData.joinLinkAvailable ?? false);
+      setJoinWindow({ opensAt: regData.joinOpensAt ?? null, closesAt: regData.joinClosesAt ?? null });
       setRegCount(regData.registrationCount ?? 0);
 
       if (watchJson && typeof watchJson === 'object') {
@@ -289,6 +289,7 @@ export default function LiveSessionDetailPage() {
           const r2 = await fetch(`/api/training/live-sessions/${params.id}/register?email=${encodeURIComponent(studentSession.email)}`);
           const d2 = await r2.json();
           setJoinLinkAvailable(d2.joinLinkAvailable ?? false);
+          setJoinWindow({ opensAt: d2.joinOpensAt ?? null, closesAt: d2.joinClosesAt ?? null });
           // Now registered: the status carries the join link and password.
           setSession(prev => prev ? { ...prev, live_url: d2.liveUrl ?? '', live_password: d2.livePassword ?? '' } : prev);
         } catch { /* polling will catch up */ }
@@ -382,9 +383,18 @@ export default function LiveSessionDetailPage() {
         </h3>
         <p style={{ fontSize: 13, color: '#4B5563', lineHeight: 1.55, marginTop: 0, marginBottom: 12 }}>
           {registered
-            ? 'Confirmation email sent. The Join Session button below opens the meeting room. Add the session to your calendar so you do not miss it.'
-            : 'Reserve your spot. We will email the confirmation now; the Join Session button will appear here so you can drop it straight into your calendar.'}
+            ? 'The Join live button opens shortly before the start and takes you into Microsoft Teams. Add the session to your calendar so you do not miss it.'
+            : 'Reserve your spot. We will email the confirmation now, and the Join live button will open here shortly before the start.'}
         </p>
+        {joinReason && (
+          <div data-testid="join-reason" style={{ background: '#FFF7ED', border: '1px solid #FED7AA', borderRadius: 8, padding: '10px 12px', fontSize: 13, color: '#9A3412', marginBottom: 12 }}>
+            {joinReason === 'not-open' ? 'Join is not open yet. It opens shortly before the session starts.'
+              : joinReason === 'ended' ? 'This session has ended. The recording will appear here once it is uploaded.'
+              : joinReason === 'not-registered' ? 'Register for this session (or enrol in its course) to join.'
+              : joinReason === 'no-link' ? 'The meeting link has not been added yet. Please check back closer to the start.'
+              : 'This session could not be joined.'}
+          </div>
+        )}
         <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
           {!registered ? (
             <button
@@ -403,19 +413,8 @@ export default function LiveSessionDetailPage() {
             </button>
           ) : (
             <>
-              {session.live_url && (
-                <a
-                  href={session.live_url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  style={{
-                    padding: '10px 20px', borderRadius: 8,
-                    background: '#DC2626', color: '#fff',
-                    fontSize: 13, fontWeight: 700, textDecoration: 'none',
-                    boxShadow: '0 2px 8px rgba(220,38,38,0.3)',
-                  }}
-                >Join Session →</a>
-              )}
+              {/* session.live_url holds the LOGGED join route (Unit 0/2), never the meeting link. */}
+              <JoinLiveButton joinUrl={session.live_url || null} joinOpensAt={joinWindow.opensAt} joinClosesAt={joinWindow.closesAt} size="sm" />
               <CalendarDropdown
                 event={{
                   title:              session.title,

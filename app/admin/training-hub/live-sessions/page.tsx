@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { CmsAdminNav } from '@/src/components/admin/CmsAdminNav';
 import { LiveSessionAssessmentEditor } from '@/src/components/admin/LiveSessionAssessmentEditor';
 import { InstructorPicker } from '@/src/components/admin/InstructorPicker';
+import { KSA_TZ, utcToZonedParts, zonedWallTimeToUtc } from '@/src/hubs/training/lib/liveCourse/time';
 
 /* ── Types ─────────────────────────────────────────────────────── */
 
@@ -285,6 +286,9 @@ interface FormState {
   show_like_button: boolean;
   meeting_provider: 'manual' | 'teams' | 'zoom' | 'meet';
   auto_generate_teams: boolean;
+  /** Live course this session belongs to ('' = standalone), mig 247. */
+  course_code: string;
+  course_session_no: string;
 }
 
 const defaultForm: FormState = {
@@ -296,6 +300,7 @@ const defaultForm: FormState = {
   is_featured: false, live_password: '', registration_url: '',
   youtube_embed: false, show_like_button: true,
   meeting_provider: 'manual', auto_generate_teams: false,
+  course_code: '', course_session_no: '',
 };
 
 /* ── Component ─────────────────────────────────────────────────── */
@@ -306,6 +311,14 @@ export default function LiveSessionsPage() {
   const { show: toast, el: toastEl } = useToast();
   const fileRef = useRef<HTMLInputElement>(null);
   const bannerRef = useRef<HTMLInputElement>(null);
+
+  // Live courses a session can belong to (mig 247).
+  const [liveCourses, setLiveCourses] = useState<{ courseCode: string; title: string }[]>([]);
+  useEffect(() => {
+    fetch('/api/admin/live-course').then(r => (r.ok ? r.json() : { courses: [] }))
+      .then((j: { courses?: { courseCode: string; title: string }[] }) => setLiveCourses(j.courses ?? []))
+      .catch(() => {});
+  }, []);
 
   /* ── Data state ── */
   const [sessions, setSessions] = useState<LiveSession[]>([]);
@@ -565,9 +578,11 @@ export default function LiveSessionsPage() {
     let dateVal = '';
     let timeVal = '';
     if (raw) {
-      const dt = new Date(raw);
-      dateVal = dt.toISOString().split('T')[0]; // YYYY-MM-DD for input[type=date]
-      timeVal = dt.toTimeString().slice(0, 5);   // HH:MM for input[type=time]
+      // Shown in the SESSION's time zone (KSA by default), never the admin
+      // browser's: the old code mixed a UTC date with a browser-local time.
+      const parts = utcToZonedParts(raw, s.timezone || KSA_TZ);
+      dateVal = parts.date;
+      timeVal = parts.time;
     }
     return {
     title: s.title,
@@ -596,6 +611,8 @@ export default function LiveSessionsPage() {
     show_like_button: s.show_like_button ?? true,
     meeting_provider: (s.meeting_provider ?? 'manual') as 'manual' | 'teams' | 'zoom' | 'meet',
     auto_generate_teams: s.meeting_provider === 'teams',
+    course_code: String((s as unknown as Record<string, unknown>).course_code ?? ''),
+    course_session_no: (s as unknown as Record<string, unknown>).course_session_no != null ? String((s as unknown as Record<string, unknown>).course_session_no) : '',
   };};
 
   const openNewSession = () => {
@@ -642,9 +659,14 @@ export default function LiveSessionsPage() {
     setSaving(true);
     try {
       // Map form fields → API fields
-      const scheduled = form.date && form.time
-        ? new Date(`${form.date}T${form.time}`).toISOString()
-        : form.date ? new Date(form.date).toISOString() : null;
+      // The typed date and time are wall-clock IN THE SESSION'S TIME ZONE
+      // (KSA by default). Bug 4: they were read in the admin browser's zone,
+      // so 7:00 PM typed on a Pakistan machine was saved as 5:00 PM KSA.
+      const tz = form.timezone || KSA_TZ;
+      const scheduled = form.date
+        ? zonedWallTimeToUtc(form.date, form.time || '00:00', tz)
+        : null;
+      if (form.date && !scheduled) { toast('Date or time is not valid', 'err'); setSaving(false); return; }
 
       const payload: Record<string, unknown> = {
         title:              form.title,
@@ -671,6 +693,8 @@ export default function LiveSessionsPage() {
         youtube_embed:      form.youtube_embed,
         show_like_button:   form.show_like_button,
         meeting_provider:   form.meeting_provider,
+        course_code:        form.course_code || null,
+        course_session_no:  form.course_code && form.course_session_no ? parseInt(form.course_session_no, 10) : null,
       };
 
       // Teams auto-generation only runs on create (POST) when the toggle is on
@@ -1807,13 +1831,28 @@ export default function LiveSessionsPage() {
                 })}
               </div>
 
+              {liveCourses.length > 0 && (
+                <div data-testid="admin-session-course" style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 14, marginBottom: 14 }}>
+                  <div>
+                    <label style={labelStyle}>Live course</label>
+                    <select style={inputStyle} value={form.course_code} onChange={e => setForm(f => ({ ...f, course_code: e.target.value, youtube_embed: e.target.value ? true : f.youtube_embed }))}>
+                      <option value="">Standalone session (no course)</option>
+                      {liveCourses.map(c => <option key={c.courseCode} value={c.courseCode}>{c.courseCode} - {c.title}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label style={labelStyle}>Session no.</label>
+                    <input type="number" min={1} max={50} style={inputStyle} disabled={!form.course_code} value={form.course_session_no} onChange={e => setForm(f => ({ ...f, course_session_no: e.target.value }))} placeholder="1 to 8" />
+                  </div>
+                </div>
+              )}
               <div style={{ display: 'grid', gridTemplateColumns: form.type === 'RECORDED' ? '1fr 1fr 1fr' : '1fr 1fr 1fr 1fr', gap: 14 }}>
                 <div>
                   <label style={labelStyle}>{form.type === 'RECORDED' ? 'Session Date' : 'Date'}</label>
                   <input type="date" style={inputStyle} value={form.date} onChange={e => setForm(f => ({ ...f, date: e.target.value }))} />
                 </div>
                 <div>
-                  <label style={labelStyle}>Time</label>
+                  <label style={labelStyle}>Time ({TIMEZONES.find(t => t.value === form.timezone)?.label ?? form.timezone})</label>
                   <input type="time" style={inputStyle} value={form.time} onChange={e => setForm(f => ({ ...f, time: e.target.value }))} />
                 </div>
                 <div>

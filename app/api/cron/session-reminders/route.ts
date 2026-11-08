@@ -23,6 +23,8 @@
 import { NextRequest } from 'next/server';
 import { getServerClient } from '@/src/core/db/supabase';
 import { sendTemplatedEmail, buildSessionPlaceholders } from '@/src/shared/email/sendTemplatedEmail';
+import { sendEmailPerRecipient, FROM } from '@/src/shared/email/sendEmail';
+import { sendSessionDayReminders } from '@/src/hubs/training/lib/liveCourse/dayReminder';
 
 export const runtime = 'nodejs';
 export const maxDuration = 120;
@@ -78,7 +80,7 @@ export async function GET(req: NextRequest) {
         .gte('scheduled_datetime', from24)
         .lte('scheduled_datetime', to24),
       sb.from('live_sessions')
-        .select('id, title, description, scheduled_datetime, timezone, live_url, banner_url, duration_minutes, session_type')
+        .select('id, title, description, scheduled_datetime, timezone, live_url, banner_url, duration_minutes, session_type, course_code')
         .in('session_type', ['upcoming', 'live'])
         .eq('announcement_sent', true)
         .gte('scheduled_datetime', from1)
@@ -92,14 +94,25 @@ export async function GET(req: NextRequest) {
     }
 
     for (const session of (sessions1h ?? []) as SessionRow[]) {
+      // Live-course sessions get the same-day 9:00 AM KSA reminder instead.
+      if (session.course_code) continue;
       const { sent, fail } = await dispatchReminder(sb, session, 'reminder_1h_sent', 'session_reminder_1h', true);
       sent1h += sent;
       failed += fail;
     }
 
+    // ── Live courses: same-day reminder (this cron runs 06:00 UTC = 9:00 AM KSA)
+    let day = { sessions: 0, sent: 0, failed: 0 };
+    try {
+      day = await sendSessionDayReminders(sb, now, (items) =>
+        sendEmailPerRecipient(items.map((i) => ({ ...i, from: FROM.training }))));
+    } catch (e) {
+      console.error('[cron/session-reminders] day reminders failed', e);
+    }
+
     const processed = (sessions24?.length ?? 0) + (sessions1h?.length ?? 0);
-    console.log(`[cron/session-reminders] processed=${processed} 24h=${sent24h} 1h=${sent1h} failed=${failed}`);
-    return Response.json({ processed, reminders_24h: sent24h, reminders_1h: sent1h, failed });
+    console.log(`[cron/session-reminders] processed=${processed} 24h=${sent24h} 1h=${sent1h} day=${day.sent}/${day.sessions} failed=${failed + day.failed}`);
+    return Response.json({ processed, reminders_24h: sent24h, reminders_1h: sent1h, day_reminders: day, failed });
   } catch (e) {
     console.error('[cron/session-reminders]', e);
     return Response.json({ error: String(e) }, { status: 500 });

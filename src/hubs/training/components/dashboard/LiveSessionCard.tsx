@@ -7,6 +7,7 @@ import { CalendarDropdown } from '@/src/hubs/training/components/CalendarDropdow
 import { ShareModal } from '@/src/shared/share/components/ShareModal';
 import { useShareTemplate } from '@/src/shared/share/useShareTemplate';
 import { renderShareTemplate, formatShareDate } from '@/src/shared/share/shareTemplates';
+import { JoinLiveButton } from '@/src/hubs/training/components/sessions/JoinLiveButton';
 import type { LiveSession, RegistrationStatus, WatchHistoryEntry } from '@/src/hubs/training/lib/liveSessions/liveSessionsForStudent';
 
 const NAVY = '#0D2E5A';
@@ -218,19 +219,8 @@ export function LiveSessionCard(props: Props) {
                      place to read the brief and commit) */}
           <div style={{ display: 'flex', gap: 8, marginTop: 'auto' }}>
             {canJoin && liveUrl ? (
-              <a
-                href={liveUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                style={{
-                  flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-                  padding: '9px 14px', borderRadius: 8, background: RED, color: '#fff',
-                  fontWeight: 700, fontSize: 12.5, textDecoration: 'none',
-                  boxShadow: '0 2px 8px rgba(220,38,38,0.3)',
-                }}
-              >
-                <Radio size={14} /> Join Session →
-              </a>
+              // THE Join button (liveUrl is the logged join route).
+              <JoinLiveButton joinUrl={liveUrl} joinOpensAt={reg?.joinOpensAt ?? null} joinClosesAt={reg?.joinClosesAt ?? null} size="sm" />
             ) : canJoin ? (
               <Link href={href} style={{
                 flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,

@@ -22,8 +22,10 @@ export interface LiveSession {
 export interface RegistrationStatus {
   registered: boolean;
   joinLinkAvailable: boolean;
-  /** The join link, sent only for the signed student's own registration. */
+  /** The LOGGED join route, sent only for the signed student's own access. */
   liveUrl?: string | null;
+  joinOpensAt?: string | null;
+  joinClosesAt?: string | null;
 }
 
 export interface WatchHistoryEntry {

@@ -45,6 +45,13 @@ export async function PUT(req: NextRequest) {
 }
 
 /** POST - create session */
+/** course_code + course_session_no from a request body, '' meaning none. */
+function courseFields(body: Record<string, unknown>): { course_code: string | null; course_session_no: number | null } {
+  const code = typeof body.course_code === 'string' && body.course_code.trim() ? body.course_code.trim().toUpperCase() : null;
+  const no = body.course_session_no === '' || body.course_session_no == null ? null : Number(body.course_session_no);
+  return { course_code: code, course_session_no: code && Number.isInteger(no) && (no as number) > 0 ? (no as number) : null };
+}
+
 export async function POST(req: NextRequest) {
   if (!await checkAdmin()) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   const body = await req.json() as Record<string, unknown>;
@@ -150,6 +157,11 @@ export async function POST(req: NextRequest) {
     teams_meeting_id:   teamsMeetingId,
     teams_dial_in:      teamsDialIn,
     meeting_provider:   meetingProvider,
+    show_like_button:   body.show_like_button ?? true,
+    // A live-course session (mig 247). Its recording is always embedded, so
+    // watch progress is tracked for the recording route.
+    ...courseFields(body),
+    youtube_embed:      courseFields(body).course_code ? true : (body.youtube_embed ?? false),
   }).select().single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
