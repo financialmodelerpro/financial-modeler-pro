@@ -3670,6 +3670,56 @@ every training route for identity taken from the request.
 the answer-key fields are absent from the question payload (A1, run on every field name the source
 uses).
 
+### 9.10 The Join button was hidden in the UI, and the link was in the public API
+
+**Symptom (2026-11-08):** found while diagnosing the live course. The Teams join link, its password
+and the dial-in of every published live session were returned to anyone by
+`GET /api/training/live-sessions` and `/[id]`: unauthenticated `select('*')`. The newsletter
+auto-notify also emailed the join link to public subscribers. The pages looked right, because the
+Join button only rendered for registered students.
+
+**Mechanism:** the gate lived in the component, not the route. `select('*')` returns every column
+added later too, so a column that became sensitive after the route was written leaked without any
+edit to the route.
+
+**The general lesson:** a field a page hides is not a field the server withholds. An unauthenticated
+route names its columns, or passes every row through one function that removes the private ones; a
+secret reaches the browser only from a route that checked who is asking, and better still only as a
+server-side redirect (here the logged join route), so it is never in a response body at all.
+
+**Fix:** `privateSessionFields.ts` (`withoutPrivateFields` on every unchecked route), the join route
+`/api/training/live-sessions/[id]/join`, newsletter links to the public session page.
+
+**Proof:** `verify-live-course` U0.3 scans every training and public route that reads `live_sessions`
+and U0.4 calls the real handlers on the live database; with the old route restored, U0.3d and U0.4b
+failed naming the four leaked columns.
+
+### 9.11 Three silent drops in one admin screen: a renamed key, a time zone, a state flip
+
+**Symptom (2026-11-08):** three live-session defects, none of which raised an error. (1) "Mark as
+Recorded" sent `{ type: 'RECORDED' }`; the PATCH accepts `session_type`, dropped the unknown key and
+answered 200, so the session never became recorded and the recording email never fired. (2) The
+admin form built `new Date(date + 'T' + time)`: the typed time was read in the ADMIN BROWSER'S zone,
+so 7:00 PM typed in Pakistan was stored as 5:00 PM KSA, and the edit form read it back with a UTC
+date and a local time. (3) `getEffectiveType` turned an upcoming session into 'recorded' the moment
+it STARTED, which hid the Join card exactly when students needed it.
+
+**Mechanism:** an allow-list PATCH reports success for what it kept, never for what it ignored; a
+wall-clock time without a zone is interpreted wherever it happens to be parsed; a state machine
+keyed on the start instead of the end has its "live" state collapse to zero length.
+
+**The general lesson:** a write that can silently keep nothing needs its caller pinned to the
+accepted names (a verifier that greps the payload key), a typed time is converted in the zone it
+was STATED in (the session's), never the browser's, and every state boundary is tested on both
+sides of it.
+
+**Fix:** `session_type` in the payload; `zonedWallTimeToUtc` / `utcToZonedParts` in the session's
+zone; `effectiveSessionType` (live from start to scheduled end) in `liveCourse/joinWindow.ts`, used
+by every surface.
+
+**Proof:** `verify-live-course` U2.2b (ten minutes after the start is LIVE), U2.3a to U2.3g (7 PM KSA
+is 16:00 UTC, the same typed time in Karachi is 14:00 UTC), U5.2a (the payload key).
+
 ---
 
 ## 10. Verifier discipline

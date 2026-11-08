@@ -212,6 +212,32 @@ app/api/auth/
 └── reset-password/route.ts
 ```
 
+### Added 2026-11-08 (REFM live course; detail in CLAUDE-FEATURES.md "Live Courses")
+```
+app/training/live-course/[code]/page.tsx + LiveCourseClient.tsx   # Student course page: enrol, sessions, Join live, progress, recordings, model submission, certificate
+app/training-sessions/PublicCourseOffers.tsx                     # Public page block: Register (account + enrolment) / Sign in to enrol
+app/admin/training-hub/live-course/page.tsx + LiveCourseProgressTab.tsx  # Admin: attendance sync, CSV, unmatched matching, manual entry; student progress grid
+app/api/training/enroll/route.ts                                 # POST one-click enrolment (cookie identity), enrolInLiveCourse
+app/api/training/live-course/route.ts                            # GET live courses for the dashboard card
+app/api/training/live-course/[code]/route.ts                     # GET the student's course view (sessions, join status, eligibility, certificate)
+app/api/training/live-sessions/[id]/join/route.ts                # GET logged join: access + window, click -> live_session_join_clicks, redirect to Teams
+app/api/admin/live-course/route.ts                               # GET live courses (admin pickers)
+app/api/admin/live-course/[code]/route.ts                        # GET course sessions + attendance counts
+app/api/admin/live-course/[code]/progress/route.ts               # GET every enrolled student's eligibility
+app/api/admin/live-sessions/[id]/attendance/route.ts             # GET rows; POST sync | csv | match | manual
+app/api/admin/model-submissions/reset/route.ts                   # POST reset attempts (supersede, audited)
+src/hubs/training/lib/liveCourse/  courseSettings, enrolment, time, joinWindow, sessionAccess, courseView,
+                                   attendance, teamsCsv, attendanceSync, eligibility, recordings, dayReminder,
+                                   enrolledStudents, publicVisibility, adminGuard
+src/hubs/training/lib/liveSessions/privateSessionFields.ts      # Unit 0: the private columns; withoutPrivateFields / joinDetailsFor
+src/hubs/training/lib/modelSubmission/resetSubmissions.ts       # Admin reset of attempts
+src/hubs/training/components/sessions/JoinLiveButton.tsx         # THE Join button
+src/hubs/training/components/dashboard/LiveCourseCards.tsx       # Dashboard Enrol / Open course
+src/shared/email/templates/courseEnrolmentConfirmation.ts, liveCourseDayReminder.ts
+src/integrations/teams/teamsMeetings.ts                          # + resolveOnlineMeetingIdByJoinUrl, listAttendanceReports, getAttendanceRecords
+scripts/verify-live-course.ts                                    # 204 checks, Units 0 to 7 + private-course visibility
+```
+
 ### Training (Training Hub)
 ```
 app/api/training/

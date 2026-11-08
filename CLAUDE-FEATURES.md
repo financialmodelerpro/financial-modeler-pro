@@ -290,7 +290,7 @@ Email notification -> [View & Register] -> Session detail page
 ```
 
 ### Key rules
-- Join link NEVER shown on list page, only on detail page after registration + 30 min before
+- **Since 2026-11-08 (live course work):** the browser never receives the meeting link. Join goes through the logged route `/api/training/live-sessions/[id]/join`, which checks access (registered, or enrolled in the session's live course) and THE window (`liveCourse/joinWindow.ts`: open from `show_join_link_minutes_before`, default 30, or the course's 15, before the start until the scheduled end). One `JoinLiveButton` on the detail page, dashboard card and course page. A session is live from its start to its scheduled end (it used to flip to recorded AT the start).
 - List page shows `[View & Register]` linking to detail page
 - `session_registrations` table tracks who registered + attendance
 - Registration count shown publicly
@@ -323,6 +323,32 @@ Dashboard (`app/training/dashboard/page.tsx`) has two view modes:
 
 ### Mobile Bottom Navigation
 Fixed bottom bar (56px): Home, Courses, Live, Achieve, Profile
+
+---
+
+## Live Courses (REFM live course, 2026-11-08, LIVE; founder testing pending)
+
+A course certified by live attendance or recordings plus an approved model, with no assessments. Rules per course in `training_course_settings` (mig 247); a course with no row (3SFM, BVM) is an exam course and never touches this code. All logic in `src/hubs/training/lib/liveCourse/`. Verifier: `scripts/verify-live-course.ts` (204).
+
+### Flow
+```
+Public /training-sessions REFM block -> Register (account + enrolment at email confirmation)
+  | existing email -> Sign in -> /training/live-course/REFM?enrol=1 -> enrolled
+Dashboard card: Enrol (free) / Open course -> confirmation email (KSA schedule)
+Session day 9:00 AM KSA reminder -> Join live (15 min before to the end) -> Teams; click logged
+After the session: Graph attendance (daily cron, or Sync button) | CSV upload; unmatched -> manual match
+Recording (Mark as Recorded) -> tracked player; recording email to students below the live threshold
+Every session met (live >= 75% or recording >= 95%, mixed allowed) -> model submission unlocks
+Admin review: approve -> certificate (grade "Completed") | reject (note) -> 3 attempts, then locked -> admin Reset attempts
+```
+
+### Key rules
+- **Eligibility is ONE function** (`eligibility.ts`): live share merges intervals across a student's Teams identities (a hand-entered figure stands); recording share is server watch seconds over length, never the client's completed flag; a session not yet held is not met, so nothing unlocks before the last session. Create all sessions up front: eligibility counts the course's PUBLISHED sessions.
+- **Attendance** (`attendance.ts`, `attendanceSync.ts`): intervals summed, overlaps merged, clipped to the meeting window, % of the actual meeting length (scheduled length as fallback), capped at 100. Match by email then `student_email_aliases`; unmatched listed, never guessed; a manual row or manual match survives a re-sync. Graph needs `OnlineMeetingArtifact.Read.All` (application, admin consent) and the existing Teams application access policy.
+- **Submission** (`checkApproval.ts`): only ACTIVE rows count (an admin reset supersedes, mig 248); a live course takes approval-required and its cap from its row and reports `eligibleToSubmit`; explicit `locked`. Admin reset refuses an approved or under-review student; audited.
+- **Certificate**: `checkEligibility` takes the live branch only for a code with no exam sessions in `COURSES`; the engine's model gate is unchanged. Upload `templates/refm-template.pdf` (same field positions as 3SFM: one layout for all courses) and `refm-badge.png` in the Certificate Designer.
+- **Private course** (`is_public = false`): sessions hidden from the public page, public APIs, sitemap, generic lists and the newsletter (`publicVisibility.ts`); enrolled students still reach them from the course page. This is the safe way to test on live.
+- **Admin**: Live Sessions form has Live course + Session no. and takes times in the session's time zone (KSA default); Live Courses page (`/admin/training-hub/live-course`) for attendance and Student progress; Model Submissions has Reset attempts and the live course in the filter.
 
 ---
 

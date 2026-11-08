@@ -2,6 +2,16 @@
 
 > Forward-looking only: active follow-ups, in-progress work, backlog, legacy reference. Completed phase narratives live in **CLAUDE-FEATURES.md** (archive) and `git log` (authoritative). Do not re-add "Recently Completed" sections here when closing a phase, write the closure into CLAUDE-FEATURES.md instead.
 
+## START HERE 2026-11-08: THE REFM LIVE COURSE IS LIVE (5f2700c0); FOUNDER TESTING ON LIVE
+
+Built and pushed today (CHANGELOG 2026-11-08, CLAUDE-FEATURES "Live Courses"): Units 0 to 7 + private-course visibility, migs 247 + 248 APPLIED, `verify-live-course` 204. OPEN, in order:
+1. **Founder test pass on live**, on a private TEST course (`is_public = false`), then clean-up SQL (both given in chat 2026-11-08). Browser proof of every unit is still owed.
+2. **Microsoft**: grant `OnlineMeetingArtifact.Read.All` (application) + admin consent on the existing app; confirm the host's application access policy; attendance report On. Then one real test meeting through Sync attendance before session 1.
+3. **REFM certificate + badge templates**: upload in the Certificate Designer (same field positions as 3SFM; the engine has one layout for all courses).
+4. **Create all 8 REFM sessions up front** (course REFM, session no. 1 to 8, Auto-generate Teams). Eligibility counts published course sessions.
+5. **Known, not built**: course students do not appear in the dashboard's My Model tab (the course page carries the submission); `findAllEligibleFromSupabase` (admin "issue pending") is exam-only, force-issue accepts REFM; the session-reminders cron `maxDuration` 120 s now also runs the attendance pull.
+6. **Zoom report (founder, 2026-11-08)**: no code zooms marketing pages; likely per-host browser zoom plus inconsistent hero sizes (36 to 52 px) and widths (800 to 1560 px). Awaiting "standardise" after Ctrl+0 on each host.
+
 ## START HERE 2026-11-03 (close-out): THE LIVE WORKBOOK REBUILD IS CLOSED
 
 Suite at b0e882ae, WITH credentials, clean tree: 194 pass / 6 fail of 200, 11,691 checks; all six fixed or re-aimed and re-run on their own (CHANGELOG 2026-11-03, close-out). The full real-Excel run of verify-formula-workbook reads every input-change test at 0 differing cells. The founder exports both workbooks for a final review next.
