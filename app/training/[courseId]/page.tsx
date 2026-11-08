@@ -4,19 +4,28 @@ import Link from 'next/link';
 import { getCourseWithLessons } from '@/src/shared/cms';
 import { VideoPlayer } from '@/src/hubs/main/components/landing/VideoPlayer';
 import { NavbarServer } from '@/src/shared/components/layout/NavbarServer';
+import { getServerClient } from '@/src/core/db/supabase';
+import { getLiveCourseSettings, isLiveCourseRow } from '@/src/hubs/training/lib/liveCourse/courseSettings';
+import LiveCoursePage, { generateMetadata as liveCourseMetadata } from '../live-course/[code]/LiveCoursePage';
 
-export const revalidate = 60;
+// Dynamic: a live course page reads the student's session cookie.
+export const dynamic = 'force-dynamic';
 
-export async function generateStaticParams() {
-  return [];
+/** A live course code (e.g. REFM) renders the live course page here (liveCourse/paths.ts). */
+async function liveCourseCode(courseId: string): Promise<string | null> {
+  const c = await getLiveCourseSettings(getServerClient(), courseId).catch(() => null);
+  return isLiveCourseRow(c) ? c.courseCode : null;
 }
 
 interface Props {
   params: Promise<{ courseId: string }>;
+  searchParams: Promise<{ enrol?: string; preview?: string }>;
 }
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { courseId } = await params;
+  const live = await liveCourseCode(courseId);
+  if (live) return liveCourseMetadata({ params: Promise.resolve({ code: live }) });
   const result = await getCourseWithLessons(courseId);
   if (!result) return { title: 'Course Not Found' };
   return {
@@ -25,8 +34,10 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   };
 }
 
-export default async function CourseDetailPage({ params }: Props) {
+export default async function CourseDetailPage({ params, searchParams }: Props) {
   const { courseId } = await params;
+  const live = await liveCourseCode(courseId);
+  if (live) return <LiveCoursePage params={Promise.resolve({ code: live })} searchParams={searchParams} />;
   const result = await getCourseWithLessons(courseId);
   if (!result) notFound();
 

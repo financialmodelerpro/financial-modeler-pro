@@ -8,6 +8,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { formatSessionTime } from '@/src/hubs/training/lib/liveCourse/time';
+import { coursePagePath } from '@/src/hubs/training/lib/liveCourse/paths';
 
 interface CourseCard {
   courseCode: string;
@@ -53,7 +54,7 @@ export function LiveCourseCards() {
             {msg[c.courseCode] && <div style={{ fontSize: 12.5, marginTop: 6 }}>{msg[c.courseCode]}</div>}
           </div>
           {c.enrolled ? (
-            <Link data-testid="dashboard-live-course-open" href={`/training/live-course/${encodeURIComponent(c.courseCode)}`} style={{ background: '#fff', color: NAVY, padding: '10px 20px', borderRadius: 8, fontWeight: 800, fontSize: 14, textDecoration: 'none' }}>Open course →</Link>
+            <Link data-testid="dashboard-live-course-open" href={coursePagePath(c.courseCode)} style={{ background: '#fff', color: NAVY, padding: '10px 20px', borderRadius: 8, fontWeight: 800, fontSize: 14, textDecoration: 'none' }}>Open course →</Link>
           ) : (
             <button data-testid="dashboard-live-course-enrol" onClick={() => enrol(c.courseCode)} disabled={busy === c.courseCode} style={{ background: '#2E7D52', color: '#fff', border: 'none', padding: '10px 20px', borderRadius: 8, fontWeight: 800, fontSize: 14, cursor: 'pointer' }}>
               {busy === c.courseCode ? 'Enrolling…' : 'Enrol (free)'}

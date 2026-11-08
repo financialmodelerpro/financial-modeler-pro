@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams, usePathname, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { getTrainingSession } from '@/src/hubs/training/lib/session/training-session';
 import { FilePreviewModal } from '@/src/hubs/training/components/dashboard/FilePreviewModal';
@@ -80,6 +80,7 @@ function DetailCalendarDropdown({ title, desc, liveUrl, dt }: { title: string; d
 
 export default function LiveSessionDetailPage() {
   const params = useParams<{ id: string }>();
+  const pathname = usePathname();
   const router = useRouter();
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
@@ -116,7 +117,7 @@ export default function LiveSessionDetailPage() {
 
   useEffect(() => {
     const sess = getTrainingSession();
-    if (!sess) { router.replace(`/signin?redirect=${encodeURIComponent(`/training/live-sessions/${params.id}`)}`); return; }
+    if (!sess) { router.replace(`/signin?redirect=${encodeURIComponent(pathname)}`); return; }
     setJoinReason(new URLSearchParams(window.location.search).get('join') ?? '');
     setStudentSession(sess);
 
@@ -152,7 +153,7 @@ export default function LiveSessionDetailPage() {
         }
       }
     }).catch(() => {}).finally(() => setLoading(false));
-  }, [params.id, router]);
+  }, [params.id, router, pathname]);
 
   // Fetch playlist sessions for sidebar
   useEffect(() => {

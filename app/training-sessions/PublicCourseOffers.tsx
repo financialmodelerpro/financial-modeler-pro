@@ -14,6 +14,7 @@
 import Link from 'next/link';
 import { formatSessionTime } from '@/src/hubs/training/lib/liveCourse/time';
 import { TimeZoneTable } from '@/src/hubs/training/components/sessions/TimeZoneTable';
+import { coursePagePath } from '@/src/hubs/training/lib/liveCourse/paths';
 
 export interface PublicCourseOffer {
   courseCode: string;
@@ -54,7 +55,7 @@ export function PublicCourseOffers({ courses, isLoggedIn }: { courses: PublicCou
       `}</style>
       <div style={{ maxWidth: 1000, margin: '0 auto', display: 'grid', gap: 20 }}>
         {courses.map((c) => {
-          const coursePath = `/training/live-course/${encodeURIComponent(c.courseCode)}`;
+          const coursePath = coursePagePath(c.courseCode);
           const enrolPath = `${coursePath}?enrol=1`;
           const open = c.enrolmentOpen !== false;
           const registerHref = isLoggedIn ? enrolPath : `/register?course=${encodeURIComponent(c.courseCode)}`;

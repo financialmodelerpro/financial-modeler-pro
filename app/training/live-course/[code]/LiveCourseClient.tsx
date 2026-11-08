@@ -22,6 +22,7 @@ import { CourseSessionCard } from '@/src/hubs/training/components/sessions/Cours
 import { SessionCertificateButton } from '@/src/hubs/training/components/sessions/SessionCertificateButton';
 import { sessionCertificateAvailable } from '@/src/hubs/training/lib/liveCourse/sessionCertificate';
 import { CourseLanding } from './CourseLanding';
+import { coursePagePath, courseSessionPath } from '@/src/hubs/training/lib/liveCourse/paths';
 
 const NAVY = '#1B4F8A';
 const SLATE = '#5A6675';
@@ -111,7 +112,7 @@ export function LiveCourseClient({ courseCode, autoEnrol, signedIn, publicData, 
   const instructors = view?.instructors ?? publicData?.instructors ?? [];
   const sessions: (CourseSession & Partial<CourseView['sessions'][number]>)[] = view?.sessions ?? publicData?.sessions ?? [];
   const canRegister = publicData?.canRegister ?? (course.status === 'published' && course.enrolmentOpen);
-  const enrolPath = `/training/live-course/${encodeURIComponent(course.courseCode)}?enrol=1`;
+  const enrolPath = `${coursePagePath(course.courseCode)}?enrol=1`;
   const next = nextSession(sessions);
 
   const makeAction = (dark: boolean): ReactNode => {
@@ -178,7 +179,7 @@ export function LiveCourseClient({ courseCode, autoEnrol, signedIn, publicData, 
                   {s.state !== 'recorded' && <JoinLiveButton joinUrl={s.joinUrl ?? null} joinOpensAt={s.joinOpensAt ?? null} joinClosesAt={s.joinClosesAt ?? null} size="sm" />}
                   {s.youtube_url && (
                     // The session player tracks skip-resistant watch time for the recording route.
-                    <a data-testid="watch-recording" href={`/training/live-sessions/${s.id}`} style={{ padding: '8px 14px', borderRadius: 8, border: `1.5px solid ${NAVY}`, color: NAVY, fontWeight: 700, fontSize: 13, textDecoration: 'none' }}>▶ Watch recording</a>
+                    <a data-testid="watch-recording" href={courseSessionPath(course.courseCode, s.id)} style={{ padding: '8px 14px', borderRadius: 8, border: `1.5px solid ${NAVY}`, color: NAVY, fontWeight: 700, fontSize: 13, textDecoration: 'none' }}>▶ Watch recording</a>
                   )}
                   <SessionProgress e={e} course={view.course} />
                   {sessionCertificateAvailable(view.course, e) && (

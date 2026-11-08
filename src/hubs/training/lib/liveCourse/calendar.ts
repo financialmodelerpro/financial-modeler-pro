@@ -8,6 +8,7 @@
  * logged join route); the event points at the course page, where Join opens.
  */
 import { DEFAULT_DURATION_MINUTES } from './joinWindow';
+import { coursePagePath } from './paths';
 
 const LEARN_URL = process.env.NEXT_PUBLIC_LEARN_URL ?? 'https://learn.financialmodelerpro.com';
 const DOMAIN = 'financialmodelerpro.com';
@@ -42,7 +43,7 @@ export function buildCourseIcs(
   sessions: IcsSession[],
   now: Date = new Date(),
 ): string {
-  const page = `${LEARN_URL}/training/live-course/${encodeURIComponent(course.courseCode)}`;
+  const page = `${LEARN_URL}${coursePagePath(course.courseCode)}`;
   const lines = [
     'BEGIN:VCALENDAR',
     'VERSION:2.0',

@@ -18,9 +18,8 @@ const LEARN_URL = process.env.NEXT_PUBLIC_LEARN_URL ?? 'https://learn.financialm
 export type EnrolSource = 'public_page' | 'dashboard' | 'admin';
 
 /** The student's course page (progress, sessions, recordings, submission). */
-export function coursePagePath(courseCode: string): string {
-  return `/training/live-course/${encodeURIComponent(courseCode)}`;
-}
+export { coursePagePath } from './paths';
+import { coursePagePath } from './paths';
 
 /** Sign-in that lands on the course page and enrols on arrival. */
 export function courseSigninUrl(courseCode: string): string {

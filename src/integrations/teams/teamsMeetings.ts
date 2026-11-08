@@ -58,6 +58,8 @@ export interface TeamsMeeting {
   startDateTime: string;
   endDateTime:   string;
   dialIn:        TeamsDialIn;
+  /** Lobby bypass applied after create / move (best effort; see applyMeetingSettings). */
+  settings?:     { ok: true } | { ok: false; error: string };
 }
 
 export class TeamsIntegrationError extends Error {
@@ -368,7 +370,8 @@ export async function createCalendarEventWithMeeting(params: {
     });
     throw new TeamsIntegrationError('Graph API: createCalendarEventWithMeeting failed', { status: res.status, detail });
   }
-  return normalizeEvent((await res.json()) as Record<string, unknown>);
+  const created = normalizeEvent((await res.json()) as Record<string, unknown>);
+  return { ...created, settings: await applyMeetingSettings(created.joinUrl) };
 }
 
 export async function updateCalendarEvent(
@@ -400,7 +403,9 @@ export async function updateCalendarEvent(
     console.error('[teamsMeetings] updateCalendarEvent failed', { eventId, detail });
     throw new TeamsIntegrationError('Graph API: updateCalendarEvent failed', { status: res.status, detail });
   }
-  return normalizeEvent((await res.json()) as Record<string, unknown>);
+  const updated = normalizeEvent((await res.json()) as Record<string, unknown>);
+  // Re-applied after a move, in case changing the event resets the meeting options.
+  return { ...updated, settings: await applyMeetingSettings(updated.joinUrl) };
 }
 
 export async function deleteCalendarEvent(eventId: string): Promise<void> {
@@ -583,4 +588,64 @@ export async function getAttendanceRecords(onlineMeetingId: string, reportId: st
     path = next ? next.replace('https://graph.microsoft.com/v1.0', '') : null;
   }
   return out;
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Meeting options set through Graph (2026-11-08)
+//
+// A meeting created as a calendar event takes the organizer's policy defaults
+// and the event API has no lobby control, so the lobby is set afterwards by a
+// PATCH on the online meeting behind the event (resolved from its join URL):
+// everyone, dial-in callers included, bypasses the lobby. The attendance
+// report has NO Graph property; it is governed by the Teams meeting policy
+// (AllowEngagementReport) and stays a Teams admin center setting.
+// Best effort: a failure is returned, never thrown, so it cannot block a
+// meeting being created or moved.
+// ────────────────────────────────────────────────────────────────────────────
+
+export const MEETING_SETTINGS = {
+  lobbyBypassSettings: { scope: 'everyone', isDialInBypassEnabled: true },
+} as const;
+
+/** Apply MEETING_SETTINGS to the meeting behind a join URL. */
+export async function applyMeetingSettings(joinUrl: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  if (!joinUrl) return { ok: false, error: 'no join URL' };
+  try {
+    const hostId = await getHostUserId();
+    // A new event's online meeting can take a moment to become resolvable.
+    let id = '';
+    for (let attempt = 0; attempt < 3 && !id; attempt++) {
+      try { id = await resolveOnlineMeetingIdByJoinUrl(joinUrl); }
+      catch (e) { if (attempt === 2) throw e; await new Promise((r) => setTimeout(r, 1500 * (attempt + 1))); }
+    }
+    const res = await graphFetch('PATCH', `/users/${encodeURIComponent(hostId)}/onlineMeetings/${encodeURIComponent(id)}`, MEETING_SETTINGS);
+    if (!res.ok) return { ok: false, error: `${res.status} ${await buildGraphErrorDetail(res)}` };
+    return { ok: true };
+  } catch (e) {
+    const err = e as TeamsIntegrationError;
+    console.warn('[teamsMeetings] applyMeetingSettings failed', { message: err.message, detail: err.detail });
+    return { ok: false, error: `${err.message}${err.detail ? `: ${err.detail}` : ''}` };
+  }
+}
+
+/** The settings Graph reports for the meeting behind a join URL (diagnostics). */
+export async function readMeetingSettings(onlineMeetingId: string): Promise<Record<string, unknown>> {
+  const hostId = await getHostUserId();
+  const res = await graphFetch('GET', `/users/${encodeURIComponent(hostId)}/onlineMeetings/${encodeURIComponent(onlineMeetingId)}`);
+  if (!res.ok) throw new TeamsIntegrationError('Graph API: reading the meeting failed', { status: res.status, detail: await buildGraphErrorDetail(res) });
+  const j = (await res.json()) as Record<string, unknown>;
+  return { lobbyBypassSettings: j.lobbyBypassSettings, allowedPresenters: j.allowedPresenters, recordAutomatically: j.recordAutomatically, startDateTime: j.startDateTime, endDateTime: j.endDateTime };
+}
+
+/**
+ * When each client secret of this app expires. Needs the Graph application
+ * permission Application.Read.All; without it Graph answers 403 and the
+ * caller reports that (the Entra admin center shows the same date).
+ */
+export async function readClientSecretExpiry(): Promise<{ ok: true; secrets: { hint: string | null; displayName: string | null; endDateTime: string | null }[] } | { ok: false; status: number; error: string }> {
+  const appId = process.env.AZURE_CLIENT_ID!;
+  const res = await graphFetch('GET', `/applications(appId='${encodeURIComponent(appId)}')?$select=displayName,passwordCredentials`);
+  if (!res.ok) return { ok: false, status: res.status, error: await buildGraphErrorDetail(res) };
+  const j = (await res.json()) as { passwordCredentials?: { hint?: string; displayName?: string; endDateTime?: string }[] };
+  return { ok: true, secrets: (j.passwordCredentials ?? []).map((p) => ({ hint: p.hint ?? null, displayName: p.displayName ?? null, endDateTime: p.endDateTime ?? null })) };
 }

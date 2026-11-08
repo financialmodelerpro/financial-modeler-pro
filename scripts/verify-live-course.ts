@@ -301,7 +301,7 @@ async function unit1b(): Promise<void> {
   // Refusals.
   check('U1b.3a an exam course is refused (not this rule\'s)', !(await en.enrolInLiveCourse(client, { registrationId: 'R', email: 'e@x.com', courseCode: '3SFM', source: 'dashboard' }, { send })).ok);
   check('U1b.3b an inactive live course is refused', !(await en.enrolInLiveCourse(client, { registrationId: 'R', email: 'e@x.com', courseCode: 'OFF', source: 'dashboard' }, { send })).ok);
-  check('U1b.3c the sign-in link lands on the course page and enrols', en.courseSigninUrl('REFM') === `/signin?redirect=${encodeURIComponent('/training/live-course/REFM?enrol=1')}`);
+  check('U1b.3c the sign-in link lands on the course page and enrols', en.courseSigninUrl('REFM') === `/signin?redirect=${encodeURIComponent('/training/REFM?enrol=1')}`);
 
   // Wiring of the real routes (the register route is behind hCaptcha, and
   // confirm-email consumes a real registration id, so they are pinned by source).
@@ -653,7 +653,7 @@ async function unit5(): Promise<void> {
   check('U5.2b a course session\'s recording is always embedded (tracked), on edit and on create', /if \(courseCode\) updates\.youtube_embed = true/.test(patch) && post.includes('courseFields(body).course_code ? true'));
   check('U5.2c the recording email for a course session uses the course recipients', patch.includes('recordingRecipientsForCourseSession(sb, id, courseCode)'));
   const page = readFileSync('app/training/live-course/[code]/LiveCourseClient.tsx', 'utf8');
-  check('U5.3a the course page links each recording to the tracked session player', page.includes('data-testid="watch-recording"') && page.includes('/training/live-sessions/${s.id}'));
+  check('U5.3a the course page links each recording to the tracked session player', page.includes('data-testid="watch-recording"') && page.includes('href={courseSessionPath(course.courseCode, s.id)}'));
   const detail = readFileSync('app/training/live-sessions/[id]/page.tsx', 'utf8');
   check('U5.3b the player is not gated on a per-session registration (enrolled or new students can watch)', /const hasVideo = session\.youtube_embed && !!ytId;/.test(detail));
   const watched = readFileSync('app/api/training/live-sessions/[id]/watched/route.ts', 'utf8');
@@ -857,7 +857,7 @@ async function unit9(): Promise<void> {
 
   const reg = readFileSync('app/api/training/register/route.ts', 'utf8');
   check('U9.2f the public register route accepts a course only through canRegister', reg.includes('settings && canRegister(settings)'));
-  const page = readFileSync('app/training/live-course/[code]/page.tsx', 'utf8');
+  const page = readFileSync('app/training/live-course/[code]/LiveCoursePage.tsx', 'utf8');
   check('U9.2g the course page is 404 for a signed-out visitor unless published or previewed', page.includes('if (!sess && !visible && !previewOk) notFound();'));
   check('U9.2h the sitemap lists published courses only', readFileSync('app/sitemap.ts', 'utf8').includes("listLiveCourses(sb, { publicOnly: true })"));
 
@@ -989,7 +989,7 @@ async function unit10(): Promise<void> {
   const det = readFileSync('app/admin/training-hub/live-training/[code]/CourseDetailsTab.tsx', 'utf8');
   check('U10.3a the Details tab picks instructors; the free-text Trainer fields are gone', det.includes('<InstructorsField') && !det.includes("text('trainerName'") && det.includes("fetch('/api/admin/instructors')"));
   const view = readFileSync('src/hubs/training/lib/liveCourse/courseView.ts', 'utf8');
-  const page = readFileSync('app/training/live-course/[code]/page.tsx', 'utf8');
+  const page = readFileSync('app/training/live-course/[code]/LiveCoursePage.tsx', 'utf8');
   check('U10.3b the course page reads instructors LIVE on every view (public and signed in)', view.includes('loadCourseInstructors(sb, course.instructorIds)') && page.includes('loadCourseInstructors(sb, course.instructorIds)'));
   const offers = readFileSync('app/training-sessions/PublicCourseOffers.tsx', 'utf8');
   check('U10.5a the course card image box is 16:9, the card image size, so nothing is cropped', offers.includes("aspectRatio: '16 / 9'") && !offers.includes('minHeight: 200') && offers.includes('@media (max-width: 720px)'));
@@ -1154,7 +1154,7 @@ async function unit12(): Promise<void> {
   const block = readFileSync('src/hubs/main/components/landing/FounderProfileBlock.tsx', 'utf8');
   check('U12.1e the founder block sanitises every HTML field before rendering', (block.match(/safeProfileHtml\(/g) ?? []).length >= 4 && block.includes('sanitizeArticleHtml'));
   const home = readFileSync('app/(portal)/page.tsx', 'utf8');
-  const page = readFileSync('app/training/live-course/[code]/page.tsx', 'utf8');
+  const page = readFileSync('app/training/live-course/[code]/LiveCoursePage.tsx', 'utf8');
   check('U12.1f ONE founder block: the home page and the course page render the same component from the one CMS record', home.includes('<FounderProfileBlock') && !home.includes('<FounderExpand') && page.includes('<FounderProfileBlock') && page.includes("section_type === 'team'"));
 
   // ── Sections switch off ──
@@ -1212,6 +1212,38 @@ async function unit12(): Promise<void> {
   check('U12.7g the mobile layout stacks the side card and adds a fixed Register bar, with no horizontal scroll', landing.includes('@media (max-width: 900px)') && landing.includes("overflowX: 'hidden'"));
 }
 
+async function unit13(): Promise<void> {
+  console.log('\n=== Teams meeting options and diagnostics ===\n');
+  const T = readFileSync('src/integrations/teams/teamsMeetings.ts', 'utf8');
+  const T2 = await import('../src/integrations/teams/teamsMeetings');
+  check('U13.1 lobby bypass is everyone, dial-in callers included', T2.MEETING_SETTINGS.lobbyBypassSettings.scope === 'everyone' && T2.MEETING_SETTINGS.lobbyBypassSettings.isDialInBypassEnabled === true);
+  check('U13.2 every created meeting gets the settings', T.includes('settings: await applyMeetingSettings(created.joinUrl)'));
+  check('U13.3 a moved meeting gets them again', T.includes('settings: await applyMeetingSettings(updated.joinUrl)'));
+  check('U13.4 applying the settings never throws (cannot block create or move)', /export async function applyMeetingSettings[\s\S]*?catch \(e\)[\s\S]*?return \{ ok: false/.test(T));
+  const D = readFileSync('app/api/admin/teams/diagnostics/route.ts', 'utf8');
+  check('U13.5 diagnostics is admin only and never returns the join link', D.includes("{ error: 'Forbidden' }, { status: 403 }") && D.includes('hasTeamsLink: !!s.live_url') && !/live_url:\s*s\.live_url/.test(D));
+  check('U13.6 diagnostics names a missing application access policy', D.includes('No application access policy found'));
+
+  console.log('\n=== Live course URLs: /training/<CODE> and /training/<CODE>/sessions/<id> ===\n');
+  const P = await import('../src/hubs/training/lib/liveCourse/paths');
+  check('U13.7 a course is at /training/<CODE>', P.coursePagePath('REFM') === '/training/REFM');
+  check('U13.8 a course session is under its course', P.courseSessionPath('REFM', 'abc') === '/training/REFM/sessions/abc');
+  const cid = readFileSync('app/training/[courseId]/page.tsx', 'utf8');
+  check('U13.9 /training/<CODE> renders the live course page for a live course code, else the exam course page', cid.includes('if (live) return <LiveCoursePage') && cid.includes('getCourseWithLessons(courseId)') && cid.includes("export const dynamic = 'force-dynamic'"));
+  const old = readFileSync('app/training/live-course/[code]/page.tsx', 'utf8');
+  check('U13.10 the old course URL redirects, keeping its query (enrol, preview)', old.includes('redirect(`${coursePagePath(') && old.includes('URLSearchParams'));
+  const oldSess = readFileSync('app/training/live-sessions/[id]/layout.tsx', 'utf8');
+  check('U13.11 a course session\'s old URL redirects under its course; a single session stays', oldSess.includes('if (code) redirect(courseSessionPath(code, id))'));
+  const newSess = readFileSync('app/training/[courseId]/sessions/[id]/layout.tsx', 'utf8');
+  check('U13.12 only a session of THAT course opens under it (single session 404, other course redirected)', newSess.includes('if (!code) notFound()') && newSess.includes('redirect(courseSessionPath(code, id))'));
+  let stray = '';
+  for (const f of ['src/hubs/training/lib/liveCourse/enrolment.ts', 'src/hubs/training/lib/liveCourse/calendar.ts', 'app/training-sessions/PublicCourseOffers.tsx', 'src/hubs/training/components/dashboard/LiveCourseCards.tsx', 'app/sitemap.ts', 'app/training/live-course/[code]/LiveCourseClient.tsx', 'app/training/live-course/[code]/LiveCoursePage.tsx']) {
+    // Page URLs only; /api/training/live-course/ is the API and stays.
+    if (/(?<!api)\/training\/live-course\//.test(readFileSync(f, 'utf8'))) stray += f + ' ';
+  }
+  check('U13.13 no course link, email or calendar builds the old /training/live-course/ URL', stray === '', stray);
+}
+
 (async () => {
   await unit0();
   await unit1();
@@ -1227,6 +1259,7 @@ async function unit12(): Promise<void> {
   await unit10();
   await unit11();
   await unit12();
+  await unit13();
   console.log(`\n${passed} passed, ${failed} failed`);
   if (failed) { console.log('Failed:'); for (const f of fails) console.log(`  - ${f}`); process.exit(1); }
 })().catch((e) => { console.error(e); process.exit(1); });
