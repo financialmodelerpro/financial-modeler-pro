@@ -5,9 +5,8 @@
 ## START HERE 2026-11-08: THE REFM LIVE COURSE IS LIVE (5f2700c0); FOUNDER TESTING ON LIVE
 
 Built and pushed today (CHANGELOG 2026-11-08, CLAUDE-FEATURES "Live Courses"): Units 0 to 7, then Live Training admin + status + banners + time zones + session certificates (f53aecaf), migs 247 + 248 + 249 APPLIED, `verify-live-course` 265. OPEN, in order:
-0. **Re-run mig 249** (its last statement, `session_certificates`, was added after the founder applied it; safe to repeat). U9.10c fails until then.
 1. **Founder test pass on live**, on the DRAFT TEST course, then clean-up SQL (given in chat 2026-11-08). Browser proof of every unit is still owed.
-1b. **Open question**: the per-session achievement card has no verify page or email today (single sessions included); the founder asked for both. Adding them means a stored record per session card, i.e. a new certificate type; held for a decision rather than invented.
+1b. **Decided (founder, 2026-11-08)**: the per-session achievement card stays as it is for live courses and single sessions alike, no verify page and no email. Only the course certificate has the QR verify page and email.
 2. **Microsoft**: grant `OnlineMeetingArtifact.Read.All` (application) + admin consent on the existing app; confirm the host's application access policy; attendance report On. Then one real test meeting through Sync attendance before session 1.
 3. **REFM certificate + badge templates**: upload in the Certificate Designer (same field positions as 3SFM; the engine has one layout for all courses).
 4. **Create all 8 REFM sessions up front** (course REFM, session no. 1 to 8, Auto-generate Teams). Eligibility counts published course sessions.
