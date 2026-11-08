@@ -1,15 +1,23 @@
 /**
- * Live-course rules (mig 247, `training_course_settings`).
+ * Live-course rules (mig 247, `training_course_settings`; status, details,
+ * images and time zones since mig 249).
  *
  * A course with a row here is certified by live attendance or recordings plus
  * an approved model. A course with NO row (3SFM, BVM) is an exam course and
  * every caller must leave it on its existing path: `isLiveCourseRow(null)` is
  * the one test for that, so an exam course can never pick up a live-course
  * rule by accident.
+ *
+ * STATUS is the one visibility rule (mig 249, replacing is_public):
+ *   draft      hidden publicly, registration closed, admin preview only
+ *   published  public card and course page; Register follows enrolmentOpen
+ *   archived   hidden publicly
+ * Enrolled students keep access to their course in EVERY status.
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 export type CertRoute = 'live' | 'recording';
+export type CourseStatus = 'draft' | 'published' | 'archived';
 
 export interface LiveCourseSettings {
   courseCode: string;
@@ -17,7 +25,19 @@ export interface LiveCourseSettings {
   shortTitle: string;
   description: string;
   isActive: boolean;
-  isPublic: boolean;
+  status: CourseStatus;
+  enrolmentOpen: boolean;
+  tagline: string;
+  whoFor: string;
+  prerequisites: string;
+  trainerName: string;
+  trainerTitle: string;
+  bannerUrl: string | null;
+  bannerAlt: string;
+  cardImageUrl: string | null;
+  cardImageAlt: string;
+  /** IANA zones for the time zone table; null = DEFAULT_TIME_ZONES. */
+  timeZones: string[] | null;
   examsEnabled: boolean;
   certRoutes: CertRoute[];
   allowMixedRoutes: boolean;
@@ -28,10 +48,16 @@ export interface LiveCourseSettings {
   joinOpensMinutesBefore: number;
   sessionDayReminder: boolean;
   certificateGradeLabel: string;
+  /** Per-session completion cards on or off (mig 249; absent = on). */
+  sessionCertificates: boolean;
 }
 
-export const COURSE_SETTINGS_COLUMNS =
-  'course_code, title, short_title, description, is_active, is_public, exams_enabled, cert_routes, allow_mixed_routes, attendance_threshold_pct, recording_complete_pct, model_approval_required, max_submission_attempts, join_opens_minutes_before, session_day_reminder, certificate_grade_label';
+/**
+ * Reads use `*` so a column added by a later migration is picked up and a
+ * column not yet applied is simply absent (settingsFromRow defaults it). A
+ * named list would fail the whole read while a migration is pending.
+ */
+export const COURSE_SETTINGS_COLUMNS = '*';
 
 /** Course codes are short upper-case tokens everywhere (3SFM, BVM, REFM). */
 export function normaliseCourseCode(raw: unknown): string | null {
@@ -44,6 +70,13 @@ const num = (v: unknown, fallback: number): number => {
   const n = typeof v === 'number' ? v : Number(v);
   return Number.isFinite(n) ? n : fallback;
 };
+const str = (v: unknown): string => (typeof v === 'string' ? v : '');
+
+/** The status a row states, or (before mig 249) what its old is_public flag meant. */
+export function statusOf(row: Record<string, unknown>): CourseStatus {
+  if (row.status === 'draft' || row.status === 'published' || row.status === 'archived') return row.status;
+  return row.is_public === true ? 'published' : 'draft';
+}
 
 /** Row to settings. Absent values fall back to the migration's defaults. */
 export function settingsFromRow(row: Record<string, unknown>): LiveCourseSettings {
@@ -51,13 +84,27 @@ export function settingsFromRow(row: Record<string, unknown>): LiveCourseSetting
     ? (row.cert_routes as unknown[]).filter((r): r is CertRoute => r === 'live' || r === 'recording')
     : [];
   const code = normaliseCourseCode(row.course_code) ?? String(row.course_code ?? '');
+  const zones = Array.isArray(row.time_zones)
+    ? (row.time_zones as unknown[]).filter((z): z is string => typeof z === 'string' && z.length > 0)
+    : null;
   return {
     courseCode:             code,
     title:                  String(row.title ?? code),
     shortTitle:             String(row.short_title ?? code),
     description:            String(row.description ?? ''),
     isActive:               row.is_active !== false,
-    isPublic:               row.is_public === true,
+    status:                 statusOf(row),
+    enrolmentOpen:          row.enrolment_open !== false,
+    tagline:                str(row.tagline),
+    whoFor:                 str(row.who_for),
+    prerequisites:          str(row.prerequisites),
+    trainerName:            str(row.trainer_name),
+    trainerTitle:           str(row.trainer_title),
+    bannerUrl:              str(row.banner_url) || null,
+    bannerAlt:              str(row.banner_alt),
+    cardImageUrl:           str(row.card_image_url) || null,
+    cardImageAlt:           str(row.card_image_alt),
+    timeZones:              zones && zones.length ? zones : null,
     examsEnabled:           row.exams_enabled === true,
     certRoutes:             routes.length ? routes : ['live', 'recording'],
     allowMixedRoutes:       row.allow_mixed_routes !== false,
@@ -68,12 +115,28 @@ export function settingsFromRow(row: Record<string, unknown>): LiveCourseSetting
     joinOpensMinutesBefore: Math.min(240, Math.max(0, Math.round(num(row.join_opens_minutes_before, 15)))),
     sessionDayReminder:     row.session_day_reminder !== false,
     certificateGradeLabel:  String(row.certificate_grade_label ?? 'Completed'),
+    sessionCertificates:    row.session_certificates !== false,
   };
 }
 
 /** The one test for "this course runs on live-course rules". */
 export function isLiveCourseRow(s: LiveCourseSettings | null | undefined): s is LiveCourseSettings {
   return !!s && s.examsEnabled === false;
+}
+
+/** Shown on public surfaces (page, APIs, sitemap, newsletter). */
+export function isPubliclyVisible(s: LiveCourseSettings | null | undefined): boolean {
+  return isLiveCourseRow(s) && s.isActive && s.status === 'published';
+}
+
+/** A NEW student may register or enrol. */
+export function canRegister(s: LiveCourseSettings | null | undefined): boolean {
+  return isPubliclyVisible(s) && !!s && s.enrolmentOpen;
+}
+
+/** May this student open the course? Enrolled: always. Otherwise only when public. */
+export function studentCanOpen(s: LiveCourseSettings | null | undefined, enrolled: boolean): boolean {
+  return isLiveCourseRow(s) && (enrolled || isPubliclyVisible(s));
 }
 
 /** Settings for one course, or null for an exam course / unknown code. */
@@ -96,19 +159,23 @@ export async function getLiveCourseSettings(
   return data ? settingsFromRow(data as Record<string, unknown>) : null;
 }
 
-/** Every active live course; `publicOnly` limits to the ones offered publicly. */
+/**
+ * Live courses. `publicOnly`: published ones only (the status rule, applied in
+ * code so it holds before and after mig 249). `includeInactive`: admin lists.
+ */
 export async function listLiveCourses(
   sb: SupabaseClient,
-  opts: { publicOnly?: boolean } = {},
+  opts: { publicOnly?: boolean; includeInactive?: boolean } = {},
 ): Promise<LiveCourseSettings[]> {
-  let q = sb.from('training_course_settings').select(COURSE_SETTINGS_COLUMNS).eq('is_active', true);
-  if (opts.publicOnly) q = q.eq('is_public', true);
+  let q = sb.from('training_course_settings').select(COURSE_SETTINGS_COLUMNS);
+  if (!opts.includeInactive) q = q.eq('is_active', true);
   const { data, error } = await q.order('course_code');
   if (error) {
     console.warn('[liveCourse] list failed', { error: error.message });
     return [];
   }
-  return (data ?? []).map((r) => settingsFromRow(r as Record<string, unknown>)).filter(isLiveCourseRow);
+  const all = (data ?? []).map((r) => settingsFromRow(r as Record<string, unknown>)).filter(isLiveCourseRow);
+  return opts.publicOnly ? all.filter(isPubliclyVisible) : all;
 }
 
 /** Public columns of a course's sessions, ordered by session number. */

@@ -6,7 +6,7 @@ import { sendEmail, FROM } from '@/src/shared/email/sendEmail';
 import { confirmEmailTemplate } from '@/src/shared/email/templates/confirmEmail';
 import { getTrainingRegisterComingSoonState } from '@/src/hubs/training/lib/comingSoon';
 import { isTrainingIdentifierBypassed } from '@/src/shared/comingSoon/bypassList';
-import { getLiveCourseSettings, isLiveCourseRow, normaliseCourseCode } from '@/src/hubs/training/lib/liveCourse/courseSettings';
+import { getLiveCourseSettings, canRegister, normaliseCourseCode } from '@/src/hubs/training/lib/liveCourse/courseSettings';
 import { courseSigninUrl, coursePagePath } from '@/src/hubs/training/lib/liveCourse/enrolment';
 import bcrypt from 'bcryptjs';
 
@@ -93,7 +93,8 @@ export async function POST(req: NextRequest) {
     const requestedCourse = normaliseCourseCode(body.enrolCourseCode);
     if (requestedCourse) {
       const settings = await getLiveCourseSettings(sb, requestedCourse);
-      if (isLiveCourseRow(settings) && settings.isActive && settings.isPublic) {
+      // Status rule (mig 249): published with enrolment open.
+      if (settings && canRegister(settings)) {
         enrolCourseCode = settings.courseCode;
         redirect = redirect || coursePagePath(enrolCourseCode);
       }

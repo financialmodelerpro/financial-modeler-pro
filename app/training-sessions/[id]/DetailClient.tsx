@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { getTrainingSession } from '@/src/hubs/training/lib/session/training-session';
 import { CoursePlayerLayout, type SidebarSession } from '@/src/hubs/training/components/player/CoursePlayerLayout';
+import { TimeZoneTable } from '@/src/hubs/training/components/sessions/TimeZoneTable';
 import { WelcomeModal } from '@/src/hubs/training/components/WelcomeModal';
 import { extractYouTubeId } from '@/src/shared/cms';
 
@@ -16,6 +17,8 @@ export interface DetailSession {
   registration_count: number; youtube_embed?: boolean; show_like_button?: boolean;
   attachments: { file_name: string; file_type: string; file_size: number }[];
   related: { id: string; title: string; banner_url: string | null; session_type: string; scheduled_datetime: string; duration_minutes: number | null; instructor_name: string; difficulty_level: string; youtube_url: string | null }[];
+  /** A course session's time zone list; null = the default regions. */
+  course_time_zones?: string[] | null;
 }
 
 const LEARN_URL = process.env.NEXT_PUBLIC_LEARN_URL ?? 'https://learn.financialmodelerpro.com';
@@ -99,6 +102,11 @@ export function DetailClient({ session }: { session: DetailSession | null }) {
       backUrl={`${LEARN_URL}/training-sessions`}
       backLabel="All Sessions"
     >
+      {session.session_type !== 'recorded' && session.scheduled_datetime && (
+        <div style={{ marginTop: 16 }}>
+          <TimeZoneTable iso={session.scheduled_datetime} zones={session.course_time_zones ?? null} title="Session time in your region" />
+        </div>
+      )}
       {/* Auth-required register CTA (FIX 4, 2026-04-23). The previous
           version was a thin "Sign in to earn points" link in a small
           banner; non-authenticated visitors couldn't tell where the

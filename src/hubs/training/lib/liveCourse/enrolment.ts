@@ -9,7 +9,7 @@
  * `confirmation_sent_at`.
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { getLiveCourseSettings, isLiveCourseRow, listCourseSessions, normaliseCourseCode } from './courseSettings';
+import { getLiveCourseSettings, isLiveCourseRow, canRegister, listCourseSessions, normaliseCourseCode } from './courseSettings';
 import { formatSessionTime } from './time';
 
 const LEARN_URL = process.env.NEXT_PUBLIC_LEARN_URL ?? 'https://learn.financialmodelerpro.com';
@@ -56,7 +56,7 @@ export async function enrolInLiveCourse(
   deps: { send?: (to: string, subject: string, html: string, text: string) => Promise<void> } = {},
 ): Promise<EnrolResult> {
   const settings = await getLiveCourseSettings(sb, p.courseCode);
-  if (!isLiveCourseRow(settings) || !settings.isActive) {
+  if (!isLiveCourseRow(settings)) {
     return { ok: false, enrolled: false, alreadyEnrolled: false, emailSent: false, error: 'This course is not open for enrolment.' };
   }
   if (!p.registrationId) {
@@ -69,6 +69,15 @@ export async function enrolInLiveCourse(
     .eq('registration_id', p.registrationId)
     .eq('course_code', settings.courseCode)
     .maybeSingle();
+
+  // A NEW enrolment needs a published course with enrolment open (status
+  // rule, mig 249); an existing one is idempotent in any status.
+  if (!existing && !canRegister(settings)) {
+    return {
+      ok: false, enrolled: false, alreadyEnrolled: false, emailSent: false,
+      error: settings.status === 'published' ? 'Enrolment for this course is closed.' : 'This course is not open for enrolment.',
+    };
+  }
 
   let enrolmentId = existing?.id as string | undefined;
   if (!existing) {

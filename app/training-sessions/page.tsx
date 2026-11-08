@@ -7,6 +7,7 @@ import { canonicalUrl } from '@/src/shared/seo/canonical';
 import { SessionsClient, type PublicSession, type HeroContent } from './SessionsClient';
 import type { PublicCourseOffer } from './PublicCourseOffers';
 import { listLiveCourses, listCourseSessions } from '@/src/hubs/training/lib/liveCourse/courseSettings';
+import { applyCourseMedia } from '@/src/hubs/training/lib/liveCourse/courseMedia';
 import { publicSessionFilter } from '@/src/hubs/training/lib/liveCourse/publicVisibility';
 
 // Canonical lives on the learn subdomain because main-domain hits are 307'd to
@@ -31,7 +32,7 @@ async function getSessions(): Promise<PublicSession[]> {
     const sb = getServerClient();
     const { data, error } = await sb
       .from('live_sessions')
-      .select('id, title, description, session_type, scheduled_datetime, timezone, category, banner_url, duration_minutes, max_attendees, difficulty_level, instructor_name, instructor_title, tags, is_featured, youtube_url, youtube_embed, playlist_id, live_playlists(id, name)')
+      .select('id, title, description, session_type, scheduled_datetime, timezone, category, banner_url, duration_minutes, max_attendees, difficulty_level, instructor_name, instructor_title, tags, is_featured, youtube_url, youtube_embed, playlist_id, course_code, live_playlists(id, name)')
       .eq('is_published', true)
       .or(await publicSessionFilter(sb))
       .order('scheduled_datetime', { ascending: true });
@@ -56,7 +57,9 @@ async function getSessions(): Promise<PublicSession[]> {
       } catch { /* optional */ }
     }
 
-    return (data ?? []).map(s => ({
+    // A course session with no banner shows the course banner.
+    const withMedia = await applyCourseMedia(sb, data ?? []);
+    return withMedia.map(s => ({
       id: s.id,
       title: s.title,
       description: s.description,
@@ -91,7 +94,12 @@ async function getCourseOffers(): Promise<PublicCourseOffer[]> {
     return await Promise.all(courses.map(async (c) => ({
       courseCode: c.courseCode,
       title: c.title,
+      tagline: c.tagline,
       description: c.description,
+      cardImageUrl: c.cardImageUrl,
+      cardImageAlt: c.cardImageAlt,
+      enrolmentOpen: c.enrolmentOpen,
+      timeZones: c.timeZones,
       sessions: (await listCourseSessions(sb, c.courseCode)).map((s) => ({
         no: s.course_session_no, title: s.title, scheduled_datetime: s.scheduled_datetime,
       })),

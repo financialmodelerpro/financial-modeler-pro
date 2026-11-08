@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { Calendar, Clock, User, Play, CheckCircle2, Radio, Share2, Download as DownloadIcon, Award, Lock, FileText } from 'lucide-react';
 import { downloadIcs } from '@/src/hubs/training/lib/liveSessions/calendar';
 import { ShareModal } from '@/src/shared/share/components/ShareModal';
+import { achievementCardUrl } from '@/src/hubs/training/lib/liveSessions/achievementCard';
 import { useShareTemplate } from '@/src/shared/share/useShareTemplate';
 import { renderShareTemplate, formatShareDate } from '@/src/shared/share/shareTemplates';
 import type { LiveSession, RegistrationStatus, WatchHistoryEntry } from '@/src/hubs/training/lib/liveSessions/liveSessionsForStudent';
@@ -187,24 +188,8 @@ const chip = (bg: string, color: string): React.CSSProperties => ({
   letterSpacing: '0.02em',
 });
 
-function achievementCardUrl(session: Props['session'], studentName?: string, regId?: string, score?: number, dateIso?: string | null): string {
-  const hasAssessment = !!session.has_assessment;
-  const params = new URLSearchParams({
-    session: session.title,
-    date: dateIso ? new Date(dateIso).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : new Date().toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }),
-    course: 'FMP Real-World Financial Modeling',
-    name: studentName ?? '',
-    regId: regId ?? '',
-    has_assessment: hasAssessment ? 'true' : 'false',
-  });
-  if (hasAssessment && score != null) {
-    params.set('score', String(score));
-  }
-  if (session.duration_minutes != null && session.duration_minutes > 0) {
-    params.set('duration', String(session.duration_minutes));
-  }
-  return `/api/training/achievement-image?${params.toString()}`;
-}
+// The achievement card builder moved to the one shared module (2026-11-08) so
+// live-course sessions issue the identical card.
 
 export function LiveSessionCardLarge(props: Props) {
   const { session, href } = props;

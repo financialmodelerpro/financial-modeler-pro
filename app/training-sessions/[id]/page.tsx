@@ -7,6 +7,7 @@ import { DetailClient, type DetailSession } from './DetailClient';
 import { EventJsonLd, BreadcrumbJsonLd } from '@/src/shared/seo/components/StructuredData';
 import { canonicalUrl } from '@/src/shared/seo/canonical';
 import { publicSessionFilter } from '@/src/hubs/training/lib/liveCourse/publicVisibility';
+import { applyCourseMedia } from '@/src/hubs/training/lib/liveCourse/courseMedia';
 
 export const dynamic = 'force-dynamic';
 
@@ -47,7 +48,7 @@ async function getSession(id: string): Promise<DetailSession | null> {
     const sb = getServerClient();
     const { data, error } = await sb
       .from('live_sessions')
-      .select('id, title, description, session_type, scheduled_datetime, timezone, category, banner_url, duration_minutes, max_attendees, difficulty_level, prerequisites, instructor_name, instructor_title, tags, is_featured, youtube_url, youtube_embed, show_like_button, playlist_id, live_playlists(id, name)')
+      .select('id, title, description, session_type, scheduled_datetime, timezone, category, banner_url, duration_minutes, max_attendees, difficulty_level, prerequisites, instructor_name, instructor_title, tags, is_featured, youtube_url, youtube_embed, show_like_button, playlist_id, course_code, live_playlists(id, name)')
       .eq('id', id)
       .eq('is_published', true)
       .or(await publicSessionFilter(sb))
@@ -87,7 +88,10 @@ async function getSession(id: string): Promise<DetailSession | null> {
       }));
     }
 
+    // A course session: the course banner when it has none, and the course's time zones.
+    const media = (await applyCourseMedia(sb, [data]))[0];
     return {
+      course_time_zones: media.course_time_zones ?? null,
       id: data.id,
       title: data.title,
       description: data.description,
@@ -95,7 +99,7 @@ async function getSession(id: string): Promise<DetailSession | null> {
       scheduled_datetime: data.scheduled_datetime,
       timezone: data.timezone,
       category: data.category,
-      banner_url: data.banner_url,
+      banner_url: media.banner_url ?? data.banner_url,
       duration_minutes: data.duration_minutes,
       max_attendees: data.max_attendees,
       difficulty_level: data.difficulty_level,

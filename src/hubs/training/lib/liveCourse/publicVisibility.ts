@@ -2,22 +2,22 @@
  * Which live sessions the PUBLIC may see, and which may be announced to
  * newsletter subscribers. ONE rule:
  *
- *   a standalone session (no course_code), or a session of a live course that
- *   is offered publicly (training_course_settings.is_public = true).
+ *   a standalone session (no course_code), or a session of a PUBLISHED live
+ *   course (courseSettings.isPubliclyVisible: status 'published', mig 249).
  *
- * A session of a PRIVATE live course (is_public = false, e.g. a TEST course
- * or a closed cohort) is hidden from the public Training Sessions page, the
- * public APIs, the sitemap and the generic session lists, and never triggers
- * the newsletter. Its enrolled students still reach it from their course page,
- * which reads the course's sessions directly.
+ * A session of a draft or archived course is hidden from the public Training
+ * Sessions page, the public APIs, the sitemap and the generic session lists,
+ * and never triggers the newsletter. Its enrolled students still reach it from
+ * their course page, which reads the course's sessions directly.
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { listLiveCourses } from './courseSettings';
 
-/** Course codes whose sessions are public. */
+/** Course codes whose sessions are public (published courses). */
 export async function publicCourseCodes(sb: SupabaseClient): Promise<string[]> {
-  const { data, error } = await sb.from('training_course_settings').select('course_code').eq('is_public', true);
-  if (error) return []; // schema tolerance: no table means no public course sessions
-  return (data ?? []).map((r) => String(r.course_code)).filter((c) => /^[A-Z0-9]{2,12}$/.test(c));
+  return (await listLiveCourses(sb, { publicOnly: true }))
+    .map((c) => c.courseCode)
+    .filter((c) => /^[A-Z0-9]{2,12}$/.test(c));
 }
 
 /**

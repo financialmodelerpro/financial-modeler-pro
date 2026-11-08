@@ -2,6 +2,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerClient } from '@/src/core/db/supabase';
 import { adminEmail } from '@/src/hubs/training/lib/liveCourse/adminGuard';
 import { getLiveCourseSettings, isLiveCourseRow, listCourseSessions } from '@/src/hubs/training/lib/liveCourse/courseSettings';
+import { courseUpdateFromBody, isCourseStatus, statusUpdate } from '@/src/hubs/training/lib/liveCourse/courseAdmin';
+import { previewToken } from '@/src/hubs/training/lib/liveCourse/preview';
+import { coursePagePath } from '@/src/hubs/training/lib/liveCourse/enrolment';
+
+const LEARN_URL = process.env.NEXT_PUBLIC_LEARN_URL ?? 'https://learn.financialmodelerpro.com';
 
 export const dynamic = 'force-dynamic';
 
@@ -35,6 +40,39 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ cod
   }
   return NextResponse.json({
     course,
+    // A link that shows the course page before it is published (draft/archived).
+    previewUrl: `${LEARN_URL}${coursePagePath(course.courseCode)}?preview=${previewToken(course.courseCode)}`,
     sessions: sessions.map((s) => ({ ...s, ...(sync.get(s.id) ?? {}), attendance: counts.get(s.id) ?? { matched: 0, unmatched: 0 } })),
   });
+}
+
+/**
+ * PATCH /api/admin/live-course/[code]
+ *   { ...details and rules }            validated by courseUpdateFromBody
+ *   { status: 'draft' | 'published' | 'archived' }   Publish / Unpublish / Archive
+ */
+export async function PATCH(req: NextRequest, { params }: { params: Promise<{ code: string }> }) {
+  const by = await adminEmail();
+  if (!by) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  const { code } = await params;
+  const sb = getServerClient();
+  const course = await getLiveCourseSettings(sb, code);
+  if (!isLiveCourseRow(course)) return NextResponse.json({ error: 'Not a live course' }, { status: 404 });
+
+  const body = await req.json().catch(() => ({})) as Record<string, unknown>;
+  const { ok, update, errors } = courseUpdateFromBody(body);
+  if (!ok) return NextResponse.json({ error: errors.join(' ') }, { status: 400 });
+  if (body.status !== undefined) {
+    if (!isCourseStatus(body.status)) return NextResponse.json({ error: 'Unknown status.' }, { status: 400 });
+    Object.assign(update, statusUpdate(body.status));
+  }
+  if (!Object.keys(update).length) return NextResponse.json({ error: 'Nothing to save.' }, { status: 400 });
+  update.updated_at = new Date().toISOString();
+
+  const { error } = await sb.from('training_course_settings').update(update).eq('course_code', course.courseCode);
+  if (error) {
+    const hint = /column .* does not exist|schema cache/i.test(error.message) ? ' (apply migration 249)' : '';
+    return NextResponse.json({ error: `${error.message}${hint}` }, { status: 500 });
+  }
+  return NextResponse.json({ ok: true, course: await getLiveCourseSettings(sb, course.courseCode) });
 }

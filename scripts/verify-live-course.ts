@@ -301,7 +301,8 @@ async function unit1b(): Promise<void> {
   const upsertAt = reg.indexOf("from('training_pending_registrations').upsert");
   check('U1b.4a register: an existing email returns before any pending row is written (no duplicate account)', dupAt > 0 && upsertAt > dupAt && /duplicate:\s*true/.test(reg.slice(dupAt, upsertAt)));
   check('U1b.4b register: the duplicate response carries the course sign-in link', /signinUrl:\s*enrolCourseCode\s*\?\s*courseSigninUrl\(/.test(reg));
-  check('U1b.4c register: only an active, public live course is accepted', /isLiveCourseRow\(settings\)\s*&&\s*settings\.isActive\s*&&\s*settings\.isPublic/.test(reg) && reg.includes('enrol_course_code: enrolCourseCode'));
+  // Re-aimed 2026-11-08: the rule is now the course status (canRegister: published, enrolment open), mig 249.
+  check('U1b.4c register: only a published course with enrolment open is accepted', reg.includes('settings && canRegister(settings)') && reg.includes('enrol_course_code: enrolCourseCode'));
   const conf = readFileSync('app/api/training/confirm-email/route.ts', 'utf8');
   check('U1b.4d confirm-email: enrols through the one rule with source public_page', /enrolInLiveCourse\(sb,[\s\S]{0,200}source: 'public_page'/.test(conf));
   check('U1b.4e confirm-email: the main path keeps the redirect', /signin\?confirmed=true\$\{landing \?/.test(conf));
@@ -345,7 +346,7 @@ async function unit2(): Promise<void> {
   check('U2.3c the edit form shows it back as 2026-12-01 19:00', parts.date === '2026-12-01' && parts.time === '19:00');
   check('U2.3d a malformed time is refused, never guessed', tm.zonedWallTimeToUtc('2026-12-01', '7pm') === null);
   check('U2.3e display reads 7:00 PM KSA', /7:00 PM KSA$/.test(tm.formatSessionTime(start)), tm.formatSessionTime(start));
-  const admin = readFileSync('app/admin/training-hub/live-sessions/page.tsx', 'utf8');
+  const admin = readFileSync('app/admin/training-hub/live-training/LiveSessionsManager.tsx', 'utf8') /* the editor moved 2026-11-08 */;
   check('U2.3f the admin form converts through zonedWallTimeToUtc, not the browser zone', admin.includes('zonedWallTimeToUtc(form.date') && !admin.includes('new Date(`${form.date}T${form.time}`)'));
   check('U2.3g the admin edit form reads back through utcToZonedParts', admin.includes('utcToZonedParts(raw'));
 
@@ -636,7 +637,7 @@ async function unit5(): Promise<void> {
   check('U5.1a the recording email goes to enrolled students below the live threshold (missed, partial)', JSON.stringify(to) === JSON.stringify(['missed@x.com', 'partial@x.com']), JSON.stringify(to));
   check('U5.1b an exam course has no course recipients', (await R.recordingRecipientsForCourseSession(client, 's1', '3SFM')).length === 0);
 
-  const admin = readFileSync('app/admin/training-hub/live-sessions/page.tsx', 'utf8');
+  const admin = readFileSync('app/admin/training-hub/live-training/LiveSessionsManager.tsx', 'utf8') /* the editor moved 2026-11-08 */;
   check('U5.2a "Mark as Recorded" sends session_type (it sent `type`, which the PATCH dropped)', admin.includes("JSON.stringify({ session_type: 'recorded', youtube_url: markRecordedUrl") && !admin.includes("JSON.stringify({ type: 'RECORDED'"));
   const patch = readFileSync('app/api/admin/live-sessions/[id]/route.ts', 'utf8');
   const post = readFileSync('app/api/admin/live-sessions/route.ts', 'utf8');
@@ -807,6 +808,156 @@ async function unit8(): Promise<void> {
   }
 }
 
+async function unit9(): Promise<void> {
+  console.log('\n=== Live Training: status, admin area, images, time zones, certificates ===\n');
+  const cs = await import('../src/hubs/training/lib/liveCourse/courseSettings');
+  const ca = await import('../src/hubs/training/lib/liveCourse/courseAdmin');
+  const PV = await import('../src/hubs/training/lib/liveCourse/publicVisibility');
+  const en = await import('../src/hubs/training/lib/liveCourse/enrolment');
+  const tz = await import('../src/hubs/training/lib/liveCourse/timeZones');
+  const pr = await import('../src/hubs/training/lib/liveCourse/preview');
+  const cm = await import('../src/hubs/training/lib/liveCourse/courseMedia');
+  const E = await import('../src/hubs/training/lib/liveCourse/eligibility');
+  const SC = await import('../src/hubs/training/lib/liveCourse/sessionCertificate');
+
+  // ── Status ──
+  const row = (status: string, extra: Record<string, unknown> = {}) => ({ ...REFM_ROW, course_code: `C${status.slice(0, 3).toUpperCase()}`, status, ...extra });
+  const draft = cs.settingsFromRow(row('draft'));
+  const pub = cs.settingsFromRow(row('published'));
+  const arch = cs.settingsFromRow(row('archived'));
+  const closed = cs.settingsFromRow(row('published', { course_code: 'CCLO', enrolment_open: false }));
+  check('U9.1a before mig 249: is_public true reads as published, false as draft', cs.statusOf({ is_public: true }) === 'published' && cs.statusOf({ is_public: false }) === 'draft');
+  check('U9.1b a Draft course is not public and registration is closed', !cs.isPubliclyVisible(draft) && !cs.canRegister(draft));
+  check('U9.1c a Published course is public and open', cs.isPubliclyVisible(pub) && cs.canRegister(pub));
+  check('U9.1d an Archived course is hidden, but an enrolled student still opens it', !cs.isPubliclyVisible(arch) && cs.studentCanOpen(arch, true) && !cs.studentCanOpen(arch, false));
+  check('U9.1e enrolled students keep access in EVERY status', [draft, pub, arch, closed].every((c) => cs.studentCanOpen(c, true)));
+  check('U9.1f Enrolment Closed: public, but Register is blocked', cs.isPubliclyVisible(closed) && !cs.canRegister(closed));
+
+  const { client, tables } = fakeDb({
+    training_course_settings: [row('draft'), row('published'), row('archived'), { ...row('published'), course_code: 'CCLO', enrolment_open: false }],
+    live_sessions: [],
+    training_enrollments: [{ id: 'x', registration_id: 'FMP-ARCH', course_code: 'CARC' }],
+  });
+  const codes = await PV.publicCourseCodes(client);
+  check('U9.2a public pages, APIs, sitemap and newsletter see only published courses', codes.includes('CPUB') && codes.includes('CCLO') && !codes.includes('CDRA') && !codes.includes('CARC'), codes.join(','));
+  const send = async () => {};
+  check('U9.2b enrolling in a Draft course is refused', !(await en.enrolInLiveCourse(client, { registrationId: 'R1', email: 'a@x.com', courseCode: 'CDRA', source: 'dashboard' }, { send })).ok);
+  check('U9.2c enrolling in a closed course is refused with "closed"', /closed/i.test((await en.enrolInLiveCourse(client, { registrationId: 'R1', email: 'a@x.com', courseCode: 'CCLO', source: 'dashboard' }, { send })).error ?? ''));
+  check('U9.2d an already enrolled student in an Archived course stays enrolled (idempotent)', (await en.enrolInLiveCourse(client, { registrationId: 'FMP-ARCH', email: 'z@x.com', courseCode: 'CARC', source: 'dashboard' }, { send })).alreadyEnrolled);
+  check('U9.2e a Published, open course still enrols', (await en.enrolInLiveCourse(client, { registrationId: 'R2', email: 'b@x.com', courseCode: 'CPUB', source: 'dashboard' }, { send })).ok && tables.training_enrollments.length === 2);
+
+  const reg = readFileSync('app/api/training/register/route.ts', 'utf8');
+  check('U9.2f the public register route accepts a course only through canRegister', reg.includes('settings && canRegister(settings)'));
+  const page = readFileSync('app/training/live-course/[code]/page.tsx', 'utf8');
+  check('U9.2g the course page is 404 for a signed-out visitor unless published or previewed', page.includes('if (!sess && !visible && !previewOk) notFound();'));
+  check('U9.2h the sitemap lists published courses only', readFileSync('app/sitemap.ts', 'utf8').includes("listLiveCourses(sb, { publicOnly: true })"));
+
+  // ── Publish / Unpublish ──
+  const toPub = ca.statusUpdate('published', new Date('2026-11-08T10:00:00Z'));
+  check('U9.3a Publish writes status published (and the old flag, for the previous deploy)', toPub.status === 'published' && toPub.is_public === true && toPub.published_at === '2026-11-08T10:00:00.000Z');
+  const toDraft = ca.statusUpdate('draft');
+  check('U9.3b Unpublish writes status draft', toDraft.status === 'draft' && toDraft.is_public === false);
+  check('U9.3c Archive stamps archived_at', !!ca.statusUpdate('archived').archived_at);
+  check('U9.3d an unknown status is refused', !ca.isCourseStatus('live'));
+  const patch = readFileSync('app/api/admin/live-course/[code]/route.ts', 'utf8');
+  check('U9.3e the admin PATCH changes status through statusUpdate', patch.includes('Object.assign(update, statusUpdate(body.status))'));
+  const adminPage = readFileSync('app/admin/training-hub/live-training/[code]/page.tsx', 'utf8');
+  check('U9.3f Publish / Unpublish has a confirm step before the PATCH', adminPage.includes('setConfirmTo(a.to)') && adminPage.includes('course-status-confirm-yes'));
+  const u = ca.courseUpdateFromBody({ title: ' REFM ', attendanceThresholdPct: 80, maxSubmissionAttempts: 3, certRoutes: ['live'], timeZones: ['Asia/Riyadh', 'Europe/London'], enrolmentOpen: false, sessionCertificates: false });
+  check('U9.3g details and rules validate and map to columns', u.ok && u.update.title === 'REFM' && u.update.attendance_threshold_pct === 80 && u.update.enrolment_open === false && u.update.session_certificates === false && JSON.stringify(u.update.time_zones) === '["Asia/Riyadh","Europe/London"]');
+  check('U9.3h a bad zone, a 0% threshold or no route is refused', !ca.courseUpdateFromBody({ timeZones: ['Mars/Base'] }).ok && !ca.courseUpdateFromBody({ attendanceThresholdPct: 0 }).ok && !ca.courseUpdateFromBody({ certRoutes: [] }).ok);
+  check('U9.3i a new course starts as a draft', readFileSync('src/hubs/training/lib/liveCourse/courseAdmin.ts', 'utf8').includes("status: 'draft', is_public: false"));
+
+  // ── Preview link ──
+  const prevSecret = process.env.NEXTAUTH_SECRET;
+  process.env.NEXTAUTH_SECRET = prevSecret || 'verify-secret';
+  const tok = pr.previewToken('TEST');
+  check('U9.4a the preview link token opens its own course', pr.isValidPreviewToken('TEST', tok));
+  check('U9.4b and no other course, and not a forged token', !pr.isValidPreviewToken('REFM', tok) && !pr.isValidPreviewToken('TEST', 'x'.repeat(32)));
+  process.env.NEXTAUTH_SECRET = prevSecret;
+
+  // ── Time zones ──
+  const dec = tz.zoneTimes('2026-12-01T16:00:00Z', tz.DEFAULT_TIME_ZONES);
+  const at = (rows: typeof dec, id: string) => rows.find((r) => r.tz === id)!;
+  check('U9.5a 7:00 PM KSA on Tuesday 1 Dec 2026 reads 7:00 PM in Riyadh', at(dec, 'Asia/Riyadh').time === '7:00 PM' && at(dec, 'Asia/Riyadh').weekday === 'Tue');
+  check('U9.5b UK 4:00 PM', at(dec, 'Europe/London').time === '4:00 PM');
+  check('U9.5c US Eastern 11:00 AM', at(dec, 'America/New_York').time === '11:00 AM');
+  check('U9.5d Perth 12:00 AM Wednesday, marked +1 day', at(dec, 'Australia/Perth').time === '12:00 AM' && at(dec, 'Australia/Perth').weekday === 'Wed' && at(dec, 'Australia/Perth').dayMark === '+1 day');
+  check('U9.5e Sydney 3:00 AM Wednesday (+1 day)', at(dec, 'Australia/Sydney').time === '3:00 AM' && at(dec, 'Australia/Sydney').weekday === 'Wed' && at(dec, 'Australia/Sydney').dayMark === '+1 day');
+  const jul = tz.zoneTimes('2027-07-06T16:00:00Z', tz.DEFAULT_TIME_ZONES);
+  check('U9.5f summer: daylight saving applies (UK 5:00 PM, US Eastern 12:00 PM, Sydney 2:00 AM)', at(jul, 'Europe/London').time === '5:00 PM' && at(jul, 'America/New_York').time === '12:00 PM' && at(jul, 'Australia/Sydney').time === '2:00 AM');
+  check('U9.5g the default list has the founder\'s 13 regions, in order', tz.DEFAULT_TIME_ZONES.length === 13 && tz.DEFAULT_TIME_ZONES[0].tz === 'Asia/Riyadh' && tz.DEFAULT_TIME_ZONES[12].tz === 'Australia/Sydney');
+  check('U9.5h a course\'s own regions replace the default; an invalid zone is dropped', JSON.stringify(tz.regionsFor(['Europe/London', 'Bad/Zone']).map((r) => r.tz)) === '["Europe/London"]' && tz.regionsFor(null).length === 13);
+  const ttable = readFileSync('src/hubs/training/components/sessions/TimeZoneTable.tsx', 'utf8');
+  check('U9.5i the table has a "Your local time" line from the browser and a collapsible card form', ttable.includes('Your local time') && ttable.includes('resolvedOptions().timeZone') && ttable.includes('See times in your region'));
+  const tzUsers = ['app/training/live-course/[code]/LiveCourseClient.tsx', 'app/training/live-sessions/[id]/page.tsx', 'app/training-sessions/[id]/DetailClient.tsx', 'app/training-sessions/PublicCourseOffers.tsx'];
+  check('U9.5j the table is on the course page, both session pages and the course card', tzUsers.every((f) => readFileSync(f, 'utf8').includes('<TimeZoneTable')));
+
+  // ── Images ──
+  const course = cs.settingsFromRow({ ...REFM_ROW, banner_url: 'https://cdn/x/banner.jpg', banner_alt: 'Hero' });
+  const withBanner = cm.withCourseMedia({ course_code: 'REFM', banner_url: null }, course);
+  check('U9.6a a session with no banner shows the course banner (and its alt)', withBanner.banner_url === 'https://cdn/x/banner.jpg' && withBanner.banner_alt === 'Hero');
+  check('U9.6b a session\'s own banner wins', cm.withCourseMedia({ course_code: 'REFM', banner_url: 'own.jpg' }, course).banner_url === 'own.jpg');
+  check('U9.6c a single session is untouched', JSON.stringify(cm.withCourseMedia({ course_code: null, banner_url: null }, course)) === JSON.stringify({ course_code: null, banner_url: null }));
+  const img = readFileSync('app/api/admin/live-course/[code]/image/route.ts', 'utf8');
+  check('U9.6d course images are stored in storage with alt text, JPG/PNG/WebP up to 5 MB', img.includes(".from('live-session-banners')") && img.includes('_alt') && img.includes('MAX_BYTES = 5 * 1024 * 1024'));
+  const det = readFileSync('app/admin/training-hub/live-training/[code]/CourseDetailsTab.tsx', 'utf8');
+  check('U9.6e admin shows the recommended sizes', det.includes('1920 x 640 px') && det.includes('1200 x 675 px') && readFileSync('app/admin/training-hub/live-training/LiveSessionsManager.tsx', 'utf8').includes('1600 x 600 px'));
+
+  // ── Admin area: one area, one editor, old URLs redirect ──
+  check('U9.7a /admin/training-hub/live-sessions redirects to Live Training (Single sessions)', readFileSync('app/admin/training-hub/live-sessions/page.tsx', 'utf8').includes("redirect('/admin/training-hub/live-training?tab=sessions')"));
+  check('U9.7b /admin/training-hub/live-course redirects to Live Training', readFileSync('app/admin/training-hub/live-course/page.tsx', 'utf8').includes("redirect('/admin/training-hub/live-training')"));
+  const home = readFileSync('app/admin/training-hub/live-training/page.tsx', 'utf8');
+  check('U9.7c both tabs use the ONE session editor (no second editor)', home.includes('<LiveSessionsManager embedded />') && adminPage.includes('<LiveSessionsManager courseCode={course.courseCode} embedded />'));
+  const mgr = readFileSync('app/admin/training-hub/live-training/LiveSessionsManager.tsx', 'utf8');
+  check('U9.7d Single sessions lists only sessions with no course; a course tab only its own', mgr.includes('if (courseCode ? sCourse !== courseCode : !!sCourse) return false;'));
+  check('U9.7e a new session in a course tab gets the course and the next session number', mgr.includes("course_code: courseCode, course_session_no: String(nextNo)"));
+  const nav = readFileSync('src/components/admin/CmsAdminNav.tsx', 'utf8');
+  check('U9.7f the menu has one Live Training item (Live Sessions / Live Courses gone)', nav.includes("label: 'Live Training'") && !nav.includes("label: 'Live Sessions'") && !nav.includes("label: 'Live Courses'"));
+
+  // ── Single sessions unchanged ──
+  check('U9.8a a single session stays public (standalone sessions pass the filter)', PV.publicSessionOrFilter([]).startsWith('course_code.is.null'));
+  const post = readFileSync('app/api/admin/live-sessions/route.ts', 'utf8');
+  check('U9.8b a single session still announces to the newsletter (course_code null is public)', (await PV.isPublicSession(client, null)) === true && post.includes('isPublicSession(sb, data.course_code)'));
+
+  // ── Certificates: the same system as 3SFM and BVM ──
+  const sessions = [{ id: 's1', course_session_no: 1, title: 'Session 1', scheduled_datetime: '2026-12-01T16:00:00Z', duration_minutes: 150, session_type: 'upcoming' as const, youtube_url: 'https://youtu.be/r1' }];
+  const after = new Date('2027-01-01').getTime();
+  const live = (p: number) => new Map([['s1', [{ intervals: [] as [string, string][], attended_pct: p, session_seconds: 9000, source: 'graph' }]]]);
+  const c75 = E.computeEligibility(pub, sessions, live(75), new Map(), after).sessions[0];
+  const c74 = E.computeEligibility(pub, sessions, live(74), new Map(), after).sessions[0];
+  check('U9.9a a session certificate is issued at 75% live', SC.sessionCertificateAvailable(pub, c75));
+  check('U9.9b and not at 74%', !SC.sessionCertificateAvailable(pub, c74));
+  const rec = E.computeEligibility(pub, sessions, new Map(), new Map([['s1', { watch_seconds: 3600, total_seconds: 3600, watch_percentage: 100 }]]), after).sessions[0];
+  check('U9.9c a session certificate is issued when the recording is watched in full', SC.sessionCertificateAvailable(pub, rec));
+  const off = cs.settingsFromRow({ ...REFM_ROW, session_certificates: false });
+  check('U9.9d per-session certificates can be switched off per course', !SC.sessionCertificateAvailable(off, c75));
+  const card = (await import('../src/hubs/training/lib/liveSessions/achievementCard')).achievementCardUrl;
+  const url = card({ title: 'Session 1', has_assessment: false, duration_minutes: 150 }, 'Ahmad', 'FMP-2026-0001', undefined, '2026-12-01T16:00:00Z', 'REFM Live');
+  check('U9.9e the session certificate is the SAME achievement card (route, "Session Completed", name and registration ID)', url.startsWith('/api/training/achievement-image?') && url.includes('has_assessment=false') && url.includes('regId=FMP-2026-0001') && url.includes('name=Ahmad'));
+  const large = readFileSync('src/hubs/training/components/dashboard/LiveSessionCardLarge.tsx', 'utf8');
+  check('U9.9f the single-session card uses the same shared builder (no second card)', large.includes("from '@/src/hubs/training/lib/liveSessions/achievementCard'") && !large.includes('function achievementCardUrl('));
+  const engine = readFileSync('src/hubs/training/lib/certificates/certificateEngine.ts', 'utf8');
+  check('U9.9g the course certificate is issued on approval through the same engine', readFileSync('app/api/admin/model-submissions/[id]/review/route.ts', 'utf8').includes('issueCertificateForStudent(') && engine.includes('modelStatus.required && !modelStatus.hasApproved'));
+  check('U9.9h every course certificate carries its QR verify page (/verify/<id>)', /\$\{LEARN_URL\}\/verify\/\$\{/.test(engine));
+  check('U9.9i the course page links the issued certificate\'s verification page', readFileSync('app/training/live-course/[code]/LiveCourseClient.tsx', 'utf8').includes('view.certificate.verificationUrl'));
+  const tmpl = readFileSync('app/api/admin/certificates/upload-template/route.ts', 'utf8');
+  check('U9.9j any live course can upload its own certificate and badge templates', tmpl.includes('(cert|badge)$/') && tmpl.includes('templates/${m[1]}-template.pdf'));
+  check('U9.9k 3SFM and BVM template slots are unchanged', tmpl.includes("'3sfm-cert':  { bucket: 'certificates', path: 'templates/3sfm-template.pdf'") && tmpl.includes("'bvm-badge':  { bucket: 'badges',       path: 'templates/bvm-badge.png'"));
+
+  if (hasCreds()) {
+    const sb = await db();
+    const refm = await cs.getLiveCourseSettings(sb, 'REFM');
+    check('U9.10a REFM is Published on live data', refm?.status === 'published', refm?.status);
+    const test = await cs.getLiveCourseSettings(sb, 'TEST');
+    if (test) check('U9.10b TEST is Draft on live data', test.status === 'draft', test.status);
+    const { data: raw } = await sb.from('training_course_settings').select('*').eq('course_code', 'REFM').maybeSingle();
+    const has249 = !!raw && 'status' in raw;
+    console.log(`        (migration 249 ${has249 ? 'APPLIED: status read from its column' : 'NOT YET APPLIED: status derived from is_public'})`);
+    if (has249) check('U9.10c mig 249 columns exist (status, enrolment_open, images, time_zones, session_certificates)', ['enrolment_open', 'banner_url', 'card_image_url', 'time_zones', 'session_certificates'].every((k) => k in raw!), Object.keys(raw!).join(','));
+  }
+}
+
 (async () => {
   await unit0();
   await unit1();
@@ -818,6 +969,7 @@ async function unit8(): Promise<void> {
   await unit6();
   await unit7();
   await unit8();
+  await unit9();
   console.log(`\n${passed} passed, ${failed} failed`);
   if (failed) { console.log('Failed:'); for (const f of fails) console.log(`  - ${f}`); process.exit(1); }
 })().catch((e) => { console.error(e); process.exit(1); });

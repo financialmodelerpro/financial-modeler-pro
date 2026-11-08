@@ -13,6 +13,7 @@ import type { WatchProgressPayload } from '@/src/hubs/training/components/YouTub
 import { hydrateIntervals, serializeIntervals, type Interval } from '@/src/hubs/training/lib/watch/watchTracker';
 import { effectiveSessionType } from '@/src/hubs/training/lib/liveCourse/joinWindow';
 import { JoinLiveButton } from '@/src/hubs/training/components/sessions/JoinLiveButton';
+import { TimeZoneTable } from '@/src/hubs/training/components/sessions/TimeZoneTable';
 
 interface Attachment { id: string; file_name: string; file_url: string; file_type: string; file_size: number }
 interface Session {
@@ -23,6 +24,8 @@ interface Session {
   difficulty_level: string; prerequisites: string; instructor_name: string; tags: string[];
   is_featured: boolean; live_password: string; registration_url: string | null;
   youtube_embed?: boolean; instructor_title?: string; show_like_button?: boolean;
+  /** A course session's time zone list (courseMedia.ts); null = the default regions. */
+  course_time_zones?: string[] | null;
 }
 
 function fmtDate(iso: string): string {
@@ -386,6 +389,11 @@ export default function LiveSessionDetailPage() {
             ? 'The Join live button opens shortly before the start and takes you into Microsoft Teams. Add the session to your calendar so you do not miss it.'
             : 'Reserve your spot. We will email the confirmation now, and the Join live button will open here shortly before the start.'}
         </p>
+        {session.scheduled_datetime && (
+          <div style={{ marginBottom: 12 }}>
+            <TimeZoneTable iso={session.scheduled_datetime} zones={session.course_time_zones ?? null} title="Session time in your region" />
+          </div>
+        )}
         {joinReason && (
           <div data-testid="join-reason" style={{ background: '#FFF7ED', border: '1px solid #FED7AA', borderRadius: 8, padding: '10px 12px', fontSize: 13, color: '#9A3412', marginBottom: 12 }}>
             {joinReason === 'not-open' ? 'Join is not open yet. It opens shortly before the session starts.'

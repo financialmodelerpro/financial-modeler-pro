@@ -40,7 +40,7 @@ export async function PATCH(
     'duration_minutes', 'max_attendees', 'difficulty_level', 'prerequisites', 'instructor_name',
     'tags', 'is_featured', 'live_password', 'registration_url',
     'youtube_embed', 'instructor_title', 'instructor_id',
-    'meeting_provider', 'show_like_button',
+    'meeting_provider', 'show_like_button', 'banner_alt',
     // A live-course session (mig 247).
     'course_code', 'course_session_no',
   ];

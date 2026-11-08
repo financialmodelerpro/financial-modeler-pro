@@ -1,10 +1,22 @@
 'use client';
 
+/**
+ * The live course page. ONE page for everyone:
+ *   - a visitor (signed out): the public course page (hero, description, who
+ *     it is for, prerequisites, trainer, sessions with dates, time zone
+ *     table, Register), for a published course or with an admin preview link;
+ *   - a signed-in student: the same, plus Enrol, Join live, progress,
+ *     recordings, the model submission and the certificate.
+ * The server page (page.tsx) decides visibility and the shell.
+ */
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
-import { TrainingShell } from '@/src/hubs/training/components/TrainingShell';
 import { formatSessionTime } from '@/src/hubs/training/lib/liveCourse/time';
 import type { CourseView } from '@/src/hubs/training/lib/liveCourse/courseView';
+import type { LiveCourseSettings, CourseSession } from '@/src/hubs/training/lib/liveCourse/courseSettings';
 import { JoinLiveButton } from '@/src/hubs/training/components/sessions/JoinLiveButton';
+import { TimeZoneTable } from '@/src/hubs/training/components/sessions/TimeZoneTable';
+import { SessionCertificateButton } from '@/src/hubs/training/components/sessions/SessionCertificateButton';
+import { sessionCertificateAvailable } from '@/src/hubs/training/lib/liveCourse/sessionCertificate';
 
 const NAVY = '#1B4F8A';
 const INK = '#2A3440';
@@ -12,21 +24,37 @@ const SLATE = '#5A6675';
 const GREEN = '#2E7D52';
 const PALE = '#E8EEF7';
 
-export function LiveCourseClient({ courseCode, autoEnrol }: { courseCode: string; autoEnrol: boolean }) {
+export interface PublicCourseData {
+  course: LiveCourseSettings;
+  sessions: CourseSession[];
+  /** True when shown through an admin preview link (course not public). */
+  preview: boolean;
+  /** A new student may register or enrol (published, enrolment open). */
+  canRegister: boolean;
+}
+
+export function LiveCourseClient({ courseCode, autoEnrol, signedIn, publicData }: {
+  courseCode: string;
+  autoEnrol: boolean;
+  signedIn: boolean;
+  publicData: PublicCourseData | null;
+}) {
   const [view, setView] = useState<CourseView | null>(null);
-  const [error, setError] = useState('');
+  const [loaded, setLoaded] = useState(!signedIn);
   const [enrolling, setEnrolling] = useState(false);
   const [notice, setNotice] = useState('');
   const autoTried = useRef(false);
 
   const load = useCallback(async () => {
+    if (!signedIn) return null;
     const r = await fetch(`/api/training/live-course/${encodeURIComponent(courseCode)}`);
+    setLoaded(true);
     if (r.status === 401) { window.location.href = `/signin?redirect=${encodeURIComponent(window.location.pathname + window.location.search)}`; return null; }
-    if (!r.ok) { setError('This course could not be found.'); return null; }
+    if (!r.ok) return null; // not enrolled in a non-public course: the public view (if any) stands
     const v = await r.json() as CourseView;
     setView(v);
     return v;
-  }, [courseCode]);
+  }, [courseCode, signedIn]);
 
   const enrol = useCallback(async (from: 'dashboard' | 'public_page') => {
     setEnrolling(true); setNotice('');
@@ -54,69 +82,122 @@ export function LiveCourseClient({ courseCode, autoEnrol }: { courseCode: string
     })();
   }, [load, enrol, autoEnrol]);
 
+  const course = view?.course ?? publicData?.course ?? null;
+  if (!loaded) return <div style={{ padding: 32, color: SLATE }}>Loading…</div>;
+  if (!course) {
+    return <div data-testid="live-course-not-found" style={{ padding: 32, color: SLATE }}>This course is not available.</div>;
+  }
+
+  const enrolled = !!view?.enrolled;
+  const sessions: (CourseSession & Partial<CourseView['sessions'][number]>)[] = view?.sessions ?? publicData?.sessions ?? [];
+  const canRegister = publicData?.canRegister ?? (course.status === 'published' && course.enrolmentOpen);
+  const next = sessions.find((s) => s.scheduled_datetime && new Date(s.scheduled_datetime).getTime() > Date.now()) ?? sessions[0];
+  const enrolPath = `/training/live-course/${encodeURIComponent(course.courseCode)}?enrol=1`;
+
+  let action: ReactNode;
+  if (enrolled) {
+    action = <span data-testid="live-course-enrolled" style={{ display: 'inline-block', background: GREEN, padding: '8px 16px', borderRadius: 20, fontSize: 13, fontWeight: 700 }}>✓ Enrolled</span>;
+  } else if (!canRegister) {
+    action = <span data-testid="live-course-enrolment-closed" style={{ display: 'inline-block', background: 'rgba(255,255,255,0.18)', padding: '9px 18px', borderRadius: 8, fontSize: 14, fontWeight: 800 }}>{course.status === 'published' ? 'Enrolment closed' : 'Not open for registration'}</span>;
+  } else if (signedIn) {
+    action = (
+      <button data-testid="live-course-enrol" onClick={() => enrol('dashboard')} disabled={enrolling}
+        style={{ background: '#fff', color: NAVY, border: 'none', borderRadius: 8, padding: '11px 24px', fontWeight: 800, fontSize: 14, cursor: enrolling ? 'wait' : 'pointer' }}>
+        {enrolling ? 'Enrolling…' : 'Enrol in this course'}
+      </button>
+    );
+  } else {
+    action = (
+      <span style={{ display: 'inline-flex', gap: 14, alignItems: 'center', flexWrap: 'wrap' }}>
+        <a data-testid="live-course-register" href={`/register?course=${encodeURIComponent(course.courseCode)}`} style={{ background: '#2E7D52', color: '#fff', borderRadius: 8, padding: '11px 24px', fontWeight: 800, fontSize: 14, textDecoration: 'none' }}>Register for this course</a>
+        <a href={`/signin?redirect=${encodeURIComponent(enrolPath)}`} style={{ color: '#fff', fontSize: 13.5, textDecoration: 'underline' }}>Already have an account? Sign in to enrol</a>
+      </span>
+    );
+  }
+
+  const hero = course.bannerUrl
+    ? { backgroundImage: `linear-gradient(90deg, rgba(13,46,90,0.92) 0%, rgba(13,46,90,0.65) 55%, rgba(13,46,90,0.25) 100%), url(${course.bannerUrl})`, backgroundSize: 'cover', backgroundPosition: 'center' }
+    : { background: `linear-gradient(135deg, #0D2E5A, ${NAVY})` };
+
+  const about: { title: string; body: string }[] = [
+    { title: 'About this course', body: course.description },
+    { title: 'Who it is for', body: course.whoFor },
+    { title: 'Prerequisites', body: course.prerequisites },
+  ].filter((b) => b.body && b.body.trim());
+
   return (
-    <TrainingShell activeNav="dashboard">
-      <div data-testid="live-course-page" style={{ padding: '24px 20px 48px', maxWidth: 980, margin: '0 auto', color: INK }}>
-        {error && <div style={{ padding: 16, background: '#FEF2F2', borderRadius: 8, color: '#B91C1C' }}>{error}</div>}
-        {!view && !error && <div style={{ color: SLATE }}>Loading…</div>}
-        {view && (
-          <>
-            <div style={{ background: `linear-gradient(135deg, #0D2E5A, ${NAVY})`, color: '#fff', borderRadius: 12, padding: '24px 28px', marginBottom: 20 }}>
-              <div style={{ fontSize: 12, letterSpacing: 1, textTransform: 'uppercase', opacity: 0.8 }}>Live course</div>
-              <h1 style={{ fontSize: 24, fontWeight: 800, margin: '6px 0 8px' }}>{view.course.title}</h1>
-              <p style={{ margin: 0, opacity: 0.9, fontSize: 14 }}>{view.course.description}</p>
-              <div style={{ marginTop: 16 }}>
-                {view.enrolled ? (
-                  <span data-testid="live-course-enrolled" style={{ display: 'inline-block', background: GREEN, padding: '6px 14px', borderRadius: 20, fontSize: 13, fontWeight: 700 }}>✓ Enrolled</span>
-                ) : (
-                  <button
-                    data-testid="live-course-enrol"
-                    onClick={() => enrol('dashboard')}
-                    disabled={enrolling}
-                    style={{ background: '#fff', color: NAVY, border: 'none', borderRadius: 8, padding: '10px 22px', fontWeight: 800, fontSize: 14, cursor: enrolling ? 'wait' : 'pointer' }}
-                  >{enrolling ? 'Enrolling…' : 'Enrol in this course'}</button>
-                )}
-              </div>
-              {notice && <div data-testid="live-course-notice" style={{ marginTop: 12, fontSize: 13 }}>{notice}</div>}
+    <div data-testid="live-course-page" style={{ padding: '24px 16px 48px', maxWidth: 1040, margin: '0 auto', color: INK }}>
+      {publicData?.preview && (
+        <div data-testid="live-course-preview-banner" style={{ background: '#EEF2FF', color: '#3730A3', border: '1px solid #C7D2FE', borderRadius: 8, padding: '8px 12px', fontSize: 13, fontWeight: 700, marginBottom: 12 }}>
+          Preview: this course is {course.status} and is not shown to the public.
+        </div>
+      )}
+      <div role="img" aria-label={course.bannerAlt || course.title} style={{ ...hero, color: '#fff', borderRadius: 14, padding: 'clamp(24px,5vw,48px) clamp(20px,4vw,40px)', marginBottom: 22 }}>
+        <div style={{ fontSize: 12, letterSpacing: 1, textTransform: 'uppercase', opacity: 0.85 }}>Live course · Microsoft Teams</div>
+        <h1 style={{ fontSize: 'clamp(24px,4vw,34px)', fontWeight: 800, margin: '8px 0 6px', maxWidth: 680 }}>{course.title}</h1>
+        {course.tagline && <p style={{ margin: 0, opacity: 0.95, fontSize: 16, maxWidth: 640 }}>{course.tagline}</p>}
+        {next?.scheduled_datetime && <p style={{ margin: '10px 0 0', fontSize: 14, opacity: 0.9 }}>{sessions.length} session{sessions.length === 1 ? '' : 's'} · Next: {formatSessionTime(next.scheduled_datetime)}</p>}
+        <div style={{ marginTop: 18 }}>{action}</div>
+        {notice && <div data-testid="live-course-notice" style={{ marginTop: 12, fontSize: 13 }}>{notice}</div>}
+      </div>
+
+      {view?.certificate && (
+        <div data-testid="live-course-certificate" style={{ background: '#E7F4EC', border: '1px solid #B7DFC5', borderRadius: 10, padding: '16px 18px', marginBottom: 20, display: 'flex', gap: 14, alignItems: 'center', flexWrap: 'wrap' }}>
+          <strong style={{ color: GREEN, fontSize: 15 }}>🏆 Certificate issued: {view.certificate.certificateId}</strong>
+          {view.certificate.certPdfUrl && <a href={view.certificate.certPdfUrl} target="_blank" rel="noopener noreferrer" style={{ color: NAVY, fontWeight: 700 }}>Download certificate</a>}
+          {view.certificate.verificationUrl && <a href={view.certificate.verificationUrl} target="_blank" rel="noopener noreferrer" style={{ color: NAVY, fontWeight: 700 }}>Verification page</a>}
+        </div>
+      )}
+
+      {enrolled && view && <ProgressSummary view={view} />}
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 20, marginBottom: 22 }}>
+        <div style={{ display: 'grid', gap: 14, alignContent: 'start' }}>
+          {about.map((b) => (
+            <div key={b.title}>
+              <h2 style={{ fontSize: 16, fontWeight: 800, color: NAVY, margin: '0 0 6px' }}>{b.title}</h2>
+              <p style={{ margin: 0, fontSize: 14.5, lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{b.body}</p>
             </div>
-
-            {view.certificate && (
-              <div data-testid="live-course-certificate" style={{ background: '#E7F4EC', border: '1px solid #B7DFC5', borderRadius: 10, padding: '16px 18px', marginBottom: 20, display: 'flex', gap: 14, alignItems: 'center', flexWrap: 'wrap' }}>
-                <strong style={{ color: GREEN, fontSize: 15 }}>🏆 Certificate issued: {view.certificate.certificateId}</strong>
-                {view.certificate.certPdfUrl && <a href={view.certificate.certPdfUrl} target="_blank" rel="noopener noreferrer" style={{ color: NAVY, fontWeight: 700 }}>Download certificate</a>}
-                {view.certificate.verificationUrl && <a href={view.certificate.verificationUrl} target="_blank" rel="noopener noreferrer" style={{ color: NAVY, fontWeight: 700 }}>Verification page</a>}
-              </div>
-            )}
-
-            {view.enrolled && <ProgressSummary view={view} />}
-
-            <h2 style={{ fontSize: 16, fontWeight: 800, color: NAVY, margin: '0 0 10px' }}>Sessions</h2>
-            {view.sessions.length === 0 && <div style={{ color: SLATE, fontSize: 14 }}>The schedule will appear here as sessions are announced.</div>}
-            <div style={{ display: 'grid', gap: 10 }}>
-              {view.sessions.map((s) => (
-                <div key={s.id} data-testid="live-course-session" style={{ background: '#fff', border: `1px solid ${PALE}`, borderRadius: 10, padding: '14px 18px', display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap' }}>
-                  <div style={{ width: 84, fontWeight: 800, color: NAVY, fontSize: 13 }}>{s.course_session_no != null ? `Session ${s.course_session_no}` : 'Session'}</div>
-                  <div style={{ flex: '1 1 260px' }}>
-                    <div style={{ fontWeight: 700 }}>{s.title}</div>
-                    <div style={{ fontSize: 13, color: SLATE }}>{formatSessionTime(s.scheduled_datetime)}</div>
-                  </div>
-                  {view.enrolled && s.state !== 'recorded' && (
-                    <JoinLiveButton joinUrl={s.joinUrl} joinOpensAt={s.joinOpensAt} joinClosesAt={s.joinClosesAt} size="sm" />
-                  )}
-                  {view.enrolled && s.youtube_url && (
-                    // The session player tracks skip-resistant watch time for the recording route.
-                    <a data-testid="watch-recording" href={`/training/live-sessions/${s.id}`} style={{ padding: '8px 14px', borderRadius: 8, border: `1.5px solid ${NAVY}`, color: NAVY, fontWeight: 700, fontSize: 13, textDecoration: 'none' }}>▶ Watch recording</a>
-                  )}
-                  {view.enrolled && <SessionProgress e={view.eligibility.sessions.find((x) => x.sessionId === s.id)} course={view.course} />}
-                </div>
-              ))}
+          ))}
+          {course.trainerName && (
+            <div>
+              <h2 style={{ fontSize: 16, fontWeight: 800, color: NAVY, margin: '0 0 6px' }}>Trainer</h2>
+              <p style={{ margin: 0, fontSize: 14.5 }}><strong>{course.trainerName}</strong>{course.trainerTitle ? `, ${course.trainerTitle}` : ''}</p>
             </div>
-
-            {view.enrolled && <LiveCourseSubmission courseCode={view.course.courseCode} onChange={() => void load()} />}
-          </>
+          )}
+        </div>
+        {next?.scheduled_datetime && (
+          <TimeZoneTable iso={next.scheduled_datetime} zones={course.timeZones} title={`Next session in your region${next.course_session_no ? ` (Session ${next.course_session_no})` : ''}`} />
         )}
       </div>
-    </TrainingShell>
+
+      <h2 style={{ fontSize: 16, fontWeight: 800, color: NAVY, margin: '0 0 10px' }}>Sessions</h2>
+      {sessions.length === 0 && <div style={{ color: SLATE, fontSize: 14 }}>The schedule will appear here as sessions are announced.</div>}
+      <div style={{ display: 'grid', gap: 10 }}>
+        {sessions.map((s) => (
+          <div key={s.id} data-testid="live-course-session" style={{ background: '#fff', border: `1px solid ${PALE}`, borderRadius: 10, padding: '14px 18px', display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap' }}>
+            <div style={{ width: 84, fontWeight: 800, color: NAVY, fontSize: 13 }}>{s.course_session_no != null ? `Session ${s.course_session_no}` : 'Session'}</div>
+            <div style={{ flex: '1 1 260px' }}>
+              <div style={{ fontWeight: 700 }}>{s.title}</div>
+              <div style={{ fontSize: 13, color: SLATE }}>{formatSessionTime(s.scheduled_datetime)}</div>
+            </div>
+            {enrolled && s.state !== 'recorded' && (
+              <JoinLiveButton joinUrl={s.joinUrl ?? null} joinOpensAt={s.joinOpensAt ?? null} joinClosesAt={s.joinClosesAt ?? null} size="sm" />
+            )}
+            {enrolled && s.youtube_url && (
+              // The session player tracks skip-resistant watch time for the recording route.
+              <a data-testid="watch-recording" href={`/training/live-sessions/${s.id}`} style={{ padding: '8px 14px', borderRadius: 8, border: `1.5px solid ${NAVY}`, color: NAVY, fontWeight: 700, fontSize: 13, textDecoration: 'none' }}>▶ Watch recording</a>
+            )}
+            {enrolled && view && <SessionProgress e={view.eligibility.sessions.find((x) => x.sessionId === s.id)} course={view.course} />}
+            {enrolled && view && sessionCertificateAvailable(view.course, view.eligibility.sessions.find((x) => x.sessionId === s.id)) && (
+              <SessionCertificateButton session={s} studentName={view.student.name} registrationId={view.student.registrationId} courseTitle={view.course.title} />
+            )}
+          </div>
+        ))}
+      </div>
+
+      {enrolled && view && <LiveCourseSubmission courseCode={view.course.courseCode} onChange={() => void load()} />}
+    </div>
   );
 }
 

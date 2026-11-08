@@ -2,6 +2,7 @@ import type { MetadataRoute } from 'next';
 import { getServerClient } from '@/src/core/db/supabase';
 import { PLATFORMS } from '@/src/hubs/modeling/config/platforms';
 import { publicSessionFilter } from '@/src/hubs/training/lib/liveCourse/publicVisibility';
+import { listLiveCourses } from '@/src/hubs/training/lib/liveCourse/courseSettings';
 
 export const revalidate = 3600; // regenerate hourly
 
@@ -89,6 +90,13 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
         isRecorded ? 'monthly' : 'weekly',
         ls.updated_at ? new Date(ls.updated_at) : undefined,
       ));
+    }
+  } catch { /* skip on failure */ }
+
+  // ── Live courses: PUBLISHED only (a draft or archived course is never listed) ──
+  try {
+    for (const c of await listLiveCourses(sb, { publicOnly: true })) {
+      entries.push(s(`${LEARN_URL}/training/live-course/${c.courseCode}`, 0.8, 'weekly', undefined));
     }
   } catch { /* skip on failure */ }
 

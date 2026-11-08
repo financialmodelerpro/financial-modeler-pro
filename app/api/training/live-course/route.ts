@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getServerClient } from '@/src/core/db/supabase';
 import { getTrainingCookieSession } from '@/src/hubs/training/lib/session/trainingSessionCookie';
-import { listLiveCourses, listCourseSessions } from '@/src/hubs/training/lib/liveCourse/courseSettings';
+import { listLiveCourses, listCourseSessions, isPubliclyVisible, canRegister } from '@/src/hubs/training/lib/liveCourse/courseSettings';
 import { isEnrolled } from '@/src/hubs/training/lib/liveCourse/enrolment';
 
 export const dynamic = 'force-dynamic';
@@ -17,8 +17,8 @@ export async function GET() {
       listCourseSessions(sb, c.courseCode),
       isEnrolled(sb, sess.registrationId, c.courseCode),
     ]);
-    // Offered to a student who is enrolled, or when it is open to the public.
-    if (!enrolled && !c.isPublic) return null;
+    // Offered to a student who is enrolled (any status), or when a new student may join.
+    if (!enrolled && !isPubliclyVisible(c)) return null;
     const next = sessions.find((s) => s.scheduled_datetime && new Date(s.scheduled_datetime).getTime() > Date.now());
     return {
       courseCode: c.courseCode,
@@ -27,6 +27,7 @@ export async function GET() {
       sessionCount: sessions.length,
       nextSessionAt: next?.scheduled_datetime ?? null,
       enrolled,
+      enrolmentOpen: canRegister(c),
     };
   }));
   return NextResponse.json({ courses: out.filter(Boolean) });

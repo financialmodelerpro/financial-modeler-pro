@@ -47,7 +47,7 @@ async function main() {
   ok('approved email still receives a reviewedFileUrl',
     /modelSubmissionApprovedTemplate\(\{[\s\S]{0,600}reviewedFileUrl:/.test(reviewRoute));
 
-  const adminUi = read('app/admin/training-hub/model-submissions/page.tsx');
+  const adminUi = read('app/admin/training-hub/model-submissions/ModelSubmissionsManager.tsx'); // the screen moved into a shared component 2026-11-08
   ok('admin UI posts multipart on either decision', /const res = reviewedFile$/m.test(adminUi) || /const res = reviewedFile\s*$/m.test(adminUi));
   ok('admin UI no longer restricts the file to approve', !/decision === 'approve' && reviewedFile/.test(adminUi));
 

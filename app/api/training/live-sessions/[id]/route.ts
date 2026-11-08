@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerClient } from '@/src/core/db/supabase';
 import { withoutPrivateFields } from '@/src/hubs/training/lib/liveSessions/privateSessionFields';
+import { applyCourseMedia } from '@/src/hubs/training/lib/liveCourse/courseMedia';
 
 export const dynamic = 'force-dynamic';
 
@@ -20,6 +21,7 @@ export async function GET(
 
   return NextResponse.json({
     // Unauthenticated route: no join link, password or dial-in (see privateSessionFields).
-    session: { ...withoutPrivateFields(session), playlist: session.live_playlists, attachments: atts ?? [] },
+    // A course session: the course banner when it has none, and the course's time zones.
+    session: { ...(await applyCourseMedia(sb, [withoutPrivateFields(session)]))[0], playlist: session.live_playlists, attachments: atts ?? [] },
   });
 }

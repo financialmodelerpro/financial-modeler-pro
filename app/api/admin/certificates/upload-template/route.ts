@@ -8,6 +8,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/src/shared/auth/nextauth';
 import { getServerClient } from '@/src/core/db/supabase';
+import { getLiveCourseSettings, isLiveCourseRow } from '@/src/hubs/training/lib/liveCourse/courseSettings';
 
 const TYPE_MAP: Record<string, { bucket: string; path: string; mime: string }> = {
   '3sfm-cert':  { bucket: 'certificates', path: 'templates/3sfm-template.pdf', mime: 'application/pdf' },
@@ -18,6 +19,22 @@ const TYPE_MAP: Record<string, { bucket: string; path: string; mime: string }> =
   'refm-cert':  { bucket: 'certificates', path: 'templates/refm-template.pdf', mime: 'application/pdf' },
   'refm-badge': { bucket: 'badges',       path: 'templates/refm-badge.png',    mime: 'image/png'       },
 };
+
+/**
+ * The storage target for a template type: the fixed exam-course slots, or
+ * `<code>-cert` / `<code>-badge` for any live course (the engine reads
+ * templates/<code>-template.pdf and templates/<code>-badge.png).
+ */
+async function targetFor(type: string): Promise<{ bucket: string; path: string; mime: string } | null> {
+  if (TYPE_MAP[type]) return TYPE_MAP[type];
+  const m = /^([a-z0-9]{2,12})-(cert|badge)$/.exec(type);
+  if (!m) return null;
+  const live = await getLiveCourseSettings(getServerClient(), m[1]);
+  if (!isLiveCourseRow(live)) return null;
+  return m[2] === 'cert'
+    ? { bucket: 'certificates', path: `templates/${m[1]}-template.pdf`, mime: 'application/pdf' }
+    : { bucket: 'badges', path: `templates/${m[1]}-badge.png`, mime: 'image/png' };
+}
 
 export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions);
@@ -34,7 +51,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'file and type are required' }, { status: 400 });
     }
 
-    const target = TYPE_MAP[type];
+    const target = await targetFor(type);
     if (!target) {
       return NextResponse.json({ error: `Unknown type: ${type}` }, { status: 400 });
     }
@@ -71,7 +88,7 @@ export async function DELETE(req: NextRequest) {
     const { type } = (await req.json()) as { type?: string };
     if (!type) return NextResponse.json({ error: 'type is required' }, { status: 400 });
 
-    const target = TYPE_MAP[type];
+    const target = await targetFor(type);
     if (!target) return NextResponse.json({ error: `Unknown type: ${type}` }, { status: 400 });
 
     const sb = getServerClient();
