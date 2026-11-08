@@ -7,13 +7,11 @@ import {
 } from '@/src/hubs/training/lib/liveCourse/courseSettings';
 import { isValidPreviewToken } from '@/src/hubs/training/lib/liveCourse/preview';
 import { loadCourseInstructors } from '@/src/hubs/training/lib/liveCourse/courseInstructors';
-import { TrainingShell } from '@/src/hubs/training/components/TrainingShell';
-import { NavbarServer } from '@/src/shared/components/layout/NavbarServer';
-import { SharedFooter } from '@/src/hubs/main/components/landing/SharedFooter';
+import { CoursePageFrame } from '../CoursePageFrame';
 import { LiveCourseClient, type PublicCourseData } from './LiveCourseClient';
 import { coursePagePath } from '@/src/hubs/training/lib/liveCourse/paths';
 import { getAllPageSections } from '@/src/shared/cms';
-import { FounderProfileBlock } from '@/src/hubs/main/components/landing/FounderProfileBlock';
+import { FounderShortCard } from '@/src/hubs/main/components/landing/FounderShortCard';
 import { loadPickedTestimonials } from '@/src/hubs/training/lib/liveCourse/courseTestimonials';
 import { TestimonialsCarousel } from '../../TestimonialsCarousel';
 
@@ -36,6 +34,9 @@ async function templateSamples(sb: ReturnType<typeof getServerClient>, code: str
     return { certificateUrl: null, badgeUrl: null };
   }
 }
+
+/** Server time for the session status labels (read outside render). */
+async function serverNow(): Promise<number> { return Date.now(); }
 
 export async function generateMetadata({ params }: { params: Promise<{ code: string }> }): Promise<Metadata> {
   const { code } = await params;
@@ -88,6 +89,7 @@ export default async function LiveCoursePage({
       }
     : null;
 
+  const renderedAt = await serverNow();
   // ── Landing page data (mig 252 sections; nothing secret) ──
   const page = course.page;
   const instructors = publicData?.instructors ?? await loadCourseInstructors(sb, course.instructorIds);
@@ -107,9 +109,9 @@ export default async function LiveCoursePage({
       autoEnrol={enrol === '1'}
       signedIn={!!sess}
       publicData={publicData}
-      landing={{ page, enrolledCount: enrolledCount ?? 0, samples, testimonialCount: testimonials.length }}
+      landing={{ page, enrolledCount: enrolledCount ?? 0, samples, testimonialCount: testimonials.length, now: renderedAt }}
       founderSlot={founderContent !== undefined
-        ? <FounderProfileBlock content={founderContent} badgeOverride={page.sections.instructor.heading} />
+        ? <FounderShortCard content={founderContent} shortBio={page.sections.instructor.shortBio} heading={page.sections.instructor.heading} />
         : null}
       testimonialsSlot={testimonials.length
         ? <TestimonialsCarousel testimonials={testimonials} heading={page.sections.testimonials.heading} subheading="" />
@@ -117,18 +119,5 @@ export default async function LiveCoursePage({
     />
   );
 
-  if (sess) return <TrainingShell activeNav="dashboard">{content}</TrainingShell>;
-  return (
-    <div style={{ fontFamily: "'Inter', sans-serif", background: '#fff', minHeight: '100vh' }}>
-      <NavbarServer />
-      <div style={{ height: 64 }} />
-      {content}
-      <SharedFooter
-        company="Financial Modeler Pro"
-        founder="Financial Modeler Pro Team"
-        copyright={`© ${new Date().getFullYear()} Financial Modeler Pro`}
-        height="compact"
-      />
-    </div>
-  );
+  return <CoursePageFrame signedIn={!!sess}>{content}</CoursePageFrame>;
 }

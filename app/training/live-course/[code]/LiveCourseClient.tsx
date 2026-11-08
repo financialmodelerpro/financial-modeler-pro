@@ -17,12 +17,9 @@ import type { LiveCourseSettings, CourseSession } from '@/src/hubs/training/lib/
 import type { CourseInstructor } from '@/src/hubs/training/lib/liveCourse/courseInstructors';
 import type { PageConfig } from '@/src/hubs/training/lib/liveCourse/pageSections';
 import { autoFacts, nextSession } from '@/src/hubs/training/lib/liveCourse/pageSections';
-import { JoinLiveButton } from '@/src/hubs/training/components/sessions/JoinLiveButton';
-import { CourseSessionCard } from '@/src/hubs/training/components/sessions/CourseSessionCard';
-import { SessionCertificateButton } from '@/src/hubs/training/components/sessions/SessionCertificateButton';
-import { sessionCertificateAvailable } from '@/src/hubs/training/lib/liveCourse/sessionCertificate';
 import { CourseLanding } from './CourseLanding';
-import { coursePagePath, courseSessionPath } from '@/src/hubs/training/lib/liveCourse/paths';
+import { CourseShell, CourseSessionsTable } from '@/src/hubs/training/components/sessions/CourseShell';
+import { coursePagePath } from '@/src/hubs/training/lib/liveCourse/paths';
 
 const NAVY = '#1B4F8A';
 const SLATE = '#5A6675';
@@ -46,6 +43,8 @@ export interface LandingInput {
   enrolledCount: number;
   samples: { certificateUrl: string | null; badgeUrl: string | null };
   testimonialCount: number;
+  /** Server time for the session status labels. */
+  now: number;
 }
 
 export function LiveCourseClient({ courseCode, autoEnrol, signedIn, publicData, landing, founderSlot, testimonialsSlot }: {
@@ -134,10 +133,10 @@ export function LiveCourseClient({ courseCode, autoEnrol, signedIn, publicData, 
     );
   };
 
+  const whoForCardsOn = landing.page.sections.whoFor.enabled && landing.page.sections.whoFor.items.length > 0;
   const about: { title: string; body: string }[] = [
     { title: 'About this course', body: course.description },
-    { title: 'Who it is for', body: course.whoFor },
-    { title: 'Prerequisites', body: course.prerequisites },
+    ...(whoForCardsOn ? [] : [{ title: 'Who it is for', body: course.whoFor }]),
   ].filter((b) => b.body && b.body.trim());
   const otherInstructors = instructors.filter((i) => !i.isFounder);
   const hasFounder = instructors.some((i) => i.isFounder) && !!founderSlot;
@@ -157,40 +156,14 @@ export function LiveCourseClient({ courseCode, autoEnrol, signedIn, publicData, 
     </>
   ) : null;
 
+  // Sessions the student has completed (the attendance or recording rule met).
+  const completed = new Set((view?.eligibility.sessions ?? []).filter((e) => e.met).map((e) => e.sessionId));
   const curriculum = (
     <>
       {enrolled && (
         <a data-testid="add-to-calendar" href={`/api/training/live-course/${encodeURIComponent(course.courseCode)}/calendar`} style={{ display: 'inline-block', marginBottom: 12, color: NAVY, fontWeight: 700, fontSize: 13.5 }}>📅 Add all sessions to your calendar (.ics)</a>
       )}
-      <div style={{ display: 'grid', gap: 14 }}>
-        {sessions.map((s) => {
-          const e = view?.eligibility.sessions.find((x) => x.sessionId === s.id);
-          return (
-            <CourseSessionCard
-              key={s.id}
-              s={s}
-              expanded={enrolled}
-              zones={course.timeZones}
-              // The session's own banner, else the course card image.
-              imageUrl={s.banner_url || course.cardImageUrl}
-              materials={enrolled ? s.materials : undefined}
-              actions={enrolled && view ? (
-                <>
-                  {s.state !== 'recorded' && <JoinLiveButton joinUrl={s.joinUrl ?? null} joinOpensAt={s.joinOpensAt ?? null} joinClosesAt={s.joinClosesAt ?? null} size="sm" />}
-                  {s.youtube_url && (
-                    // The session player tracks skip-resistant watch time for the recording route.
-                    <a data-testid="watch-recording" href={courseSessionPath(course.courseCode, s.id)} style={{ padding: '8px 14px', borderRadius: 8, border: `1.5px solid ${NAVY}`, color: NAVY, fontWeight: 700, fontSize: 13, textDecoration: 'none' }}>▶ Watch recording</a>
-                  )}
-                  <SessionProgress e={e} course={view.course} />
-                  {sessionCertificateAvailable(view.course, e) && (
-                    <SessionCertificateButton session={s} studentName={view.student.name} registrationId={view.student.registrationId} courseTitle={view.course.title} />
-                  )}
-                </>
-              ) : undefined}
-            />
-          );
-        })}
-      </div>
+      <CourseSessionsTable courseCode={course.courseCode} sessions={sessions} completed={completed} now={landing.now} />
     </>
   );
 
@@ -214,7 +187,8 @@ export function LiveCourseClient({ courseCode, autoEnrol, signedIn, publicData, 
     </>
   );
 
-  const aboutSlot = about.length > 0 ? (
+  const prereq = (course.prerequisites ?? '').trim();
+  const aboutSlot = about.length > 0 || prereq ? (
     <div style={{ display: 'grid', gap: 16 }}>
       {about.map((b) => (
         <div key={b.title}>
@@ -222,11 +196,13 @@ export function LiveCourseClient({ courseCode, autoEnrol, signedIn, publicData, 
           <p style={{ margin: 0, fontSize: 15, lineHeight: 1.65, whiteSpace: 'pre-wrap' }}>{b.body}</p>
         </div>
       ))}
+      {prereq && <p data-testid="live-course-prereq" style={{ margin: 0, fontSize: 14, color: SLATE }}><strong style={{ color: '#0D2E5A' }}>Prerequisites:</strong> {prereq.replace(/\s+/g, ' ')}</p>}
     </div>
   ) : null;
 
   return (
-    <div data-testid="live-course-page" style={{ padding: '24px 16px 48px', maxWidth: 1180, margin: '0 auto' }}>
+    <div data-testid="live-course-page" style={{ padding: '24px 16px 48px', maxWidth: 1440, margin: '0 auto' }}>
+      <CourseShell courseCode={course.courseCode} courseTitle={course.title} sessions={sessions} current="overview" completed={completed} now={landing.now}>
       <CourseLanding
         d={{
           page: landing.page,
@@ -246,6 +222,7 @@ export function LiveCourseClient({ courseCode, autoEnrol, signedIn, publicData, 
         calendarHref={enrolled ? `/api/training/live-course/${encodeURIComponent(course.courseCode)}/calendar` : null}
         slots={{ personal, about: aboutSlot, curriculum, instructor: instructorSlot, testimonials: testimonialsSlot }}
       />
+      </CourseShell>
     </div>
   );
 }
@@ -253,7 +230,7 @@ export function LiveCourseClient({ courseCode, autoEnrol, signedIn, publicData, 
 type SessionElig = CourseView['eligibility']['sessions'][number];
 
 /** One session's status: met live, met by recording, or what is still needed. */
-function SessionProgress({ e, course }: { e: SessionElig | undefined; course: CourseView['course'] }) {
+export function SessionProgress({ e, course }: { e: SessionElig | undefined; course: CourseView['course'] }) {
   if (!e) return null;
   const chip = (bg: string, fg: string, text: string, testid: string) => (
     <span data-testid={testid} style={{ background: bg, color: fg, borderRadius: 14, padding: '4px 10px', fontSize: 12, fontWeight: 700, whiteSpace: 'nowrap' }}>{text}</span>

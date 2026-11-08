@@ -161,9 +161,12 @@ export function CourseLanding({
         .lc-layout { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 28px; align-items: start; }
         .lc-aside { position: sticky; top: 90px; }
         .lc-mobile-bar { display: none; }
-        @media (max-width: 900px) {
+        /* The course sidebar takes 280px beside this, so the side card stacks earlier. */
+        @media (max-width: 1240px) {
           .lc-layout { grid-template-columns: minmax(0, 1fr); }
-          .lc-aside { position: static; }
+          .lc-aside { position: static; max-width: 520px; }
+        }
+        @media (max-width: 900px) {
           .lc-mobile-bar { display: flex; }
           .lc-page { padding-bottom: 84px; }
         }

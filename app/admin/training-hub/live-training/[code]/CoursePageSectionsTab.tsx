@@ -74,7 +74,7 @@ export function CoursePageSectionsTab({ course, onSaved }: { course: LiveCourseS
 
   const editors: Partial<Record<SectionKey, React.ReactNode>> = {
     about: <p style={{ fontSize: 12.5, color: SLATE }}>The description, who it is for and prerequisites are edited on the Details tab.</p>,
-    curriculum: <>{heading('curriculum')}<p style={{ fontSize: 12.5, color: SLATE }}>The cards come from the Sessions tab (content and banner per session; a session without a banner shows the course card image).</p></>,
+    curriculum: <>{heading('curriculum')}<p style={{ fontSize: 12.5, color: SLATE }}>A compact table of the sessions (number, title, KSA time, status), each linking to its session page. Session content and images are edited on the Sessions tab.</p></>,
     skills: <>{heading('skills')}<IconItems items={p.sections.skills.items} onChange={(items) => set('skills', { items })} /></>,
     whoFor: <>{heading('whoFor')}<IconItems items={p.sections.whoFor.items} onChange={(items) => set('whoFor', { items })} /></>,
     tools: <>{heading('tools')}<IconItems items={p.sections.tools.items} onChange={(items) => set('tools', { items })} /></>,
@@ -85,7 +85,14 @@ export function CoursePageSectionsTab({ course, onSaved }: { course: LiveCourseS
         <label style={{ fontSize: 13, display: 'block', marginTop: 8 }}><input type="checkbox" checked={p.sections.certification.showSamples} onChange={(e) => set('certification', { showSamples: e.target.checked })} /> Show the sample certificate and badge (from the Certificate tab&apos;s templates; hidden until they exist)</label>
       </>
     ),
-    instructor: <>{heading('instructor')}<p style={{ fontSize: 12.5, color: SLATE }}>The instructors are picked on the Details tab. The founder shows the same profile block as the home page (edited in Page Builder &gt; Home &gt; Team).</p></>,
+    instructor: (
+      <>
+        {heading('instructor')}
+        <label style={label}>Short bio (two or three lines; empty = the first two sentences of the full bio)</label>
+        <textarea data-testid="instructor-short-bio" style={{ ...input, minHeight: 70 }} value={p.sections.instructor.shortBio} onChange={(e) => set('instructor', { shortBio: e.target.value })} />
+        <p style={{ fontSize: 12.5, color: SLATE }}>The instructors are picked on the Details tab. Photo, name, credentials, title, highlights and links come from the founder profile (Page Builder &gt; Home &gt; Team).</p>
+      </>
+    ),
     testimonials: <>{heading('testimonials')}<TestimonialPicker ids={p.sections.testimonials.ids} onChange={(ids) => set('testimonials', { ids })} /></>,
     faq: <>{heading('faq')}<FaqEditor items={p.sections.faq.items} onChange={(items) => set('faq', { items })} /></>,
     cta: <><label style={label}>Call to action text</label><textarea style={{ ...input, minHeight: 60 }} value={p.sections.cta.text} onChange={(e) => set('cta', { text: e.target.value })} /></>,

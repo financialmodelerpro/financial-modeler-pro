@@ -17,7 +17,7 @@
  *
  * Run: npx tsx scripts/verify-live-course.ts   (needs .env.local for U0.4)
  */
-import { readFileSync, readdirSync, statSync } from 'fs';
+import { readFileSync, readdirSync, statSync, existsSync } from 'fs';
 import { join } from 'path';
 import { NextRequest } from 'next/server';
 import {
@@ -384,8 +384,8 @@ async function unit2(): Promise<void> {
     const src = readFileSync(f, 'utf8');
     check(`U2.5c ${f.split('/').slice(-2).join('/')}: Join follows the one window rule`, src.includes('joinStatusFrom(') && !src.includes('180 * 60000') && !src.includes("!!session?.scheduled_datetime;"));
   }
-  const btnUsers = ['app/training/live-sessions/[id]/page.tsx', 'src/hubs/training/components/dashboard/LiveSessionCard.tsx', 'app/training/live-course/[code]/LiveCourseClient.tsx'];
-  check('U2.5d detail page, dashboard card and course page all use THE Join button', btnUsers.every((f) => readFileSync(f, 'utf8').includes('<JoinLiveButton')));
+  const btnUsers = ['app/training/live-sessions/[id]/page.tsx', 'src/hubs/training/components/dashboard/LiveSessionCard.tsx', 'app/training/[courseId]/sessions/[id]/CourseSessionClient.tsx']; // a course's Join button is on its session page since 2026-11-08
+  check('U2.5d detail page, dashboard card and course session page all use THE Join button', btnUsers.every((f) => readFileSync(f, 'utf8').includes('<JoinLiveButton')));
 
   // Same-day reminder at 9:00 AM KSA (cron 06:00 UTC).
   check('U2.6a 19:00 KSA is later today at 09:00 KSA', dr.startsLaterToday(start, new Date('2026-12-01T06:00:00Z')));
@@ -653,7 +653,8 @@ async function unit5(): Promise<void> {
   check('U5.2b a course session\'s recording is always embedded (tracked), on edit and on create', /if \(courseCode\) updates\.youtube_embed = true/.test(patch) && post.includes('courseFields(body).course_code ? true'));
   check('U5.2c the recording email for a course session uses the course recipients', patch.includes('recordingRecipientsForCourseSession(sb, id, courseCode)'));
   const page = readFileSync('app/training/live-course/[code]/LiveCourseClient.tsx', 'utf8');
-  check('U5.3a the course page links each recording to the tracked session player', page.includes('data-testid="watch-recording"') && page.includes('href={courseSessionPath(course.courseCode, s.id)}'));
+  // Re-aimed 2026-11-08: the recording link is the session page's main button, to the tracked player at ./watch.
+  check('U5.3a a course session links its recording to the tracked session player', readFileSync('app/training/[courseId]/sessions/[id]/CourseSessionClient.tsx', 'utf8').includes('sessionMainAction(') && readFileSync('src/hubs/training/lib/liveCourse/courseNav.ts', 'utf8').includes("href: `${courseSessionPath(p.courseCode, p.sessionId)}/watch`"));
   const detail = readFileSync('app/training/live-sessions/[id]/page.tsx', 'utf8');
   check('U5.3b the player is not gated on a per-session registration (enrolled or new students can watch)', /const hasVideo = session\.youtube_embed && !!ytId;/.test(detail));
   const watched = readFileSync('app/api/training/live-sessions/[id]/watched/route.ts', 'utf8');
@@ -1157,7 +1158,7 @@ async function unit12(): Promise<void> {
   check('U12.1e the founder block sanitises every HTML field before rendering', (block.match(/safeProfileHtml\(/g) ?? []).length >= 4 && block.includes('sanitizeArticleHtml'));
   const home = readFileSync('app/(portal)/page.tsx', 'utf8');
   const page = readFileSync('app/training/live-course/[code]/LiveCoursePage.tsx', 'utf8');
-  check('U12.1f ONE founder block: the home page and the course page render the same component from the one CMS record', home.includes('<FounderProfileBlock') && !home.includes('<FounderExpand') && page.includes('<FounderProfileBlock') && page.includes("section_type === 'team'"));
+  check('U12.1f ONE founder record: the home page block and the course page card read the same CMS record through one resolver', home.includes('<FounderProfileBlock') && !home.includes('<FounderExpand') && page.includes('<FounderShortCard') && page.includes("section_type === 'team'") && readFileSync('src/hubs/main/components/landing/FounderShortCard.tsx', 'utf8').includes('founderProfile(content)')); // the course page shows the SHORT card since 2026-11-08, same record
 
   // ── Sections switch off ──
   const full = PS.resolvePage(RP.REFM_PAGE);
@@ -1200,7 +1201,7 @@ async function unit12(): Promise<void> {
   check('U12.5c the threshold defaults to 25', PS.DEFAULT_PAGE.sections.sideCard.enrolledThreshold === 25 && RP.REFM_PAGE.sections.sideCard.enrolledThreshold === 25);
 
   // ── Curriculum image fallback ──
-  check('U12.6a a session with no banner shows the course card image', client.includes('imageUrl={s.banner_url || course.cardImageUrl}'));
+  check('U12.6a a session with no image shows the course card image (session page)', readFileSync('app/training/[courseId]/sessions/[id]/CourseSessionClient.tsx', 'utf8').includes('s.banner_url || course.cardImageUrl'));
   check('U12.6b curriculum cards show the image, number, title, KSA time, overview and the expandable details', readFileSync('src/hubs/training/components/sessions/CourseSessionCard.tsx', 'utf8').includes('data-testid="session-card-image"'));
 
   // ── Content and testimonials ──
@@ -1349,6 +1350,63 @@ async function unit14(): Promise<void> {
   check('U14.7g the session page sidebar walks the playlist and links course sessions under their course', sessPage.includes('s.course_code ? courseSessionPath(s.course_code, s.id)'));
 }
 
+async function unit15(): Promise<void> {
+  console.log('\n=== Course layout: sidebar, overview table, session page, short instructor ===\n');
+  const CN = await import('../src/hubs/training/lib/liveCourse/courseNav');
+  const FSC = readFileSync('src/hubs/main/components/landing/FounderShortCard.tsx', 'utf8');
+  const shell = readFileSync('src/hubs/training/components/sessions/CourseShell.tsx', 'utf8');
+  const overview = readFileSync('app/training/live-course/[code]/LiveCourseClient.tsx', 'utf8');
+  const sessPage = readFileSync('app/training/[courseId]/sessions/[id]/CourseSessionClient.tsx', 'utf8');
+
+  const S = (id: string, no: number | null, when: string, extra: Partial<{ youtube_url: string; rescheduled_from: string }> = {}) =>
+    ({ id, title: `T${id}`, course_session_no: no, scheduled_datetime: when, duration_minutes: 150, session_type: 'upcoming', ...extra });
+  const list = [S('c', 3, '2026-12-15T16:00:00Z'), S('a', 1, '2026-12-01T16:00:00Z'), S('b', 2, '2026-12-08T16:00:00Z')];
+
+  // ── Sidebar ──
+  check('U15.1a the sidebar lists the sessions in course order (by number)', CN.orderSessions(list).map((s) => s.id).join('') === 'abc');
+  check('U15.1b it starts with "Course overview" and marks the current page', shell.includes('Course overview') && shell.includes("aria-current={isHere ? 'page' : undefined}") && shell.includes("data-current={isHere ? 'true' : undefined}") && shell.includes('You are here'));
+  check('U15.1c a completed session shows a tick (attendance or recording rule met)', shell.includes('data-testid="course-sidebar-done"') && overview.includes('filter((e) => e.met)') && sessPage.includes('filter((x) => x.met)'));
+  check('U15.1d sticky, with Hide / Show, and a "Sessions" drawer on phones', shell.includes('position: sticky') && shell.includes('✕ Hide') && shell.includes('☰ Show sessions') && shell.includes('☰ Sessions') && shell.includes('course-sidebar-drawer') && shell.includes('@media (max-width: 900px)'));
+  check('U15.1e the overview and the session page both use the one shell', overview.includes('<CourseShell') && overview.includes('current="overview"') && sessPage.includes('<CourseShell') && sessPage.includes('current={sessionId}'));
+
+  // ── Status labels ──
+  const before = new Date('2026-11-20T12:00:00Z').getTime();
+  const during = new Date('2026-12-01T16:30:00Z').getTime();
+  const after = new Date('2026-12-02T12:00:00Z').getTime();
+  check('U15.2a upcoming', CN.navStatus(list[1], before) === 'upcoming' && CN.STATUS_LABEL.upcoming === 'Upcoming');
+  check('U15.2b rescheduled', CN.navStatus(S('a', 1, '2026-12-01T16:00:00Z', { rescheduled_from: '2026-11-30T16:00:00Z' }), before) === 'rescheduled');
+  check('U15.2c live now inside the session', CN.navStatus(list[1], during) === 'live' && CN.STATUS_LABEL.live === 'Live now');
+  check('U15.2d recorded once a recording exists, else "Recording coming soon"', CN.navStatus(S('a', 1, '2026-12-01T16:00:00Z', { youtube_url: 'https://youtu.be/x' }), after) === 'recorded' && CN.navStatus(list[1], after) === 'ended' && CN.STATUS_LABEL.ended === 'Recording coming soon');
+
+  // ── Overview ──
+  check('U15.3a the overview no longer renders the large curriculum cards or their images', !overview.includes('<CourseSessionCard') && !overview.includes('imageUrl={'));
+  check('U15.3b the compact sessions table links each row to its session page', overview.includes('<CourseSessionsTable') && shell.includes('data-testid="course-sessions-row"') && /href=\{courseSessionPath\(courseCode, s\.id\)\} data-testid="course-sessions-row"/.test(shell));
+  check('U15.3c the table is the switchable "Sessions table" section', readFileSync('src/hubs/training/lib/liveCourse/pageSections.ts', 'utf8').includes("curriculum: 'Sessions table'"));
+  check('U15.3d "Who it is for" text shows only when its cards are off; Prerequisites is one line', overview.includes("...(whoForCardsOn ? [] : [{ title: 'Who it is for'") && overview.includes('data-testid="live-course-prereq"') && !overview.includes("{ title: 'Prerequisites'"));
+
+  // ── Session page main button ──
+  const A = (o: Partial<Parameters<typeof CN.sessionMainAction>[0]>) => CN.sessionMainAction({ courseCode: 'REFM', sessionId: 'a', status: 'upcoming', enrolled: false, signedIn: false, canRegister: true, ...o });
+  check('U15.4a not enrolled: Register free (signed out) or Enrol (signed in)', A({}).kind === 'register' && A({}).href === '/register?course=REFM' && A({ signedIn: true }).kind === 'enrol' && A({ signedIn: true }).href === '/training/REFM?enrol=1');
+  check('U15.4b enrolled, before or inside the join window: Join live', A({ enrolled: true, signedIn: true }).kind === 'join' && A({ enrolled: true, signedIn: true, status: 'live' }).kind === 'join');
+  check('U15.4c enrolled, after: Watch recording (the tracked player) or Recording coming soon', A({ enrolled: true, signedIn: true, status: 'recorded' }).href === '/training/REFM/sessions/a/watch' && A({ enrolled: true, signedIn: true, status: 'ended' }).kind === 'recording-soon');
+  check('U15.4d enrolment closed is stated, never a dead button', A({ canRegister: false }).kind === 'closed' && A({ canRegister: false }).href === null);
+  check('U15.4e the tracked recording player stays, at ./watch', readFileSync('app/training/[courseId]/sessions/[id]/watch/page.tsx', 'utf8').includes("export { default } from '../../../../live-sessions/[id]/page'"));
+  check('U15.4f the session page: 16:9 whole image (course card fallback), content blocks, collapsed time zones, materials rule, certificate card', sessPage.includes('s.banner_url || course.cardImageUrl') && sessPage.includes("aspectRatio: '16 / 9'") && sessPage.includes("objectFit: 'contain'") && sessPage.includes("'What you will learn'") && sessPage.includes("'By the end of this session'") && sessPage.includes("'Build with Claude'") && sessPage.includes('collapsible') && sessPage.includes('Materials will be available after the session.') && sessPage.includes('vs?.materialsReleased') && sessPage.includes('course-session-certificate'));
+
+  // ── Previous / next ──
+  const pn = CN.prevNext(list, 'b');
+  check('U15.5a Previous and Next are the neighbours in course order', pn.prev?.id === 'a' && pn.next?.id === 'c');
+  check('U15.5b the first has no previous and the last no next', CN.prevNext(list, 'a').prev === null && CN.prevNext(list, 'c').next === null);
+  check('U15.5c the page links them to their session pages', sessPage.includes('courseSessionPath(course.courseCode, prev.id)') && sessPage.includes('courseSessionPath(course.courseCode, next.id)'));
+
+  // ── Short instructor ──
+  const FS = await import('../src/hubs/main/components/landing/FounderShortCard');
+  check('U15.6a an empty short bio falls back to the first two sentences of the full bio', FS.firstSentences('<p>One. Two! Three?</p>') === 'One. Two!');
+  check('U15.6b the card shows the course short bio when set, with "Read full profile" to the profile page', FSC.includes("(shortBio ?? '').trim() || firstSentences(p.fBio, 2)") && FSC.includes('data-testid="founder-full-profile" href={p.fCtaUrl}') && readFileSync('src/hubs/main/components/landing/FounderProfileBlock.tsx', 'utf8').includes("'/about/ahmad-din'") && existsSync('app/about/ahmad-din'));
+  check('U15.6c one founder record: the full block and the short card read the same resolver', FSC.includes('founderProfile(content)') && readFileSync('src/hubs/main/components/landing/FounderProfileBlock.tsx', 'utf8').includes('= founderProfile(content);'));
+  check('U15.6d up to three highlights, and the short bio is an admin setting', FSC.includes('.slice(0, 3)') && readFileSync('app/admin/training-hub/live-training/[code]/CoursePageSectionsTab.tsx', 'utf8').includes('data-testid="instructor-short-bio"'));
+}
+
 (async () => {
   await unit0();
   await unit1();
@@ -1366,6 +1424,7 @@ async function unit14(): Promise<void> {
   await unit12();
   await unit13();
   await unit14();
+  await unit15();
   console.log(`\n${passed} passed, ${failed} failed`);
   if (failed) { console.log('Failed:'); for (const f of fails) console.log(`  - ${f}`); process.exit(1); }
 })().catch((e) => { console.error(e); process.exit(1); });

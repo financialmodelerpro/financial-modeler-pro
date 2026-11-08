@@ -22,20 +22,10 @@ export function safeProfileHtml(v: string): string {
   return /<[a-z][\s\S]*?>/i.test(v) ? sanitizeArticleHtml(v) : v;
 }
 
-export function FounderProfileBlock({
-  content, bgColor, badgeFallback = 'The Founder', badgeOverride, isAdmin = false, id,
-}: {
-  /** The `team` CMS section's content (null = fallbacks). */
-  content: Record<string, unknown> | null | undefined;
-  bgColor?: string;
-  badgeFallback?: string;
-  /** e.g. "Your instructor" on a course page. */
-  badgeOverride?: string;
-  isAdmin?: boolean;
-  id?: string;
-}) {
+/** THE founder profile fields, from the one CMS record (with the site defaults). Used by the
+ *  full block here and the short instructor card on course pages, so the two never drift. */
+export function founderProfile(content: Record<string, unknown> | null | undefined) {
   const fc = content ?? undefined;
-  const fBadge   = badgeOverride || (fc?.badge as string) || badgeFallback;
   const fName    = (fc?.name as string)             || FOUNDER_NAME;
   const fTitle   = (fc?.title as string)            || 'Corporate Finance & Transaction Advisory Specialist | Financial Modeling Expert';
   const fBio     = safeProfileHtml((fc?.bio as string) || FOUNDER_SHORT_BIO);
@@ -54,6 +44,24 @@ export function FounderProfileBlock({
   const fPhilo   = safeProfileHtml((fc?.philosophy as string) || '');
   const fShowMore = fc?.show_read_more !== false;
   const fMoreLabel = (fc?.read_more_label as string) || 'Read Full Profile →';
+  return { fName, fTitle, fBio, fQuals, fCreds, fPhoto, fRadius, fFit, fLinkedIn, fCtaPri, fCtaUrl, fCtaSec, fBookTxt, fBookUrl, fLongBio, fPhilo, fShowMore, fMoreLabel };
+}
+
+export function FounderProfileBlock({
+  content, bgColor, badgeFallback = 'The Founder', badgeOverride, isAdmin = false, id,
+}: {
+  /** The `team` CMS section's content (null = fallbacks). */
+  content: Record<string, unknown> | null | undefined;
+  bgColor?: string;
+  badgeFallback?: string;
+  /** e.g. "Your instructor" on a course page. */
+  badgeOverride?: string;
+  isAdmin?: boolean;
+  id?: string;
+}) {
+  const fc = content ?? undefined;
+  const fBadge   = badgeOverride || (fc?.badge as string) || badgeFallback;
+  const { fName, fTitle, fBio, fQuals, fCreds, fPhoto, fRadius, fFit, fLinkedIn, fCtaPri, fCtaUrl, fCtaSec, fBookTxt, fBookUrl, fLongBio, fPhilo, fShowMore, fMoreLabel } = founderProfile(content);
   const fBg      = bgColor ?? '#1B3A6B';
   return (
     <section id={id} data-testid="founder-profile-block" style={{ padding:'64px 40px 80px', background:fBg, color:'#fff' }}>

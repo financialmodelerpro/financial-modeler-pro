@@ -13,7 +13,7 @@ export const REFM_PAGE: PageConfig = {
     hero: { enabled: true, facts: ['8 live sessions', 'Tuesdays 7:00 PM KSA', 'Starts 1 Dec 2026', 'Free', 'Certificate'], countdown: true },
     sideCard: { enabled: true, enrolledThreshold: 25 },
     about: { enabled: true },
-    curriculum: { enabled: true, heading: 'Curriculum' },
+    curriculum: { enabled: true, heading: 'Sessions' },
     skills: {
       enabled: true, heading: 'Skills you will gain',
       items: [
@@ -51,7 +51,7 @@ export const REFM_PAGE: PageConfig = {
         { icon: 'monitor', title: 'Financial Modeler Pro', text: 'The same case on the platform in the final session' },
       ],
     },
-    instructor: { enabled: true, heading: 'Your instructor' },
+    instructor: { enabled: true, heading: 'Your instructor', shortBio: '' },
     testimonials: { enabled: true, heading: 'What participants say', ids: [] },
     faq: {
       enabled: true, heading: 'Frequently asked questions',

@@ -26,7 +26,8 @@ export interface PageSections {
   whoFor: { enabled: boolean; heading: string; items: IconItem[] };
   certification: { enabled: boolean; heading: string; steps: Step[]; showSamples: boolean };
   tools: { enabled: boolean; heading: string; items: IconItem[] };
-  instructor: { enabled: boolean; heading: string };
+  /** shortBio: the course's two to three line instructor bio (empty = first two sentences of the full bio). */
+  instructor: { enabled: boolean; heading: string; shortBio: string };
   testimonials: { enabled: boolean; heading: string; ids: string[] };
   faq: { enabled: boolean; heading: string; items: FaqItem[] };
   cta: { enabled: boolean; text: string };
@@ -39,7 +40,7 @@ export const BODY_SECTIONS: SectionKey[] = ['about', 'curriculum', 'skills', 'wh
 
 export const SECTION_LABELS: Record<SectionKey, string> = {
   hero: 'Hero', sideCard: 'Side card and mobile Register bar', about: 'About (description, who it is for, prerequisites)',
-  curriculum: 'Curriculum', skills: 'Skills you will gain', whoFor: 'Who it is for (cards)', certification: 'How certification works',
+  curriculum: 'Sessions table', skills: 'Skills you will gain', whoFor: 'Who it is for (cards)', certification: 'How certification works',
   tools: 'Tools you will use', instructor: 'Instructor', testimonials: 'Testimonials', faq: 'FAQ', cta: 'Final call to action',
 };
 
@@ -51,12 +52,12 @@ export const DEFAULT_PAGE: PageConfig = {
     hero: { enabled: true, facts: [], countdown: true },
     sideCard: { enabled: true, enrolledThreshold: 25 },
     about: { enabled: true },
-    curriculum: { enabled: true, heading: 'Curriculum' },
+    curriculum: { enabled: true, heading: 'Sessions' },
     skills: { enabled: false, heading: 'Skills you will gain', items: [] },
     whoFor: { enabled: false, heading: 'Who it is for', items: [] },
     certification: { enabled: true, heading: 'How certification works', steps: [], showSamples: true },
     tools: { enabled: false, heading: 'Tools you will use', items: [] },
-    instructor: { enabled: true, heading: 'Your instructor' },
+    instructor: { enabled: true, heading: 'Your instructor', shortBio: '' },
     testimonials: { enabled: true, heading: 'What participants say', ids: [] },
     faq: { enabled: false, heading: 'Frequently asked questions', items: [] },
     cta: { enabled: true, text: '' },
@@ -90,7 +91,7 @@ export function resolvePage(stored: unknown): PageConfig {
       showSamples: bool(g('certification').showSamples, D.certification.showSamples),
     },
     tools: { enabled: bool(g('tools').enabled, D.tools.enabled), heading: str(g('tools').heading, D.tools.heading), items: items(g('tools').items, D.tools.items) },
-    instructor: { enabled: bool(g('instructor').enabled, D.instructor.enabled), heading: str(g('instructor').heading, D.instructor.heading) },
+    instructor: { enabled: bool(g('instructor').enabled, D.instructor.enabled), heading: str(g('instructor').heading, D.instructor.heading), shortBio: str(g('instructor').shortBio, D.instructor.shortBio) },
     testimonials: { enabled: bool(g('testimonials').enabled, D.testimonials.enabled), heading: str(g('testimonials').heading, D.testimonials.heading), ids: Array.isArray(g('testimonials').ids) ? (g('testimonials').ids as unknown[]).map(String) : D.testimonials.ids },
     faq: { enabled: bool(g('faq').enabled, D.faq.enabled), heading: str(g('faq').heading, D.faq.heading), items: Array.isArray(g('faq').items) ? (g('faq').items as unknown[]).filter(isObj).map((x) => ({ q: str(x.q, ''), a: str(x.a, '') })).filter((x) => x.q && x.a) : D.faq.items },
     cta: { enabled: bool(g('cta').enabled, D.cta.enabled), text: str(g('cta').text, D.cta.text) },
