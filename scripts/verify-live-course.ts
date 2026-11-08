@@ -147,8 +147,51 @@ async function unit0(): Promise<void> {
   check('U0.5e the platform reads Teams for a Teams session, never YouTube', sessionPlatformLabel('teams') === 'Microsoft Teams' && sessionPlatformLabel(null) === 'Live online');
 }
 
+const hasCreds = (): boolean => !!(process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL) && !!process.env.SUPABASE_SERVICE_ROLE_KEY;
+async function db() {
+  const { getServerClient } = await import('../src/core/db/supabase');
+  return getServerClient();
+}
+
+async function unit1(): Promise<void> {
+  console.log('\n=== Unit 1: course rules and data ===\n');
+  const cs = await import('../src/hubs/training/lib/liveCourse/courseSettings');
+
+  check('U1.1a course codes normalise to upper case', cs.normaliseCourseCode(' refm ') === 'REFM');
+  check('U1.1b a malformed code is refused', cs.normaliseCourseCode('re fm') === null && cs.normaliseCourseCode(7) === null);
+  const d = cs.settingsFromRow({ course_code: 'refm', exams_enabled: false });
+  check('U1.1c absent values take the migration defaults', d.attendanceThresholdPct === 75 && d.recordingCompletePct === 95 && d.maxSubmissionAttempts === 3 && d.allowMixedRoutes && d.certRoutes.join() === 'live,recording');
+  check('U1.1d attempts clamp to 1..10', cs.settingsFromRow({ course_code: 'X1', max_submission_attempts: 99 }).maxSubmissionAttempts === 10);
+  check('U1.1e an exam course (no row) is never a live course', cs.isLiveCourseRow(null) === false);
+  check('U1.1f a row with exams on is not a live course', cs.isLiveCourseRow(cs.settingsFromRow({ course_code: 'X1', exams_enabled: true })) === false);
+
+  if (!hasCreds()) { check('U1.2 credentials loaded for the schema probe', false, 'run through npm run verify:suite'); return; }
+  const sb = await db();
+  const refm = await cs.getLiveCourseSettings(sb, 'REFM');
+  check('U1.2a REFM is seeded as a live course', cs.isLiveCourseRow(refm), JSON.stringify(refm));
+  check('U1.2b REFM rules: 75% live, 95% recording, 3 attempts, mixed, no exams',
+    !!refm && refm.attendanceThresholdPct === 75 && refm.recordingCompletePct === 95 && refm.maxSubmissionAttempts === 3 && refm.allowMixedRoutes && !refm.examsEnabled);
+  for (const exam of ['3SFM', 'BVM']) {
+    check(`U1.2c ${exam} has no live-course row (keeps the exam path)`, (await cs.getLiveCourseSettings(sb, exam)) === null);
+  }
+  const probes: [string, string][] = [
+    ['live_sessions', 'course_code, course_session_no, graph_online_meeting_id, attendance_synced_at, attendance_sync_error, actual_start_at, actual_end_at, day_reminder_sent_at'],
+    ['live_session_attendance', 'id, session_id, attendee_email, student_email, matched_by, intervals, attended_seconds, session_seconds, attended_pct, source'],
+    ['student_email_aliases', 'alias_email, student_email'],
+    ['live_session_join_clicks', 'id, session_id, student_email, clicked_at'],
+    ['training_pending_registrations', 'enrol_course_code'],
+    ['training_enrollments', 'source, confirmation_sent_at'],
+    ['model_submissions', 'superseded_at, superseded_by, superseded_reason'],
+  ];
+  for (const [table, cols] of probes) {
+    const { error } = await sb.from(table).select(cols).limit(1);
+    check(`U1.3 ${table} has the mig 247/248 columns`, !error, error?.message ?? '');
+  }
+}
+
 (async () => {
   await unit0();
+  await unit1();
   console.log(`\n${passed} passed, ${failed} failed`);
   if (failed) { console.log('Failed:'); for (const f of fails) console.log(`  - ${f}`); process.exit(1); }
 })().catch((e) => { console.error(e); process.exit(1); });
