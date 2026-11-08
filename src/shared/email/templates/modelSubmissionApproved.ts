@@ -1,6 +1,7 @@
 /*
  * html-safe: attemptNumber
- * 
+ * html-safe: noExam (a boolean that picks between two fixed sentences)
+ *
  * A count, not text. Every value that can carry markup is escaped.
  */
 import { baseLayoutBranded, h1, p, button, divider , escapeHtml, escapeHtmlMultiline } from './_base';
@@ -17,6 +18,10 @@ interface ModelSubmissionApprovedData {
    *  LINK, never an attachment. Null when the admin approved without a file. */
   reviewedFileUrl?: string | null;
   reviewedFileName?: string | null;
+  /** A course with no exam (live course): approval issues the certificate. */
+  noExam?: boolean;
+  /** Where the student's button goes; the dashboard's My Model tab by default. */
+  dashboardUrl?: string;
 }
 
 /**
@@ -25,9 +30,12 @@ interface ModelSubmissionApprovedData {
  * POST /api/admin/model-submissions/[id]/review.
  */
 export async function modelSubmissionApprovedTemplate({
-  name, courseLabel, fileName, attemptNumber, reviewerNote, reviewedFileUrl, reviewedFileName,
+  name, courseLabel, fileName, attemptNumber, reviewerNote, reviewedFileUrl, reviewedFileName, noExam, dashboardUrl,
 }: ModelSubmissionApprovedData) {
-  const subject = `✓ Model approved, Final exam unlocked: ${escapeHtml(courseLabel)}`;
+  const goUrl = dashboardUrl || `${LEARN_URL}/training/dashboard?tab=my-model`;
+  const subject = noExam
+    ? `✓ Model approved, your certificate is on its way: ${escapeHtml(courseLabel)}`
+    : `✓ Model approved, Final exam unlocked: ${escapeHtml(courseLabel)}`;
 
   const html = await baseLayoutBranded(`
     ${h1(`Model approved${name ? `, ${escapeHtml(name)}` : ''}!`)}
@@ -57,10 +65,12 @@ export async function modelSubmissionApprovedTemplate({
          </div>`
       : ''}
 
-    ${p('The Final Exam for this course is now unlocked on your dashboard. Pass it and your certificate is issued automatically.')}
+    ${noExam
+      ? p('This completes the course. Your certificate is being issued now and will arrive in a separate email, with a link anyone can use to verify it.')
+      : p('The Final Exam for this course is now unlocked on your dashboard. Pass it and your certificate is issued automatically.')}
 
     <div style="text-align:center;margin:24px 0;">
-      ${button('Go to Dashboard', `${LEARN_URL}/training/dashboard?tab=my-model`)}
+      ${button('Go to Dashboard', goUrl)}
     </div>
 
     ${divider()}
@@ -74,8 +84,8 @@ export async function modelSubmissionApprovedTemplate({
     + `Submission: ${escapeHtml(fileName)} (attempt ${attemptNumber})\n`
     + `${reviewerNote ? `\nReviewer note: ${reviewerNote}\n` : ''}`
     + `${reviewedFileUrl ? `\nYour reviewer returned a marked-up model${reviewedFileName ? ` (${escapeHtml(reviewedFileName)})` : ''}.\nDownload: ${reviewedFileUrl}\n` : ''}`
-    + `\nThe Final Exam is now unlocked on your dashboard.\n`
-    + `\nYour models: ${LEARN_URL}/training/dashboard?tab=my-model`;
+    + (noExam ? `\nYour certificate is being issued and will arrive in a separate email.\n` : `\nThe Final Exam is now unlocked on your dashboard.\n`)
+    + `\nYour models: ${goUrl}`;
 
   return { subject, html, text };
 }

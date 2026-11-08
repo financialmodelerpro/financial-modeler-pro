@@ -22,6 +22,10 @@ interface ModelSubmissionRejectedData {
    *  matters more here than on an approval. Null when no file was attached. */
   reviewedFileUrl?: string | null;
   reviewedFileName?: string | null;
+  /** A course with no exam (live course): no Final Exam wording. */
+  noExam?: boolean;
+  /** Where the student's button goes; the dashboard's My Model tab by default. */
+  dashboardUrl?: string;
 }
 
 /**
@@ -33,8 +37,9 @@ interface ModelSubmissionRejectedData {
 export async function modelSubmissionRejectedTemplate({
   name, courseLabel, fileName, attemptNumber,
   attemptsRemaining, maxAttempts, reviewerNote,
-  reviewedFileUrl, reviewedFileName,
+  reviewedFileUrl, reviewedFileName, noExam, dashboardUrl,
 }: ModelSubmissionRejectedData) {
+  const goUrl = dashboardUrl || `${LEARN_URL}/training/dashboard?tab=my-model`;
   const exhausted = attemptsRemaining <= 0;
   const subject = exhausted
     ? `Model needs work, Please contact the administrator: ${escapeHtml(courseLabel)}`
@@ -68,12 +73,14 @@ export async function modelSubmissionRejectedTemplate({
       : ''}
 
     ${exhausted
-      ? p('You have used all of your model submission attempts. Please reply to this email so we can talk through next steps and unlock your Final Exam manually.')
+      ? p(noExam
+          ? 'You have used all of your model submission attempts, so uploads are now locked. Please reply to this email so we can talk through next steps; the administrator can reset your attempts.'
+          : 'You have used all of your model submission attempts. Please reply to this email so we can talk through next steps and unlock your Final Exam manually.')
       : p(`Use the reviewer note above to refine your model and upload a new version when you are ready. You have <strong>${attemptsRemaining}</strong> resubmission${attemptsRemaining === 1 ? '' : 's'} left.`)
     }
 
     <div style="text-align:center;margin:24px 0;">
-      ${button(exhausted ? 'Open Dashboard' : 'Resubmit Your Model', `${LEARN_URL}/training/dashboard?tab=my-model`)}
+      ${button(exhausted ? 'Open Dashboard' : 'Resubmit Your Model', goUrl)}
     </div>
 
     ${divider()}
@@ -91,7 +98,7 @@ export async function modelSubmissionRejectedTemplate({
     + `${exhausted
         ? 'You have used all attempts. Please reply to this email to discuss next steps.'
         : 'Use the reviewer note to refine your model and upload again when ready.'}\n\n`
-    + `Your models: ${LEARN_URL}/training/dashboard?tab=my-model`;
+    + `Your models: ${goUrl}`;
 
   return { subject, html, text };
 }

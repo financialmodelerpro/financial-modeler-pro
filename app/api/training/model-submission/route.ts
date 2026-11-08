@@ -5,6 +5,7 @@ import { getModelSubmissionStatus } from '@/src/hubs/training/lib/modelSubmissio
 import { sendEmail, FROM } from '@/src/shared/email/sendEmail';
 import { modelSubmissionAdminAlertTemplate } from '@/src/shared/email/templates/modelSubmissionAdminAlert';
 import { COURSES } from '@/src/hubs/training/config/courses';
+import { normaliseCourseCode, getLiveCourseSettings } from '@/src/hubs/training/lib/liveCourse/courseSettings';
 
 // FormData uploads can stretch past the 10s default on slower connections;
 // cap at 60s like submit-assessment so a 9 MB xlsx on a 1 Mbps link still
@@ -18,10 +19,8 @@ const ALLOWED_EXT_TO_MIME: Record<string, string> = {
   pdf:  'application/pdf',
 };
 
-function normalizeCourseCode(input: string): '3SFM' | 'BVM' | null {
-  const upper = input.trim().toUpperCase();
-  return upper === '3SFM' || upper === 'BVM' ? (upper as '3SFM' | 'BVM') : null;
-}
+// 3SFM, BVM, or a live course code; an unknown course reads as "gate not on".
+const normalizeCourseCode = (input: string) => normaliseCourseCode(input);
 
 function safeFileName(name: string): string {
   // Strip path separators + odd characters; keep dot for extension. Mirrors
@@ -43,7 +42,7 @@ export async function GET(req: NextRequest) {
 
   const courseCode = req.nextUrl.searchParams.get('courseCode') ?? '';
   const code = normalizeCourseCode(courseCode);
-  if (!code) return NextResponse.json({ error: 'courseCode must be 3SFM or BVM' }, { status: 400 });
+  if (!code) return NextResponse.json({ error: 'courseCode is not a valid course' }, { status: 400 });
 
   try {
     const status = await getModelSubmissionStatus(session.email, code);
@@ -98,7 +97,7 @@ export async function POST(req: NextRequest) {
   const studentNotesRaw = (form.get('studentNotes') as string | null) ?? '';
 
   const code = normalizeCourseCode(courseCodeRaw);
-  if (!code) return NextResponse.json({ error: 'courseCode must be 3SFM or BVM' }, { status: 400 });
+  if (!code) return NextResponse.json({ error: 'courseCode is not a valid course' }, { status: 400 });
   if (!file) return NextResponse.json({ error: 'No file provided' }, { status: 400 });
 
   // Read settings + status in one call. This mirrors the cert engine /
@@ -116,6 +115,15 @@ export async function POST(req: NextRequest) {
     }, { status: 403 });
   }
 
+  // A live course: submission unlocks only once attendance or recordings
+  // complete a route (eligibility.ts), the same rule the course page shows.
+  if (status.liveCourse && !status.eligibleToSubmit) {
+    return NextResponse.json({
+      error: 'not_eligible',
+      message: 'Model submission unlocks once every session is complete (attended live or recording watched).',
+    }, { status: 403 });
+  }
+
   if (status.latestStatus === 'pending_review') {
     return NextResponse.json({
       error: 'pending_review_in_flight',
@@ -123,10 +131,14 @@ export async function POST(req: NextRequest) {
     }, { status: 409 });
   }
 
-  if (status.attemptsUsed >= status.maxAttempts) {
+  if (status.hasApproved) {
+    return NextResponse.json({ error: 'already_approved', message: 'Your model is already approved.' }, { status: 409 });
+  }
+
+  if (status.locked || status.attemptsUsed >= status.maxAttempts) {
     return NextResponse.json({
       error: 'attempts_exhausted',
-      message: `You have used all ${status.maxAttempts} of your submission attempts. Please contact the administrator.`,
+      message: `You have used all ${status.maxAttempts} of your submission attempts, so uploads are locked. Please contact the administrator, who can reset your attempts.`,
     }, { status: 403 });
   }
 
@@ -263,7 +275,7 @@ export async function POST(req: NextRequest) {
       const studentName = ((metaRow as { name?: string } | null)?.name ?? '').trim() || null;
 
       const courseEntry = Object.values(COURSES).find(c => c.shortTitle.toUpperCase() === code);
-      const courseLabel = courseEntry?.title ?? code;
+      const courseLabel = courseEntry?.title ?? (await getLiveCourseSettings(sb, code))?.title ?? code;
 
       const { subject, html, text } = await modelSubmissionAdminAlertTemplate({
         studentName,

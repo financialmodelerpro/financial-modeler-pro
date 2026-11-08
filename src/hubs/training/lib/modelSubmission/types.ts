@@ -11,8 +11,9 @@ export type ModelSubmissionStatus = 'pending_review' | 'approved' | 'rejected';
 export interface ModelSubmissionRow {
   id: string;
   email: string;
-  course_code: '3SFM' | 'BVM';
-  attempt_number: 1 | 2 | 3;
+  /** '3SFM' | 'BVM' | a live course code (mig 248 allows any short code). */
+  course_code: string;
+  attempt_number: number;
   storage_path: string;
   file_name: string;
   file_size: number;
@@ -30,6 +31,8 @@ export interface ModelSubmissionRow {
   reviewed_file_name: string | null;
   reviewed_file_size: number | null;
   reviewed_file_mime: string | null;
+  /** Set by an admin attempt reset (mig 248): history, not an attempt. */
+  superseded_at?: string | null;
 }
 
 /**
@@ -45,7 +48,7 @@ export interface ModelSubmissionRow {
  */
 export interface ModelAttemptView {
   id: string;
-  courseCode: '3SFM' | 'BVM';
+  courseCode: string;
   attemptNumber: number;
   status: ModelSubmissionStatus;
   submittedAt: string;
@@ -98,4 +101,16 @@ export interface ModelSubmissionStatusResult {
    * storage, Drive, GitHub, etc).
    */
   sampleUrl: string | null;
+  /**
+   * Uploads refused for good: every attempt used and none approved. Only an
+   * admin reset (which supersedes the rows) reopens them.
+   */
+  locked: boolean;
+  /** True for a live course (no exam; submission follows attendance or recordings). */
+  liveCourse: boolean;
+  /**
+   * Live course only: whether attendance or recordings have unlocked
+   * submission (eligibility.ts). Null for an exam course.
+   */
+  eligibleToSubmit: boolean | null;
 }

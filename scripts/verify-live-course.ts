@@ -650,6 +650,100 @@ async function unit5(): Promise<void> {
   check('U5.3c watch progress is merged on the server from intervals (what eligibility reads)', watched.includes('watch_intervals') && watched.includes('watch_seconds'));
 }
 
+async function unit6(): Promise<void> {
+  console.log('\n=== Unit 6: model submission gate, attempts and reset ===\n');
+  const CA = await import('../src/hubs/training/lib/modelSubmission/checkApproval');
+  const RS = await import('../src/hubs/training/lib/modelSubmission/resetSubmissions');
+  const row = (n: number, status: 'pending_review' | 'approved' | 'rejected', superseded: string | null = null) =>
+    ({ id: `m${n}`, status, submitted_at: `2027-01-0${n}T10:00:00Z`, superseded_at: superseded, attempt_number: n });
+
+  // Attempts 1 to 3 and the lock.
+  const s0 = CA.submissionState([], 3);
+  check('U6.1a no submission: 0 used, 3 left, not locked', s0.attemptsUsed === 0 && s0.attemptsRemaining === 3 && !s0.locked);
+  const s1 = CA.submissionState([row(1, 'rejected')], 3);
+  check('U6.1b one rejection: 1 used, 2 left, not locked', s1.attemptsUsed === 1 && s1.attemptsRemaining === 2 && !s1.locked);
+  const s2 = CA.submissionState([row(1, 'rejected'), row(2, 'rejected')], 3);
+  check('U6.1c two rejections: 2 used, 1 left, not locked', s2.attemptsUsed === 2 && s2.attemptsRemaining === 1 && !s2.locked);
+  const s3p = CA.submissionState([row(1, 'rejected'), row(2, 'rejected'), row(3, 'pending_review')], 3);
+  check('U6.1d third attempt under review: not locked yet', !s3p.locked && s3p.latestStatus === 'pending_review');
+  const s3 = CA.submissionState([row(1, 'rejected'), row(2, 'rejected'), row(3, 'rejected')], 3);
+  check('U6.1e LOCKED after the 3rd rejection', s3.locked && s3.attemptsRemaining === 0 && s3.latestStatus === 'rejected');
+  const s3a = CA.submissionState([row(1, 'rejected'), row(2, 'rejected'), row(3, 'approved')], 3);
+  check('U6.1f approved on the 3rd attempt: not locked', !s3a.locked && s3a.hasApproved);
+  const after = CA.submissionState([row(1, 'rejected', 'x'), row(2, 'rejected', 'x'), row(3, 'rejected', 'x')], 3);
+  check('U6.1g after a reset (rows superseded): 0 used, attempt 1 again, not locked', after.attemptsUsed === 0 && !after.locked && after.latestStatus === 'none');
+  const supApproved = CA.submissionState([row(1, 'approved', 'x')], 3);
+  check('U6.1h a superseded row never counts as an approval', !supApproved.hasApproved);
+
+  // Admin reset against an in-memory database.
+  const { client, tables } = fakeDb({
+    model_submissions: [
+      { id: 'a1', email: 'locked@x.com', course_code: 'REFM', status: 'rejected', superseded_at: null },
+      { id: 'a2', email: 'locked@x.com', course_code: 'REFM', status: 'rejected', superseded_at: null },
+      { id: 'a3', email: 'locked@x.com', course_code: 'REFM', status: 'rejected', superseded_at: null },
+      { id: 'b1', email: 'locked@x.com', course_code: '3SFM', status: 'rejected', superseded_at: null },
+      { id: 'c1', email: 'approved@x.com', course_code: 'REFM', status: 'approved', superseded_at: null },
+      { id: 'd1', email: 'pending@x.com', course_code: 'REFM', status: 'pending_review', superseded_at: null },
+    ],
+    admin_audit_log: [],
+  });
+  const r = await RS.resetSubmissionAttempts(client, { email: 'LOCKED@x.com', courseCode: 'refm', by: 'admin@x.com', adminId: 'admin-uuid', reason: 'Second chance' });
+  check('U6.2a reset supersedes the locked student\'s 3 attempts', r.ok && r.superseded === 3 && ['a1', 'a2', 'a3'].every((id) => !!tables.model_submissions.find((x) => x.id === id)!.superseded_at));
+  check('U6.2b rows are kept as history (none deleted)', tables.model_submissions.length === 6);
+  check('U6.2c only that course: the student\'s 3SFM attempt is untouched', !tables.model_submissions.find((x) => x.id === 'b1')!.superseded_at);
+  check('U6.2d the reset is audited with the admin id', tables.admin_audit_log.some((a) => a.action === 'model_submission_reset' && a.admin_id === 'admin-uuid'));
+  check('U6.2e an approved student cannot be reset', !(await RS.resetSubmissionAttempts(client, { email: 'approved@x.com', courseCode: 'REFM', by: 'a' })).ok);
+  check('U6.2f a submission under review blocks a reset', !(await RS.resetSubmissionAttempts(client, { email: 'pending@x.com', courseCode: 'REFM', by: 'a' })).ok);
+  check('U6.2g nothing to reset is refused, not a silent success', !(await RS.resetSubmissionAttempts(client, { email: 'locked@x.com', courseCode: 'REFM', by: 'a' })).ok);
+
+  // The upload route's gate order: eligibility, review in flight, approved, lock.
+  const route = readFileSync('app/api/training/model-submission/route.ts', 'utf8');
+  const iElig = route.indexOf("error: 'not_eligible'"), iPend = route.indexOf("error: 'pending_review_in_flight'"), iLock = route.indexOf("error: 'attempts_exhausted'"), iUp = route.indexOf('.storage');
+  check('U6.3a a live course refuses uploads until eligible, before anything is stored', iElig > 0 && iElig < iPend && iPend < iLock && iLock < iUp);
+  check('U6.3b the lock reads the explicit flag', route.includes('status.locked || status.attemptsUsed >= status.maxAttempts'));
+  check('U6.3c attempts restart at 1 after a reset (counted from active rows)', route.includes('attempt_number: attemptNumber'));
+  const review = readFileSync('app/api/admin/model-submissions/[id]/review/route.ts', 'utf8');
+  check('U6.3d the review route counts attempts through THE status reader (active rows, course cap)', review.includes('getModelSubmissionStatus(submission.email, submission.course_code)'));
+  check('U6.3e approval and rejection emails take the no-exam wording for a live course', (review.match(/noExam: liveCourse/g) ?? []).length === 2);
+
+  // Emails: the exam wording is unchanged unless noExam is set.
+  const { modelSubmissionApprovedTemplate } = await import('../src/shared/email/templates/modelSubmissionApproved');
+  const { modelSubmissionRejectedTemplate } = await import('../src/shared/email/templates/modelSubmissionRejected');
+  const examA = await modelSubmissionApprovedTemplate({ courseLabel: '3SFM', fileName: 'm.xlsx', attemptNumber: 1 });
+  const liveA = await modelSubmissionApprovedTemplate({ courseLabel: 'REFM', fileName: 'm.xlsx', attemptNumber: 1, noExam: true });
+  check('U6.4a an exam course\'s approval email is unchanged ("Final exam unlocked")', examA.subject.includes('Final exam unlocked'));
+  check('U6.4b a live course\'s approval email says the certificate is on its way, no exam', liveA.subject.includes('certificate is on its way') && !liveA.html.includes('Final Exam'));
+  const liveR = await modelSubmissionRejectedTemplate({ courseLabel: 'REFM', fileName: 'm.xlsx', attemptNumber: 3, attemptsRemaining: 0, maxAttempts: 3, reviewerNote: 'Fix the debt schedule', noExam: true });
+  check('U6.4c the 3rd rejection email says uploads are locked and an admin can reset', /locked/.test(liveR.html) && /reset/.test(liveR.html) && !liveR.html.includes('Final Exam'));
+
+  // Exam courses unchanged on the LIVE data: active-row counting equals the
+  // old every-row count for every (student, course), and no live-course fields.
+  if (hasCreds()) {
+    const sb = await db();
+    const { data: subs, error } = await sb.from('model_submissions').select('email, course_code, status, submitted_at, superseded_at').range(0, 4999);
+    check('U6.5a model_submissions is readable with the new columns', !error, error?.message ?? '');
+    const groups = new Map<string, { status: 'pending_review' | 'approved' | 'rejected'; submitted_at: string; superseded_at: string | null }[]>();
+    for (const s of subs ?? []) {
+      const k = `${String(s.email).toLowerCase()}|${s.course_code}`;
+      groups.set(k, [...(groups.get(k) ?? []), s as never]);
+    }
+    let same = 0; const diff: string[] = [];
+    for (const [k, list] of groups) {
+      const st = CA.submissionState(list, 3);
+      const old = { used: list.length, approved: list.some((x) => x.status === 'approved') };
+      if (st.attemptsUsed === old.used && st.hasApproved === old.approved) same++; else diff.push(k);
+    }
+    check(`U6.5b every existing student's attempts and approval read the same as before (${same} of ${groups.size})`, diff.length === 0, diff.slice(0, 3).join(', '));
+    const any3 = (subs ?? []).find((s) => s.course_code === '3SFM');
+    if (any3) {
+      const st = await CA.getModelSubmissionStatus(String(any3.email), '3SFM');
+      check('U6.5c an exam course status carries no live-course gate (liveCourse false, eligibleToSubmit null)', st.liveCourse === false && st.eligibleToSubmit === null);
+    }
+    const live = await CA.getModelSubmissionStatus('nobody-verify@example.com', 'REFM');
+    check('U6.5d REFM: approval required, 3 attempts, not eligible with no progress', live.liveCourse && live.required && live.maxAttempts === 3 && live.eligibleToSubmit === false);
+  }
+}
+
 (async () => {
   await unit0();
   await unit1();
@@ -658,6 +752,7 @@ async function unit5(): Promise<void> {
   await unit3();
   await unit4();
   await unit5();
+  await unit6();
   console.log(`\n${passed} passed, ${failed} failed`);
   if (failed) { console.log('Failed:'); for (const f of fails) console.log(`  - ${f}`); process.exit(1); }
 })().catch((e) => { console.error(e); process.exit(1); });

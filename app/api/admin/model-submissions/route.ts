@@ -12,6 +12,7 @@ async function checkAdmin() {
 }
 
 const VALID_STATUSES = new Set(['pending_review', 'approved', 'rejected']);
+import { getLiveCourseSettings, isLiveCourseRow } from '@/src/hubs/training/lib/liveCourse/courseSettings';
 const VALID_COURSES = new Set(['3SFM', 'BVM']);
 
 /**
@@ -60,7 +61,8 @@ export async function GET(req: NextRequest) {
   }
 
   if (courseParam !== 'ALL') {
-    if (!VALID_COURSES.has(courseParam)) {
+    // Exam courses, or any live course (mig 247/248).
+    if (!VALID_COURSES.has(courseParam) && !isLiveCourseRow(await getLiveCourseSettings(sb, courseParam))) {
       return NextResponse.json({ error: 'Invalid course filter' }, { status: 400 });
     }
     query = query.eq('course_code', courseParam);

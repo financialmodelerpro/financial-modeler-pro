@@ -9,6 +9,9 @@ import { quizResultTemplate } from '@/src/shared/email/templates/quizResult';
 import { issueCertificateForStudent } from '@/src/hubs/training/lib/certificates/certificateEngine';
 import { COURSES } from '@/src/hubs/training/config/courses';
 import type { ModelSubmissionRow } from '@/src/hubs/training/lib/modelSubmission/types';
+import { getModelSubmissionStatus } from '@/src/hubs/training/lib/modelSubmission/checkApproval';
+import { getLiveCourseSettings } from '@/src/hubs/training/lib/liveCourse/courseSettings';
+import { coursePagePath } from '@/src/hubs/training/lib/liveCourse/enrolment';
 import { ALLOWED_MODEL_EXT_TO_MIME, MAX_REVIEWED_MODEL_BYTES, safeModelFileName, fileExt } from '@/src/hubs/training/lib/modelSubmission/fileTypes';
 
 export const dynamic = 'force-dynamic';
@@ -170,26 +173,17 @@ export async function POST(
     return NextResponse.json({ error: updateErr.message }, { status: 500 });
   }
 
-  // Compute remaining attempts for the audit log + the email. Counts every
-  // row for (email, course_code) since each row is one consumed attempt
-  // (pending_review counts too if the admin somehow chains an extra in,
-  // though the upload route prevents that).
-  const { data: settingsRows } = await sb
-    .from('training_settings')
-    .select('value')
-    .eq('key', 'model_submission_max_attempts')
-    .maybeSingle();
-  const maxAttempts = Math.max(
-    1,
-    Math.min(10, parseInt(settingsRows?.value ?? '3', 10) || 3),
-  );
-  const { count: attemptsUsedCount } = await sb
-    .from('model_submissions')
-    .select('id', { count: 'exact', head: true })
-    .ilike('email', submission.email.toLowerCase())
-    .eq('course_code', submission.course_code);
-  const attemptsUsed = attemptsUsedCount ?? submission.attempt_number;
+  // Remaining attempts for the audit log + the email, from THE status reader:
+  // active rows only (an admin reset supersedes rows, mig 248), and the
+  // course's own cap (a live course's max_submission_attempts, else the
+  // training setting).
+  const afterStatus = await getModelSubmissionStatus(submission.email, submission.course_code);
+  const maxAttempts = afterStatus.maxAttempts;
+  const attemptsUsed = afterStatus.attemptsUsed || submission.attempt_number;
   const attemptsRemaining = Math.max(0, maxAttempts - attemptsUsed);
+  const liveCourse = afterStatus.liveCourse;
+  const liveSettings = liveCourse ? await getLiveCourseSettings(sb, submission.course_code) : null;
+  const courseDashboardUrl = liveCourse ? `${LEARN_URL}${coursePagePath(submission.course_code)}` : undefined;
 
   // Audit log. admin_id can be null when getServerSession doesn't surface a
   // UUID (e.g. older session); we still record the event with admin_email
@@ -235,7 +229,7 @@ export async function POST(
   const courseEntry = Object.values(COURSES).find(
     c => c.shortTitle.toUpperCase() === submission.course_code,
   );
-  const courseLabel = courseEntry?.title ?? submission.course_code;
+  const courseLabel = courseEntry?.title ?? liveSettings?.title ?? submission.course_code;
 
   // Email is fire-and-forget from the admin's POV; we await it inside the
   // try/catch so the response can include `emailSent: false` when send
@@ -254,6 +248,9 @@ export async function POST(
         // ownership-checked student proxy, only when a reviewed file was attached.
         reviewedFileUrl: reviewedMeta ? `${LEARN_URL}/api/training/model-submission/${submission.id}/reviewed-file` : null,
         reviewedFileName: reviewedMeta?.name ?? null,
+        // A live course has no exam: approval issues the certificate.
+        noExam: liveCourse,
+        dashboardUrl: courseDashboardUrl,
       });
       await sendEmail({ to: submission.email, subject, html, text, from: FROM.training });
     } else {
@@ -269,6 +266,8 @@ export async function POST(
         // is the marked-up copy the student works FROM for their next attempt.
         reviewedFileUrl: reviewedMeta ? `${LEARN_URL}/api/training/model-submission/${submission.id}/reviewed-file` : null,
         reviewedFileName: reviewedMeta?.name ?? null,
+        noExam: liveCourse,
+        dashboardUrl: courseDashboardUrl,
       });
       await sendEmail({ to: submission.email, subject, html, text, from: FROM.training });
     }

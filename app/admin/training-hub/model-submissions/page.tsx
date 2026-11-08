@@ -25,7 +25,8 @@ const RED = '#DC2626';
 const BORDER = '#E5E7EB';
 
 type StatusFilter = 'pending_review' | 'approved' | 'rejected' | 'all';
-type CourseFilter = '3SFM' | 'BVM' | 'all';
+// 3SFM, BVM, a live course code (mig 247/248), or all.
+type CourseFilter = string;
 
 const STATUS_LABEL: Record<RowDecorated['status'], string> = {
   pending_review: 'Pending',
@@ -71,6 +72,15 @@ export default function AdminModelSubmissionsPage() {
   const [reviewedFile, setReviewedFile] = useState<File | null>(null);
   const [busyDecision, setBusyDecision] = useState<'approve' | 'reject' | null>(null);
   const [toast, setToast] = useState<{ msg: string; type: 'ok' | 'err' } | null>(null);
+  // Live courses for the filter, and the two-click reset confirmation.
+  const [liveCourseCodes, setLiveCourseCodes] = useState<string[]>([]);
+  const [confirmResetId, setConfirmResetId] = useState<string | null>(null);
+  const [resetting, setResetting] = useState(false);
+  useEffect(() => {
+    fetch('/api/admin/live-course').then(r => (r.ok ? r.json() : { courses: [] }))
+      .then((j: { courses?: { courseCode: string }[] }) => setLiveCourseCodes((j.courses ?? []).map(c => c.courseCode)))
+      .catch(() => {});
+  }, []);
 
   const showToast = useCallback((msg: string, type: 'ok' | 'err' = 'ok') => {
     setToast({ msg, type });
@@ -105,6 +115,26 @@ export default function AdminModelSubmissionsPage() {
   }, [statusFilter, courseFilter, search, showToast]);
 
   useEffect(() => { void load(); }, [load]);
+
+  // Supersedes the student's active attempts for this course (kept as history).
+  async function resetAttempts(row: RowDecorated) {
+    setResetting(true);
+    try {
+      const res = await fetch('/api/admin/model-submissions/reset', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: row.email, courseCode: row.course_code }),
+      });
+      const j = await res.json() as { superseded?: number; error?: string };
+      if (!res.ok) throw new Error(j.error ?? 'Reset failed');
+      showToast(`Attempts reset for ${row.email}: ${j.superseded} earlier attempt(s) kept as history.`);
+      setConfirmResetId(null);
+      await load();
+    } catch (e) {
+      showToast((e as Error).message, 'err');
+    } finally {
+      setResetting(false);
+    }
+  }
 
   function openReview(row: RowDecorated) {
     setReviewing(row);
@@ -219,6 +249,7 @@ export default function AdminModelSubmissionsPage() {
               { value: 'all', label: 'All' },
               { value: '3SFM', label: '3SFM' },
               { value: 'BVM', label: 'BVM' },
+              ...liveCourseCodes.map(c => ({ value: c, label: c })),
             ]}
             onChange={v => setCourseFilter(v as CourseFilter)}
           />
@@ -288,7 +319,9 @@ export default function AdminModelSubmissionsPage() {
                       </Td>
                       <Td>
                         <span style={{ fontWeight: 700 }}>{r.attempt_number}</span>
-                        <span style={{ color: '#9CA3AF' }}> / 3</span>
+                        {(r as { superseded_at?: string | null }).superseded_at
+                          ? <div style={{ fontSize: 10.5, color: '#9CA3AF' }}>reset (history)</div>
+                          : null}
                       </Td>
                       <Td>
                         <div style={{ fontWeight: 600, color: NAVY, maxWidth: 240, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={r.file_name}>
@@ -326,6 +359,17 @@ export default function AdminModelSubmissionsPage() {
                           ) : (
                             <button onClick={() => openReview(r)} style={{ padding: '6px 12px', borderRadius: 5, border: `1px solid ${BORDER}`, background: '#F8FAFC', color: '#6B7280', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>
                               View
+                            </button>
+                          )}
+                          {r.status === 'rejected' && !(r as { superseded_at?: string | null }).superseded_at && (
+                            <button
+                              data-testid="admin-reset-attempts"
+                              disabled={resetting}
+                              onClick={() => (confirmResetId === r.id ? void resetAttempts(r) : setConfirmResetId(r.id))}
+                              title="Give this student a fresh set of attempts for this course (earlier attempts stay as history)"
+                              style={{ padding: '6px 10px', borderRadius: 5, border: '1px solid #B45309', background: confirmResetId === r.id ? '#B45309' : '#fff', color: confirmResetId === r.id ? '#fff' : '#B45309', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}
+                            >
+                              {confirmResetId === r.id ? 'Confirm reset' : 'Reset attempts'}
                             </button>
                           )}
                         </div>

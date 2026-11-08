@@ -17,7 +17,7 @@ interface ModelSubmissionAdminAlertData {
   studentEmail: string;
   registrationId?: string | null;
   courseLabel: string;
-  courseCode: '3SFM' | 'BVM';
+  courseCode: string; // '3SFM' | 'BVM' | a live course code
   fileName: string;
   fileSize: number;
   attemptNumber: number;
