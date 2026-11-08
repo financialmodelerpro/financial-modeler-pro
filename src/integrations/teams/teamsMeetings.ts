@@ -506,3 +506,81 @@ export async function testTeamsConnection(): Promise<{ ok: true; host: string; h
     return { ok: false, error: e instanceof Error ? e.message : String(e) };
   }
 }
+
+// ────────────────────────────────────────────────────────────────────────────
+// Attendance reports (live course, mig 247).
+//
+// Needs the Graph APPLICATION permission OnlineMeetingArtifact.Read.All (admin
+// consent) on top of the existing app, and the Teams application access policy
+// granted to the host, which meeting creation already relies on. Reports exist
+// only after a meeting ends, only for the organizer, and for one year.
+// `teams_meeting_id` holds the OUTLOOK EVENT id, not the online-meeting id these
+// endpoints need, so the meeting is resolved from its join URL.
+// ────────────────────────────────────────────────────────────────────────────
+
+export interface GraphAttendanceInterval {
+  joinDateTime:      string | null;
+  leaveDateTime:     string | null;
+  durationInSeconds: number;
+}
+
+export interface GraphAttendanceRecord {
+  emailAddress?:            string | null;
+  identity?:                { id?: string; displayName?: string | null } | null;
+  role?:                    string | null;
+  totalAttendanceInSeconds: number;
+  attendanceIntervals:      GraphAttendanceInterval[];
+}
+
+export interface GraphAttendanceReport {
+  id:                   string;
+  meetingStartDateTime: string | null;
+  meetingEndDateTime:   string | null;
+  totalParticipantCount?: number;
+}
+
+/** The online-meeting id for a Teams join URL (host's meetings only). */
+export async function resolveOnlineMeetingIdByJoinUrl(joinUrl: string): Promise<string> {
+  const hostId = await getHostUserId();
+  const filter = encodeURIComponent(`JoinWebUrl eq '${joinUrl.replace(/'/g, "''")}'`);
+  const res = await graphFetch('GET', `/users/${encodeURIComponent(hostId)}/onlineMeetings?$filter=${filter}`);
+  if (!res.ok) {
+    const detail = await buildGraphErrorDetail(res);
+    throw new TeamsIntegrationError('Graph API: could not resolve the meeting from its join link', { status: res.status, detail });
+  }
+  const j = (await res.json()) as { value?: { id?: string }[] };
+  const id = j.value?.[0]?.id;
+  if (!id) throw new TeamsIntegrationError('No Teams meeting owned by the host matches this join link', { status: 404 });
+  return id;
+}
+
+/** Attendance reports for a meeting (Graph lists the 50 most recent). */
+export async function listAttendanceReports(onlineMeetingId: string): Promise<GraphAttendanceReport[]> {
+  const hostId = await getHostUserId();
+  const res = await graphFetch('GET', `/users/${encodeURIComponent(hostId)}/onlineMeetings/${encodeURIComponent(onlineMeetingId)}/attendanceReports`);
+  if (!res.ok) {
+    const detail = await buildGraphErrorDetail(res);
+    throw new TeamsIntegrationError('Graph API: listing attendance reports failed', { status: res.status, detail });
+  }
+  const j = (await res.json()) as { value?: GraphAttendanceReport[] };
+  return j.value ?? [];
+}
+
+/** Every attendance record of one report, following @odata.nextLink. */
+export async function getAttendanceRecords(onlineMeetingId: string, reportId: string): Promise<GraphAttendanceRecord[]> {
+  const hostId = await getHostUserId();
+  const out: GraphAttendanceRecord[] = [];
+  let path: string | null = `/users/${encodeURIComponent(hostId)}/onlineMeetings/${encodeURIComponent(onlineMeetingId)}/attendanceReports/${encodeURIComponent(reportId)}/attendanceRecords`;
+  for (let page = 0; path && page < 50; page++) {
+    const res = await graphFetch('GET', path);
+    if (!res.ok) {
+      const detail = await buildGraphErrorDetail(res);
+      throw new TeamsIntegrationError('Graph API: reading attendance records failed', { status: res.status, detail });
+    }
+    const j = (await res.json()) as { value?: GraphAttendanceRecord[]; '@odata.nextLink'?: string };
+    out.push(...(j.value ?? []));
+    const next = j['@odata.nextLink'];
+    path = next ? next.replace('https://graph.microsoft.com/v1.0', '') : null;
+  }
+  return out;
+}

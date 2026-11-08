@@ -25,6 +25,8 @@ import { getServerClient } from '@/src/core/db/supabase';
 import { sendTemplatedEmail, buildSessionPlaceholders } from '@/src/shared/email/sendTemplatedEmail';
 import { sendEmailPerRecipient, FROM } from '@/src/shared/email/sendEmail';
 import { sendSessionDayReminders } from '@/src/hubs/training/lib/liveCourse/dayReminder';
+import { autoSyncEndedSessions, realGraph } from '@/src/hubs/training/lib/liveCourse/attendanceSync';
+import { isTeamsConfigured } from '@/src/integrations/teams/teamsMeetings';
 
 export const runtime = 'nodejs';
 export const maxDuration = 120;
@@ -110,9 +112,16 @@ export async function GET(req: NextRequest) {
       console.error('[cron/session-reminders] day reminders failed', e);
     }
 
+    // ── Live courses: pull Teams attendance for sessions that have ended ─
+    let attendance = { tried: 0, ok: 0, failed: 0 };
+    if (isTeamsConfigured()) {
+      try { attendance = await autoSyncEndedSessions(sb, now, await realGraph()); }
+      catch (e) { console.error('[cron/session-reminders] attendance sync failed', e); }
+    }
+
     const processed = (sessions24?.length ?? 0) + (sessions1h?.length ?? 0);
-    console.log(`[cron/session-reminders] processed=${processed} 24h=${sent24h} 1h=${sent1h} day=${day.sent}/${day.sessions} failed=${failed + day.failed}`);
-    return Response.json({ processed, reminders_24h: sent24h, reminders_1h: sent1h, day_reminders: day, failed });
+    console.log(`[cron/session-reminders] processed=${processed} 24h=${sent24h} 1h=${sent1h} day=${day.sent}/${day.sessions} attendance=${attendance.ok}/${attendance.tried} failed=${failed + day.failed}`);
+    return Response.json({ processed, reminders_24h: sent24h, reminders_1h: sent1h, day_reminders: day, attendance, failed });
   } catch (e) {
     console.error('[cron/session-reminders]', e);
     return Response.json({ error: String(e) }, { status: 500 });

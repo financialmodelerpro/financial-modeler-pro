@@ -401,11 +401,146 @@ async function unit2(): Promise<void> {
   check('U2.6f the cron runs the day reminder and skips course sessions in the 1-hour pass', cron.includes('sendSessionDayReminders(') && cron.includes('if (session.course_code) continue;'));
 }
 
+async function unit3(): Promise<void> {
+  console.log('\n=== Unit 3: attendance (Graph sync, CSV, matching) ===\n');
+  const A = await import('../src/hubs/training/lib/liveCourse/attendance');
+  const C = await import('../src/hubs/training/lib/liveCourse/teamsCsv');
+  const S = await import('../src/hubs/training/lib/liveCourse/attendanceSync');
+  const t = (iso: string) => new Date(iso).getTime();
+
+  // Interval arithmetic.
+  check('U3.1a overlapping intervals merge (two devices count once)', JSON.stringify(A.mergeIntervals([[0, 10], [5, 20], [30, 40]])) === JSON.stringify([[0, 20], [30, 40]]));
+  check('U3.1b join/leave several times: the intervals are summed', A.totalSeconds(A.mergeIntervals([[0, 60_000], [120_000, 180_000]])) === 120);
+  check('U3.1c time before the start and after the end is not counted', A.totalSeconds(A.clipIntervals([[0, 100_000]], 20_000, 50_000)) === 30);
+  check('U3.1d the share is capped at 100%', A.attendedPct(9999, 100) === 100);
+  check('U3.1e no session length: 0%, never NaN', A.attendedPct(50, 0) === 0);
+
+  // The saved sample report, in the Graph attendanceRecord shape (learn.microsoft.com).
+  const start = '2026-12-01T16:00:00Z', end = '2026-12-01T18:30:00Z'; // 150 minutes
+  const sampleRecords = [
+    { emailAddress: 'Full@Example.com', identity: { displayName: 'Full Attendee' }, role: 'Attendee', totalAttendanceInSeconds: 9000,
+      attendanceIntervals: [{ joinDateTime: '2026-12-01T15:55:00Z', leaveDateTime: '2026-12-01T18:35:00Z', durationInSeconds: 9600 }] },
+    { emailAddress: 'edge@example.com', identity: { displayName: 'Exactly 75' }, role: 'Attendee', totalAttendanceInSeconds: 6750,
+      attendanceIntervals: [{ joinDateTime: '2026-12-01T16:00:00Z', leaveDateTime: '2026-12-01T17:00:00Z', durationInSeconds: 3600 },
+                            { joinDateTime: '2026-12-01T17:30:00Z', leaveDateTime: '2026-12-01T18:22:30Z', durationInSeconds: 3150 }] },
+    { emailAddress: 'personal@gmail.com', identity: { displayName: 'Alias Person' }, role: 'Attendee', totalAttendanceInSeconds: 3600,
+      attendanceIntervals: [{ joinDateTime: '2026-12-01T16:00:00Z', leaveDateTime: '2026-12-01T17:00:00Z', durationInSeconds: 3600 }] },
+    { emailAddress: 'stranger@x.com', identity: { displayName: 'Stranger' }, role: 'Attendee', totalAttendanceInSeconds: 600,
+      attendanceIntervals: [{ joinDateTime: '2026-12-01T16:00:00Z', leaveDateTime: '2026-12-01T16:10:00Z', durationInSeconds: 600 }] },
+    { emailAddress: '', identity: { displayName: 'Phone Caller' }, role: 'Attendee', totalAttendanceInSeconds: 1200,
+      attendanceIntervals: [{ joinDateTime: '2026-12-01T16:00:00Z', leaveDateTime: '2026-12-01T16:20:00Z', durationInSeconds: 1200 }] },
+  ];
+  const rows = A.buildAttendanceRows(A.rawFromGraph(sampleRecords), { start: t(start), end: t(end) }, 9000);
+  const pctOf = (e: string) => rows.find((r) => r.attendee_email === e)?.attended_pct;
+  check('U3.2a lobby time before the start and after the end is clipped: 100%', pctOf('full@example.com') === 100);
+  check('U3.2b two intervals summing to exactly 75% of 150 minutes read 75.00', pctOf('edge@example.com') === 75);
+  check('U3.2c an attendee with no email is kept, keyed by name, for a manual match', rows.some((r) => r.attendee_email === 'noemail:phone caller'));
+  check('U3.2d emails are lowercased', rows.some((r) => r.attendee_email === 'full@example.com'));
+
+  // CSV fallback: a Teams export, tab separated, times in KSA wall clock.
+  const csv = [
+    '1. Summary', 'Meeting title\tREFM Session 1', 'Attended participants\t2',
+    'Start time\t12/1/26, 7:00:00 PM', 'End time\t12/1/26, 9:30:00 PM', 'Meeting duration\t2h 30m 0s', '',
+    '2. Participants', 'Name\tFirst Join\tLast Leave\tIn-Meeting Duration\tEmail\tParticipant ID (UPN)\tRole',
+    'Edge Person\t12/1/26, 7:00:00 PM\t12/1/26, 9:22:30 PM\t1h 52m 30s\tedge@example.com\tedge@example.com\tAttendee', '',
+    '3. In-Meeting Activities', 'Name\tJoin Time\tLeave Time\tDuration\tEmail\tRole',
+    'Edge Person\t12/1/26, 7:00:00 PM\t12/1/26, 8:00:00 PM\t1h 0m 0s\tedge@example.com\tAttendee',
+    'Edge Person\t12/1/26, 8:30:00 PM\t12/1/26, 9:22:30 PM\t52m 30s\tedge@example.com\tAttendee',
+    'Late Joiner\t12/1/26, 8:00:00 PM\t12/1/26, 9:00:00 PM\t1h 0m 0s\tlate@example.com\tAttendee',
+  ].join('\n');
+  const parsed = C.parseTeamsAttendanceCsv(csv, { timeZone: 'Asia/Riyadh' });
+  check('U3.3a the activities section is read (one interval per join)', parsed.format === 'activities' && parsed.attendees.length === 3);
+  check('U3.3b the summary window is read as KSA: 7:00 PM = 16:00 UTC', parsed.meetingStart === t(start) && parsed.meetingEnd === t(end));
+  const csvRows = A.buildAttendanceRows(parsed.attendees, { start: parsed.meetingStart, end: parsed.meetingEnd }, 9000);
+  check('U3.3c the CSV gives the same 75.00% as Graph for the same attendance', csvRows.find((r) => r.attendee_email === 'edge@example.com')?.attended_pct === 75);
+  check('U3.3d durations parse ("1h 52m 30s", "52s", "01:02:03")', C.parseDurationSeconds('1h 52m 30s') === 6750 && C.parseDurationSeconds('52s') === 52 && C.parseDurationSeconds('01:02:03') === 3723);
+  check('U3.3e a day above 12 switches to day-first dates', C.parseTeamsTime('13/12/26, 7:00:00 PM', 'Asia/Riyadh', 'DMY') === t('2026-12-13T16:00:00Z'));
+  const partsOnly = C.parseTeamsAttendanceCsv(csv.split('3. In-Meeting Activities')[0], { timeZone: 'Asia/Riyadh' });
+  check('U3.3f without the activities section, the in-meeting duration is used (not first-join to last-leave)', partsOnly.format === 'participants' && A.totalSeconds(partsOnly.attendees[0].intervals) === 6750);
+  let threw = false; try { C.parseTeamsAttendanceCsv('hello,world'); } catch { threw = true; }
+  check('U3.3g a file that is not a Teams report is refused, not guessed', threw);
+
+  // Sync end to end against the sample report: fake Graph + in-memory database.
+  const { client, tables } = fakeDb({
+    live_sessions: [
+      { id: 'sess1', live_url: 'https://teams.microsoft.com/l/meetup-join/abc', scheduled_datetime: start, duration_minutes: 150, graph_online_meeting_id: null, course_code: 'REFM', attendance_synced_at: null },
+      { id: 'sess0', live_url: 'https://teams.microsoft.com/l/meetup-join/old', scheduled_datetime: '2026-11-24T16:00:00Z', duration_minutes: 150, graph_online_meeting_id: 'm0', course_code: 'REFM', attendance_synced_at: '2026-11-25T06:00:00Z' },
+    ],
+    training_registrations_meta: [{ registration_id: 'FMP-1', email: 'full@example.com' }, { registration_id: 'FMP-2', email: 'edge@example.com' }, { registration_id: 'FMP-3', email: 'alias.owner@example.com' }],
+    student_email_aliases: [{ alias_email: 'personal@gmail.com', student_email: 'alias.owner@example.com' }],
+    live_session_attendance: [
+      { id: 'old', session_id: 'sess0', attendee_email: 'stranger@x.com', student_email: null, source: 'graph', matched_by: null },
+    ],
+  });
+  let resolves = 0;
+  const graph = {
+    resolveMeetingId: async (url: string) => { resolves++; return url.endsWith('abc') ? 'm1' : 'mX'; },
+    listReports: async () => [
+      { id: 'rep1', meetingStartDateTime: start, meetingEndDateTime: end },
+      { id: 'repOtherWeek', meetingStartDateTime: '2026-12-08T16:00:00Z', meetingEndDateTime: '2026-12-08T18:30:00Z' },
+    ],
+    getRecords: async (_m: string, rep: string) => (rep === 'rep1' ? sampleRecords : [{ emailAddress: 'nextweek@x.com', totalAttendanceInSeconds: 9000, attendanceIntervals: [] }]) as never,
+  };
+  const r1 = await S.syncSessionFromGraph(client, 'sess1', graph, 'admin@x.com');
+  const att = tables.live_session_attendance.filter((r) => r.session_id === 'sess1');
+  check('U3.4a only this week\'s report is used (a reused link\'s other weeks are ignored)', r1.reports === 1 && !att.some((r) => r.attendee_email === 'nextweek@x.com'));
+  check('U3.4b matched by email', att.find((r) => r.attendee_email === 'edge@example.com')?.student_email === 'edge@example.com');
+  check('U3.4c matched by a remembered alias', att.find((r) => r.attendee_email === 'personal@gmail.com')?.student_email === 'alias.owner@example.com');
+  check('U3.4d an unknown email is UNMATCHED (listed for the admin), never guessed', att.find((r) => r.attendee_email === 'stranger@x.com')?.student_email == null && r1.unmatched === 2);
+  const sessRow = tables.live_sessions.find((r) => r.id === 'sess1')!;
+  check('U3.4e the meeting id is resolved from the join link and stored', sessRow.graph_online_meeting_id === 'm1' && resolves === 1);
+  check('U3.4f the session records the sync and the actual meeting window', !!sessRow.attendance_synced_at && sessRow.actual_start_at === new Date(start).toISOString() && sessRow.attendance_sync_error == null);
+  check('U3.4g the denominator is the actual meeting length (150 min)', r1.sessionSeconds === 9000);
+
+  // Manual match, remembered: this session AND the older session's unmatched row.
+  await S.matchAttendee(client, { sessionId: 'sess1', attendeeEmail: 'stranger@x.com', studentEmail: 'FULL@example.com', remember: true, by: 'admin@x.com' });
+  check('U3.5a a manual match sets the student', tables.live_session_attendance.find((r) => r.session_id === 'sess1' && r.attendee_email === 'stranger@x.com')?.student_email === 'full@example.com');
+  check('U3.5b "remember" saves an alias and matches the same email in other sessions', tables.student_email_aliases.some((a) => a.alias_email === 'stranger@x.com') && tables.live_session_attendance.find((r) => r.id === 'old')?.student_email === 'full@example.com');
+  let refused = false; try { await S.matchAttendee(client, { sessionId: 'sess1', attendeeEmail: 'x@y.com', studentEmail: 'nobody@x.com', remember: false, by: null }); } catch { refused = true; }
+  check('U3.5c matching to an email that is not a student is refused', refused);
+
+  // Hand-entered figure and re-sync.
+  await S.setManualAttendance(client, { sessionId: 'sess1', studentEmail: 'alias.owner@example.com', attendedPct: 90, by: 'admin@x.com' });
+  tables.live_session_attendance.find((r) => r.session_id === 'sess1' && r.attendee_email === 'alias.owner@example.com')!.attended_pct = 90;
+  const r2 = await S.syncSessionFromGraph(client, 'sess1', graph, 'admin@x.com');
+  check('U3.6a a re-sync keeps a hand-entered row', tables.live_session_attendance.find((r) => r.session_id === 'sess1' && r.attendee_email === 'alias.owner@example.com')?.source === 'manual');
+  check('U3.6b a re-sync keeps a manual match', tables.live_session_attendance.find((r) => r.session_id === 'sess1' && r.attendee_email === 'stranger@x.com')?.student_email === 'full@example.com');
+  // 5 Teams identities + the hand-entered row (keyed by the student's email) = 6.
+  check('U3.6c a re-sync does not duplicate rows', tables.live_session_attendance.filter((r) => r.session_id === 'sess1').length === 6 && r2.saved === 5, `rows=${tables.live_session_attendance.filter((r) => r.session_id === 'sess1').length} saved=${r2.saved}`);
+  check('U3.6d the meeting id is not resolved again', resolves === 1);
+
+  // CSV import path.
+  const r3 = await S.importSessionCsv(client, 'sess1', parsed, 'admin@x.com');
+  check('U3.7a CSV import saves through the same matcher', r3.saved >= 2 && tables.live_session_attendance.some((r) => r.session_id === 'sess1' && r.attendee_email === 'late@example.com' && r.source === 'csv'));
+
+  // Failure is recorded on the session, then rethrown.
+  const bad = { ...graph, listReports: async () => [] };
+  tables.live_sessions.push({ id: 'sess2', live_url: 'https://teams.microsoft.com/l/meetup-join/zzz', scheduled_datetime: start, duration_minutes: 150, graph_online_meeting_id: 'm2', course_code: 'REFM', attendance_synced_at: null });
+  let failedSync = false; try { await S.syncSessionFromGraph(client, 'sess2', bad); } catch { failedSync = true; }
+  check('U3.8a no report yet: the sync fails and the reason is saved on the session', failedSync && /no attendance report/i.test(String(tables.live_sessions.find((r) => r.id === 'sess2')!.attendance_sync_error)));
+
+  // Automatic pull: ended at least 30 minutes ago, never synced.
+  const { client: c2 } = fakeDb({ live_sessions: [
+    { id: 'ended', live_url: 'u', scheduled_datetime: '2026-12-01T16:00:00Z', duration_minutes: 150, course_code: 'REFM', attendance_synced_at: null },
+    { id: 'running', live_url: 'u', scheduled_datetime: '2026-12-01T17:30:00Z', duration_minutes: 150, course_code: 'REFM', attendance_synced_at: null },
+    { id: 'done', live_url: 'u', scheduled_datetime: '2026-12-01T10:00:00Z', duration_minutes: 150, course_code: 'REFM', attendance_synced_at: '2026-12-01T13:00:00Z' },
+  ] });
+  const tried: string[] = [];
+  const g2 = { resolveMeetingId: async () => 'm', listReports: async () => { tried.push('x'); return []; }, getRecords: async () => [] };
+  const auto = await S.autoSyncEndedSessions(c2, new Date('2026-12-01T19:10:00Z'), g2);
+  check('U3.9a the cron pulls only sessions that ended 30+ minutes ago and were never synced', auto.tried === 1);
+  const cron = readFileSync('app/api/cron/session-reminders/route.ts', 'utf8');
+  check('U3.9b the daily cron runs the automatic pull when Teams is configured', cron.includes('autoSyncEndedSessions(') && cron.includes('isTeamsConfigured()'));
+  const route = readFileSync('app/api/admin/live-sessions/[id]/attendance/route.ts', 'utf8');
+  check('U3.9c the admin attendance route is admin-only', route.match(/adminEmail\(\)/g)!.length >= 2);
+}
+
 (async () => {
   await unit0();
   await unit1();
   await unit1b();
   await unit2();
+  await unit3();
   console.log(`\n${passed} passed, ${failed} failed`);
   if (failed) { console.log('Failed:'); for (const f of fails) console.log(`  - ${f}`); process.exit(1); }
 })().catch((e) => { console.error(e); process.exit(1); });
