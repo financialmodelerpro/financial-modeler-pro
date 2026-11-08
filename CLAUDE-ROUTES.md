@@ -235,7 +235,13 @@ src/hubs/training/components/sessions/JoinLiveButton.tsx         # THE Join butt
 src/hubs/training/components/dashboard/LiveCourseCards.tsx       # Dashboard Enrol / Open course
 src/shared/email/templates/courseEnrolmentConfirmation.ts, liveCourseDayReminder.ts
 src/integrations/teams/teamsMeetings.ts                          # + resolveOnlineMeetingIdByJoinUrl, listAttendanceReports, getAttendanceRecords
-scripts/verify-live-course.ts                                    # 204 checks, Units 0 to 7 + private-course visibility
+scripts/verify-live-course.ts                                    # 265 checks, Units 0 to 7, visibility, Live Training
+# Live Training (same day, later): app/admin/training-hub/live-training/{page.tsx, LiveSessionsManager.tsx (THE session editor, moved from live-sessions/page.tsx), StatusBadge.tsx}
+#   [code]/{page.tsx, CourseDetailsTab, CourseCertificateTab, CourseAttendancePanel (moved from live-course/page.tsx), LiveCourseProgressTab}
+#   app/admin/training-hub/live-sessions/page.tsx + live-course/page.tsx are now REDIRECTS; model-submissions/ModelSubmissionsManager.tsx is the shared screen
+#   app/api/admin/live-course: GET list (+counts) / POST create; [code]: GET (+previewUrl) / PATCH (details, rules, status); [code]/image: POST/DELETE banner|card
+#   src/hubs/training/lib/liveCourse/{timeZones, courseAdmin, courseMedia, preview, sessionCertificate}.ts; lib/liveSessions/achievementCard.ts
+#   src/hubs/training/components/sessions/{TimeZoneTable, SessionCertificateButton}.tsx
 ```
 
 ### Training (Training Hub)
