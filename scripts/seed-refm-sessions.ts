@@ -18,6 +18,7 @@
 import { getServerClient } from '../src/core/db/supabase';
 import { REFM_SESSIONS, REFM_COURSE_CODE, REFM_DURATION_MINUTES } from '../src/hubs/training/lib/liveCourse/seeds/refmSessions';
 import { REFM_PAGE } from '../src/hubs/training/lib/liveCourse/seeds/refmPage';
+import { syncCoursePlaylist } from '../src/hubs/training/lib/liveCourse/coursePlaylist';
 
 /**
  * A stored page "has content" when any list section holds an item. A page
@@ -91,6 +92,12 @@ const resetTimes = process.argv.includes('--reset-times');
     }
     created++;
   }
+
+  // The course's own playlist, holding all its sessions (one writer: coursePlaylist.ts).
+  if (!dry) {
+    const pl = await syncCoursePlaylist(sb, REFM_COURSE_CODE);
+    console.log(`  playlist ${pl ? `${pl.created ? 'created' : 'kept'}, ${pl.assigned} session(s) added` : 'skipped (no course row)'}`);
+  } else console.log('  playlist [dry run] would be created or kept, with every REFM session in it');
 
   // The landing page content (mig 252), only when the course has none yet, so
   // edits made in Admin > Live Training > REFM > Page sections are never overwritten.

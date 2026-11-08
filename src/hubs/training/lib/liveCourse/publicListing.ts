@@ -53,3 +53,8 @@ export function courseCardAction(p: {
   if (p.signedIn) return { kind: 'enrol', label: 'Enrol', href: `${coursePagePath(p.courseCode)}?enrol=1` };
   return { kind: 'register', label: 'Register free', href: `/register?course=${encodeURIComponent(p.courseCode)}` };
 }
+
+/** Playlists that hold course sessions (left out of the single-session screens). Pure. */
+export function coursePlaylistIds(sessions: { course_code?: string | null; playlist_id?: string | null }[]): Set<string> {
+  return new Set(sessions.filter((s) => s.course_code && s.playlist_id).map((s) => s.playlist_id as string));
+}

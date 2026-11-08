@@ -7,6 +7,7 @@ import { LiveSessionAssessmentEditor } from '@/src/components/admin/LiveSessionA
 import { InstructorPicker } from '@/src/components/admin/InstructorPicker';
 import { KSA_TZ, utcToZonedParts, zonedWallTimeToUtc } from '@/src/hubs/training/lib/liveCourse/time';
 import { CourseSessionTools } from './CourseSessionTools';
+import { coursePlaylistIds } from '@/src/hubs/training/lib/liveCourse/publicListing';
 
 /* ── Types ─────────────────────────────────────────────────────── */
 
@@ -1096,6 +1097,11 @@ export function LiveSessionsManager({ courseCode = null, embedded = false }: { c
   };
 
   /* ── Filtered sessions ── */
+  // A course's playlist (e.g. REFM Live Series) belongs to its course tab: the single
+  // sessions tab counts and offers only single sessions and their playlists.
+  const singleSessions = sessions.filter(s => !(s as unknown as Record<string, unknown>).course_code);
+  const coursePls = coursePlaylistIds(sessions as unknown as { course_code?: string | null; playlist_id?: string | null }[]);
+  const singlePlaylists = playlists.filter(pl => !coursePls.has(pl.id));
   const filtered = sessions.filter(s => {
     // Course tab: this course's sessions; Single sessions tab: no course.
     const sCourse = ((s as unknown as Record<string, unknown>).course_code as string | null | undefined) ?? null;
@@ -1482,12 +1488,12 @@ export function LiveSessionsManager({ courseCode = null, embedded = false }: { c
                 whiteSpace: 'nowrap', minWidth: 60,
               }}
             >
-              All ({sessions.length})
+              All ({singleSessions.length})
             </button>
 
-            {playlists.map(pl => {
+            {singlePlaylists.map(pl => {
               const active = selectedPlaylist === pl.id;
-              const count = sessions.filter(s => s.playlist_id === pl.id).length;
+              const count = singleSessions.filter(s => s.playlist_id === pl.id).length;
 
               if (editingPlaylist?.id === pl.id) {
                 return (
@@ -1563,7 +1569,7 @@ export function LiveSessionsManager({ courseCode = null, embedded = false }: { c
               onChange={e => setFilterPlaylist(e.target.value)}
             >
               <option value="">All Playlists</option>
-              {playlists.map(pl => <option key={pl.id} value={pl.id}>{pl.name}</option>)}
+              {singlePlaylists.map(pl => <option key={pl.id} value={pl.id}>{pl.name}</option>)}
             </select>
           </div>
           )}

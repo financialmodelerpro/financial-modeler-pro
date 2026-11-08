@@ -66,7 +66,8 @@ export function SessionsClient({ sessions, hero, courses = [] }: { sessions: Pub
   const series = [...new Map(sessions.filter((s) => s.course_code).map((s) => [s.course_code!, seriesLabel(s.course_short_title, s.course_code!)])).entries()];
 
   // Filters
-  const playlists = [...new Set(sessions.map(s => s.playlist?.name).filter(Boolean))] as string[];
+  // Playlists of single sessions; a course's playlist is offered as its series filter instead.
+  const playlists = [...new Set(sessions.filter(s => !s.course_code).map(s => s.playlist?.name).filter(Boolean))] as string[];
   const categories = [...new Set(sessions.map(s => s.category).filter(Boolean))];
 
   // ONE listing rule (publicListing.listingOf): an ended course session shows only once recorded.

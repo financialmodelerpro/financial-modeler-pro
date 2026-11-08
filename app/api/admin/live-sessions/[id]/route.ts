@@ -8,6 +8,7 @@ import { updateMeetingOrEvent, deleteMeetingOrEvent, isTeamsConfigured } from '@
 import { recordingRecipientsForCourseSession } from '@/src/hubs/training/lib/liveCourse/recordings';
 import { isPublicSession } from '@/src/hubs/training/lib/liveCourse/publicVisibility';
 import { publicSessionUrl, sessionPlatformLabel } from '@/src/hubs/training/lib/liveSessions/privateSessionFields';
+import { syncCoursePlaylist } from '@/src/hubs/training/lib/liveCourse/coursePlaylist';
 
 const LEARN_URL = process.env.NEXT_PUBLIC_LEARN_URL ?? 'https://learn.financialmodelerpro.com';
 const AUTO_DELETE_TEAMS_MEETING_ON_SESSION_DELETE = true;
@@ -83,6 +84,13 @@ export async function PATCH(
 
   const { error } = await sb.from('live_sessions').update(updates).eq('id', id);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  // A course session stays in its course's playlist (best effort; never blocks the save).
+  {
+    const { data: cc } = await sb.from('live_sessions').select('course_code').eq('id', id).maybeSingle();
+    const code = (cc?.course_code as string | null) ?? null;
+    if (code) await syncCoursePlaylist(sb, code).catch((e) => console.warn('[live-sessions] course playlist', e));
+  }
 
   // Sync the linked Teams calendar event when the schedule changes (or
   // title / description did). Best-effort: a failure doesn't roll back

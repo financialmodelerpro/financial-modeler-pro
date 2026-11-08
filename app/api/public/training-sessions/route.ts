@@ -17,7 +17,7 @@ export async function GET(req: NextRequest) {
     const sb = getServerClient();
     let query = sb
       .from('live_sessions')
-      .select('id, title, description, session_type, scheduled_datetime, timezone, category, banner_url, duration_minutes, max_attendees, difficulty_level, instructor_name, instructor_title, tags, is_featured, youtube_url, youtube_embed, playlist_id, live_playlists(id, name)')
+      .select('id, title, description, session_type, scheduled_datetime, timezone, category, banner_url, duration_minutes, max_attendees, difficulty_level, instructor_name, instructor_title, tags, is_featured, youtube_url, youtube_embed, playlist_id, course_code, live_playlists(id, name)')
       .eq('is_published', true)
       .or(await publicSessionFilter(sb));
 

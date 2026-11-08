@@ -1328,6 +1328,25 @@ async function unit14(): Promise<void> {
   // ── Course Sessions tab in admin ──
   check('U14.6a a course tab hides the playlist bar, "+ New Playlist" and the playlist filter', mgr.includes('{!courseCode && (\n        <div data-testid="admin-playlist-bar"') && mgr.includes('{!courseCode && (\n              <button style={btnSecondary} onClick={() => { setShowNewPlaylist') && mgr.includes('{/* Playlist filter (single sessions only) */}\n          {!courseCode && ('));
   check('U14.6b a course tab orders its sessions by session number', mgr.includes('filtered.sort((a, b) => noOf(a) - noOf(b))'));
+
+  // ── The course's own playlist ──
+  const ids = PL.coursePlaylistIds([{ course_code: 'REFM', playlist_id: 'P1' }, { course_code: null, playlist_id: 'P2' }, { course_code: 'REFM', playlist_id: null }]);
+  check('U14.7a a course playlist is one holding course sessions; a single-session playlist is not', ids.has('P1') && !ids.has('P2') && ids.size === 1);
+  if (hasCreds()) {
+    const sb = await db();
+    const { data: pls } = await sb.from('live_playlists').select('id').eq('name', 'REFM Live Series');
+    const { data: rs } = await sb.from('live_sessions').select('playlist_id').eq('course_code', 'REFM');
+    check('U14.7b exactly one "REFM Live Series" playlist, holding every REFM session', (pls ?? []).length === 1 && (rs ?? []).length === 8 && (rs ?? []).every((r) => r.playlist_id === pls?.[0]?.id), `${(pls ?? []).length} playlist(s)`);
+    const CP = await import('../src/hubs/training/lib/liveCourse/coursePlaylist');
+    const again = await CP.syncCoursePlaylist(sb, 'REFM');
+    check('U14.7c syncing again changes nothing (no second playlist, no session moved)', !!again && !again.created && again.assigned === 0 && again.playlistId === pls?.[0]?.id);
+  }
+  const routes = readFileSync('app/api/admin/live-sessions/route.ts', 'utf8') + readFileSync('app/api/admin/live-sessions/[id]/route.ts', 'utf8');
+  check('U14.7d creating or editing a course session keeps it in its course playlist, without blocking the save', (routes.match(/syncCoursePlaylist\(sb, [a-zA-Z]+\)\.catch\(/g) ?? []).length === 2);
+  check('U14.7e the single sessions tab counts and offers only single sessions and their playlists', mgr.includes('All ({singleSessions.length})') && mgr.includes('singlePlaylists.map(pl => {') && mgr.includes('{singlePlaylists.map(pl => <option'));
+  check('U14.7f the public page offers the course once (series filter), not again as a playlist', sc.includes('sessions.filter(s => !s.course_code).map(s => s.playlist?.name)'));
+  const sessPage = readFileSync('app/training/live-sessions/[id]/page.tsx', 'utf8');
+  check('U14.7g the session page sidebar walks the playlist and links course sessions under their course', sessPage.includes('s.course_code ? courseSessionPath(s.course_code, s.id)'));
 }
 
 (async () => {

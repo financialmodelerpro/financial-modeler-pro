@@ -7,6 +7,7 @@ import { sendAutoNewsletter } from '@/src/shared/newsletter/autoNotify';
 import { createCalendarEventWithMeeting, isTeamsConfigured, TeamsIntegrationError } from '@/src/integrations/teams/teamsMeetings';
 import { isPublicSession } from '@/src/hubs/training/lib/liveCourse/publicVisibility';
 import { publicSessionUrl, sessionPlatformLabel } from '@/src/hubs/training/lib/liveSessions/privateSessionFields';
+import { syncCoursePlaylist } from '@/src/hubs/training/lib/liveCourse/coursePlaylist';
 
 const LEARN_URL = process.env.NEXT_PUBLIC_LEARN_URL ?? 'https://learn.financialmodelerpro.com';
 const DEFAULT_SESSION_DURATION_MINUTES = 90;
@@ -195,5 +196,8 @@ export async function POST(req: NextRequest) {
       },
     });
   }
+  // A course session joins its course's playlist (best effort; never blocks the save).
+  const newCourse = (data as { course_code?: string | null } | null)?.course_code;
+  if (newCourse) await syncCoursePlaylist(sb, newCourse).catch((e) => console.warn('[live-sessions] course playlist', e));
   return NextResponse.json({ session: data, teamsWarning });
 }

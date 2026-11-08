@@ -14,6 +14,7 @@ import { hydrateIntervals, serializeIntervals, type Interval } from '@/src/hubs/
 import { effectiveSessionType } from '@/src/hubs/training/lib/liveCourse/joinWindow';
 import { JoinLiveButton } from '@/src/hubs/training/components/sessions/JoinLiveButton';
 import { TimeZoneTable } from '@/src/hubs/training/components/sessions/TimeZoneTable';
+import { courseSessionPath } from '@/src/hubs/training/lib/liveCourse/paths';
 
 interface Attachment { id: string; file_name: string; file_url: string; file_type: string; file_size: number }
 interface Session {
@@ -161,7 +162,7 @@ export default function LiveSessionDetailPage() {
     const pid = session.playlist.id;
     fetch('/api/public/training-sessions?limit=50')
       .then(r => r.json())
-      .then((d: { sessions?: Array<{ id: string; title: string; duration_minutes: number | null; session_type: string; scheduled_datetime?: string; playlist?: { id: string } | { id: string }[] | null }> }) => {
+      .then((d: { sessions?: Array<{ id: string; title: string; duration_minutes: number | null; session_type: string; scheduled_datetime?: string; course_code?: string | null; playlist?: { id: string } | { id: string }[] | null }> }) => {
         const filtered = (d.sessions ?? [])
           .filter(s => {
             const p = Array.isArray(s.playlist) ? s.playlist[0] : s.playlist;
@@ -174,7 +175,7 @@ export default function LiveSessionDetailPage() {
             duration_minutes: s.duration_minutes ?? undefined,
             type: (s.session_type === 'recorded' ? 'recorded' : s.session_type === 'live' ? 'live' : 'upcoming') as SidebarSession['type'],
             watched: false,
-            href: `/training/live-sessions/${s.id}`,
+            href: s.course_code ? courseSessionPath(s.course_code, s.id) : `/training/live-sessions/${s.id}`,
           }));
         setPlaylistSessions(filtered);
       })
