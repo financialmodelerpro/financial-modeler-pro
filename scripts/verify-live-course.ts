@@ -535,12 +535,97 @@ async function unit3(): Promise<void> {
   check('U3.9c the admin attendance route is admin-only', route.match(/adminEmail\(\)/g)!.length >= 2);
 }
 
+async function unit4(): Promise<void> {
+  console.log('\n=== Unit 4: eligibility ===\n');
+  const E = await import('../src/hubs/training/lib/liveCourse/eligibility');
+  const cs = await import('../src/hubs/training/lib/liveCourse/courseSettings');
+  const course = cs.settingsFromRow(REFM_ROW);
+  const after = new Date('2027-02-01T00:00:00Z').getTime();
+  // Eight weekly sessions, all held, all with recordings.
+  const sessions = Array.from({ length: 8 }, (_, i) => ({
+    id: `s${i + 1}`, course_session_no: i + 1, title: `Session ${i + 1}`,
+    scheduled_datetime: new Date(Date.UTC(2026, 11, 1 + 7 * i, 16)).toISOString(), duration_minutes: 150,
+    session_type: 'upcoming' as const, youtube_url: `https://youtu.be/r${i + 1}`,
+  }));
+  const live = (pct: number) => [{ intervals: [] as [string, string][], attended_pct: pct, session_seconds: 9000, source: 'graph' }];
+  const allLive = (pct: number) => new Map(sessions.map((s) => [s.id, live(pct)]));
+  const watched = (sec: number, total = 3600, pct: number | null = null) => ({ watch_seconds: sec, total_seconds: total, watch_percentage: pct });
+  const none = new Map();
+
+  const at75 = E.computeEligibility(course, sessions, allLive(75), none, after);
+  check('U4.1a 75.00% in every session: live route complete, submission unlocked', at75.routeCompleted === 'live' && at75.submissionUnlocked);
+  const under = allLive(75); under.set('s4', live(74.99));
+  const e2 = E.computeEligibility(course, sessions, under, none, after);
+  check('U4.1b 74.99% in one session: that session is not met, nothing unlocks', !e2.sessions[3].met && !e2.submissionUnlocked && e2.sessionsMet === 7);
+
+  // One missed session.
+  const missed = allLive(90); missed.delete('s5');
+  const e3 = E.computeEligibility(course, sessions, missed, none, after);
+  check('U4.2a one missed session and no recording watched: locked', !e3.submissionUnlocked && !e3.liveComplete);
+  const e4 = E.computeEligibility(course, sessions, missed, new Map([['s5', watched(3600)]]), after);
+  check('U4.2b the missed session completed by its recording: mixed route, unlocked', e4.routeCompleted === 'mixed' && e4.submissionUnlocked && e4.sessions[4].via === 'recording');
+  const noMix = cs.settingsFromRow({ ...REFM_ROW, allow_mixed_routes: false });
+  check('U4.2c with mixed routes OFF, the same student stays locked', !E.computeEligibility(noMix, sessions, missed, new Map([['s5', watched(3600)]]), after).submissionUnlocked);
+
+  // Recording route (a new user after the course ends).
+  const fullWatch = new Map(sessions.map((s) => [s.id, watched(3420)])); // 95.0%
+  const e5 = E.computeEligibility(course, sessions, none, fullWatch, after);
+  check('U4.3a every recording watched to 95%: recording route complete', e5.routeCompleted === 'recording' && e5.submissionUnlocked);
+  const oneShort = new Map(fullWatch); oneShort.set('s8', watched(3400)); // 94.4%
+  check('U4.3b one recording at 94.4%: incomplete, locked', !E.computeEligibility(course, sessions, none, oneShort, after).submissionUnlocked);
+  const flagOnly = new Map(fullWatch); flagOnly.set('s2', watched(60, 3600, 100));
+  check('U4.3c a "completed" flag with only 60 seconds watched does not count (skip to end)', !E.computeEligibility(course, sessions, none, flagOnly, after).sessions[1].recordingMet);
+  const noRec = sessions.map((s) => (s.id === 's3' ? { ...s, youtube_url: null } : s));
+  check('U4.3d a session with no recording uploaded cannot be met by recording', !E.computeEligibility(course, noRec as never, none, fullWatch, after).sessions[2].recordingMet);
+
+  // Sessions not yet held block the unlock.
+  const midCourse = new Date('2026-12-10T00:00:00Z').getTime();
+  const e6 = E.computeEligibility(course, sessions, new Map([['s1', live(100)], ['s2', live(100)]]), none, midCourse);
+  check('U4.4a mid-course: future sessions are "not held" and nothing unlocks', !e6.submissionUnlocked && !e6.sessions[5].held && e6.sessions[0].held);
+  check('U4.4b a course with no sessions never unlocks', !E.computeEligibility(course, [], none, none, after).submissionUnlocked);
+
+  // Route settings.
+  const liveOnly = cs.settingsFromRow({ ...REFM_ROW, cert_routes: ['live'] });
+  check('U4.5a a live-only course ignores recordings', !E.computeEligibility(liveOnly, sessions, none, fullWatch, after).submissionUnlocked);
+  const higher = cs.settingsFromRow({ ...REFM_ROW, attendance_threshold_pct: 80 });
+  check('U4.5b the threshold is a course setting (80% course: 75% fails)', !E.computeEligibility(higher, sessions, allLive(75), none, after).submissionUnlocked);
+
+  // Live share across Teams identities.
+  const twoDevices = [
+    { intervals: [['2026-12-01T16:00:00Z', '2026-12-01T17:30:00Z']] as [string, string][], attended_pct: 60, session_seconds: 9000, source: 'graph' },
+    { intervals: [['2026-12-01T17:00:00Z', '2026-12-01T18:00:00Z']] as [string, string][], attended_pct: 40, session_seconds: 9000, source: 'graph' },
+  ];
+  check('U4.6a two identities overlapping: merged to 80%, not 100% summed', E.liveShare(twoDevices) === 80, String(E.liveShare(twoDevices)));
+  check('U4.6b a hand-entered figure stands', E.liveShare([...twoDevices, { intervals: [], attended_pct: 95, session_seconds: 9000, source: 'manual' }]) === 95);
+  check('U4.6c a recording share uses watch seconds over length, capped at 100', E.recordingShare(watched(5000, 3600)) === 100 && E.recordingShare(undefined) === 0);
+
+  // One rule everywhere.
+  const users = ['src/hubs/training/lib/liveCourse/courseView.ts', 'app/api/admin/live-course/[code]/progress/route.ts'];
+  check('U4.7a the course page and the admin view both compute through computeEligibility', users.every((f) => readFileSync(f, 'utf8').includes('computeEligibility(')));
+
+  if (hasCreds()) {
+    // The loader against the live schema: its columns and filters must exist.
+    const sb = await db();
+    const { data: anySession } = await sb.from('session_watch_history').select('session_id').limit(1).maybeSingle();
+    const ids = anySession?.session_id ? [anySession.session_id as string] : ['00000000-0000-0000-0000-000000000000'];
+    let err = '';
+    try { await E.loadProgressMaps(sb, ids, null); } catch (e) { err = String(e); }
+    const probe = await sb.from('session_watch_history').select('session_id, student_email, watch_seconds, total_seconds, watch_percentage').order('id').limit(1);
+    const probe2 = await sb.from('live_session_attendance').select('session_id, student_email, intervals, attended_pct, session_seconds, source').order('id').limit(1);
+    check('U4.8a the eligibility loader reads columns that exist on the live schema', !err && !probe.error && !probe2.error, err || probe.error?.message || probe2.error?.message || '');
+    const live = await E.loadStudentEligibility(sb, 'nobody-verify@example.com', 'REFM');
+    check('U4.8b REFM eligibility loads live for a student with no progress: locked', !!live && !live.submissionUnlocked);
+    check('U4.8c an exam course has no live-course eligibility (null)', (await E.loadStudentEligibility(sb, 'nobody-verify@example.com', '3SFM')) === null);
+  }
+}
+
 (async () => {
   await unit0();
   await unit1();
   await unit1b();
   await unit2();
   await unit3();
+  await unit4();
   console.log(`\n${passed} passed, ${failed} failed`);
   if (failed) { console.log('Failed:'); for (const f of fails) console.log(`  - ${f}`); process.exit(1); }
 })().catch((e) => { console.error(e); process.exit(1); });

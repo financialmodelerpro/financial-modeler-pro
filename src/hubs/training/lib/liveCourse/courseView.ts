@@ -10,6 +10,7 @@ import {
 import { isEnrolled } from './enrolment';
 import { joinStatusFrom } from './sessionAccess';
 import { effectiveSessionType } from './joinWindow';
+import { computeEligibility, loadProgressMaps, type Eligibility } from './eligibility';
 
 export interface CourseSessionView extends CourseSession {
   state: 'upcoming' | 'live' | 'recorded';
@@ -23,6 +24,8 @@ export interface CourseView {
   course: LiveCourseSettings;
   sessions: CourseSessionView[];
   enrolled: boolean;
+  /** Per-session progress and whether submission is unlocked (eligibility.ts). */
+  eligibility: Eligibility;
 }
 
 export async function loadCourseView(
@@ -46,9 +49,14 @@ export async function loadCourseView(
     for (const r of data ?? []) links.set(r.id as string, (r.live_url as string | null) ?? null);
   }
 
+  const lower = student.email.trim().toLowerCase();
+  const maps = await loadProgressMaps(sb, ids, [...new Set([lower, student.email.trim()])]);
+  const eligibility = computeEligibility(course, sessions, maps.attendance.get(lower) ?? new Map(), maps.watch.get(lower) ?? new Map(), now);
+
   return {
     course,
     enrolled,
+    eligibility,
     sessions: sessions.map((s) => {
       const st = joinStatusFrom(enrolled, { ...s, live_url: links.get(s.id) ?? null }, course.joinOpensMinutesBefore, now);
       return {

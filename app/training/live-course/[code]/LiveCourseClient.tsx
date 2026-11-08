@@ -80,6 +80,8 @@ export function LiveCourseClient({ courseCode, autoEnrol }: { courseCode: string
               {notice && <div data-testid="live-course-notice" style={{ marginTop: 12, fontSize: 13 }}>{notice}</div>}
             </div>
 
+            {view.enrolled && <ProgressSummary view={view} />}
+
             <h2 style={{ fontSize: 16, fontWeight: 800, color: NAVY, margin: '0 0 10px' }}>Sessions</h2>
             {view.sessions.length === 0 && <div style={{ color: SLATE, fontSize: 14 }}>The schedule will appear here as sessions are announced.</div>}
             <div style={{ display: 'grid', gap: 10 }}>
@@ -93,6 +95,7 @@ export function LiveCourseClient({ courseCode, autoEnrol }: { courseCode: string
                   {view.enrolled && s.state !== 'recorded' && (
                     <JoinLiveButton joinUrl={s.joinUrl} joinOpensAt={s.joinOpensAt} joinClosesAt={s.joinClosesAt} size="sm" />
                   )}
+                  {view.enrolled && <SessionProgress e={view.eligibility.sessions.find((x) => x.sessionId === s.id)} course={view.course} />}
                 </div>
               ))}
             </div>
@@ -100,5 +103,48 @@ export function LiveCourseClient({ courseCode, autoEnrol }: { courseCode: string
         )}
       </div>
     </TrainingShell>
+  );
+}
+
+type SessionElig = CourseView['eligibility']['sessions'][number];
+
+/** One session's status: met live, met by recording, or what is still needed. */
+function SessionProgress({ e, course }: { e: SessionElig | undefined; course: CourseView['course'] }) {
+  if (!e) return null;
+  const chip = (bg: string, fg: string, text: string, testid: string) => (
+    <span data-testid={testid} style={{ background: bg, color: fg, borderRadius: 14, padding: '4px 10px', fontSize: 12, fontWeight: 700, whiteSpace: 'nowrap' }}>{text}</span>
+  );
+  if (e.via === 'live') return chip('#E7F4EC', GREEN, `✓ Attended live (${e.livePct.toFixed(0)}%)`, 'session-met-live');
+  if (e.via === 'recording') return chip('#E7F4EC', GREEN, `✓ Recording watched (${e.recordingPct.toFixed(0)}%)`, 'session-met-recording');
+  if (!e.held) return chip('#F1F3F5', SLATE, 'Not held yet', 'session-pending');
+  const parts: string[] = [];
+  if (course.certRoutes.includes('live')) parts.push(`live ${e.livePct.toFixed(0)}% of ${course.attendanceThresholdPct}%`);
+  if (course.certRoutes.includes('recording')) parts.push(e.hasRecording ? `recording ${e.recordingPct.toFixed(0)}% of ${course.recordingCompletePct}%` : 'recording not uploaded yet');
+  return chip('#FFF4E5', '#9A5B00', parts.join(' · '), 'session-not-met');
+}
+
+/** Overall progress and whether the model submission is unlocked. */
+function ProgressSummary({ view }: { view: CourseView }) {
+  const e = view.eligibility;
+  const total = e.sessions.length;
+  const pct = total ? Math.round((e.sessionsMet / total) * 100) : 0;
+  const routeText = e.routeCompleted === 'live' ? 'Live attendance route complete'
+    : e.routeCompleted === 'recording' ? 'Recordings route complete'
+    : e.routeCompleted === 'mixed' ? 'All sessions complete (live and recordings)' : null;
+  return (
+    <div data-testid="live-course-progress" style={{ background: '#fff', border: `1px solid ${PALE}`, borderRadius: 10, padding: '16px 18px', marginBottom: 20 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
+        <strong style={{ color: NAVY }}>Your progress: {e.sessionsMet} of {total} sessions complete</strong>
+        {routeText
+          ? <span data-testid="route-complete" style={{ color: GREEN, fontWeight: 700, fontSize: 13 }}>✓ {routeText}</span>
+          : <span style={{ color: SLATE, fontSize: 13 }}>Attend at least {view.course.attendanceThresholdPct}% of each session live, or watch its recording in full.</span>}
+      </div>
+      <div style={{ height: 8, background: PALE, borderRadius: 4, overflow: 'hidden' }}>
+        <div style={{ width: `${pct}%`, height: '100%', background: GREEN }} />
+      </div>
+      <div data-testid={e.submissionUnlocked ? 'submission-unlocked' : 'submission-locked'} style={{ marginTop: 10, fontSize: 13, color: e.submissionUnlocked ? GREEN : SLATE }}>
+        {e.submissionUnlocked ? 'Model submission is unlocked.' : 'Model submission unlocks once every session is complete.'}
+      </div>
+    </div>
   );
 }
