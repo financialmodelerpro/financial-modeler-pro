@@ -12,9 +12,13 @@ import { joinStatusFrom } from './sessionAccess';
 import { effectiveSessionType } from './joinWindow';
 import { computeEligibility, loadProgressMaps, type Eligibility } from './eligibility';
 import { loadCourseInstructors, type CourseInstructor } from './courseInstructors';
+import { listMaterials, materialsReleased, materialPath } from './materials';
 
 export interface CourseSessionView extends CourseSession {
   state: 'upcoming' | 'live' | 'recorded';
+  /** Materials: listed always, downloadable once released (after the session's current end). */
+  materials: { id: string; fileName: string; sizeBytes: number | null; url: string | null }[];
+  materialsReleased: boolean;
   /** Logged join route, or null (not enrolled, or no meeting link yet). */
   joinUrl: string | null;
   joinOpensAt: string | null;
@@ -64,6 +68,7 @@ export async function loadCourseView(
   const eligibility = computeEligibility(course, sessions, maps.attendance.get(lower) ?? new Map(), maps.watch.get(lower) ?? new Map(), now);
 
   const instructors = await loadCourseInstructors(sb, course.instructorIds);
+  const mats = enrolled ? await listMaterials(sb, ids) : [];
   const { data: meta } = await sb.from('training_registrations_meta').select('name').eq('registration_id', student.registrationId).maybeSingle();
   const { data: cert } = await sb
     .from('student_certificates')
@@ -84,8 +89,12 @@ export async function loadCourseView(
     certificate,
     sessions: sessions.map((s) => {
       const st = joinStatusFrom(enrolled, { ...s, live_url: links.get(s.id) ?? null }, course.joinOpensMinutesBefore, now);
+      const released = materialsReleased(s, now);
       return {
         ...s,
+        materialsReleased: released,
+        // The link exists only once released; before that the name shows as "after the session".
+        materials: mats.filter((m) => m.session_id === s.id).map((m) => ({ id: m.id, fileName: m.file_name, sizeBytes: m.size_bytes, url: released ? materialPath(s.id, m.id) : null })),
         state: effectiveSessionType(s, now),
         joinUrl: st.joinUrl,
         joinOpensAt: st.window?.opensAt ?? null,

@@ -259,7 +259,16 @@ export function fakeDb(seed: Record<string, Row[]> = {}) {
     };
     return q;
   };
-  return { client: { from } as unknown as import('@supabase/supabase-js').SupabaseClient, tables };
+  // Storage stub: records uploads per bucket (for the materials rules).
+  const uploads: { bucket: string; path: string; bytes: number }[] = [];
+  const storage = {
+    from: (bucket: string) => ({
+      upload: async (path: string, bytes: Uint8Array) => { uploads.push({ bucket, path, bytes: bytes.length }); return { error: null }; },
+      createSignedUrl: async (path: string) => ({ data: { signedUrl: `https://signed/${path}` }, error: null }),
+      getPublicUrl: (path: string) => ({ data: { publicUrl: `https://public/${path}` } }),
+    }),
+  };
+  return { client: { from, storage } as unknown as import('@supabase/supabase-js').SupabaseClient, tables, uploads };
 }
 
 const REFM_ROW = { course_code: 'REFM', title: 'REFM Live', is_active: true, is_public: true, exams_enabled: false, cert_routes: ['live', 'recording'], allow_mixed_routes: true, attendance_threshold_pct: 75, recording_complete_pct: 95, model_approval_required: true, max_submission_attempts: 3, join_opens_minutes_before: 15, session_day_reminder: true, certificate_grade_label: 'Completed' };
@@ -908,7 +917,8 @@ async function unit9(): Promise<void> {
   check('U9.7a /admin/training-hub/live-sessions redirects to Live Training (Single sessions)', readFileSync('app/admin/training-hub/live-sessions/page.tsx', 'utf8').includes("redirect('/admin/training-hub/live-training?tab=sessions')"));
   check('U9.7b /admin/training-hub/live-course redirects to Live Training', readFileSync('app/admin/training-hub/live-course/page.tsx', 'utf8').includes("redirect('/admin/training-hub/live-training')"));
   const home = readFileSync('app/admin/training-hub/live-training/page.tsx', 'utf8');
-  check('U9.7c both tabs use the ONE session editor (no second editor)', home.includes('<LiveSessionsManager embedded />') && adminPage.includes('<LiveSessionsManager courseCode={course.courseCode} embedded />'));
+  // The rule is "one editor, given the course"; a key prop (for refresh) is allowed.
+  check('U9.7c both tabs use the ONE session editor (no second editor)', home.includes('<LiveSessionsManager embedded />') && /<LiveSessionsManager[^>]*courseCode=\{course\.courseCode\}[^>]*embedded \/>/.test(adminPage));
   const mgr = readFileSync('app/admin/training-hub/live-training/LiveSessionsManager.tsx', 'utf8');
   check('U9.7d Single sessions lists only sessions with no course; a course tab only its own', mgr.includes('if (courseCode ? sCourse !== courseCode : !!sCourse) return false;'));
   check('U9.7e a new session in a course tab gets the course and the next session number', mgr.includes("course_code: courseCode, course_session_no: String(nextNo)"));
@@ -995,6 +1005,133 @@ async function unit10(): Promise<void> {
   }
 }
 
+async function unit11(): Promise<void> {
+  console.log('\n=== REFM sessions: content, materials, reschedule, calendar ===\n');
+  const SD = await import('../src/hubs/training/lib/liveCourse/seeds/refmSessions');
+  const M = await import('../src/hubs/training/lib/liveCourse/materials');
+  const RS = await import('../src/hubs/training/lib/liveCourse/reschedule');
+  const RA = await import('../src/hubs/training/lib/liveCourse/rescheduleApply');
+  const CAL = await import('../src/hubs/training/lib/liveCourse/calendar');
+  const E = await import('../src/hubs/training/lib/liveCourse/eligibility');
+  const cs = await import('../src/hubs/training/lib/liveCourse/courseSettings');
+
+  // ── Seed content ──
+  const S = SD.REFM_SESSIONS;
+  const wantDates = ['2026-12-01', '2026-12-08', '2026-12-15', '2026-12-22', '2027-01-05', '2027-01-12', '2027-01-19', '2027-01-26'];
+  check('U11.1a eight sessions, numbered 1 to 8', S.length === 8 && S.every((s, i) => s.no === i + 1));
+  check('U11.1b every session starts 16:00 UTC (7:00 PM KSA) on the founder\'s dates, all Tuesdays', S.every((s, i) => s.start === `${wantDates[i]}T16:00:00.000Z` && new Date(s.start).getUTCDay() === 2));
+  check('U11.1c every session lasts 150 minutes (to 9:30 PM KSA)', SD.REFM_DURATION_MINUTES === 150);
+  check('U11.1d all four content fields are filled on every session', S.every((s) => s.overview.length > 50 && s.learn.length >= 6 && s.outcome.length > 20 && s.claude.length > 20));
+  check('U11.1e no session on 29 December', !S.some((s) => s.start.startsWith('2026-12-29')));
+  const seed = readFileSync('scripts/seed-refm-sessions.ts', 'utf8');
+  check('U11.2a the seed imports no email or newsletter code and calls no sender', !/^import[^\n]*(email|newsletter)/im.test(seed) && !/(sendEmail|sendTemplatedEmail|sendAutoNewsletter|sendEmailPerRecipient)\(/.test(seed));
+  check('U11.2b the seed writes rows directly (no admin route side effects) and marks nothing announced', seed.includes(".from('live_sessions').insert(") && seed.includes('announcement_sent: false') && !seed.includes('fetch('));
+  check('U11.2c a re-run keeps a rescheduled time unless --reset-times', seed.includes('resetTimes ? { ...content, scheduled_datetime: s.start') && seed.includes(': content;'));
+  const teamsRoute = readFileSync('app/api/admin/live-course/[code]/teams-meetings/route.ts', 'utf8');
+  check('U11.2d "Create missing Teams meetings" uses the existing integration and sends no email or newsletter', teamsRoute.includes('createCalendarEventWithMeeting(') && !/sendEmail|sendAutoNewsletter|sendTemplatedEmail/.test(teamsRoute));
+
+  // ── Materials release ──
+  const sess = { scheduled_datetime: '2026-12-01T16:00:00Z', duration_minutes: 150 };
+  check('U11.3a materials are hidden before the session ends (18:29 UTC)', !M.materialsReleased(sess, new Date('2026-12-01T18:29:00Z').getTime()));
+  check('U11.3b and visible after (18:31 UTC)', M.materialsReleased(sess, new Date('2026-12-01T18:31:00Z').getTime()));
+  check('U11.3c after a reschedule a week later, the release moves with it', !M.materialsReleased({ ...sess, scheduled_datetime: '2026-12-08T16:00:00Z' }, new Date('2026-12-01T18:31:00Z').getTime()));
+  const dl = readFileSync('app/api/training/live-sessions/[id]/materials/[materialId]/route.ts', 'utf8');
+  check('U11.3d the download route checks access and release before handing out a link', dl.indexOf('studentHasSessionAccess(') < dl.indexOf('createSignedUrl(') && dl.indexOf('materialsReleased(session)') < dl.indexOf('createSignedUrl('));
+  check('U11.3e folder names map to session numbers', M.sessionNumberOf('Session_01') === 1 && M.sessionNumberOf('Session_08') === 8 && M.sessionNumberOf('Notes') === null);
+
+  // ── Sync: changed files only, replaced by name ──
+  const existing = [{ id: 'm1', session_id: 's1', file_name: 'Slides.pdf', storage_path: 'p1', sha256: 'aaa', size_bytes: 1, mime_type: null, version: 1, versions: [], updated_at: '' }];
+  const plan = M.planMaterialSync([{ fileName: 'Slides.pdf', sha: 'aaa' }, { fileName: 'Prompt.txt', sha: 'bbb' }], existing);
+  check('U11.4a an unchanged file is skipped, a new one uploaded', plan.find((p) => p.fileName === 'Slides.pdf')?.kind === 'unchanged' && plan.find((p) => p.fileName === 'Prompt.txt')?.kind === 'new');
+  check('U11.4b a changed file (same name, new hash) is a replacement', M.planMaterialSync([{ fileName: 'Slides.pdf', sha: 'ccc' }], existing)[0].kind === 'changed');
+  const db1 = fakeDb({ live_session_materials: [] });
+  const a = await M.putMaterial(db1.client, { sessionId: 's1', fileName: 'Slides.pdf', bytes: Buffer.from('v1'), by: 'test' });
+  const b = await M.putMaterial(db1.client, { sessionId: 's1', fileName: 'Slides.pdf', bytes: Buffer.from('v1'), by: 'test' });
+  const c = await M.putMaterial(db1.client, { sessionId: 's1', fileName: 'Slides.pdf', bytes: Buffer.from('v2 changed'), by: 'test' });
+  const row = db1.tables.live_session_materials[0];
+  check('U11.4c first upload is new; the same bytes again change nothing', a.action === 'new' && b.action === 'unchanged' && db1.uploads.length === 2 - 1 + (c.action === 'changed' ? 1 : 0));
+  check('U11.4d a changed file replaces by name: same row (same student link), version 2', c.action === 'changed' && db1.tables.live_session_materials.length === 1 && row.version === 2 && row.id === a.row?.id);
+  check('U11.4e the previous version is kept (history listed, stored under its own path)', (row.versions as unknown[]).length === 1 && db1.uploads[0].path !== db1.uploads[1].path && db1.uploads.every((u) => u.bucket === 'live-course-materials'));
+  const syncSrc = readFileSync('scripts/sync-course-materials.ts', 'utf8');
+  check('U11.4f the sync script and the editor share one writer (putMaterial)', syncSrc.includes('putMaterial(') && readFileSync('app/api/admin/live-sessions/[id]/materials/route.ts', 'utf8').includes('putMaterial('));
+  check('U11.4g npm run sync:refm-materials points at the REFM folder', JSON.parse(readFileSync('package.json', 'utf8')).scripts['sync:refm-materials'].includes('docs/REFM_Live_Course_Materials'));
+  check('U11.4h the materials folder is git-ignored', readFileSync('.gitignore', 'utf8').includes('docs/REFM_Live_Course_Materials/'));
+
+  // ── Reschedule ──
+  const eight = S.map((s, i) => ({ id: `s${i + 1}`, course_session_no: s.no, scheduled_datetime: s.start, ics_sequence: 0 }));
+  const single = RS.planReschedule(eight, 's3', '2026-12-17T16:00:00.000Z', 'single');
+  check('U11.5a single: only session 3 moves', single.ok && single.moves.length === 1 && single.moves[0].newStart === '2026-12-17T16:00:00.000Z');
+  const follow = RS.planReschedule(eight, 's4', '2026-12-29T16:00:00.000Z', 'following');
+  check('U11.5b following: session 4 and every later one move by the same gap (one week)', follow.ok && follow.moves.length === 5 && follow.moves.every((m) => new Date(m.newStart).getTime() - new Date(m.oldStart).getTime() === 7 * 86_400_000));
+  check('U11.5c earlier sessions do not move', !follow.moves.some((m) => ['s1', 's2', 's3'].includes(m.id)));
+  const upd = RS.moveUpdate(follow.moves[0]);
+  check('U11.5d a move resets the old date\'s reminder and attendance sync, records the previous date, bumps the calendar sequence', upd.day_reminder_sent_at === null && upd.attendance_synced_at === null && upd.rescheduled_from === follow.moves[0].oldStart && upd.ics_sequence === 1);
+  check('U11.5e the same time is refused', !RS.planReschedule(eight, 's1', S[0].start, 'single').ok);
+
+  // applyReschedule end to end: rows, Teams, emails to enrolled students only, calendar.
+  const sessRows = S.map((s, i) => ({ id: `s${i + 1}`, title: s.title, course_code: 'REFM', course_session_no: s.no, scheduled_datetime: s.start, duration_minutes: 150, ics_sequence: 0, teams_meeting_id: `evt${i + 1}`, live_url: `https://teams/${i + 1}`, is_published: true }));
+  const db2 = fakeDb({
+    training_course_settings: [REFM_ROW],
+    live_sessions: sessRows,
+    training_enrollments: [{ id: 'e1', registration_id: 'FMP-1', course_code: 'REFM' }, { id: 'e2', registration_id: 'FMP-2', course_code: 'REFM' }],
+    training_registrations_meta: [{ registration_id: 'FMP-1', email: 'a@x.com', name: 'A' }, { registration_id: 'FMP-2', email: 'b@x.com', name: 'B' }, { registration_id: 'FMP-9', email: 'notenrolled@x.com', name: 'N' }],
+    session_registrations: [{ id: 'r1', session_id: 's3', student_email: 'notenrolled@x.com' }],
+    live_session_reschedules: [],
+  });
+  const teamsCalls: string[] = [];
+  const sent: { to: string; attachments: { name: string; content: string }[] }[] = [];
+  const r = await RA.applyReschedule(db2.client, { sessionId: 's3', newStartIso: '2026-12-17T16:00:00.000Z', mode: 'single', by: 'admin@x.com' }, {
+    teamsUpdate: async (id, start, end) => { teamsCalls.push(`${id}|${start}|${end}`); return null; },
+    send: async (items) => { sent.push(...items); return items.map(() => ({ ok: true })); },
+  });
+  const moved = db2.tables.live_sessions.find((x) => x.id === 's3')!;
+  check('U11.6a the session row moves and keeps its number and id', r.ok && moved.scheduled_datetime === '2026-12-17T16:00:00.000Z' && moved.course_session_no === 3);
+  check('U11.6b the Teams meeting moves to the new start and end', teamsCalls[0] === 'evt3|2026-12-17T16:00:00.000Z|2026-12-17T18:30:00.000Z');
+  check('U11.6c the email goes to enrolled students only (not a session registrant who is not enrolled)', sent.length === 2 && sent.every((s) => ['a@x.com', 'b@x.com'].includes(s.to)));
+  const ics = Buffer.from(sent[0].attachments[0].content, 'base64').toString('utf8');
+  check('U11.6d the email carries the updated calendar: same event ID, SEQUENCE 1, new start', ics.includes(`UID:${CAL.eventUid('s3')}`) && /UID:live-session-s3@[^\r]+\r\nSEQUENCE:1\r\n/.test(ics) && ics.includes('DTSTART:20261217T160000Z'));
+  check('U11.6e the move is logged', db2.tables.live_session_reschedules.length === 1 && db2.tables.live_session_reschedules[0].emails_sent === 2);
+  const db3 = fakeDb({ live_sessions: [{ id: 'solo', course_code: null, scheduled_datetime: S[0].start }] });
+  check('U11.6f a single session is not rescheduled by this route (its editor handles its date)', !(await RA.applyReschedule(db3.client, { sessionId: 'solo', newStartIso: S[1].start, mode: 'single', by: null }, { send: async () => [] })).ok);
+
+  // A rescheduled session still counts toward eligibility (same id, new time).
+  const course = cs.settingsFromRow(REFM_ROW);
+  const moved1 = [{ id: 's3', course_session_no: 3, title: 'S3', scheduled_datetime: '2026-12-17T16:00:00.000Z', duration_minutes: 150, session_type: 'upcoming' as const, youtube_url: null }];
+  const el = E.computeEligibility(course, moved1, new Map([['s3', [{ intervals: [], attended_pct: 80, session_seconds: 9000, source: 'graph' }]]]), new Map(), new Date('2027-01-01').getTime());
+  check('U11.6g a rescheduled session still counts toward eligibility', el.sessions[0].met && el.submissionUnlocked);
+
+  // ── Calendar file ──
+  const base = { courseCode: 'REFM', title: 'REFM Live' };
+  const before = CAL.buildCourseIcs(base, [{ id: 's3', title: 'Financing', course_session_no: 3, scheduled_datetime: '2026-12-15T16:00:00Z', duration_minutes: 150, ics_sequence: 0 }]);
+  const after = CAL.buildCourseIcs(base, [{ id: 's3', title: 'Financing', course_session_no: 3, scheduled_datetime: '2026-12-17T16:00:00Z', duration_minutes: 150, ics_sequence: 1 }]);
+  const uid = (t: string) => /UID:(.+)\r\n/.exec(t)?.[1];
+  check('U11.7a the calendar keeps the same event ID after a reschedule', uid(before) === uid(after) && uid(after) === CAL.eventUid('s3'));
+  check('U11.7b with a higher SEQUENCE and the new time, so calendars move the event', before.includes('SEQUENCE:0') && after.includes('SEQUENCE:1') && after.includes('DTSTART:20261217T160000Z') && after.includes('DTEND:20261217T183000Z'));
+  check('U11.7c the file never contains the meeting link', !after.includes('teams.microsoft.com'));
+  check('U11.7d the enrolment email attaches the course calendar', readFileSync('src/hubs/training/lib/liveCourse/enrolment.ts', 'utf8').includes('attachments: [ics]'));
+  check('U11.7e enrolled students get "Add to calendar" on the course page', readFileSync('app/training/live-course/[code]/LiveCourseClient.tsx', 'utf8').includes('/calendar') && readFileSync('app/api/training/live-course/[code]/calendar/route.ts', 'utf8').includes('isEnrolled('));
+
+  // ── Public page content ──
+  const card = readFileSync('src/hubs/training/components/sessions/CourseSessionCard.tsx', 'utf8');
+  check('U11.8a the public page shows each session\'s overview, with the rest behind "See what you will learn"', card.includes('data-testid="session-overview"') && card.includes('See what you will learn') && card.includes('expanded ? details : ('));
+  check('U11.8b a rescheduled session shows "Rescheduled" with its previous date', card.includes('Rescheduled · was {formatSessionTime(s.rescheduled_from)}'));
+  check('U11.8c each session card has its time zone table', card.includes('<TimeZoneTable iso={s.scheduled_datetime}'));
+  check('U11.8d a published course session cannot be deleted (reschedule instead)', readFileSync('app/api/admin/live-sessions/[id]/route.ts', 'utf8').includes('A published course session cannot be deleted'));
+
+  if (hasCreds()) {
+    const sb = await db();
+    const { data: live, error } = await sb.from('live_sessions').select('id, course_session_no, scheduled_datetime, content_overview, content_learn, content_outcome, content_claude, announcement_sent').eq('course_code', 'REFM').order('course_session_no');
+    if (error) { console.log(`        (live REFM sessions not readable yet: ${error.message})`); return; }
+    if ((live ?? []).length === 0) { console.log('        (REFM sessions not seeded yet)'); return; }
+    check('U11.9a live: 8 REFM sessions, numbered 1 to 8', live!.length === 8 && live!.every((s, i) => s.course_session_no === i + 1));
+    check('U11.9b live: correct UTC times (unless moved by a reschedule)', live!.every((s, i) => new Date(s.scheduled_datetime as string).getUTCHours() === 16 && (s.scheduled_datetime as string).startsWith(wantDates[i]) ));
+    check('U11.9c live: all four content fields filled', live!.every((s) => s.content_overview && (s.content_learn as string[]).length >= 6 && s.content_outcome && s.content_claude));
+    const ids = live!.map((s) => s.id as string);
+    const { data: camps } = await sb.from('newsletter_campaigns').select('id').in('source_id', ids);
+    check('U11.9d live: seeding sent no newsletter and no announcement', (camps ?? []).length === 0 && live!.every((s) => !s.announcement_sent));
+  }
+}
+
 (async () => {
   await unit0();
   await unit1();
@@ -1008,6 +1145,7 @@ async function unit10(): Promise<void> {
   await unit8();
   await unit9();
   await unit10();
+  await unit11();
   console.log(`\n${passed} passed, ${failed} failed`);
   if (failed) { console.log('Failed:'); for (const f of fails) console.log(`  - ${f}`); process.exit(1); }
 })().catch((e) => { console.error(e); process.exit(1); });

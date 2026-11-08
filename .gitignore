@@ -87,3 +87,7 @@ exports/
 
 # Live workbook census probe output (scripts/probe-formula-workbook-projects.ts)
 .probe-live-workbooks/
+
+# REFM live course materials (slides, prompts, trainee inputs): synced to storage by
+# npm run sync:refm-materials, never committed.
+docs/REFM_Live_Course_Materials/

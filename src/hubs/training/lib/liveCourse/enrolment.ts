@@ -11,6 +11,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { getLiveCourseSettings, isLiveCourseRow, canRegister, listCourseSessions, normaliseCourseCode } from './courseSettings';
 import { formatSessionTime } from './time';
+import { buildCourseIcs, icsAttachment } from './calendar';
 
 const LEARN_URL = process.env.NEXT_PUBLIC_LEARN_URL ?? 'https://learn.financialmodelerpro.com';
 
@@ -53,7 +54,7 @@ export async function isEnrolled(sb: SupabaseClient, registrationId: string, cou
 export async function enrolInLiveCourse(
   sb: SupabaseClient,
   p: { registrationId: string; email: string; name?: string | null; courseCode: string; source: EnrolSource },
-  deps: { send?: (to: string, subject: string, html: string, text: string) => Promise<void> } = {},
+  deps: { send?: (to: string, subject: string, html: string, text: string, attachments?: { name: string; content: string }[]) => Promise<void> } = {},
 ): Promise<EnrolResult> {
   const settings = await getLiveCourseSettings(sb, p.courseCode);
   if (!isLiveCourseRow(settings)) {
@@ -108,11 +109,14 @@ export async function enrolInLiveCourse(
         courseUrl: `${LEARN_URL}${coursePagePath(settings.courseCode)}`,
         joinOpensMinutesBefore: settings.joinOpensMinutesBefore,
       });
+      // Every course session as a calendar file (stable event IDs: a later
+      // reschedule email's file moves these events instead of adding copies).
+      const ics = icsAttachment(buildCourseIcs(settings, sessions), settings.courseCode);
       if (deps.send) {
-        await deps.send(p.email, mail.subject, mail.html, mail.text);
+        await deps.send(p.email, mail.subject, mail.html, mail.text, [ics]);
       } else {
         const { sendEmail, FROM } = await import('@/src/shared/email/sendEmail');
-        await sendEmail({ to: p.email, subject: mail.subject, html: mail.html, text: mail.text, from: FROM.training });
+        await sendEmail({ to: p.email, subject: mail.subject, html: mail.html, text: mail.text, attachments: [ics], from: FROM.training });
       }
       emailSent = true;
       if (enrolmentId) {

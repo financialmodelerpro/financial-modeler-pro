@@ -181,9 +181,16 @@ export async function listLiveCourses(
   return opts.publicOnly ? all.filter(isPubliclyVisible) : all;
 }
 
-/** Public columns of a course's sessions, ordered by session number. */
-export const COURSE_SESSION_COLUMNS =
+/**
+ * Public columns of a course's sessions, ordered by session number. NAMED,
+ * never `*`: these rows reach the public course page, and `*` would carry the
+ * meeting link. The content and reschedule columns come from mig 251; until it
+ * is applied the read falls back to the base list.
+ */
+const COURSE_SESSION_BASE_COLUMNS =
   'id, title, description, session_type, scheduled_datetime, timezone, duration_minutes, youtube_url, youtube_embed, banner_url, instructor_name, course_code, course_session_no, is_published, actual_start_at, actual_end_at';
+export const COURSE_SESSION_COLUMNS =
+  `${COURSE_SESSION_BASE_COLUMNS}, content_overview, content_learn, content_outcome, content_claude, rescheduled_from, rescheduled_at, ics_sequence`;
 
 export interface CourseSession {
   id: string;
@@ -202,6 +209,16 @@ export interface CourseSession {
   is_published: boolean;
   actual_start_at: string | null;
   actual_end_at: string | null;
+  /** Session content (mig 251). */
+  content_overview?: string | null;
+  content_learn?: string[] | null;
+  content_outcome?: string | null;
+  content_claude?: string | null;
+  /** The start before the latest reschedule, and when it moved (mig 251). */
+  rescheduled_from?: string | null;
+  rescheduled_at?: string | null;
+  /** Bumped on every move; the calendar SEQUENCE (mig 251). */
+  ics_sequence?: number | null;
 }
 
 export async function listCourseSessions(
@@ -211,14 +228,17 @@ export async function listCourseSessions(
 ): Promise<CourseSession[]> {
   const code = normaliseCourseCode(courseCode);
   if (!code) return [];
-  let q = sb.from('live_sessions').select(COURSE_SESSION_COLUMNS).eq('course_code', code);
-  if (opts.publishedOnly !== false) q = q.eq('is_published', true);
-  const { data, error } = await q
-    .order('course_session_no', { ascending: true, nullsFirst: false })
-    .order('scheduled_datetime', { ascending: true });
+  const run = (cols: string) => {
+    let q = sb.from('live_sessions').select(cols).eq('course_code', code);
+    if (opts.publishedOnly !== false) q = q.eq('is_published', true);
+    return q.order('course_session_no', { ascending: true, nullsFirst: false }).order('scheduled_datetime', { ascending: true });
+  };
+  let { data, error } = await run(COURSE_SESSION_COLUMNS);
+  // Schema tolerance: before mig 251 the content columns do not exist.
+  if (error && /does not exist|schema cache/i.test(error.message)) ({ data, error } = await run(COURSE_SESSION_BASE_COLUMNS));
   if (error) {
     console.warn('[liveCourse] sessions read failed', { code, error: error.message });
     return [];
   }
-  return (data ?? []) as CourseSession[];
+  return (data ?? []) as unknown as CourseSession[];
 }

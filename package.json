@@ -11,7 +11,8 @@
     "verify": "npm run type-check && npm run lint && npm run build",
     "handoff": "npx tsx scripts/generate-handoff.ts",
     "verify:suite": "npx tsx scripts/run-verifiers.ts",
-    "prepare": "git config core.hooksPath .githooks || true"
+    "prepare": "git config core.hooksPath .githooks || true",
+    "sync:refm-materials": "npx tsx --env-file=.env.local scripts/sync-course-materials.ts --course REFM --dir docs/REFM_Live_Course_Materials"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.78.0",

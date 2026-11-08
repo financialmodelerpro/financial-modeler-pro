@@ -43,6 +43,8 @@ export async function PATCH(
     'meeting_provider', 'show_like_button', 'banner_alt',
     // A live-course session (mig 247).
     'course_code', 'course_session_no',
+    // Course session content (mig 251).
+    'content_overview', 'content_learn', 'content_outcome', 'content_claude',
   ];
   for (const k of allowed) {
     if (body[k] !== undefined) {
@@ -188,6 +190,13 @@ export async function DELETE(
   if (!await checkAdmin()) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   const { id } = await params;
   const sb = getServerClient();
+
+  // A published live-course session is never cancelled: it moves to a new
+  // date (Reschedule), keeps its number and still counts towards certification.
+  const { data: guard } = await sb.from('live_sessions').select('course_code, is_published').eq('id', id).maybeSingle();
+  if (guard?.course_code && guard.is_published) {
+    return NextResponse.json({ error: 'A published course session cannot be deleted. Use Reschedule to move it to a new date, or unpublish it first.' }, { status: 409 });
+  }
 
   if (AUTO_DELETE_TEAMS_MEETING_ON_SESSION_DELETE && isTeamsConfigured()) {
     const { data: row } = await sb

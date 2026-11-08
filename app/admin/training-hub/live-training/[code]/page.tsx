@@ -19,6 +19,7 @@ import { CourseDetailsTab } from './CourseDetailsTab';
 import { CourseCertificateTab } from './CourseCertificateTab';
 import { CourseAttendancePanel } from './CourseAttendancePanel';
 import { ModelSubmissionsManager } from '../../model-submissions/ModelSubmissionsManager';
+import { TeamsMeetingsButton } from './TeamsMeetingsButton';
 
 const NAVY = '#1B4F8A';
 const SLATE = '#5A6675';
@@ -124,7 +125,12 @@ function CourseAdminInner() {
             </div>
 
             {tab === 'details' && <CourseDetailsTab key={`d${reloadKey}`} course={course} onSaved={flash} />}
-            {tab === 'sessions' && <LiveSessionsManager courseCode={course.courseCode} embedded />}
+            {tab === 'sessions' && (
+              <>
+                <TeamsMeetingsButton courseCode={course.courseCode} onDone={() => setReloadKey((k) => k + 1)} />
+                <LiveSessionsManager key={`s${reloadKey}`} courseCode={course.courseCode} embedded />
+              </>
+            )}
             {tab === 'students' && <CourseAttendancePanel courseCode={course.courseCode} attendanceThresholdPct={course.attendanceThresholdPct} />}
             {tab === 'submissions' && <ModelSubmissionsManager courseCode={course.courseCode} embedded />}
             {tab === 'certificate' && <CourseCertificateTab key={`c${reloadKey}`} course={course} onSaved={flash} />}

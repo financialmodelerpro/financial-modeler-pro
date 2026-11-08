@@ -16,6 +16,7 @@ import type { LiveCourseSettings, CourseSession } from '@/src/hubs/training/lib/
 import type { CourseInstructor } from '@/src/hubs/training/lib/liveCourse/courseInstructors';
 import { JoinLiveButton } from '@/src/hubs/training/components/sessions/JoinLiveButton';
 import { TimeZoneTable } from '@/src/hubs/training/components/sessions/TimeZoneTable';
+import { CourseSessionCard } from '@/src/hubs/training/components/sessions/CourseSessionCard';
 import { SessionCertificateButton } from '@/src/hubs/training/components/sessions/SessionCertificateButton';
 import { sessionCertificateAvailable } from '@/src/hubs/training/lib/liveCourse/sessionCertificate';
 
@@ -185,27 +186,35 @@ export function LiveCourseClient({ courseCode, autoEnrol, signedIn, publicData }
 
       <h2 style={{ fontSize: 16, fontWeight: 800, color: NAVY, margin: '0 0 10px' }}>Sessions</h2>
       {sessions.length === 0 && <div style={{ color: SLATE, fontSize: 14 }}>The schedule will appear here as sessions are announced.</div>}
-      <div style={{ display: 'grid', gap: 10 }}>
-        {sessions.map((s) => (
-          <div key={s.id} data-testid="live-course-session" style={{ background: '#fff', border: `1px solid ${PALE}`, borderRadius: 10, padding: '14px 18px', display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap' }}>
-            <div style={{ width: 84, fontWeight: 800, color: NAVY, fontSize: 13 }}>{s.course_session_no != null ? `Session ${s.course_session_no}` : 'Session'}</div>
-            <div style={{ flex: '1 1 260px' }}>
-              <div style={{ fontWeight: 700 }}>{s.title}</div>
-              <div style={{ fontSize: 13, color: SLATE }}>{formatSessionTime(s.scheduled_datetime)}</div>
-            </div>
-            {enrolled && s.state !== 'recorded' && (
-              <JoinLiveButton joinUrl={s.joinUrl ?? null} joinOpensAt={s.joinOpensAt ?? null} joinClosesAt={s.joinClosesAt ?? null} size="sm" />
-            )}
-            {enrolled && s.youtube_url && (
-              // The session player tracks skip-resistant watch time for the recording route.
-              <a data-testid="watch-recording" href={`/training/live-sessions/${s.id}`} style={{ padding: '8px 14px', borderRadius: 8, border: `1.5px solid ${NAVY}`, color: NAVY, fontWeight: 700, fontSize: 13, textDecoration: 'none' }}>▶ Watch recording</a>
-            )}
-            {enrolled && view && <SessionProgress e={view.eligibility.sessions.find((x) => x.sessionId === s.id)} course={view.course} />}
-            {enrolled && view && sessionCertificateAvailable(view.course, view.eligibility.sessions.find((x) => x.sessionId === s.id)) && (
-              <SessionCertificateButton session={s} studentName={view.student.name} registrationId={view.student.registrationId} courseTitle={view.course.title} />
-            )}
-          </div>
-        ))}
+      {enrolled && (
+        <a data-testid="add-to-calendar" href={`/api/training/live-course/${encodeURIComponent(course.courseCode)}/calendar`} style={{ display: 'inline-block', marginBottom: 12, color: NAVY, fontWeight: 700, fontSize: 13.5 }}>📅 Add all sessions to your calendar (.ics)</a>
+      )}
+      <div style={{ display: 'grid', gap: 12 }}>
+        {sessions.map((s) => {
+          const e = view?.eligibility.sessions.find((x) => x.sessionId === s.id);
+          return (
+            <CourseSessionCard
+              key={s.id}
+              s={s}
+              expanded={enrolled}
+              zones={course.timeZones}
+              materials={enrolled ? s.materials : undefined}
+              actions={enrolled && view ? (
+                <>
+                  {s.state !== 'recorded' && <JoinLiveButton joinUrl={s.joinUrl ?? null} joinOpensAt={s.joinOpensAt ?? null} joinClosesAt={s.joinClosesAt ?? null} size="sm" />}
+                  {s.youtube_url && (
+                    // The session player tracks skip-resistant watch time for the recording route.
+                    <a data-testid="watch-recording" href={`/training/live-sessions/${s.id}`} style={{ padding: '8px 14px', borderRadius: 8, border: `1.5px solid ${NAVY}`, color: NAVY, fontWeight: 700, fontSize: 13, textDecoration: 'none' }}>▶ Watch recording</a>
+                  )}
+                  <SessionProgress e={e} course={view.course} />
+                  {sessionCertificateAvailable(view.course, e) && (
+                    <SessionCertificateButton session={s} studentName={view.student.name} registrationId={view.student.registrationId} courseTitle={view.course.title} />
+                  )}
+                </>
+              ) : undefined}
+            />
+          );
+        })}
       </div>
 
       {enrolled && view && <LiveCourseSubmission courseCode={view.course.courseCode} onChange={() => void load()} />}

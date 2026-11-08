@@ -163,6 +163,13 @@ export async function POST(req: NextRequest) {
     // watch progress is tracked for the recording route.
     ...courseFields(body),
     youtube_embed:      courseFields(body).course_code ? true : (body.youtube_embed ?? false),
+    // Course session content (mig 251): only a course session sends it.
+    ...(courseFields(body).course_code && body.content_learn !== undefined ? {
+      content_overview: body.content_overview ?? null,
+      content_learn:    Array.isArray(body.content_learn) ? body.content_learn : [],
+      content_outcome:  body.content_outcome ?? null,
+      content_claude:   body.content_claude ?? null,
+    } : {}),
   }).select().single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 

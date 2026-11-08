@@ -6,6 +6,7 @@ import { CmsAdminNav } from '@/src/components/admin/CmsAdminNav';
 import { LiveSessionAssessmentEditor } from '@/src/components/admin/LiveSessionAssessmentEditor';
 import { InstructorPicker } from '@/src/components/admin/InstructorPicker';
 import { KSA_TZ, utcToZonedParts, zonedWallTimeToUtc } from '@/src/hubs/training/lib/liveCourse/time';
+import { CourseSessionTools } from './CourseSessionTools';
 
 /* ── Types ─────────────────────────────────────────────────────── */
 
@@ -291,6 +292,11 @@ interface FormState {
   course_session_no: string;
   /** Alt text for the session banner (mig 249). */
   banner_alt: string;
+  /** Course session content (mig 251); `content_learn` is one point per line. */
+  content_overview: string;
+  content_learn: string;
+  content_outcome: string;
+  content_claude: string;
 }
 
 const defaultForm: FormState = {
@@ -303,6 +309,7 @@ const defaultForm: FormState = {
   youtube_embed: false, show_like_button: true,
   meeting_provider: 'manual', auto_generate_teams: false,
   course_code: '', course_session_no: '', banner_alt: '',
+  content_overview: '', content_learn: '', content_outcome: '', content_claude: '',
 };
 
 /* ── Component ─────────────────────────────────────────────────── */
@@ -622,6 +629,10 @@ export function LiveSessionsManager({ courseCode = null, embedded = false }: { c
     course_code: String((s as unknown as Record<string, unknown>).course_code ?? ''),
     course_session_no: (s as unknown as Record<string, unknown>).course_session_no != null ? String((s as unknown as Record<string, unknown>).course_session_no) : '',
     banner_alt: String((s as unknown as Record<string, unknown>).banner_alt ?? ''),
+    content_overview: String((s as unknown as Record<string, unknown>).content_overview ?? ''),
+    content_learn: (((s as unknown as Record<string, unknown>).content_learn as string[] | null) ?? []).join('\n'),
+    content_outcome: String((s as unknown as Record<string, unknown>).content_outcome ?? ''),
+    content_claude: String((s as unknown as Record<string, unknown>).content_claude ?? ''),
   };};
 
   const openNewSession = () => {
@@ -716,6 +727,14 @@ export function LiveSessionsManager({ courseCode = null, embedded = false }: { c
         course_session_no:  form.course_code && form.course_session_no ? parseInt(form.course_session_no, 10) : null,
         // Sent only when typed, so a save works before migration 249 adds the column.
         ...(form.banner_alt.trim() ? { banner_alt: form.banner_alt.trim() } : {}),
+        // Course session content (mig 251), sent only for a course session, so a
+        // single session's save is unchanged.
+        ...(form.course_code ? {
+          content_overview: form.content_overview.trim() || null,
+          content_learn: form.content_learn.split('\n').map(l => l.replace(/^\s*[-*•]\s*/, '').trim()).filter(Boolean),
+          content_outcome: form.content_outcome.trim() || null,
+          content_claude: form.content_claude.trim() || null,
+        } : {}),
       };
 
       // Teams auto-generation only runs on create (POST) when the toggle is on
@@ -1873,6 +1892,28 @@ export function LiveSessionsManager({ courseCode = null, embedded = false }: { c
                     <input type="number" min={1} max={50} style={inputStyle} disabled={!form.course_code} value={form.course_session_no} onChange={e => setForm(f => ({ ...f, course_session_no: e.target.value }))} placeholder="1 to 8" />
                   </div>
                 </div>
+              )}
+              {form.course_code && (
+                // Course session content (mig 251): the public course page shows the
+                // overview with the rest behind "See what you will learn"; enrolled
+                // students see all four.
+                <div data-testid="admin-session-content" style={{ display: 'grid', gap: 10, marginBottom: 14 }}>
+                  <div><label style={labelStyle}>Overview</label>
+                    <textarea style={{ ...inputStyle, minHeight: 70 }} value={form.content_overview} onChange={e => setForm(f => ({ ...f, content_overview: e.target.value }))} /></div>
+                  <div><label style={labelStyle}>What you will learn (one point per line)</label>
+                    <textarea style={{ ...inputStyle, minHeight: 110 }} value={form.content_learn} onChange={e => setForm(f => ({ ...f, content_learn: e.target.value }))} /></div>
+                  <div><label style={labelStyle}>By the end of this session</label>
+                    <textarea style={{ ...inputStyle, minHeight: 50 }} value={form.content_outcome} onChange={e => setForm(f => ({ ...f, content_outcome: e.target.value }))} /></div>
+                  <div><label style={labelStyle}>Build with Claude</label>
+                    <textarea style={{ ...inputStyle, minHeight: 50 }} value={form.content_claude} onChange={e => setForm(f => ({ ...f, content_claude: e.target.value }))} /></div>
+                </div>
+              )}
+              {form.course_code && editSession && (
+                <CourseSessionTools
+                  sessionId={editSession.id}
+                  scheduledIso={((editSession as unknown as Record<string, unknown>).scheduled_datetime as string | null) ?? null}
+                  onChanged={() => { void fetchSessions(); setEditorOpen(false); }}
+                />
               )}
               <div style={{ display: 'grid', gridTemplateColumns: form.type === 'RECORDED' ? '1fr 1fr 1fr' : '1fr 1fr 1fr 1fr', gap: 14 }}>
                 <div>
