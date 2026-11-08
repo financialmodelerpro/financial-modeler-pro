@@ -9,6 +9,8 @@ import { WelcomeModal } from '@/src/hubs/training/components/WelcomeModal';
 import { extractYouTubeId } from '@/src/shared/cms';
 
 export interface DetailSession {
+  /** A live course session (the page redirects it to its course). */
+  course_code?: string | null;
   id: string; title: string; description: string; youtube_url: string | null;
   session_type: string; scheduled_datetime: string; timezone: string; category: string;
   banner_url: string | null; duration_minutes: number | null; max_attendees: number | null;

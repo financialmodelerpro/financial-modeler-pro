@@ -69,7 +69,7 @@ export function PublicCourseOffers({ courses, isLoggedIn }: { courses: PublicCou
                 // so the whole image shows with no crop at any width. It used to take
                 // its height from the text beside it, which cropped the image.
                 <Link href={coursePath} className="pco-card__image" style={{ display: 'block', aspectRatio: '16 / 9', background: '#E8EEF7' }}>
-                  <img src={c.cardImageUrl} alt={c.cardImageAlt || c.title} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                  <img src={c.cardImageUrl} alt={c.cardImageAlt || c.title} style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block' }} />
                 </Link>
               )}
               <div style={{ padding: '20px 24px 22px' }}>

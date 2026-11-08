@@ -1,8 +1,9 @@
 /**
  * Course-level media and time zones applied to session rows, in ONE place.
  *
- * A session of a live course with no banner of its own shows the course
- * banner; every session of a course carries the course's time zone list for
+ * A session of a live course with no image of its own shows the course CARD
+ * image (16:9, the same shape as a session image, 2026-11-08), else the
+ * course banner; every session of a course carries the course's time zone list for
  * its table. Standalone sessions (no course_code) are returned unchanged.
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
@@ -13,6 +14,7 @@ export interface CourseMediaFields {
   banner_alt?: string | null;
   course_time_zones?: string[] | null;
   course_title?: string | null;
+  course_short_title?: string | null;
 }
 
 interface MediaRow { course_code?: string | null; banner_url?: string | null; banner_alt?: string | null }
@@ -24,10 +26,11 @@ export function withCourseMedia<T extends object>(row: T, course: LiveCourseSett
   const own = typeof r.banner_url === 'string' && r.banner_url.trim().length > 0;
   return {
     ...r,
-    banner_url: own ? r.banner_url : course.bannerUrl,
-    banner_alt: own ? (r.banner_alt ?? null) : (course.bannerAlt || null),
+    banner_url: own ? r.banner_url : (course.cardImageUrl || course.bannerUrl),
+    banner_alt: own ? (r.banner_alt ?? null) : ((course.cardImageUrl ? course.cardImageAlt : course.bannerAlt) || null),
     course_time_zones: course.timeZones,
     course_title: course.title,
+    course_short_title: course.shortTitle,
   };
 }
 

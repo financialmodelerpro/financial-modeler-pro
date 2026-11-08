@@ -99,7 +99,7 @@ export function CourseDetailsTab({ course, onSaved }: { course: LiveCourseSettin
         <ImageField course={course} kind="banner" url={course.bannerUrl} alt={course.bannerAlt} onSaved={onSaved} />
         <ImageField course={course} kind="card" url={course.cardImageUrl} alt={course.cardImageAlt} onSaved={onSaved} />
         <div style={{ fontSize: 12, color: SLATE, background: '#fff', border: `1px solid ${PALE}`, borderRadius: 10, padding: 14 }}>
-          <strong style={{ color: NAVY }}>Session banners:</strong> on the Sessions tab, edit a session and use Banner Image (1600 x 600 px). A session with no banner shows the course banner.
+          <strong style={{ color: NAVY }}>Session banners:</strong> on the Sessions tab, edit a session and use Banner Image (1200 x 675 px, 16:9). It is shown whole with no text over it. A session with no image shows the course card image.
         </div>
       </div>
     </div>

@@ -6,6 +6,8 @@ import { getTrainingSession } from '@/src/hubs/training/lib/session/training-ses
 import { SessionCard, getEffectiveType, type LiveSessionData } from '@/src/hubs/training/components/sessions/SessionCard';
 import { WelcomeModal } from '@/src/hubs/training/components/WelcomeModal';
 import { PublicCourseOffers, type PublicCourseOffer } from './PublicCourseOffers';
+import { CourseSessionListingCard } from '@/src/hubs/training/components/sessions/CourseSessionListingCard';
+import { listingOf, seriesLabel, seriesValue, courseCardAction } from '@/src/hubs/training/lib/liveCourse/publicListing';
 
 export interface PublicSession {
   id: string; title: string; description: string; youtube_url: string | null;
@@ -16,6 +18,12 @@ export interface PublicSession {
   registration_count: number;
   youtube_embed?: boolean;
   instructor_title?: string | null;
+  /** Live course sessions (null for a single session). */
+  course_code?: string | null;
+  course_session_no?: number | null;
+  course_short_title?: string | null;
+  rescheduled_from?: string | null;
+  banner_alt?: string | null;
 }
 
 export interface HeroContent {
@@ -41,26 +49,41 @@ export function SessionsClient({ sessions, hero, courses = [] }: { sessions: Pub
   const [filterCategory, setFilterCategory] = useState('all');
   const [filterType, setFilterType] = useState<'all' | 'upcoming' | 'recorded'>('all');
 
+  // Live courses the signed-in student is enrolled in (course session cards say "View session").
+  const [enrolledCodes, setEnrolledCodes] = useState<Set<string>>(new Set());
   useEffect(() => {
-    if (getTrainingSession()) setIsLoggedIn(true);
+    if (!getTrainingSession()) return;
+    setIsLoggedIn(true);
+    fetch('/api/training/live-course').then((r) => (r.ok ? r.json() : null))
+      .then((j: { courses?: { courseCode: string; enrolled: boolean }[] } | null) => setEnrolledCodes(new Set((j?.courses ?? []).filter((c) => c.enrolled).map((c) => c.courseCode))))
+      .catch(() => {});
   }, []);
+
+  // Course facts for the course session cards.
+  const courseInfo = new Map(courses.map((c) => [c.courseCode, c]));
+  const totalFor = (code: string) => courseInfo.get(code)?.sessions.length || sessions.filter((x) => x.course_code === code).length;
+  const openFor = (code: string) => courseInfo.get(code)?.enrolmentOpen ?? false;
+  const series = [...new Map(sessions.filter((s) => s.course_code).map((s) => [s.course_code!, seriesLabel(s.course_short_title, s.course_code!)])).entries()];
 
   // Filters
   const playlists = [...new Set(sessions.map(s => s.playlist?.name).filter(Boolean))] as string[];
   const categories = [...new Set(sessions.map(s => s.category).filter(Boolean))];
 
+  // ONE listing rule (publicListing.listingOf): an ended course session shows only once recorded.
   const filtered = sessions.filter(s => {
-    const t = getEffectiveType(s);
-    if (filterPlaylist !== 'all' && s.playlist?.name !== filterPlaylist) return false;
+    const t = listingOf(s);
+    if (t === 'hidden') return false;
+    if (filterPlaylist.startsWith('course:')) { if (seriesValue(s.course_code ?? '') !== filterPlaylist) return false; }
+    else if (filterPlaylist !== 'all' && s.playlist?.name !== filterPlaylist) return false;
     if (filterCategory !== 'all' && s.category !== filterCategory) return false;
     if (filterType === 'upcoming' && t === 'recorded') return false;
     if (filterType === 'recorded' && t !== 'recorded') return false;
     return true;
   });
 
-  const upcoming = filtered.filter(s => { const t = getEffectiveType(s); return t === 'upcoming' || t === 'live'; })
+  const upcoming = filtered.filter(s => listingOf(s) === 'upcoming')
     .sort((a, b) => new Date(a.scheduled_datetime).getTime() - new Date(b.scheduled_datetime).getTime());
-  const recorded = filtered.filter(s => getEffectiveType(s) === 'recorded')
+  const recorded = filtered.filter(s => listingOf(s) === 'recorded')
     .sort((a, b) => new Date(b.scheduled_datetime).getTime() - new Date(a.scheduled_datetime).getTime());
   const nextSession = upcoming[0] ?? null;
   const hasActiveFilter = filterPlaylist !== 'all' || filterCategory !== 'all' || filterType !== 'all';
@@ -96,6 +119,18 @@ export function SessionsClient({ sessions, hero, courses = [] }: { sessions: Pub
       ? `/training/live-sessions/${sessionId}`
       : `/training-sessions/${sessionId}`;
   }
+  // A course session gets the course card (course enrolment); a single session keeps its card.
+  function renderCard(s: PublicSession, rec: boolean) {
+    if (!s.course_code) return <SessionCard key={s.id} session={s as LiveSessionData} variant="public" />;
+    return (
+      <CourseSessionListingCard key={s.id} recorded={rec} total={totalFor(s.course_code)} enrolled={enrolledCodes.has(s.course_code)} signedIn={isLoggedIn} enrolmentOpen={openFor(s.course_code)}
+        s={{ id: s.id, title: s.title, scheduled_datetime: s.scheduled_datetime, banner_url: s.banner_url, banner_alt: s.banner_alt, course_code: s.course_code, course_session_no: s.course_session_no ?? null, course_short_title: s.course_short_title, rescheduled_from: s.rescheduled_from, youtube_url: s.youtube_url }} />
+    );
+  }
+  // The next-session banner's button follows the same rule for a course session.
+  const nextAction = nextSession?.course_code
+    ? courseCardAction({ courseCode: nextSession.course_code, sessionId: nextSession.id, enrolled: enrolledCodes.has(nextSession.course_code), signedIn: isLoggedIn, enrolmentOpen: openFor(nextSession.course_code) })
+    : null;
   function localTime(iso: string): string {
     try { return new Date(iso).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short', timeZone: localTz || undefined }); } catch { return ''; }
   }
@@ -185,9 +220,9 @@ export function SessionsClient({ sessions, hero, courses = [] }: { sessions: Pub
                 {nextSession.registration_count > 0 && (
                   <div style={{ fontSize: 12, color: '#6B7280', marginBottom: 12 }}>{nextSession.registration_count} people registered</div>
                 )}
-                <Link href={registerUrl(nextSession.id)}
+                <Link href={nextAction ? nextAction.href : registerUrl(nextSession.id)}
                   style={{ display: 'inline-flex', padding: '10px 24px', borderRadius: 8, background: GREEN, color: '#fff', fontWeight: 700, fontSize: 13, textDecoration: 'none' }}>
-                  {isLoggedIn ? 'View & Register' : 'View Session Details'} &#8594;
+                  {nextAction ? nextAction.label : isLoggedIn ? 'View & Register' : 'View Session Details'} &#8594;
                 </Link>
               </div>
             </div>
@@ -200,6 +235,7 @@ export function SessionsClient({ sessions, hero, courses = [] }: { sessions: Pub
         <div style={{ maxWidth: 1000, margin: '0 auto', display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
           <select value={filterPlaylist} onChange={e => setFilterPlaylist(e.target.value)} style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid #D1D5DB', fontSize: 13, color: '#374151', background: '#fff', cursor: 'pointer' }}>
             <option value="all">All Playlists</option>
+            {series.map(([code, label]) => <option key={code} value={seriesValue(code)}>{label}</option>)}
             {playlists.map(p => <option key={p} value={p}>{p}</option>)}
           </select>
           <select value={filterCategory} onChange={e => setFilterCategory(e.target.value)} style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid #D1D5DB', fontSize: 13, color: '#374151', background: '#fff', cursor: 'pointer' }}>
@@ -236,7 +272,7 @@ export function SessionsClient({ sessions, hero, courses = [] }: { sessions: Pub
           {sessions.length === 0 && (
             <div style={{ textAlign: 'center', padding: 60, color: '#9CA3AF' }}>
               <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 4 }}>No sessions scheduled yet</div>
-              <div style={{ fontSize: 13 }}>Check back soon &mdash; new sessions are added regularly.</div>
+              <div style={{ fontSize: 13 }}>Check back soon, new sessions are added regularly.</div>
             </div>
           )}
 
@@ -251,7 +287,7 @@ export function SessionsClient({ sessions, hero, courses = [] }: { sessions: Pub
             <div id="upcoming-section" style={{ marginBottom: 40 }}>
               <h2 style={{ fontSize: 18, fontWeight: 800, color: NAVY, margin: '0 0 16px' }}>Upcoming Sessions</h2>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 24 }}>
-                {upcoming.map(s => <SessionCard key={s.id} session={s as LiveSessionData} variant="public" />)}
+                {upcoming.map(s => renderCard(s, false))}
               </div>
             </div>
           )}
@@ -260,7 +296,7 @@ export function SessionsClient({ sessions, hero, courses = [] }: { sessions: Pub
             <div id="recordings-section">
               <h2 style={{ fontSize: 18, fontWeight: 800, color: NAVY, margin: '0 0 16px' }}>Recordings</h2>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 24 }}>
-                {recorded.map(s => <SessionCard key={s.id} session={s as LiveSessionData} variant="public" />)}
+                {recorded.map(s => renderCard(s, true))}
               </div>
             </div>
           )}

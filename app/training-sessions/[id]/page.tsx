@@ -8,6 +8,8 @@ import { EventJsonLd, BreadcrumbJsonLd } from '@/src/shared/seo/components/Struc
 import { canonicalUrl } from '@/src/shared/seo/canonical';
 import { publicSessionFilter } from '@/src/hubs/training/lib/liveCourse/publicVisibility';
 import { applyCourseMedia } from '@/src/hubs/training/lib/liveCourse/courseMedia';
+import { redirect } from 'next/navigation';
+import { coursePagePath } from '@/src/hubs/training/lib/liveCourse/paths';
 
 export const dynamic = 'force-dynamic';
 
@@ -91,6 +93,7 @@ async function getSession(id: string): Promise<DetailSession | null> {
     // A course session: the course banner when it has none, and the course's time zones.
     const media = (await applyCourseMedia(sb, [data]))[0];
     return {
+      course_code: (data.course_code as string | null) ?? null,
       course_time_zones: media.course_time_zones ?? null,
       id: data.id,
       title: data.title,
@@ -125,6 +128,8 @@ async function getSession(id: string): Promise<DetailSession | null> {
 export default async function PublicSessionDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const session = await getSession(id);
+  // A course session is joined through its course (course enrolment, not single-session registration).
+  if (session?.course_code) redirect(coursePagePath(session.course_code));
 
   const url = session ? canonicalUrl(`/training-sessions/${session.id}`, 'main') : '';
   const endDate = session?.scheduled_datetime && session.duration_minutes

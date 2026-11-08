@@ -19,6 +19,20 @@ import { getServerClient } from '../src/core/db/supabase';
 import { REFM_SESSIONS, REFM_COURSE_CODE, REFM_DURATION_MINUTES } from '../src/hubs/training/lib/liveCourse/seeds/refmSessions';
 import { REFM_PAGE } from '../src/hubs/training/lib/liveCourse/seeds/refmPage';
 
+/**
+ * A stored page "has content" when any list section holds an item. A page
+ * saved from the admin tab before any content existed holds only the empty
+ * defaults, and counts as empty, so the REFM content still lands.
+ */
+function pageHasContent(stored: unknown): boolean {
+  const s = ((stored ?? {}) as { sections?: Record<string, { items?: unknown[]; steps?: unknown[]; facts?: unknown[] }> }).sections ?? {};
+  return Object.values(s).some((x) => (x?.items?.length ?? 0) > 0 || (x?.steps?.length ?? 0) > 0 || (x?.facts?.length ?? 0) > 0);
+}
+
+const KNOWN_FLAGS = ['--dry-run', '--reset-times'];
+// A mistyped flag (e.g. --dry) must not run for real: refuse before writing anything.
+const unknown = process.argv.slice(2).filter((a) => !KNOWN_FLAGS.includes(a));
+if (unknown.length) { console.error(`Unknown flag(s): ${unknown.join(' ')}. Known: ${KNOWN_FLAGS.join(' ')}. Nothing was written.`); process.exit(1); }
 const dry = process.argv.includes('--dry-run');
 const resetTimes = process.argv.includes('--reset-times');
 
@@ -82,7 +96,7 @@ const resetTimes = process.argv.includes('--reset-times');
   // edits made in Admin > Live Training > REFM > Page sections are never overwritten.
   const { data: pageRow, error: pageErr } = await sb.from('training_course_settings').select('page_sections').eq('course_code', REFM_COURSE_CODE).maybeSingle();
   if (pageErr) console.log(`  page     skipped (${pageErr.message}; apply migration 252)`);
-  else if (pageRow && Object.keys((pageRow.page_sections as object) ?? {}).length === 0) {
+  else if (pageRow && !pageHasContent(pageRow.page_sections)) {
     console.log('  page     REFM landing page content written');
     if (!dry) {
       const { error: e } = await sb.from('training_course_settings').update({ page_sections: REFM_PAGE }).eq('course_code', REFM_COURSE_CODE);

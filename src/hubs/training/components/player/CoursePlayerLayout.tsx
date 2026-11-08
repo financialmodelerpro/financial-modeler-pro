@@ -326,7 +326,8 @@ export function CoursePlayerLayout({
               {bannerUrl && (
                 <div style={{ marginBottom: 20, borderRadius: 12, overflow: 'hidden' }}>
                   {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={bannerUrl} alt={title} style={{ width: '100%', height: 'auto', maxHeight: 300, objectFit: 'cover', objectPosition: 'top', display: 'block' }} />
+                  {/* The whole image, never cropped: session images carry their own title and details (2026-11-08). */}
+                  <img data-testid="session-page-image" src={bannerUrl} alt={title} style={{ width: '100%', height: 'auto', display: 'block' }} />
                 </div>
               )}
 

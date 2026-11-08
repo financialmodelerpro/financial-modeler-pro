@@ -1101,12 +1101,17 @@ export function LiveSessionsManager({ courseCode = null, embedded = false }: { c
     const sCourse = ((s as unknown as Record<string, unknown>).course_code as string | null | undefined) ?? null;
     if (courseCode ? sCourse !== courseCode : !!sCourse) return false;
     if (filterType !== 'ALL' && s.type !== filterType) return false;
-    if (filterPlaylist && s.playlist_id !== filterPlaylist) return false;
+    if (!courseCode && filterPlaylist && s.playlist_id !== filterPlaylist) return false;
     if (filterStatus === 'PUBLISHED' && !s.published) return false;
     if (filterStatus === 'DRAFT' && s.published) return false;
-    if (selectedPlaylist && s.playlist_id !== selectedPlaylist) return false;
+    if (!courseCode && selectedPlaylist && s.playlist_id !== selectedPlaylist) return false;
     return true;
   });
+  // A course's sessions in session-number order (1 to N); single sessions keep their order.
+  if (courseCode) {
+    const noOf = (x: LiveSession) => Number((x as unknown as Record<string, unknown>).course_session_no ?? Number.MAX_SAFE_INTEGER);
+    filtered.sort((a, b) => noOf(a) - noOf(b));
+  }
 
   /* ── Render guards ── */
   if (status === 'loading' || loading) {
@@ -1398,9 +1403,12 @@ export function LiveSessionsManager({ courseCode = null, embedded = false }: { c
               style={{ fontSize: 12, fontWeight: 600, color: '#2E75B6', textDecoration: 'none', padding: '6px 12px', borderRadius: 6, border: '1px solid #D1D5DB', background: '#fff' }}>
               Email Settings
             </a>
-            <button style={btnSecondary} onClick={() => { setShowNewPlaylist(v => !v); setEditingPlaylist(null); }}>
-              + New Playlist
-            </button>
+            {/* Playlists group single sessions; a course orders its sessions by number instead. */}
+            {!courseCode && (
+              <button style={btnSecondary} onClick={() => { setShowNewPlaylist(v => !v); setEditingPlaylist(null); }}>
+                + New Playlist
+              </button>
+            )}
             <button
               style={btnSecondary}
               onClick={runTeamsTest}
@@ -1443,7 +1451,7 @@ export function LiveSessionsManager({ courseCode = null, embedded = false }: { c
         )}
 
         {/* ── NEW PLAYLIST FORM ── */}
-        {showNewPlaylist && (
+        {!courseCode && showNewPlaylist && (
           <div style={{ ...cardStyle, display: 'flex', alignItems: 'center', gap: 12 }}>
             <label style={{ ...labelStyle, marginBottom: 0, whiteSpace: 'nowrap' }}>Playlist Name</label>
             <input
@@ -1460,8 +1468,9 @@ export function LiveSessionsManager({ courseCode = null, embedded = false }: { c
           </div>
         )}
 
-        {/* ── PLAYLISTS ROW ── */}
-        <div style={{ ...cardStyle, padding: 12 }}>
+        {/* ── PLAYLISTS ROW (single sessions only) ── */}
+        {!courseCode && (
+        <div data-testid="admin-playlist-bar" style={{ ...cardStyle, padding: 12 }}>
           <div style={{ display: 'flex', gap: 10, overflowX: 'auto', paddingBottom: 4 }}>
             {/* All tab */}
             <button
@@ -1531,6 +1540,7 @@ export function LiveSessionsManager({ courseCode = null, embedded = false }: { c
             })}
           </div>
         </div>
+        )}
 
         {/* ── FILTER ROW ── */}
         <div style={{ ...cardStyle, padding: 12, display: 'flex', gap: 20, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -1543,7 +1553,8 @@ export function LiveSessionsManager({ courseCode = null, embedded = false }: { c
             {filterBtn('Recorded', filterType === 'RECORDED', () => setFilterType('RECORDED'))}
           </div>
 
-          {/* Playlist filter */}
+          {/* Playlist filter (single sessions only) */}
+          {!courseCode && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <span style={{ fontSize: 11, fontWeight: 700, color: '#374151' }}>Playlist:</span>
             <select
@@ -1555,6 +1566,7 @@ export function LiveSessionsManager({ courseCode = null, embedded = false }: { c
               {playlists.map(pl => <option key={pl.id} value={pl.id}>{pl.name}</option>)}
             </select>
           </div>
+          )}
 
           {/* Status filter */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -2080,7 +2092,7 @@ export function LiveSessionsManager({ courseCode = null, embedded = false }: { c
             <div style={{ marginBottom: 20 }}>
               <h3 style={{ fontSize: 13, fontWeight: 700, color: NAVY, marginBottom: 4 }}>Banner Image</h3>
               <p style={{ fontSize: 11.5, color: '#6B7280', margin: '0 0 10px' }}>
-                Recommended 1600 x 600 px (8:3), JPG or WebP, under 500 KB.{form.course_code ? ' Optional: if empty, the course banner is used.' : ''}
+                Recommended 1200 x 675 px (16:9), JPG or WebP, under 500 KB. Shown whole, never cropped and with no text over it, so the image can carry the session title and details.{form.course_code ? ' Optional: if empty, the course card image is used.' : ''}
               </p>
               <input
                 ref={bannerRef}
@@ -2102,7 +2114,7 @@ export function LiveSessionsManager({ courseCode = null, embedded = false }: { c
                   <img
                     src={bannerPreview}
                     alt={form.banner_alt || 'Session banner'}
-                    style={{ maxWidth: 400, maxHeight: 200, borderRadius: 8, border: `1px solid ${BORDER}`, objectFit: 'cover' }}
+                    style={{ width: 400, maxWidth: '100%', aspectRatio: '16 / 9', borderRadius: 8, border: `1px solid ${BORDER}`, objectFit: 'contain', background: '#F5F7FA' }}
                   />
                 </div>
               )}

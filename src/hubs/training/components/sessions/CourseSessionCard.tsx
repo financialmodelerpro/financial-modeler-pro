@@ -60,8 +60,8 @@ export function CourseSessionCard({
   return (
     <div data-testid="live-course-session" style={{ background: '#fff', border: `1px solid ${PALE}`, borderRadius: 12, overflow: 'hidden' }}>
       {imageUrl && (
-        <div style={{ aspectRatio: '8 / 3', background: '#E8EEF7' }}>
-          <img data-testid="session-card-image" src={imageUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+        <div style={{ aspectRatio: '16 / 9', background: '#E8EEF7' }}>
+          <img data-testid="session-card-image" src={imageUrl} alt={s.title} style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block' }} />
         </div>
       )}
       <div style={{ padding: '14px 18px' }}>

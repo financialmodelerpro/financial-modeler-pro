@@ -906,13 +906,15 @@ async function unit9(): Promise<void> {
   // ── Images ──
   const course = cs.settingsFromRow({ ...REFM_ROW, banner_url: 'https://cdn/x/banner.jpg', banner_alt: 'Hero' });
   const withBanner = cm.withCourseMedia({ course_code: 'REFM', banner_url: null }, course);
-  check('U9.6a a session with no banner shows the course banner (and its alt)', withBanner.banner_url === 'https://cdn/x/banner.jpg' && withBanner.banner_alt === 'Hero');
+  check('U9.6a a session with no image and a course with no card image shows the course banner (and its alt)', withBanner.banner_url === 'https://cdn/x/banner.jpg' && withBanner.banner_alt === 'Hero');
+  const withCard = cm.withCourseMedia({ course_code: 'REFM', banner_url: null }, cs.settingsFromRow({ ...REFM_ROW, banner_url: 'https://cdn/x/banner.jpg', card_image_url: 'https://cdn/x/card.jpg', card_image_alt: 'Card' }));
+  check('U9.6a2 a session with no image shows the 16:9 course card image first', withCard.banner_url === 'https://cdn/x/card.jpg' && withCard.banner_alt === 'Card');
   check('U9.6b a session\'s own banner wins', cm.withCourseMedia({ course_code: 'REFM', banner_url: 'own.jpg' }, course).banner_url === 'own.jpg');
   check('U9.6c a single session is untouched', JSON.stringify(cm.withCourseMedia({ course_code: null, banner_url: null }, course)) === JSON.stringify({ course_code: null, banner_url: null }));
   const img = readFileSync('app/api/admin/live-course/[code]/image/route.ts', 'utf8');
   check('U9.6d course images are stored in storage with alt text, JPG/PNG/WebP up to 5 MB', img.includes(".from('live-session-banners')") && img.includes('_alt') && img.includes('MAX_BYTES = 5 * 1024 * 1024'));
   const det = readFileSync('app/admin/training-hub/live-training/[code]/CourseDetailsTab.tsx', 'utf8');
-  check('U9.6e admin shows the recommended sizes', det.includes('1920 x 640 px') && det.includes('1200 x 675 px') && readFileSync('app/admin/training-hub/live-training/LiveSessionsManager.tsx', 'utf8').includes('1600 x 600 px'));
+  check('U9.6e admin shows the recommended sizes', det.includes('1920 x 640 px') && det.includes('1200 x 675 px') && readFileSync('app/admin/training-hub/live-training/LiveSessionsManager.tsx', 'utf8').includes('1200 x 675 px (16:9)')); // session image slot is 16:9 since 2026-11-08
 
   // ── Admin area: one area, one editor, old URLs redirect ──
   check('U9.7a /admin/training-hub/live-sessions redirects to Live Training (Single sessions)', readFileSync('app/admin/training-hub/live-sessions/page.tsx', 'utf8').includes("redirect('/admin/training-hub/live-training?tab=sessions')"));
@@ -1250,6 +1252,84 @@ async function unit13(): Promise<void> {
   check('U13.16 the templates note says exam-off courses certify on model approval, named from live data', tpl.includes('Courses with exams off') && tpl.includes("approves the student's submitted model") && tpl.includes('c.examsEnabled === false'));
 }
 
+async function unit14(): Promise<void> {
+  console.log('\n=== REFM sessions live: seed, Training Sessions page, 16:9 images, course tab ===\n');
+  const RS = await import('../src/hubs/training/lib/liveCourse/seeds/refmSessions');
+  const PL = await import('../src/hubs/training/lib/liveCourse/publicListing');
+
+  // ── The seed, measured on the live database ──
+  if (!hasCreds()) { check('U14.1 credentials loaded for the seeded-session probe', false, 'run through npm run verify:suite'); }
+  else {
+    const sb = await db();
+    const { data } = await sb.from('live_sessions')
+      .select('id, course_session_no, title, scheduled_datetime, duration_minutes, is_published, live_url, announcement_sent')
+      .eq('course_code', RS.REFM_COURSE_CODE).order('course_session_no');
+    const rows = (data ?? []) as { id: string; course_session_no: number; title: string; scheduled_datetime: string; duration_minutes: number; is_published: boolean; live_url: string | null; announcement_sent: boolean }[];
+    check('U14.1a exactly 8 REFM sessions, numbered 1 to 8', rows.length === 8 && rows.map((r) => r.course_session_no).join(',') === '1,2,3,4,5,6,7,8', `${rows.length} rows`);
+    const timesOk = RS.REFM_SESSIONS.every((s) => {
+      const r = rows.find((x) => x.course_session_no === s.no);
+      return !!r && new Date(r.scheduled_datetime).getTime() === new Date(s.start).getTime() && r.title === s.title && r.duration_minutes === RS.REFM_DURATION_MINUTES;
+    });
+    check('U14.1b each at its UTC start (16:00 UTC = 7:00 PM KSA), title and 150 minutes', timesOk);
+    check('U14.1c all 8 published', rows.every((r) => r.is_published));
+    const noLink = rows.filter((r) => !r.live_url).map((r) => r.course_session_no);
+    check('U14.1d every session has a Teams link (Live Training > REFM > Sessions > "Create missing Teams meetings")', noLink.length === 0, noLink.length ? `no link yet: sessions ${noLink.join(', ')}` : '');
+    check('U14.1e no session was announced (the seed sends nothing)', rows.every((r) => r.announcement_sent === false));
+  }
+  const seed = readFileSync('scripts/seed-refm-sessions.ts', 'utf8');
+  check('U14.2a the seed imports no email, newsletter or announcement code', !/from ['"][^'"]*(email|newsletter|autoNotify|announce)[^'"]*['"]/i.test(seed) && !/sendEmail|sendNewsletter|notifySession/.test(seed));
+  check('U14.2b a mistyped flag runs nothing (it refused --dry, which once ran for real)', seed.includes('Unknown flag(s)') && seed.includes('process.exit(1)'));
+
+  // ── Listing on the Training Sessions page ──
+  const at = new Date('2026-11-20T12:00:00Z').getTime();
+  const course = { session_type: 'upcoming', scheduled_datetime: '2026-12-01T16:00:00Z', duration_minutes: 150, course_code: 'REFM', youtube_url: null };
+  check('U14.3a an upcoming REFM session is in Upcoming', PL.listingOf(course, at) === 'upcoming');
+  const after = new Date('2026-12-02T12:00:00Z').getTime();
+  check('U14.3b once it ends with no recording it is not listed', PL.listingOf(course, after) === 'hidden');
+  check('U14.3c with its recording added it moves to Recorded', PL.listingOf({ ...course, youtube_url: 'https://youtu.be/x' }, after) === 'recorded');
+  check('U14.3d a single session is listed as before (ended = Recorded)', PL.listingOf({ ...course, course_code: null }, after) === 'recorded');
+  check('U14.3e the filter label is "REFM Live Series"', PL.seriesLabel('REFM', 'REFM') === 'REFM Live Series');
+  const sc = readFileSync('app/training-sessions/SessionsClient.tsx', 'utf8');
+  check('U14.3f the page lists through the one rule, sorts Upcoming by date and offers the series filter', sc.includes('listingOf(s)') && sc.includes("filtered.filter(s => listingOf(s) === 'upcoming')") && sc.includes('value={seriesValue(code)}'));
+  check('U14.3g a course session gets the course card; a single session keeps its card', sc.includes('if (!s.course_code) return <SessionCard') && sc.includes('<CourseSessionListingCard'));
+
+  // ── Card buttons go to course enrolment ──
+  const base = { courseCode: 'REFM', sessionId: 'S1', enrolmentOpen: true };
+  const out = PL.courseCardAction({ ...base, enrolled: false, signedIn: false });
+  const inn = PL.courseCardAction({ ...base, enrolled: false, signedIn: true });
+  const enr = PL.courseCardAction({ ...base, enrolled: true, signedIn: true });
+  check('U14.4a signed out: "Register free" to course registration', out.label === 'Register free' && out.href === '/register?course=REFM');
+  check('U14.4b signed in: "Enrol" to the course page, which enrols on arrival', inn.label === 'Enrol' && inn.href === '/training/REFM?enrol=1');
+  check('U14.4c enrolled: "View session" under the course', enr.label === 'View session' && enr.href === '/training/REFM/sessions/S1');
+  check('U14.4d no branch goes to single-session registration', [out, inn, enr].every((a) => !a.href.includes('/training-sessions/') && !a.href.includes('/live-sessions/')));
+  const card = readFileSync('src/hubs/training/components/sessions/CourseSessionListingCard.tsx', 'utf8');
+  check('U14.4e the card shows "Session X of N", KSA time, Rescheduled and "Part of ... Live Series"', card.includes('Session {s.course_session_no} of {total}') && card.includes('formatSessionTime(s.scheduled_datetime)') && card.includes('Rescheduled') && card.includes('Part of {seriesLabel('));
+  const detail = readFileSync('app/training-sessions/[id]/page.tsx', 'utf8');
+  check('U14.4f a course session\'s public detail page sends visitors to the course', detail.includes('if (session?.course_code) redirect(coursePagePath(session.course_code))'));
+
+  // ── 16:9, whole, no text over the image ──
+  const imgOk = (src: string, testid: string) => {
+    const i = src.indexOf(`data-testid="${testid}"`);
+    const box = src.lastIndexOf("aspectRatio: '16 / 9'", i);
+    return i > 0 && box > 0 && i - box < 300 && src.slice(i, i + 300).includes("objectFit: 'contain'");
+  };
+  const csc = readFileSync('src/hubs/training/components/sessions/CourseSessionCard.tsx', 'utf8');
+  check('U14.5a curriculum card image: 16:9 box, whole image (contain)', imgOk(csc, 'session-card-image'));
+  check('U14.5b Training Sessions card image: 16:9 box, whole image (contain)', imgOk(card, 'course-session-listing-image'));
+  const player = readFileSync('src/hubs/training/components/player/CoursePlayerLayout.tsx', 'utf8');
+  const pi = player.indexOf('data-testid="session-page-image"');
+  check('U14.5c session page image: full width, natural height, no crop', pi > 0 && player.slice(pi, pi + 200).includes("height: 'auto'") && !player.slice(pi, pi + 200).includes('objectFit'));
+  const offers = readFileSync('app/training-sessions/PublicCourseOffers.tsx', 'utf8');
+  check('U14.5d the REFM course card image: 16:9 box, whole image', offers.includes("aspectRatio: '16 / 9'") && /cardImageUrl}[^>]*objectFit: 'contain'/.test(offers));
+  check('U14.5e the title and details are text below the image, never over it', csc.indexOf('session-card-image') < csc.indexOf('{s.title}') && card.indexOf('course-session-listing-image') < card.indexOf('{s.title}') && !/position: 'absolute'/.test(card));
+  const mgr = readFileSync('app/admin/training-hub/live-training/LiveSessionsManager.tsx', 'utf8');
+  check('U14.5f the admin image slot asks for 1200 x 675 (16:9)', mgr.includes('Recommended 1200 x 675 px (16:9)') && !mgr.includes('1600 x 600'));
+
+  // ── Course Sessions tab in admin ──
+  check('U14.6a a course tab hides the playlist bar, "+ New Playlist" and the playlist filter', mgr.includes('{!courseCode && (\n        <div data-testid="admin-playlist-bar"') && mgr.includes('{!courseCode && (\n              <button style={btnSecondary} onClick={() => { setShowNewPlaylist') && mgr.includes('{/* Playlist filter (single sessions only) */}\n          {!courseCode && ('));
+  check('U14.6b a course tab orders its sessions by session number', mgr.includes('filtered.sort((a, b) => noOf(a) - noOf(b))'));
+}
+
 (async () => {
   await unit0();
   await unit1();
@@ -1266,6 +1346,7 @@ async function unit13(): Promise<void> {
   await unit11();
   await unit12();
   await unit13();
+  await unit14();
   console.log(`\n${passed} passed, ${failed} failed`);
   if (failed) { console.log('Failed:'); for (const f of fails) console.log(`  - ${f}`); process.exit(1); }
 })().catch((e) => { console.error(e); process.exit(1); });
