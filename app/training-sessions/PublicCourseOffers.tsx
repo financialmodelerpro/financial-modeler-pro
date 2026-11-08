@@ -45,6 +45,13 @@ export function PublicCourseOffers({ courses, isLoggedIn }: { courses: PublicCou
   if (!courses.length) return null;
   return (
     <section style={{ background: '#F5F7FA', padding: 'clamp(28px,4vw,48px) 16px' }}>
+      {/* Image beside the text on wide screens, above it on phones; the image box is always 16:9. */}
+      <style>{`
+        .pco-card { display: grid; grid-template-columns: 1fr; }
+        .pco-card--image { grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); }
+        .pco-card--image .pco-card__image { align-self: center; }
+        @media (max-width: 720px) { .pco-card--image { grid-template-columns: 1fr; } }
+      `}</style>
       <div style={{ maxWidth: 1000, margin: '0 auto', display: 'grid', gap: 20 }}>
         {courses.map((c) => {
           const coursePath = `/training/live-course/${encodeURIComponent(c.courseCode)}`;
@@ -54,9 +61,12 @@ export function PublicCourseOffers({ courses, isLoggedIn }: { courses: PublicCou
           const signinHref = `/signin?redirect=${encodeURIComponent(enrolPath)}`;
           const next = c.sessions.find((s) => s.scheduled_datetime && new Date(s.scheduled_datetime).getTime() > Date.now());
           return (
-            <div key={c.courseCode} data-testid="public-course-offer" style={{ background: '#fff', border: '2px solid #DDE7F3', borderRadius: 16, overflow: 'hidden', display: 'grid', gridTemplateColumns: c.cardImageUrl ? 'minmax(0, 2fr) minmax(0, 3fr)' : '1fr' }}>
+            <div key={c.courseCode} data-testid="public-course-offer" className={c.cardImageUrl ? 'pco-card pco-card--image' : 'pco-card'} style={{ background: '#fff', border: '2px solid #DDE7F3', borderRadius: 16, overflow: 'hidden' }}>
               {c.cardImageUrl && (
-                <Link href={coursePath} style={{ display: 'block', minHeight: 200, background: '#E8EEF7' }}>
+                // The box is exactly 16:9, the card image's own shape (1200 x 675),
+                // so the whole image shows with no crop at any width. It used to take
+                // its height from the text beside it, which cropped the image.
+                <Link href={coursePath} className="pco-card__image" style={{ display: 'block', aspectRatio: '16 / 9', background: '#E8EEF7' }}>
                   <img src={c.cardImageUrl} alt={c.cardImageAlt || c.title} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
                 </Link>
               )}

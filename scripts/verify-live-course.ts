@@ -980,6 +980,8 @@ async function unit10(): Promise<void> {
   const view = readFileSync('src/hubs/training/lib/liveCourse/courseView.ts', 'utf8');
   const page = readFileSync('app/training/live-course/[code]/page.tsx', 'utf8');
   check('U10.3b the course page reads instructors LIVE on every view (public and signed in)', view.includes('loadCourseInstructors(sb, course.instructorIds)') && page.includes('loadCourseInstructors(sb, course.instructorIds)'));
+  const offers = readFileSync('app/training-sessions/PublicCourseOffers.tsx', 'utf8');
+  check('U10.5a the course card image box is 16:9, the card image size, so nothing is cropped', offers.includes("aspectRatio: '16 / 9'") && !offers.includes('minHeight: 200') && offers.includes('@media (max-width: 720px)'));
   check('U10.3c the public page renders the instructor cards', readFileSync('app/training/live-course/[code]/LiveCourseClient.tsx', 'utf8').includes('<InstructorCard'));
   if (hasCreds()) {
     const sb = await db();
