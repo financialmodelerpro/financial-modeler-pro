@@ -23,10 +23,10 @@
  * deleting the pending row, so the student can click the same link again
  * after the underlying issue is fixed.
  *
- * Course enrollment is NOT handled here. New students land in Supabase
- * without any course and pick one from the dashboard via POST
- * /api/training/enroll. Existing students are backfilled with their
- * original course(s) by scripts/backup_apps_script_students.ts.
+ * Enrolment: every new student is auto-enrolled in 3SFM. A registrant from
+ * the public page who chose a live course (pending.enrol_course_code, mig 247)
+ * is also enrolled in it here, through enrolInLiveCourse, the one rule the
+ * dashboard's POST /api/training/enroll uses too.
  */
 
 import { NextRequest, NextResponse, after } from 'next/server';
@@ -35,6 +35,7 @@ import { getServerClient } from '@/src/core/db/supabase';
 import { allocateRegistrationId } from '@/src/hubs/training/lib/appsScript/regIdAllocator';
 import { sendEmail, FROM } from '@/src/shared/email/sendEmail';
 import { registrationConfirmationTemplate } from '@/src/shared/email/templates/registrationConfirmation';
+import { enrolInLiveCourse, coursePagePath } from '@/src/hubs/training/lib/liveCourse/enrolment';
 
 const LEARN_URL = process.env.NEXT_PUBLIC_LEARN_URL ?? 'https://learn.financialmodelerpro.com';
 
@@ -258,9 +259,24 @@ export async function GET(req: NextRequest) {
     }
   });
 
+  // ── Live-course enrolment from the public page (mig 247) ────────────────
+  // The registrant chose a course before confirming; enrol them now, as one
+  // step with the account. Non-fatal: they can still enrol from the course page.
+  const enrolCourseCode = (pending as { enrol_course_code?: string | null }).enrol_course_code ?? null;
+  let landing = safeRedirect;
+  if (enrolCourseCode) {
+    const result = await enrolInLiveCourse(sb, {
+      registrationId, email, name: pending.name ?? null, courseCode: enrolCourseCode, source: 'public_page',
+    });
+    if (!result.ok) console.error('[confirm-email] live-course enrol failed (non-fatal)', { email, enrolCourseCode, error: result.error });
+    landing = landing || coursePagePath(enrolCourseCode);
+  }
+
   // ── Final cleanup ─────────────────────────────────────────────────────────
   await markTokenUsed(tokenId);
   await sb.from('training_pending_registrations').delete().eq('email', email);
 
-  return NextResponse.redirect(`${LEARN_URL}/signin?confirmed=true`);
+  // The redirect from the email link is kept here too (it was dropped on this
+  // path, so a visitor never returned to the page they registered from).
+  return NextResponse.redirect(`${LEARN_URL}/signin?confirmed=true${landing ? `&redirect=${encodeURIComponent(landing)}` : ''}`);
 }

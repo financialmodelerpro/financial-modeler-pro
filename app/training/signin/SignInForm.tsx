@@ -220,7 +220,9 @@ function TrainingSignInInner() {
       }
       // Device verified - set session and redirect
       setTrainingSession(verifyEmail, deviceRegId);
-      router.push('/training/dashboard');
+      // Keep the return link through the email-code step (it always went to
+      // the dashboard, so a course sign-in never reached the course page).
+      router.push(redirectTo);
     } catch {
       setDeviceError('Verification failed. Please try again.');
     }

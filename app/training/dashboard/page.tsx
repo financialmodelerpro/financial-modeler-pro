@@ -38,6 +38,7 @@ import { ShareExperienceModal } from '@/src/shared/components/ShareExperienceMod
 import { LiveSessionsContent } from '@/src/hubs/training/components/dashboard/LiveSessionsContent';
 import { MyModelView } from '@/src/hubs/training/components/dashboard/MyModelView';
 import { LiveSessionsSection } from '@/src/hubs/training/components/dashboard/LiveSessionsSection';
+import { LiveCourseCards } from '@/src/hubs/training/components/dashboard/LiveCourseCards';
 import { formatShareDate } from '@/src/shared/share/shareTemplates';
 import { DashboardTour } from '@/src/hubs/training/components/DashboardTour';
 import type { ModelSubmissionStatusResult } from '@/src/hubs/training/lib/modelSubmission/types';
@@ -1369,6 +1370,9 @@ export default function TrainingDashboardPage() {
                   <Medal size={16} /> View Badges
                 </button>
               </div>
+
+              {/* ── LIVE COURSES (enrol, or open the course) ───────────────────── */}
+              {localSession && <LiveCourseCards />}
 
               {/* ── LIVE SESSIONS (Upcoming + Recorded) ────────────────────────── */}
               {localSession && (

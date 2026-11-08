@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { getTrainingSession } from '@/src/hubs/training/lib/session/training-session';
 import { SessionCard, getEffectiveType, type LiveSessionData } from '@/src/hubs/training/components/sessions/SessionCard';
 import { WelcomeModal } from '@/src/hubs/training/components/WelcomeModal';
+import { PublicCourseOffers, type PublicCourseOffer } from './PublicCourseOffers';
 
 export interface PublicSession {
   id: string; title: string; description: string; youtube_url: string | null;
@@ -33,7 +34,7 @@ function fmtTime(iso: string): string {
 const NAVY = '#0D2E5A';
 const GREEN = '#2EAA4A';
 
-export function SessionsClient({ sessions, hero }: { sessions: PublicSession[]; hero?: HeroContent }) {
+export function SessionsClient({ sessions, hero, courses = [] }: { sessions: PublicSession[]; hero?: HeroContent; courses?: PublicCourseOffer[] }) {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [countdown, setCountdown] = useState('');
   const [filterPlaylist, setFilterPlaylist] = useState('all');
@@ -151,6 +152,9 @@ export function SessionsClient({ sessions, hero }: { sessions: PublicSession[]; 
           </div>
         </div>
       </section>
+
+      {/* LIVE COURSES OPEN FOR REGISTRATION (mig 247) */}
+      <PublicCourseOffers courses={courses} isLoggedIn={isLoggedIn} />
 
       {/* NEXT SESSION BANNER */}
       {nextSession && (

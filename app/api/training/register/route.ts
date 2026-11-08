@@ -6,6 +6,8 @@ import { sendEmail, FROM } from '@/src/shared/email/sendEmail';
 import { confirmEmailTemplate } from '@/src/shared/email/templates/confirmEmail';
 import { getTrainingRegisterComingSoonState } from '@/src/hubs/training/lib/comingSoon';
 import { isTrainingIdentifierBypassed } from '@/src/shared/comingSoon/bypassList';
+import { getLiveCourseSettings, isLiveCourseRow, normaliseCourseCode } from '@/src/hubs/training/lib/liveCourse/courseSettings';
+import { courseSigninUrl, coursePagePath } from '@/src/hubs/training/lib/liveCourse/enrolment';
 import bcrypt from 'bcryptjs';
 
 const LEARN_URL = process.env.NEXT_PUBLIC_LEARN_URL ?? 'https://learn.financialmodelerpro.com';
@@ -22,8 +24,11 @@ export async function POST(req: NextRequest) {
       password?: string;
       captchaToken?: string;
       redirect?: string;
+      // A live course to enrol in once the email is confirmed (public page).
+      enrolCourseCode?: string;
     };
-    const { name, email, course, phone, city, country, password, captchaToken, redirect } = body;
+    const { name, email, course, phone, city, country, password, captchaToken } = body;
+    let { redirect } = body;
 
     if (!name || !email) {
       return NextResponse.json({ success: false, error: 'name and email are required' }, { status: 400 });
@@ -82,6 +87,18 @@ export async function POST(req: NextRequest) {
 
     const sb = getServerClient();
 
+    // A public-page registration names a live course. Only an active, public
+    // live course is accepted; anything else is ignored, never an error.
+    let enrolCourseCode: string | null = null;
+    const requestedCourse = normaliseCourseCode(body.enrolCourseCode);
+    if (requestedCourse) {
+      const settings = await getLiveCourseSettings(sb, requestedCourse);
+      if (isLiveCourseRow(settings) && settings.isActive && settings.isPublic) {
+        enrolCourseCode = settings.courseCode;
+        redirect = redirect || coursePagePath(enrolCourseCode);
+      }
+    }
+
     // Check if already confirmed (existing account)
     const { data: existing } = await sb
       .from('training_registrations_meta')
@@ -90,7 +107,13 @@ export async function POST(req: NextRequest) {
       .maybeSingle();
 
     if (existing?.email_confirmed) {
-      return NextResponse.json({ success: false, duplicate: true });
+      // Never a second account: an existing student signs in, and a course
+      // registration enrols them on arrival (the course page's ?enrol=1).
+      return NextResponse.json({
+        success:   false,
+        duplicate: true,
+        signinUrl: enrolCourseCode ? courseSigninUrl(enrolCourseCode) : null,
+      });
     }
 
     // Upsert pending registration (replace any previous unconfirmed attempt).
@@ -106,6 +129,7 @@ export async function POST(req: NextRequest) {
       city:          city?.trim()   || null,
       country:       country?.trim() || null,
       password_hash,
+      enrol_course_code: enrolCourseCode,
     }, { onConflict: 'email' });
 
     if (pendingErr) {

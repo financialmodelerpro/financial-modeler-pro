@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import Link from 'next/link';
 import { Navbar } from '@/src/shared/components/layout/Navbar';
 import HCaptcha from '@hcaptcha/react-hcaptcha';
@@ -57,6 +57,15 @@ export function TrainingRegisterForm({ preLaunch = false, launchDate = null }: T
   const [captchaToken, setCaptchaToken] = useState('');
   const captchaRef = useRef<HCaptcha>(null);
 
+  // A live course chosen on the public Training Sessions page (?course=REFM).
+  // The account and the enrolment are made in one step at email confirmation.
+  const [courseCode, setCourseCode] = useState('');
+  const [signinUrl, setSigninUrl] = useState('');
+  useEffect(() => {
+    const c = new URLSearchParams(window.location.search).get('course') ?? '';
+    if (/^[A-Za-z0-9]{2,12}$/.test(c)) setCourseCode(c.toUpperCase());
+  }, []);
+
   async function submitRegistration(fullPhone: string) {
     setStatus('loading');
     // Preserve any `?redirect=...` from the URL so the post-confirm
@@ -81,9 +90,10 @@ export function TrainingRegisterForm({ preLaunch = false, launchDate = null }: T
           password,
           captchaToken,
           redirect,
+          enrolCourseCode: courseCode || undefined,
         }),
       });
-      const json = await res.json() as { success: boolean; duplicate?: boolean; error?: string };
+      const json = await res.json() as { success: boolean; duplicate?: boolean; signinUrl?: string | null; error?: string };
       if (json.success) {
         if (newsletterOptIn) {
           // Fire-and-forget; never block the success path on a newsletter
@@ -97,6 +107,8 @@ export function TrainingRegisterForm({ preLaunch = false, launchDate = null }: T
         setStep('done');
         setStatus('idle');
       } else if (json.duplicate) {
+        // Never a second account: sign in, then the course enrols on arrival.
+        setSigninUrl(json.signinUrl ?? '');
         setStatus('duplicate');
       } else {
         setStatus('error');
@@ -185,8 +197,13 @@ export function TrainingRegisterForm({ preLaunch = false, launchDate = null }: T
 
           <div style={{ background: '#fff', borderRadius: 14, border: '1px solid #E5E7EB', boxShadow: '0 4px 24px rgba(0,0,0,0.07)', padding: '36px 36px 32px' }}>
             <h1 style={{ fontSize: 22, fontWeight: 800, color: NAVY, marginBottom: 4, textAlign: 'center' }}>
-              Register for Free Certification
+              {courseCode ? 'Register for the Live Course' : 'Register for Free Certification'}
             </h1>
+            {courseCode && (
+              <p data-testid="register-course-note" style={{ fontSize: 13, color: NAVY, textAlign: 'center', margin: '0 0 6px', fontWeight: 600 }}>
+                Creating your account also enrols you in the {courseCode} live course.
+              </p>
+            )}
             <p style={{ fontSize: 12.5, color: '#6B7280', textAlign: 'center', marginBottom: 28, lineHeight: 1.5 }}>
               Your name will appear exactly as entered on your certificate.
             </p>
@@ -199,7 +216,9 @@ export function TrainingRegisterForm({ preLaunch = false, launchDate = null }: T
 
             {status === 'duplicate' && (
               <div style={{ background: '#EFF6FF', border: '1px solid #BFDBFE', borderRadius: 8, padding: '14px 16px', marginBottom: 20, fontSize: 13, color: '#1D4ED8', lineHeight: 1.5 }}>
-                ℹ️ You are already registered. Sign in below or use Forgot Password if you need to reset it.
+                ℹ️ You are already registered. {signinUrl
+                  ? <><a data-testid="register-duplicate-signin" href={signinUrl} style={{ color: '#1D4ED8', fontWeight: 700 }}>Sign in to enrol in the course</a>. Use Forgot Password if you need to reset it.</>
+                  : 'Sign in below or use Forgot Password if you need to reset it.'}
               </div>
             )}
 

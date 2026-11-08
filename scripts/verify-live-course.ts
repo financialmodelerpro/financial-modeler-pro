@@ -189,9 +189,129 @@ async function unit1(): Promise<void> {
   }
 }
 
+/**
+ * A tiny in-memory stand-in for the Supabase query builder: enough of
+ * select/eq/is/in/order/limit/maybeSingle/single/insert/upsert/update/delete
+ * for the live-course rules, so they run end to end with no production writes.
+ */
+type Row = Record<string, unknown>;
+export function fakeDb(seed: Record<string, Row[]> = {}) {
+  const tables: Record<string, Row[]> = JSON.parse(JSON.stringify(seed));
+  let seq = 0;
+  const from = (table: string) => {
+    tables[table] ??= [];
+    const filters: ((r: Row) => boolean)[] = [];
+    let op: 'select' | 'insert' | 'upsert' | 'update' | 'delete' = 'select';
+    let payload: Row | Row[] | null = null;
+    let conflict: string[] = [];
+    let ignoreDup = false;
+    let orderBy: { col: string; asc: boolean }[] = [];
+    let lim: number | null = null;
+    const run = (): { data: Row[]; error: null | { message: string } } => {
+      const rows = tables[table];
+      if (op === 'insert' || op === 'upsert') {
+        const list = Array.isArray(payload) ? payload : [payload as Row];
+        const out: Row[] = [];
+        for (const p of list) {
+          const keys = conflict.length ? conflict : [];
+          const hit = keys.length ? rows.find((r) => keys.every((k) => r[k] === p[k])) : undefined;
+          if (hit) {
+            if (op === 'insert') return { data: [], error: { message: 'duplicate key value violates unique constraint' } };
+            if (!ignoreDup) Object.assign(hit, p);
+            if (!ignoreDup) out.push(hit);
+            continue;
+          }
+          const r = { id: `id_${++seq}`, ...p };
+          rows.push(r); out.push(r);
+        }
+        return { data: out, error: null };
+      }
+      let sel = rows.filter((r) => filters.every((f) => f(r)));
+      if (op === 'update') { for (const r of sel) Object.assign(r, payload); return { data: sel, error: null }; }
+      if (op === 'delete') { tables[table] = rows.filter((r) => !sel.includes(r)); return { data: sel, error: null }; }
+      for (const o of [...orderBy].reverse()) sel = [...sel].sort((a, b) => ((a[o.col] as number | string) > (b[o.col] as number | string) ? 1 : -1) * (o.asc ? 1 : -1));
+      if (lim != null) sel = sel.slice(0, lim);
+      return { data: sel, error: null };
+    };
+    const q: Record<string, unknown> = {
+      select: () => q,
+      eq: (c: string, v: unknown) => { filters.push((r) => r[c] === v); return q; },
+      neq: (c: string, v: unknown) => { filters.push((r) => r[c] !== v); return q; },
+      is: (c: string, v: unknown) => { filters.push((r) => (r[c] ?? null) === v); return q; },
+      in: (c: string, v: unknown[]) => { filters.push((r) => v.includes(r[c])); return q; },
+      ilike: (c: string, v: string) => { filters.push((r) => String(r[c] ?? '').toLowerCase() === v.toLowerCase()); return q; },
+      not: (c: string, _o: string, v: unknown) => { filters.push((r) => (r[c] ?? null) !== v); return q; },
+      gte: (c: string, v: string) => { filters.push((r) => String(r[c] ?? '') >= v); return q; },
+      lte: (c: string, v: string) => { filters.push((r) => String(r[c] ?? '') <= v); return q; },
+      order: (col: string, o?: { ascending?: boolean }) => { orderBy.push({ col, asc: o?.ascending !== false }); return q; },
+      limit: (n: number) => { lim = n; return q; },
+      insert: (p: Row | Row[]) => { op = 'insert'; payload = p; return q; },
+      upsert: (p: Row | Row[], o?: { onConflict?: string; ignoreDuplicates?: boolean }) => { op = 'upsert'; payload = p; conflict = (o?.onConflict ?? '').split(',').filter(Boolean); ignoreDup = !!o?.ignoreDuplicates; return q; },
+      update: (p: Row) => { op = 'update'; payload = p; return q; },
+      delete: () => { op = 'delete'; return q; },
+      maybeSingle: async () => { const r = run(); return { data: r.data[0] ?? null, error: r.error }; },
+      single: async () => { const r = run(); return { data: r.data[0] ?? null, error: r.error ?? (r.data[0] ? null : { message: 'no row' }) }; },
+      then: (res: (v: unknown) => unknown, rej?: (e: unknown) => unknown) => Promise.resolve(run()).then(res, rej),
+    };
+    return q;
+  };
+  return { client: { from } as unknown as import('@supabase/supabase-js').SupabaseClient, tables };
+}
+
+const REFM_ROW = { course_code: 'REFM', title: 'REFM Live', is_active: true, is_public: true, exams_enabled: false, cert_routes: ['live', 'recording'], allow_mixed_routes: true, attendance_threshold_pct: 75, recording_complete_pct: 95, model_approval_required: true, max_submission_attempts: 3, join_opens_minutes_before: 15, session_day_reminder: true, certificate_grade_label: 'Completed' };
+
+async function unit1b(): Promise<void> {
+  console.log('\n=== Unit 1b: registration and enrolment ===\n');
+  const en = await import('../src/hubs/training/lib/liveCourse/enrolment');
+  const { client, tables } = fakeDb({
+    training_course_settings: [REFM_ROW, { ...REFM_ROW, course_code: 'OFF', is_active: false }],
+    live_sessions: [{ id: 's1', title: 'Kick-off', course_code: 'REFM', course_session_no: 1, is_published: true, scheduled_datetime: '2026-12-01T16:00:00.000Z' }],
+    training_enrollments: [],
+  });
+  const sent: string[] = [];
+  const send = async (to: string, subject: string) => { sent.push(`${to}|${subject}`); };
+
+  // New visitor: confirm-email enrols with source public_page.
+  const a = await en.enrolInLiveCourse(client, { registrationId: 'FMP-2026-9001', email: 'new@x.com', name: 'New', courseCode: 'refm', source: 'public_page' }, { send });
+  check('U1b.1a a new registrant is enrolled in the course', a.ok && a.enrolled && !a.alreadyEnrolled);
+  check('U1b.1b the enrolment row records the public page as its source', tables.training_enrollments.some((r) => r.registration_id === 'FMP-2026-9001' && r.course_code === 'REFM' && r.source === 'public_page'));
+  check('U1b.1c the confirmation email is sent, with the course in the subject', sent.length === 1 && sent[0].includes('REFM Live'));
+
+  // Existing student: dashboard enrol, then a second click.
+  const b = await en.enrolInLiveCourse(client, { registrationId: 'FMP-2026-0002', email: 'old@x.com', courseCode: 'REFM', source: 'dashboard' }, { send });
+  const b2 = await en.enrolInLiveCourse(client, { registrationId: 'FMP-2026-0002', email: 'old@x.com', courseCode: 'REFM', source: 'dashboard' }, { send });
+  check('U1b.2a an existing student enrols from the dashboard', b.ok && !b.alreadyEnrolled);
+  check('U1b.2b a second click is idempotent: one row, reported as already enrolled', b2.ok && b2.alreadyEnrolled && tables.training_enrollments.filter((r) => r.registration_id === 'FMP-2026-0002').length === 1);
+  check('U1b.2c the confirmation email is sent once, not per click', sent.filter((s) => s.startsWith('old@x.com')).length === 1);
+  check('U1b.2d confirmation_sent_at is stamped', tables.training_enrollments.every((r) => !!r.confirmation_sent_at));
+
+  // Refusals.
+  check('U1b.3a an exam course is refused (not this rule\'s)', !(await en.enrolInLiveCourse(client, { registrationId: 'R', email: 'e@x.com', courseCode: '3SFM', source: 'dashboard' }, { send })).ok);
+  check('U1b.3b an inactive live course is refused', !(await en.enrolInLiveCourse(client, { registrationId: 'R', email: 'e@x.com', courseCode: 'OFF', source: 'dashboard' }, { send })).ok);
+  check('U1b.3c the sign-in link lands on the course page and enrols', en.courseSigninUrl('REFM') === `/signin?redirect=${encodeURIComponent('/training/live-course/REFM?enrol=1')}`);
+
+  // Wiring of the real routes (the register route is behind hCaptcha, and
+  // confirm-email consumes a real registration id, so they are pinned by source).
+  const reg = readFileSync('app/api/training/register/route.ts', 'utf8');
+  const dupAt = reg.indexOf('existing?.email_confirmed');
+  const upsertAt = reg.indexOf("from('training_pending_registrations').upsert");
+  check('U1b.4a register: an existing email returns before any pending row is written (no duplicate account)', dupAt > 0 && upsertAt > dupAt && /duplicate:\s*true/.test(reg.slice(dupAt, upsertAt)));
+  check('U1b.4b register: the duplicate response carries the course sign-in link', /signinUrl:\s*enrolCourseCode\s*\?\s*courseSigninUrl\(/.test(reg));
+  check('U1b.4c register: only an active, public live course is accepted', /isLiveCourseRow\(settings\)\s*&&\s*settings\.isActive\s*&&\s*settings\.isPublic/.test(reg) && reg.includes('enrol_course_code: enrolCourseCode'));
+  const conf = readFileSync('app/api/training/confirm-email/route.ts', 'utf8');
+  check('U1b.4d confirm-email: enrols through the one rule with source public_page', /enrolInLiveCourse\(sb,[\s\S]{0,200}source: 'public_page'/.test(conf));
+  check('U1b.4e confirm-email: the main path keeps the redirect', /signin\?confirmed=true\$\{landing \?/.test(conf));
+  check('U1b.4f confirm-email: 3SFM auto-enrol is kept', conf.includes("course_code: '3SFM'"));
+  const enrollRoute = readFileSync('app/api/training/enroll/route.ts', 'utf8');
+  check('U1b.4g enroll route: identity from the signed cookie only', enrollRoute.includes('getTrainingCookieSession()') && !/body\.(email|registrationId)/.test(enrollRoute));
+  const signin = readFileSync('app/training/signin/SignInForm.tsx', 'utf8');
+  check('U1b.4h sign-in: the email-code step keeps the return link', !signin.includes("router.push('/training/dashboard')"));
+}
+
 (async () => {
   await unit0();
   await unit1();
+  await unit1b();
   console.log(`\n${passed} passed, ${failed} failed`);
   if (failed) { console.log('Failed:'); for (const f of fails) console.log(`  - ${f}`); process.exit(1); }
 })().catch((e) => { console.error(e); process.exit(1); });

@@ -5,6 +5,8 @@ import { getServerClient } from '@/src/core/db/supabase';
 import { getAllPageSections } from '@/src/shared/cms';
 import { canonicalUrl } from '@/src/shared/seo/canonical';
 import { SessionsClient, type PublicSession, type HeroContent } from './SessionsClient';
+import type { PublicCourseOffer } from './PublicCourseOffers';
+import { listLiveCourses, listCourseSessions } from '@/src/hubs/training/lib/liveCourse/courseSettings';
 
 // Canonical lives on the learn subdomain because main-domain hits are 307'd to
 // learn (next.config.ts /training-sessions redirect). Pointing canonical at
@@ -79,10 +81,30 @@ async function getSessions(): Promise<PublicSession[]> {
   }
 }
 
+// Live courses open for public registration, with their published schedule.
+async function getCourseOffers(): Promise<PublicCourseOffer[]> {
+  try {
+    const sb = getServerClient();
+    const courses = await listLiveCourses(sb, { publicOnly: true });
+    return await Promise.all(courses.map(async (c) => ({
+      courseCode: c.courseCode,
+      title: c.title,
+      description: c.description,
+      sessions: (await listCourseSessions(sb, c.courseCode)).map((s) => ({
+        no: s.course_session_no, title: s.title, scheduled_datetime: s.scheduled_datetime,
+      })),
+    })));
+  } catch (err) {
+    console.error('[training-sessions] course offers failed', err);
+    return [];
+  }
+}
+
 export default async function TrainingSessionsPage() {
-  const [sessions, cmsSections] = await Promise.all([
+  const [sessions, cmsSections, courses] = await Promise.all([
     getSessions(),
     getAllPageSections('training-sessions'),
+    getCourseOffers(),
   ]);
 
   // Extract hero from CMS
@@ -96,7 +118,7 @@ export default async function TrainingSessionsPage() {
       <NavbarServer />
       <div style={{ height: 64 }} />
 
-      <SessionsClient sessions={sessions} hero={heroContent} />
+      <SessionsClient sessions={sessions} hero={heroContent} courses={courses} />
 
       <SharedFooter
         company="Financial Modeler Pro"
