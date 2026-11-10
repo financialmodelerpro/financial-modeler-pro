@@ -2,16 +2,21 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerClient } from '@/src/core/db/supabase';
 import { adminEmail } from '@/src/hubs/training/lib/liveCourse/adminGuard';
 import {
-  syncSessionFromGraph, importSessionCsv, matchAttendee, setManualAttendance, realGraph,
+  syncSessionFromGraph, importSessionCsv, matchAttendee, setManualAttendance, realGraph, loadSessionJoiners,
 } from '@/src/hubs/training/lib/liveCourse/attendanceSync';
 import { parseTeamsAttendanceCsv } from '@/src/hubs/training/lib/liveCourse/teamsCsv';
 import { listEnrolledStudents } from '@/src/hubs/training/lib/liveCourse/enrolledStudents';
 import { isTeamsConfigured } from '@/src/integrations/teams/teamsMeetings';
+import { matchByName, type NameSuggestion } from '@/src/hubs/training/lib/liveCourse/nameMatch';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 120;
 
-/** GET: the session's attendance rows, unmatched list and enrolled students. */
+/**
+ * GET: the session's attendance rows, unmatched list and enrolled students,
+ * plus, for each unmatched guest (no email), the students who clicked Join for
+ * this session whose names are likely (nameMatch.ts), best first.
+ */
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   if (!await adminEmail()) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   const { id } = await params;
@@ -22,7 +27,13 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
   ]);
   if (!session) return NextResponse.json({ error: 'Not found' }, { status: 404 });
   const students = session.course_code ? await listEnrolledStudents(sb, session.course_code as string) : [];
-  return NextResponse.json({ session, rows: rows ?? [], students, teamsConfigured: isTeamsConfigured() });
+  const guests = (rows ?? []).filter((r) => !r.student_email && String(r.attendee_email).startsWith('noemail:'));
+  const suggestions: Record<string, NameSuggestion[]> = {};
+  if (guests.length) {
+    const joiners = await loadSessionJoiners(sb, id);
+    for (const g of guests) suggestions[g.attendee_email as string] = matchByName(g.attendee_name as string | null, joiners).suggestions;
+  }
+  return NextResponse.json({ session, rows: rows ?? [], students, suggestions, teamsConfigured: isTeamsConfigured() });
 }
 
 /**

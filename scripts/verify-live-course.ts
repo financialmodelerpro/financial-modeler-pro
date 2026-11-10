@@ -1211,7 +1211,8 @@ async function unit12(): Promise<void> {
   check('U12.7c auto facts follow the live schedule when none are set', PS.autoFacts(sessions)[0] === '2 live sessions' && PS.autoFacts(sessions).includes('Free'));
   check('U12.7d a testimonial pick is "source:id" from the existing system', !!CT.parsePick('manual:11111111-1111-1111-1111-111111111111') && !CT.parsePick('11111111'));
   check('U12.7e the course page reuses the existing testimonials carousel', page.includes('<TestimonialsCarousel'));
-  check('U12.7f sample certificate and badge come from the uploaded templates and hide until they exist', page.includes('templateSamples(') && landing.includes('(d.samples.certificateUrl || d.samples.badgeUrl)'));
+  // Re-aimed 2026-11-10: the template lookup moved into cachedReads (cached per course).
+  check('U12.7f sample certificate and badge come from the uploaded templates and hide until they exist', page.includes('courseTemplateSamplesCached(course.courseCode)') && readFileSync('src/hubs/training/lib/liveCourse/cachedReads.ts', 'utf8').includes('templates/${name}') && landing.includes('(d.samples.certificateUrl || d.samples.badgeUrl)'));
   check('U12.7g the mobile layout stacks the side card and adds a fixed Register bar, with no horizontal scroll', landing.includes('@media (max-width: 900px)') && landing.includes("overflowX: 'hidden'"));
 }
 
@@ -1558,6 +1559,93 @@ async function unit17(): Promise<void> {
   check('U17.8e the old "Next session (1):" wording is gone', !landing.includes('Next session{d.next.no'));
 }
 
+async function unit18(): Promise<void> {
+  console.log('\n=== Guests without a Microsoft account: the name note and matching by name ===\n');
+  const NM = await import('../src/hubs/training/lib/liveCourse/nameMatch');
+  const joiners = [
+    { email: 'jane@x.com', name: 'Jane Doe' },
+    { email: 'omar@x.com', name: "Omar Al-Farsi" },
+    { email: 'ali1@x.com', name: 'Ali Khan' },
+    { email: 'ali2@x.com', name: 'Ali Khan' },
+    { email: 'sara@x.com', name: 'Sara Ahmed' },
+  ];
+  // ── The matching rule ──
+  const exact = NM.matchByName('  Jane   Doe ', joiners);
+  check('U18.1a an exact name (spaces trimmed) links the one student', exact.studentEmail === 'jane@x.com' && exact.how === 'exact');
+  const close = NM.matchByName('omar alfarsi', joiners);
+  check('U18.1b a close name (case, spaces, punctuation ignored) links the one student', close.studentEmail === 'omar@x.com' && close.how === 'close');
+  check('U18.1c accents are ignored in a close match', NM.matchByName('Sára Ahméd', joiners).studentEmail === 'sara@x.com');
+  const twin = NM.matchByName('Ali Khan', joiners);
+  check('U18.1d two students with the same name: NOT linked, both suggested', twin.studentEmail === null && twin.suggestions.length === 2 && twin.suggestions.every((s) => s.reason === 'exact'));
+  const partial = NM.matchByName('Jane', joiners);
+  check('U18.1e a partial name is NOT linked; the likely student is suggested', partial.studentEmail === null && partial.suggestions[0]?.email === 'jane@x.com' && partial.suggestions[0]?.reason === 'partial');
+  const none = NM.matchByName('Guest 4471', joiners);
+  check('U18.1f no likely student: unmatched with no suggestion', none.studentEmail === null && none.suggestions.length === 0);
+  check('U18.1g an empty or punctuation-only name never matches', NM.matchByName('', joiners).studentEmail === null && NM.matchByName('...', joiners).studentEmail === null);
+  check('U18.1h a candidate who is not a joiner cannot match (only the session\'s join clicks are candidates)', NM.matchByName('Jane Doe', []).studentEmail === null);
+  check('U18.1i the admin labels: by email, by name, by hand', NM.MATCHED_BY_LABEL.email === 'By email' && NM.MATCHED_BY_LABEL.name === 'By name' && NM.MATCHED_BY_LABEL.manual === 'By hand');
+
+  // ── The sync, end to end on the in-memory database ──
+  const S = await import('../src/hubs/training/lib/liveCourse/attendanceSync');
+  const A = await import('../src/hubs/training/lib/liveCourse/attendance');
+  const row = (email: string | null, name: string, pct = 80): import('../src/hubs/training/lib/liveCourse/attendance').AttendanceRow =>
+    ({ attendee_email: A.attendeeKey(email, name), attendee_name: name, role: 'Attendee', intervals: [], attended_seconds: Math.round(pct * 90), session_seconds: 9000, attended_pct: pct });
+  const seed = () => ({
+    live_sessions: [{ id: 'g1', live_url: 'x', scheduled_datetime: '2026-12-01T16:00:00Z', duration_minutes: 150, graph_online_meeting_id: null, course_code: 'REFM' }],
+    training_registrations_meta: joiners.map((j, i) => ({ registration_id: `FMP-${i}`, email: j.email, name: j.name })).concat([{ registration_id: 'FMP-9', email: 'notjoined@x.com', name: 'Nadia Noor' }]),
+    live_session_join_clicks: joiners.map((j) => ({ session_id: 'g1', student_email: j.email })),
+    student_email_aliases: [] as Row[],
+    live_session_attendance: [] as Row[],
+  });
+  const db1 = fakeDb(seed());
+  const res = await S.applyAttendanceRows(db1.client, 'g1', [row('jane@x.com', 'Jane D'), row(null, 'Omar Al Farsi'), row(null, 'Ali Khan'), row(null, 'Nadia Noor'), row(null, 'Jane Doe')], 'graph');
+  const at = (key: string) => db1.tables.live_session_attendance.find((r) => r.attendee_email === key)!;
+  check('U18.2a an attendee with an email still matches by email', at('jane@x.com').student_email === 'jane@x.com' && at('jane@x.com').matched_by === 'email');
+  check('U18.2b a guest whose name matches one joiner is linked, recorded as matched by name', at('noemail:omar al farsi').student_email === 'omar@x.com' && at('noemail:omar al farsi').matched_by === 'name' && at('noemail:jane doe').matched_by === 'name');
+  check('U18.2c an ambiguous guest name stays unmatched', at('noemail:ali khan').student_email == null);
+  check('U18.2d a name belonging to a student who did not click Join stays unmatched', at('noemail:nadia noor').student_email == null);
+  check('U18.2e the result counts name matches', res.byName === 2 && res.unmatched === 2 && res.nameMatchesHeld === 0, JSON.stringify(res));
+
+  // Before mig 254: the column refuses 'name'; the sync must not fail, and keeps the record unmatched.
+  const db2 = fakeDb(seed());
+  const strict = {
+    ...db2.client,
+    from: (t: string) => {
+      const q = (db2.client as unknown as { from: (t: string) => Record<string, (...a: unknown[]) => unknown> }).from(t);
+      if (t !== 'live_session_attendance') return q;
+      const up = q.upsert;
+      q.upsert = (p: unknown, o: unknown) => ((p as Row).matched_by === 'name'
+        ? { then: (r: (v: unknown) => unknown) => Promise.resolve({ data: [], error: { message: 'new row for relation "live_session_attendance" violates check constraint "live_session_attendance_matched_by_check"' } }).then(r) }
+        : up(p, o));
+      return q;
+    },
+  } as unknown as import('@supabase/supabase-js').SupabaseClient;
+  let threw = false; let res2: Awaited<ReturnType<typeof S.applyAttendanceRows>> | null = null;
+  try { res2 = await S.applyAttendanceRows(strict, 'g1', [row(null, 'Omar Al Farsi')], 'graph'); } catch { threw = true; }
+  check('U18.2f before migration 254, a name match is held as unmatched and the sync does not fail', !threw && res2?.nameMatchesHeld === 1 && db2.tables.live_session_attendance.find((r) => r.attendee_email === 'noemail:omar al farsi')?.student_email == null);
+
+  // The admin's choice is saved as an alias and matches the same name later.
+  await S.matchAttendee(db1.client, { sessionId: 'g1', attendeeEmail: 'noemail:ali khan', studentEmail: 'ali2@x.com', remember: true, by: 'admin@x.com' });
+  check('U18.3a the admin\'s match is recorded as by hand', at('noemail:ali khan').student_email === 'ali2@x.com' && at('noemail:ali khan').matched_by === 'manual');
+  check('U18.3b "remember" saves the guest name as an alias', db1.tables.student_email_aliases.some((a) => a.alias_email === 'noemail:ali khan' && a.student_email === 'ali2@x.com'));
+  db1.tables.live_sessions.push({ id: 'g2', live_url: 'x', scheduled_datetime: '2026-12-08T16:00:00Z', duration_minutes: 150, graph_online_meeting_id: null, course_code: 'REFM' });
+  await S.applyAttendanceRows(db1.client, 'g2', [row(null, 'Ali Khan')], 'graph');
+  const later = db1.tables.live_session_attendance.find((r) => r.session_id === 'g2' && r.attendee_email === 'noemail:ali khan');
+  check('U18.3c in a later session the same guest name matches through the saved alias', later?.student_email === 'ali2@x.com' && later?.matched_by === 'alias');
+
+  // ── The admin and the Join button ──
+  const route = readFileSync('app/api/admin/live-sessions/[id]/attendance/route.ts', 'utf8');
+  const panel = readFileSync('app/admin/training-hub/live-training/[code]/CourseAttendancePanel.tsx', 'utf8');
+  check('U18.4a the admin route suggests likely students for each unmatched guest, from the session\'s joiners', route.includes('loadSessionJoiners(sb, id)') && route.includes('matchByName(g.attendee_name') && route.includes('suggestions'));
+  check('U18.4b the admin shows how each record was matched (email, name, hand) and the suggestions', panel.includes('MATCHED_BY_LABEL[r.matched_by') && panel.includes('data-testid="admin-name-suggestions"') && panel.includes("useState(suggestions[0]?.email ?? '')"));
+  const btn = readFileSync('src/hubs/training/components/sessions/JoinLiveButton.tsx', 'utf8');
+  const { joinNameNote } = await import('../src/hubs/training/components/sessions/JoinLiveButton');
+  check('U18.5a the Join button opens a note first, and Continue opens Teams through the logged join route', btn.includes('onClick={() => setNoteOpen(true)}') && btn.includes('data-testid="join-name-continue" href={joinUrl}') && !/data-testid="join-live"\s+href=/.test(btn));
+  check('U18.5b the note reads "When Teams asks for your name, type your full name as registered: <name>"', joinNameNote('Jane Doe') === 'When Teams asks for your name, type your full name as registered: Jane Doe' && btn.includes('When Teams asks for your name, type your full name as registered: <strong'));
+  check('U18.5c the name is the registered one (course page passes it; otherwise the signed student\'s own, from the server)', readFileSync('app/training/[courseId]/sessions/[id]/CourseSessionClient.tsx', 'utf8').includes('studentName={view?.student.name ?? null}') && readFileSync('app/api/training/registered-name/route.ts', 'utf8').includes("eq('email', sess.email.toLowerCase())"));
+  check('U18.6 migration 254 widens matched_by to include name (written, not applied by Claude)', readFileSync('supabase/migrations/254_attendance_matched_by_name.sql', 'utf8').includes("CHECK (matched_by IN ('email', 'alias', 'name', 'manual'))"));
+}
+
 (async () => {
   await unit0();
   await unit1();
@@ -1578,6 +1666,7 @@ async function unit17(): Promise<void> {
   await unit15();
   await unit16();
   await unit17();
+  await unit18();
   console.log(`\n${passed} passed, ${failed} failed`);
   if (failed) { console.log('Failed:'); for (const f of fails) console.log(`  - ${f}`); process.exit(1); }
 })().catch((e) => { console.error(e); process.exit(1); });

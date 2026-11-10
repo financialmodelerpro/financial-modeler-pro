@@ -9,6 +9,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { formatSessionTime } from '@/src/hubs/training/lib/liveCourse/time';
 import { LiveCourseProgressTab } from './LiveCourseProgressTab';
+import { MATCHED_BY_LABEL } from '@/src/hubs/training/lib/liveCourse/nameMatch';
 
 const NAVY = '#1B4F8A';
 const SLATE = '#5A6675';
@@ -25,6 +26,7 @@ interface AttRow {
   attended_seconds: number; session_seconds: number; attended_pct: number; source: string; role: string | null;
 }
 interface Student { email: string; name: string; registrationId: string }
+interface Suggestion { email: string; name: string; reason: 'exact' | 'close' | 'partial' }
 
 const btn: React.CSSProperties = { padding: '6px 12px', borderRadius: 6, border: `1px solid ${NAVY}`, background: '#fff', color: NAVY, fontSize: 12, fontWeight: 700, cursor: 'pointer' };
 const btnPrimary: React.CSSProperties = { ...btn, background: NAVY, color: '#fff' };
@@ -43,7 +45,7 @@ export function CourseAttendancePanel({ courseCode: code, attendanceThresholdPct
   const [tab, setTab] = useState<'sessions' | 'progress'>('sessions');
   const [sessions, setSessions] = useState<AdminSession[]>([]);
   const [openId, setOpenId] = useState<string | null>(null);
-  const [att, setAtt] = useState<{ rows: AttRow[]; students: Student[]; teamsConfigured: boolean } | null>(null);
+  const [att, setAtt] = useState<{ rows: AttRow[]; students: Student[]; suggestions: Record<string, Suggestion[]>; teamsConfigured: boolean } | null>(null);
   const [busy, setBusy] = useState('');
   const [toast, setToast] = useState('');
   const [manual, setManual] = useState({ studentEmail: '', pct: '' });
@@ -57,7 +59,7 @@ export function CourseAttendancePanel({ courseCode: code, attendanceThresholdPct
 
   const loadAtt = useCallback(async (id: string) => {
     const j = await fetch(`/api/admin/live-sessions/${id}/attendance`).then((r) => r.json());
-    setAtt({ rows: j.rows ?? [], students: j.students ?? [], teamsConfigured: !!j.teamsConfigured });
+    setAtt({ rows: j.rows ?? [], students: j.students ?? [], suggestions: j.suggestions ?? {}, teamsConfigured: !!j.teamsConfigured });
   }, []);
 
   const flash = (m: string) => { setToast(m); setTimeout(() => setToast(''), 5000); };
@@ -68,7 +70,7 @@ export function CourseAttendancePanel({ courseCode: code, attendanceThresholdPct
       const r = await fetch(`/api/admin/live-sessions/${id}/attendance`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
       const j = await r.json();
       if (!r.ok) { flash(`${label} failed: ${j.error ?? r.status}`); return; }
-      if (j.result) flash(`${label}: ${j.result.saved} attendees, ${j.result.matched} matched, ${j.result.unmatched} unmatched${j.result.keptManual ? `, ${j.result.keptManual} manual kept` : ''}.${j.warnings?.length ? ' ' + j.warnings.join(' ') : ''}`);
+      if (j.result) flash(`${label}: ${j.result.saved} attendees, ${j.result.matched} matched${j.result.byName ? ` (${j.result.byName} by name)` : ''}, ${j.result.unmatched} unmatched${j.result.keptManual ? `, ${j.result.keptManual} manual kept` : ''}.${j.result.nameMatchesHeld ? ` ${j.result.nameMatchesHeld} name match(es) left unmatched until migration 254 is applied.` : ''}${j.warnings?.length ? ' ' + j.warnings.join(' ') : ''}`);
       else flash(`${label} saved.`);
       await Promise.all([loadSessions(), openId === id ? loadAtt(id) : Promise.resolve()]);
     } finally { setBusy(''); }
@@ -132,21 +134,23 @@ export function CourseAttendancePanel({ courseCode: code, attendanceThresholdPct
                         <div style={{ display: 'grid', gap: 18 }}>
                           {unmatched.length > 0 && (
                             <div data-testid="admin-unmatched">
-                              <h3 style={{ fontSize: 14, color: '#B91C1C', margin: '0 0 8px' }}>Unmatched ({unmatched.length}): Teams emails with no Training Hub student</h3>
-                              {unmatched.map((u) => <UnmatchedRow key={u.attendee_email} row={u} students={att.students} onMatch={(studentEmail, remember) => act(s.id, { action: 'match', attendeeEmail: u.attendee_email, studentEmail, remember }, 'Match')} />)}
+                              <h3 style={{ fontSize: 14, color: '#B91C1C', margin: '0 0 8px' }}>Unmatched ({unmatched.length}): Teams attendees with no Training Hub student</h3>
+                              <div style={{ fontSize: 12, color: SLATE, margin: '-4px 0 8px' }}>A guest with no email is suggested from the students who clicked Join for this session. With &quot;remember&quot;, the name matches by itself in later sessions.</div>
+                              {unmatched.map((u) => <UnmatchedRow key={u.attendee_email} row={u} students={att.students} suggestions={att.suggestions[u.attendee_email] ?? []} onMatch={(studentEmail, remember) => act(s.id, { action: 'match', attendeeEmail: u.attendee_email, studentEmail, remember }, 'Match')} />)}
                             </div>
                           )}
                           <div>
                             <h3 style={{ fontSize: 14, color: NAVY, margin: '0 0 8px' }}>Matched ({matched.length}) · pass mark {threshold}%</h3>
                             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                              <thead><tr><th style={th}>Student</th><th style={th}>Teams identity</th><th style={th}>Minutes</th><th style={th}>Attended</th><th style={th}>Source</th></tr></thead>
+                              <thead><tr><th style={th}>Student</th><th style={th}>Teams identity</th><th style={th}>Minutes</th><th style={th}>Attended</th><th style={th}>Matched</th><th style={th}>Source</th></tr></thead>
                               <tbody>{matched.map((r) => (
                                 <tr key={r.attendee_email}>
                                   <td style={td}>{r.student_email}</td>
                                   <td style={td}>{r.attendee_name ?? ''} <span style={{ color: SLATE, fontSize: 11 }}>{r.attendee_email}</span></td>
                                   <td style={td}>{Math.round(r.attended_seconds / 60)} / {Math.round(r.session_seconds / 60)}</td>
                                   <td style={{ ...td, fontWeight: 700, color: r.attended_pct >= threshold ? '#2E7D52' : '#B91C1C' }}>{r.attended_pct.toFixed(1)}%</td>
-                                  <td style={td}>{r.source}{r.matched_by && r.matched_by !== 'email' ? ` (${r.matched_by})` : ''}</td>
+                                  <td style={td} data-testid="admin-matched-by" data-matched-by={r.matched_by ?? ''}>{MATCHED_BY_LABEL[r.matched_by ?? ''] ?? r.matched_by ?? ''}</td>
+                                  <td style={td}>{r.source}</td>
                                 </tr>
                               ))}</tbody>
                             </table>
@@ -173,13 +177,26 @@ export function CourseAttendancePanel({ courseCode: code, attendanceThresholdPct
   );
 }
 
-function UnmatchedRow({ row, students, onMatch }: { row: AttRow; students: Student[]; onMatch: (studentEmail: string, remember: boolean) => void }) {
-  const [pick, setPick] = useState('');
+function UnmatchedRow({ row, students, suggestions, onMatch }: { row: AttRow; students: Student[]; suggestions: Suggestion[]; onMatch: (studentEmail: string, remember: boolean) => void }) {
+  // The best suggestion is preselected; the admin confirms with Match.
+  const [pick, setPick] = useState(suggestions[0]?.email ?? '');
   const [remember, setRemember] = useState(true);
+  const reasonLabel = { exact: 'same name', close: 'same name, different spelling', partial: 'part of the name' } as const;
   return (
-    <div style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '6px 0', borderBottom: `1px solid ${PALE}`, flexWrap: 'wrap' }}>
-      <div style={{ minWidth: 260 }}><strong>{row.attendee_name ?? '(no name)'}</strong> <span style={{ color: SLATE, fontSize: 12 }}>{row.attendee_email.startsWith('noemail:') ? 'no email from Teams' : row.attendee_email}</span></div>
+    <div data-testid="admin-unmatched-row" style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '6px 0', borderBottom: `1px solid ${PALE}`, flexWrap: 'wrap' }}>
+      <div style={{ minWidth: 260 }}><strong>{row.attendee_name ?? '(no name)'}</strong> <span style={{ color: SLATE, fontSize: 12 }}>{row.attendee_email.startsWith('noemail:') ? 'guest, no email from Teams' : row.attendee_email}</span></div>
       <div style={{ minWidth: 90, fontSize: 12 }}>{row.attended_pct.toFixed(1)}%</div>
+      {suggestions.length > 0 && (
+        <div data-testid="admin-name-suggestions" style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', fontSize: 12 }}>
+          <span style={{ color: SLATE }}>Likely:</span>
+          {suggestions.map((sg) => (
+            <button key={sg.email} type="button" onClick={() => setPick(sg.email)} title={reasonLabel[sg.reason]}
+              style={{ ...btn, padding: '3px 9px', fontSize: 12, background: pick === sg.email ? '#E7F4EC' : '#fff', borderColor: pick === sg.email ? '#2E7D52' : undefined }}>
+              {sg.name} <span style={{ color: SLATE }}>({reasonLabel[sg.reason]})</span>
+            </button>
+          ))}
+        </div>
+      )}
       <select value={pick} onChange={(e) => setPick(e.target.value)} style={{ padding: 6, borderRadius: 6, border: '1px solid #CBD5E1', minWidth: 240 }}>
         <option value="">Match to student…</option>
         {students.map((s) => <option key={s.email} value={s.email}>{s.name} ({s.email})</option>)}

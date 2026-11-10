@@ -2,8 +2,11 @@
  * Store a session's attendance (from Graph or a CSV) and match it to students.
  *
  * - Matching: the Teams email against platform student emails, then remembered
- *   aliases (student_email_aliases). Anything else is UNMATCHED and listed for
- *   the admin, never guessed.
+ *   aliases (student_email_aliases, which also hold a guest's display name as
+ *   "noemail:<name>"), then, for a guest with no email, the display name
+ *   against the students who clicked Join for that session (nameMatch.ts: one
+ *   clear match only). Anything else is UNMATCHED and listed for the admin
+ *   with the likely students suggested, never guessed.
  * - A row an admin set by hand (source 'manual', or matched_by 'manual') is
  *   never overwritten by a later sync: the admin's answer stands.
  * - Graph is injected, so the whole path runs in the verifier on a sample
@@ -12,6 +15,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { buildAttendanceRows, matchStudent, rawFromGraph, type AttendanceRow, type RawAttendee } from './attendance';
 import { DEFAULT_DURATION_MINUTES } from './joinWindow';
+import { matchByName, type NameCandidate } from './nameMatch';
 import type { GraphAttendanceRecord, GraphAttendanceReport } from '@/src/integrations/teams/teamsMeetings';
 
 export interface GraphDeps {
@@ -31,23 +35,44 @@ export interface SessionRowForSync {
 
 export const SYNC_SESSION_COLUMNS = 'id, live_url, scheduled_datetime, duration_minutes, graph_online_meeting_id, course_code';
 
-export interface ApplyResult { saved: number; matched: number; unmatched: number; keptManual: number }
+export interface ApplyResult {
+  saved: number; matched: number; unmatched: number; keptManual: number;
+  /** Linked by display name (a guest with no email). */
+  byName: number;
+  /** Name matches left unmatched because mig 254 (matched_by 'name') is not applied yet. */
+  nameMatchesHeld: number;
+}
 
-/** Platform student emails among a set of attendee emails, plus aliases. */
-async function loadMatchers(sb: SupabaseClient, emails: string[]): Promise<{ students: Set<string>; aliases: Map<string, string> }> {
-  const real = emails.filter((e) => e.includes('@'));
+/** Platform student emails among a set of attendee keys, plus aliases (email or "noemail:<name>" keys). */
+async function loadMatchers(sb: SupabaseClient, keys: string[]): Promise<{ students: Set<string>; aliases: Map<string, string> }> {
+  const real = keys.filter((e) => e.includes('@'));
+  const aliasKeys = keys.filter((k) => k.includes('@') || (k.startsWith('noemail:') && k !== 'noemail:unknown'));
   const students = new Set<string>();
   const aliases = new Map<string, string>();
   for (let i = 0; i < real.length; i += 200) {
-    const slice = real.slice(i, i + 200);
-    const [{ data: metas }, { data: al }] = await Promise.all([
-      sb.from('training_registrations_meta').select('email').in('email', slice),
-      sb.from('student_email_aliases').select('alias_email, student_email').in('alias_email', slice),
-    ]);
+    const { data: metas } = await sb.from('training_registrations_meta').select('email').in('email', real.slice(i, i + 200));
     for (const m of metas ?? []) if (m.email) students.add(String(m.email).toLowerCase());
+  }
+  for (let i = 0; i < aliasKeys.length; i += 200) {
+    const { data: al } = await sb.from('student_email_aliases').select('alias_email, student_email').in('alias_email', aliasKeys.slice(i, i + 200));
     for (const a of al ?? []) aliases.set(a.alias_email as string, a.student_email as string);
   }
   return { students, aliases };
+}
+
+/**
+ * The students who clicked Join for this session (the logged join route), with
+ * their registered names: the only candidates for a name match.
+ */
+export async function loadSessionJoiners(sb: SupabaseClient, sessionId: string): Promise<NameCandidate[]> {
+  const { data: clicks } = await sb.from('live_session_join_clicks').select('student_email').eq('session_id', sessionId);
+  const emails = [...new Set((clicks ?? []).map((c) => String(c.student_email ?? '').toLowerCase()).filter(Boolean))];
+  const out: NameCandidate[] = [];
+  for (let i = 0; i < emails.length; i += 200) {
+    const { data: metas } = await sb.from('training_registrations_meta').select('email, name').in('email', emails.slice(i, i + 200));
+    for (const m of metas ?? []) if (m.email && m.name) out.push({ email: String(m.email).toLowerCase(), name: String(m.name) });
+  }
+  return out;
 }
 
 export async function applyAttendanceRows(
@@ -57,7 +82,7 @@ export async function applyAttendanceRows(
   source: 'graph' | 'csv',
   meta: { reportId?: string | null; by?: string | null } = {},
 ): Promise<ApplyResult> {
-  const res: ApplyResult = { saved: 0, matched: 0, unmatched: 0, keptManual: 0 };
+  const res: ApplyResult = { saved: 0, matched: 0, unmatched: 0, keptManual: 0, byName: 0, nameMatchesHeld: 0 };
   if (!rows.length) return res;
   const { students, aliases } = await loadMatchers(sb, rows.map((r) => r.attendee_email));
   const { data: existing } = await sb
@@ -65,21 +90,28 @@ export async function applyAttendanceRows(
     .select('attendee_email, source, matched_by, student_email')
     .eq('session_id', sessionId);
   const prior = new Map((existing ?? []).map((e) => [e.attendee_email as string, e]));
+  // Loaded only when a guest with no email needs it.
+  let joiners: NameCandidate[] | null = null;
 
   for (const r of rows) {
     const before = prior.get(r.attendee_email);
     if (before && (before.source === 'manual')) { res.keptManual++; continue; }
     // A manual MATCH survives a re-sync: refresh the minutes, keep the student.
     const keepMatch = before && before.matched_by === 'manual' && before.student_email;
-    const m = keepMatch
+    let m: { studentEmail: string | null; matchedBy: 'email' | 'alias' | 'name' | 'manual' | null } = keepMatch
       ? { studentEmail: before!.student_email as string, matchedBy: 'manual' as const }
       : matchStudent(r.attendee_email, students, aliases);
-    const { error } = await sb.from('live_session_attendance').upsert({
+    if (!m.studentEmail && r.attendee_email.startsWith('noemail:')) {
+      joiners ??= await loadSessionJoiners(sb, sessionId);
+      const byName = matchByName(r.attendee_name, joiners);
+      if (byName.studentEmail) m = { studentEmail: byName.studentEmail, matchedBy: 'name' };
+    }
+    const write = (mm: typeof m) => sb.from('live_session_attendance').upsert({
       session_id: sessionId,
       attendee_email: r.attendee_email,
       attendee_name: r.attendee_name,
-      student_email: m.studentEmail,
-      matched_by: m.matchedBy,
+      student_email: mm.studentEmail,
+      matched_by: mm.matchedBy,
       intervals: r.intervals,
       attended_seconds: r.attended_seconds,
       session_seconds: r.session_seconds,
@@ -90,8 +122,17 @@ export async function applyAttendanceRows(
       synced_at: new Date().toISOString(),
       updated_by: meta.by ?? null,
     }, { onConflict: 'session_id,attendee_email' });
+    let { error } = await write(m);
+    // Before mig 254 the column refuses 'name': keep the record UNMATCHED (the
+    // admin sees the student suggested) rather than fail the whole sync.
+    if (error && m.matchedBy === 'name' && /matched_by_check|check constraint/i.test(error.message)) {
+      res.nameMatchesHeld++;
+      m = { studentEmail: null, matchedBy: null };
+      ({ error } = await write(m));
+    }
     if (error) throw new Error(`saving attendance failed: ${error.message}`);
     res.saved++;
+    if (m.matchedBy === 'name') res.byName++;
     if (m.studentEmail) res.matched++; else res.unmatched++;
   }
   return res;
@@ -203,7 +244,9 @@ export async function matchAttendee(
     .update({ student_email: student, matched_by: 'manual', updated_by: p.by })
     .eq('session_id', p.sessionId).eq('attendee_email', p.attendeeEmail).select('id');
   updated += one?.length ?? 0;
-  if (p.remember && p.attendeeEmail.includes('@') && p.attendeeEmail !== student) {
+  // A guest's display name key ("noemail:<name>") is remembered too, so the same name matches in later sessions.
+  const rememberable = p.attendeeEmail.includes('@') || (p.attendeeEmail.startsWith('noemail:') && p.attendeeEmail !== 'noemail:unknown');
+  if (p.remember && rememberable && p.attendeeEmail !== student) {
     await sb.from('student_email_aliases').upsert({ alias_email: p.attendeeEmail, student_email: student, created_by: p.by }, { onConflict: 'alias_email' });
     const { data: others } = await sb.from('live_session_attendance')
       .update({ student_email: student, matched_by: 'alias', updated_by: p.by })

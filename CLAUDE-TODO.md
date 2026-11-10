@@ -4,6 +4,8 @@
 
 ## START HERE 2026-11-08: THE REFM LIVE COURSE IS LIVE (5f2700c0); FOUNDER TESTING ON LIVE
 
+**2026-11-10 additions:** (a) **apply migration 254** (`supabase/migrations/254_attendance_matched_by_name.sql`) so guests matched by name are recorded as such; until then they stay unmatched with the student suggested. (b) Re-upload the founder photos (2.6 MB and 1.4 MB PNG) and the session images (about 960 KB each) compressed. (c) The REFM slides PDF and the inputs workbook still say "Zakat" (the prompt now says Zakat/Tax).
+
 Built and pushed today (CHANGELOG 2026-11-08, CLAUDE-FEATURES "Live Courses"): Units 0 to 7, then Live Training admin + status + banners + time zones + session certificates (f53aecaf), migs 247 + 248 + 249 APPLIED, `verify-live-course` 265. OPEN, in order:
 1. **Founder test pass on live**, on the DRAFT TEST course, then clean-up SQL (given in chat 2026-11-08). Browser proof of every unit is still owed.
 1b. **Decided (founder, 2026-11-08)**: the per-session achievement card stays as it is for live courses and single sessions alike, no verify page and no email. Only the course certificate has the QR verify page and email.

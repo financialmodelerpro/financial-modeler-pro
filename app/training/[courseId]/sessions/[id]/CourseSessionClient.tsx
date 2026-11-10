@@ -67,7 +67,7 @@ export function CourseSessionClient({ course, sessions, sessionId, signedIn, can
 
   const button = (() => {
     const base: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', padding: '12px 24px', borderRadius: 10, fontWeight: 800, fontSize: 14.5, textDecoration: 'none' };
-    if (action.kind === 'join') return <JoinLiveButton joinUrl={vs?.joinUrl ?? null} joinOpensAt={vs?.joinOpensAt ?? null} joinClosesAt={vs?.joinClosesAt ?? null} />;
+    if (action.kind === 'join') return <JoinLiveButton joinUrl={vs?.joinUrl ?? null} joinOpensAt={vs?.joinOpensAt ?? null} joinClosesAt={vs?.joinClosesAt ?? null} studentName={view?.student.name ?? null} />;
     if (action.href) return <Link data-testid="session-main-action" data-action={action.kind} href={action.href} style={{ ...base, background: action.kind === 'watch' ? BLUE : GREEN, color: '#fff' }}>{action.kind === 'watch' ? '▶ ' : ''}{action.label}</Link>;
     return <span data-testid="session-main-action" data-action={action.kind} style={{ ...base, background: '#F1F3F5', color: SLATE }}>{action.label}</span>;
   })();

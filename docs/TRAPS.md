@@ -3735,6 +3735,21 @@ is 16:00 UTC, the same typed time in Karachi is 14:00 UTC), U5.2a (the payload k
 
 ---
 
+### 9.12 Every read crossed the Pacific: functions in Virginia, database in Tokyo (2026-11-10)
+
+**Symptom.** Training Sessions took 3 to 8 s and the course pages 2 to 2.5 s, with small payloads (largest
+21 KB) and nothing slow in the queries themselves.
+**Mechanism.** `x-vercel-id` shows the function in `iad1`; `DATABASE_URL` points at
+`aws-1-ap-northeast-1`. Each Supabase read is a Virginia to Tokyo round trip, and the pages made several
+in SEQUENCE (a filter read before the sessions read before the registrations read). Whole-page caching
+was not available either: the root layout reads per-request data, so the build marks every route dynamic.
+**Fix.** Cache the reads, not the page: `unstable_cache` (60 s, tagged, cleared by the admin writes) for
+the course and CMS reads, passed into the shared navbar and footer as props (they cannot import
+next/cache: client components import them). Training Sessions 3.41 to 1.43 s, overview 2.17 to 1.16 s.
+**Before tuning a slow page, read `x-vercel-id` and the database host first.** Moving the functions to
+`hnd1` would cut every read site-wide, but it is a project setting (and `vercel.json` is on the do-not-touch
+list), so it is the founder's call.
+
 ## 10. Verifier discipline
 
 ### 10.11 Markup greps as present while `false &&` keeps it from ever rendering
