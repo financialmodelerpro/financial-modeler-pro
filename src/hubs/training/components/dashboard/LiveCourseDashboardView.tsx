@@ -27,6 +27,8 @@ import { sessionSections, emptySections } from '@/src/hubs/training/lib/liveCour
 import { CourseSessionAction } from '@/src/hubs/training/components/sessions/CourseSessionAction';
 import { CourseTime } from '@/src/hubs/training/components/sessions/CourseTime';
 import { SessionContentSections } from '@/src/hubs/training/components/sessions/SessionContentSections';
+import { SessionCertificateButton } from '@/src/hubs/training/components/sessions/SessionCertificateButton';
+import { sessionCertificateAvailable } from '@/src/hubs/training/lib/liveCourse/sessionCertificate';
 
 const NAVY = '#0D2E5A';
 const BLUE = '#1B4F8A';
@@ -138,6 +140,10 @@ export function LiveCourseDashboardView({ courseCode, onEnrolled }: { courseCode
               </div>
               <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap', marginTop: 10, paddingLeft: 44 }}>
                 {button}
+                {/* The session certificate on every completed session (the one rule, sessionCertificate.ts). */}
+                {enrolled && sessionCertificateAvailable(course, eligibility.sessions.find((x) => x.sessionId === s.id)) && (
+                  <SessionCertificateButton session={s} studentName={view.student.name} registrationId={view.student.registrationId} courseTitle={course.title} />
+                )}
                 <button type="button" data-testid="dashboard-session-toggle" onClick={() => setOpen((o) => { const n = new Set(o); if (n.has(s.id)) n.delete(s.id); else n.add(s.id); return n; })}
                   style={{ background: 'none', border: 'none', color: BLUE, fontWeight: 700, fontSize: 13, cursor: 'pointer', padding: 0 }}>
                   {isOpen ? '▾' : '▸'} What&apos;s in this session

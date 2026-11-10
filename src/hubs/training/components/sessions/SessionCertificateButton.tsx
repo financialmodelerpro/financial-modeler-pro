@@ -13,16 +13,18 @@ import { renderShareTemplate, formatShareDate } from '@/src/shared/share/shareTe
 import { achievementCardUrl } from '@/src/hubs/training/lib/liveSessions/achievementCard';
 
 export function SessionCertificateButton({ session, studentName, registrationId, courseTitle }: {
-  session: { title: string; scheduled_datetime: string | null; duration_minutes: number | null };
+  session: { title: string; scheduled_datetime: string | null; duration_minutes: number | null; course_session_no?: number | null };
   studentName: string;
   registrationId: string;
   courseTitle: string;
 }) {
   const [open, setOpen] = useState(false);
+  // "Session 3: Financing, ..." on the card; the card says Completed, never a percentage.
+  const cardTitle = session.course_session_no != null ? `Session ${session.course_session_no}: ${session.title}` : session.title;
   const template = useShareTemplate('achievement_card');
   const rendered = renderShareTemplate(template, {
     studentName,
-    sessionName: session.title,
+    sessionName: cardTitle,
     score: 'Completed',
     course: courseTitle,
     date: formatShareDate(session.scheduled_datetime ?? new Date()),
@@ -41,7 +43,7 @@ export function SessionCertificateButton({ session, studentName, registrationId,
           title="🎉 Your Achievement Card"
           text={rendered.text}
           hashtags={rendered.hashtags}
-          cardImageUrl={achievementCardUrl({ title: session.title, has_assessment: false, duration_minutes: session.duration_minutes }, studentName, registrationId, undefined, session.scheduled_datetime, courseTitle)}
+          cardImageUrl={achievementCardUrl({ title: cardTitle, has_assessment: false, duration_minutes: session.duration_minutes }, studentName, registrationId, undefined, session.scheduled_datetime, courseTitle, { completed: true })}
           cardDownloadName={`FMP-${session.title.replace(/[^a-zA-Z0-9]/g, '_').slice(0, 40)}.png`}
         />
       )}

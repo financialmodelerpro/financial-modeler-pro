@@ -15,7 +15,9 @@ export async function GET(req: NextRequest) {
   const studentName = searchParams.get('name') || '';
   const regId       = searchParams.get('regId') || '';
   const hasAssessment = searchParams.get('has_assessment') !== 'false';
-  const durationRaw   = parseInt(searchParams.get('duration') || '0', 10);
+  // A live-course session card: "Completed", never a duration, percentage or ID (founder, 2026-11-10).
+  const completedCard = searchParams.get('completed') === '1';
+  const durationRaw   = completedCard ? 0 : parseInt(searchParams.get('duration') || '0', 10);
   const durationMin   = Number.isFinite(durationRaw) && durationRaw > 0 ? durationRaw : 0;
 
   const formatDuration = (mins: number): string => {
@@ -209,7 +211,7 @@ export async function GET(req: NextRequest) {
                   <span>📅</span> <span>{date}</span>
                 </div>
               )}
-              {regId && (
+              {regId && !completedCard && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 14, color: 'rgba(255,255,255,0.4)' }}>
                   <span>🪪</span> <span>{regId}</span>
                 </div>
@@ -255,7 +257,12 @@ export async function GET(req: NextRequest) {
                   display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
                   boxShadow: '0 0 40px rgba(20,184,166,0.15)',
                 }}>
-                  {durationLabel ? (
+                  {completedCard ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                      <span style={{ fontSize: 80, fontWeight: 900, color: '#14B8A6', lineHeight: 1 }}>✓</span>
+                      <span style={{ fontSize: 14, color: 'rgba(255,255,255,0.5)', marginTop: 6, fontWeight: 600, letterSpacing: '1px', textTransform: 'uppercase' as const }}>Session</span>
+                    </div>
+                  ) : durationLabel ? (
                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
                       <span style={{ fontSize: 56, fontWeight: 900, color: '#14B8A6', lineHeight: 1 }}>{durationLabel}</span>
                       <span style={{ fontSize: 14, color: 'rgba(255,255,255,0.5)', marginTop: 6, fontWeight: 600, letterSpacing: '1px', textTransform: 'uppercase' as const }}>Session</span>
@@ -273,7 +280,7 @@ export async function GET(req: NextRequest) {
                   fontSize: 13, fontWeight: 800, letterSpacing: '1.5px',
                   textTransform: 'uppercase' as const,
                 }}>
-                  ✓ Attended
+                  {completedCard ? '✓ Completed' : '✓ Attended'}
                 </div>
               </div>
             )}

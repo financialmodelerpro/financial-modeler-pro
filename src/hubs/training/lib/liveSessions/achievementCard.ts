@@ -23,6 +23,8 @@ export function achievementCardUrl(
   score?: number,
   dateIso?: string | null,
   course = 'FMP Real-World Financial Modeling',
+  /** A live-course session card (2026-11-10): "Completed", no duration, no percentage, no ID. */
+  opts: { completed?: boolean } = {},
 ): string {
   const hasAssessment = !!session.has_assessment;
   const params = new URLSearchParams({
@@ -36,7 +38,10 @@ export function achievementCardUrl(
   if (hasAssessment && score != null) {
     params.set('score', String(score));
   }
-  if (session.duration_minutes != null && session.duration_minutes > 0) {
+  if (opts.completed) {
+    params.set('completed', '1');
+    params.delete('regId');
+  } else if (session.duration_minutes != null && session.duration_minutes > 0) {
     params.set('duration', String(session.duration_minutes));
   }
   return `/api/training/achievement-image?${params.toString()}`;

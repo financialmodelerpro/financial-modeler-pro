@@ -2003,6 +2003,30 @@ async function unit26(): Promise<void> {
   check('U26.4d the admin lists them under Host and assistants, never in Unmatched, and pre-selects only a full-name match', panel.includes('data-testid="admin-not-students"') && panel.includes('!r.student_email && !r.excluded') && panel.includes("useState(preselectable(suggestions[0]) ? suggestions[0].email : '')") && readFileSync('app/api/admin/live-sessions/[id]/attendance/route.ts', 'utf8').includes('!r.excluded && String(r.attendee_email).startsWith('));
 }
 
+async function unit27(): Promise<void> {
+  console.log('\n=== Session certificate: on every completed session, no percentage on the card ===\n');
+  const dash = readFileSync('src/hubs/training/components/dashboard/LiveCourseDashboardView.tsx', 'utf8');
+  const page = readFileSync('app/training/live-course/[code]/LiveCourseClient.tsx', 'utf8');
+  const sess = readFileSync('app/training/[courseId]/sessions/[id]/CourseSessionClient.tsx', 'utf8');
+  check('U27.1a the Session certificate button is on every completed session in the dashboard course view (it was missing there)', dash.includes('sessionCertificateAvailable(course, eligibility.sessions.find((x) => x.sessionId === s.id))') && dash.includes('<SessionCertificateButton session={s}'));
+  check('U27.1b ... on the course page and on the session page, through the one rule', page.includes('data-testid="course-session-certificates"') && page.includes('sessionCertificateAvailable(view.course,') && sess.includes('sessionCertificateAvailable(view.course, e)') && sess.includes('<SessionCertificateButton'));
+  const SC = await import('../src/hubs/training/lib/liveCourse/sessionCertificate');
+  check('U27.1c available exactly when the course switch is on and the session is complete (live 78.8% over a 75% threshold counts)', SC.sessionCertificateAvailable({ sessionCertificates: true }, { met: true }) && !SC.sessionCertificateAvailable({ sessionCertificates: true }, { met: false }) && !SC.sessionCertificateAvailable({ sessionCertificates: false }, { met: true }));
+  const AC = await import('../src/hubs/training/lib/liveSessions/achievementCard');
+  const url = new URL('https://x' + AC.achievementCardUrl({ title: 'Session 9: Test Session', has_assessment: false, duration_minutes: 150 }, 'Test Student', 'FMP-1', undefined, '2026-11-10T12:40:00Z', 'Real Estate Financial Modeling', { completed: true }));
+  check('U27.2a the course card carries name, course, session number and title, date and Completed; no duration, score or ID', url.searchParams.get('completed') === '1' && url.searchParams.get('name') === 'Test Student' && url.searchParams.get('course') === 'Real Estate Financial Modeling' && url.searchParams.get('session') === 'Session 9: Test Session' && !!url.searchParams.get('date') && !url.searchParams.has('duration') && !url.searchParams.has('score') && !url.searchParams.has('regId'));
+  const single = new URL('https://x' + AC.achievementCardUrl({ title: 'Single', has_assessment: false, duration_minutes: 90 }, 'S', 'FMP-2'));
+  check('U27.2b a single session card is unchanged (duration and ID, no completed flag)', single.searchParams.get('duration') === '90' && single.searchParams.get('regId') === 'FMP-2' && !single.searchParams.has('completed'));
+  const img = readFileSync('app/api/training/achievement-image/route.tsx', 'utf8');
+  check('U27.2c the image draws Completed for a course card, never a duration or the ID; percentages stay in admin and the student progress view', img.includes("const completedCard = searchParams.get('completed') === '1';") && img.includes('const durationRaw   = completedCard ? 0 :') && img.includes('{regId && !completedCard && (') && img.includes("{completedCard ? '✓ Completed' : '✓ Attended'}"));
+  check('U27.2d the button titles the card "Session N: title"', readFileSync('src/hubs/training/components/sessions/SessionCertificateButton.tsx', 'utf8').includes('`Session ${session.course_session_no}: ${session.title}`') && readFileSync('src/hubs/training/components/sessions/SessionCertificateButton.tsx', 'utf8').includes('{ completed: true }'));
+  if (hasCreds()) {
+    const sb = await db();
+    const { data } = await sb.from('training_course_settings').select('session_certificates').eq('course_code', 'REFM').maybeSingle();
+    check('U27.3 live: REFM per-session certificates are On', data?.session_certificates === true);
+  }
+}
+
 (async () => {
   await unit0();
   await unit1();
@@ -2032,6 +2056,7 @@ async function unit26(): Promise<void> {
   await unit24();
   await unit25();
   await unit26();
+  await unit27();
   console.log(`\n${passed} passed, ${failed} failed`);
   if (failed) { console.log('Failed:'); for (const f of fails) console.log(`  - ${f}`); process.exit(1); }
 })().catch((e) => { console.error(e); process.exit(1); });
