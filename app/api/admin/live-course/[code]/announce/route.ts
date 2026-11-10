@@ -5,11 +5,11 @@ import { getLiveCourseSettings, isLiveCourseRow, isPubliclyVisible, listCourseSe
 import { coursePagePath } from '@/src/hubs/training/lib/liveCourse/paths';
 import { courseTimeLabel, KSA_TZ } from '@/src/hubs/training/lib/liveCourse/time';
 import { audienceFrom, resolveAudience } from '@/src/hubs/training/lib/announcements/audience';
-import { dispatchAnnouncement, NAME_TOKEN } from '@/src/hubs/training/lib/announcements/queue';
+import { dispatchAnnouncement, NAME_TOKEN, personalise } from '@/src/hubs/training/lib/announcements/queue';
 import { realQueueDeps } from '@/src/hubs/training/lib/announcements/realDeps';
 import { todayUsage, announcementAllowance } from '@/src/shared/email/emailBudget';
 import { liveCourseAnnouncementTemplate } from '@/src/shared/email/templates/liveCourseAnnouncement';
-import { FROM } from '@/src/shared/email/sendEmail';
+import { FROM, sendEmail } from '@/src/shared/email/sendEmail';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
@@ -25,6 +25,9 @@ const LEARN_URL = process.env.NEXT_PUBLIC_LEARN_URL ?? 'https://learn.financialm
  *                                      and bounced are excluded) and today's budget
  * POST { audience, courseCode?, days? } sends: today's allowance now, the rest
  *                                      queued for the next days (announcements/queue.ts)
+ * POST { test: true }                   sends the same email ONLY to the signed-in
+ *                                      admin: one SYSTEM email, no queue, no audience,
+ *                                      nothing recorded as announced
  */
 async function load(code: string) {
   const sb = getServerClient();
@@ -49,12 +52,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ cod
   if (!by) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   const d = await load((await params).code);
   if (!d) return NextResponse.json({ error: 'Not a live course' }, { status: 404 });
-  if (!isPubliclyVisible(d.course)) return NextResponse.json({ error: 'Publish the course before announcing it.' }, { status: 400 });
   const body = await req.json().catch(() => ({})) as Record<string, unknown>;
-  const usage = await todayUsage(d.sb);
-  const spec = audienceFrom({ audience: body.audience, courseCode: body.courseCode ?? d.course.courseCode, days: body.days });
-  const aud = await resolveAudience(d.sb, spec, usage.activeDays);
-  if (!aud.recipients.length) return NextResponse.json({ error: 'No recipients for this audience.' }, { status: 400 });
+  const isTest = body.test === true;
+  // A test goes to the admin alone, so a draft course can be previewed too.
+  if (!isTest && !isPubliclyVisible(d.course)) return NextResponse.json({ error: 'Publish the course before announcing it.' }, { status: 400 });
 
   const dated = d.sessions.filter((s) => s.scheduled_datetime);
   const first = dated[0]?.scheduled_datetime ?? null;
@@ -67,6 +68,21 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ cod
     cta: 'Enrol in the course',
   });
   if (!html.includes(NAME_TOKEN)) return NextResponse.json({ error: 'Template error: no name token.' }, { status: 500 });
+
+  // Send test to me: the same email, to the signed-in admin only. One SYSTEM
+  // email (sendEmail counts it so); no audience, no queue, no job, so nothing is
+  // recorded as announced.
+  if (isTest) {
+    try {
+      await sendEmail({ to: by, subject: `[Test] ${subject}`, html: personalise(html, 'Admin'), from: FROM.training });
+    } catch (e) { return NextResponse.json({ error: `Test send failed: ${(e as Error).message}` }, { status: 500 }); }
+    return NextResponse.json({ ok: true, test: true, sentTo: by });
+  }
+
+  const usage = await todayUsage(d.sb);
+  const spec = audienceFrom({ audience: body.audience, courseCode: body.courseCode ?? d.course.courseCode, days: body.days });
+  const aud = await resolveAudience(d.sb, spec, usage.activeDays);
+  if (!aud.recipients.length) return NextResponse.json({ error: 'No recipients for this audience.' }, { status: 400 });
   const result = await dispatchAnnouncement(d.sb, realQueueDeps(d.sb), {
     kind: 'course', ref: d.course.courseCode, label: `${d.course.courseCode} course announcement`, audience: spec, subject, html, from: FROM.training, createdBy: by,
   }, aud.recipients);

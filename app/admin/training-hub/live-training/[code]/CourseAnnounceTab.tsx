@@ -29,6 +29,16 @@ export function CourseAnnounceTab({ course }: { course: LiveCourseSettings }) {
   }, [aud, course.courseCode]);
   useEffect(() => { void count(); }, [count]);
 
+  async function sendTest() {
+    setBusy(true); setResult('');
+    try {
+      const r = await fetch(`/api/admin/live-course/${course.courseCode}/announce`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ test: true }) });
+      const j = await r.json().catch(() => ({}));
+      setResult(r.ok ? `Test sent to ${j.sentTo}. It counts as one system email and does not mark the course as announced.` : j.error ?? 'Test send failed.');
+      setBudgetKey((k) => k + 1);
+    } finally { setBusy(false); }
+  }
+
   async function send() {
     setBusy(true); setResult('');
     try {
@@ -52,6 +62,8 @@ export function CourseAnnounceTab({ course }: { course: LiveCourseSettings }) {
         <AudiencePicker value={aud} onChange={(v) => { setAud(v); setConfirm(false); }} disabled={busy} />
         <AudienceCountLine counts={info?.counts ?? null} allowance={info?.allowance ?? null} />
         <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+          <button data-testid="course-announce-test" disabled={busy} onClick={sendTest}
+            style={{ padding: '9px 16px', borderRadius: 8, border: '1px solid #CBD5E1', background: '#fff', color: NAVY, fontWeight: 700, cursor: busy ? 'wait' : 'pointer' }}>Send test to me</button>
           {!confirm ? (
             <button data-testid="course-announce-send" disabled={busy || !info || !info.published || info.counts.total === 0 || (needsCourse && !aud.courseCode)} onClick={() => setConfirm(true)}
               style={{ padding: '9px 18px', borderRadius: 8, border: 'none', background: NAVY, color: '#fff', fontWeight: 800, cursor: 'pointer', opacity: busy || !info || !info.published || info.counts.total === 0 ? 0.5 : 1 }}>Send course announcement</button>

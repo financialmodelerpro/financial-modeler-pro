@@ -1847,7 +1847,12 @@ async function unit23(): Promise<void> {
   // ── One announcement per course; none per course session ──
   const courseRoute = readFileSync('app/api/admin/live-course/[code]/announce/route.ts', 'utf8');
   check('U23.1a the course announcement is ONE email with the whole schedule (every session, KSA), sent once per POST', (courseRoute.match(/dispatchAnnouncement\(/g) ?? []).length === 1 && courseRoute.includes("sessions: d.sessions.map((s, i) => ({ label: ") && courseRoute.includes('courseTimeLabel(s.scheduled_datetime, { year: true })') && courseRoute.includes("kind: 'course'"));
-  check('U23.1b only a published course is announced', courseRoute.includes("if (!isPubliclyVisible(d.course)) return NextResponse.json({ error: 'Publish the course before announcing it.' }"));
+  // Re-aimed 2026-11-10: a TEST to the admin may preview a draft; a real announcement still needs a published course.
+  check('U23.1b only a published course is announced', courseRoute.includes("if (!isTest && !isPubliclyVisible(d.course)) return NextResponse.json({ error: 'Publish the course before announcing it.' }"));
+  const testAt = courseRoute.indexOf('if (isTest) {');
+  check('U23.1d "Send test to me": the same email to the signed-in admin only, one SYSTEM email (sendEmail), before any audience, queue or job', testAt > 0 && courseRoute.slice(testAt, testAt + 600).includes('await sendEmail({ to: by,') && testAt < courseRoute.lastIndexOf('await resolveAudience(') && testAt < courseRoute.indexOf('dispatchAnnouncement(d.sb') && !courseRoute.slice(testAt, testAt + 600).includes("kind: 'announcement'"));
+  check('U23.1e the test records nothing as announced (no job, no send log) and the Announce tab offers it', !courseRoute.slice(testAt, testAt + 600).includes('enqueueJob') && readFileSync('app/admin/training-hub/live-training/[code]/CourseAnnounceTab.tsx', 'utf8').includes('data-testid="course-announce-test"') && readFileSync('app/admin/training-hub/live-training/[code]/CourseAnnounceTab.tsx', 'utf8').includes('body: JSON.stringify({ test: true })'));
+  check('U23.1f a direct send counts as one system email', readFileSync('src/shared/email/sendEmail.ts', 'utf8').includes("await recordEmailSent('system', Array.isArray(opts.to) ? opts.to.length : 1);"));
   if (hasCreds()) {
     const T = await import('../src/shared/email/templates/liveCourseAnnouncement');
     const t = await T.liveCourseAnnouncementTemplate({ courseTitle: 'REFM', tagline: 'Tag', startDate: 'Tue 1 Dec 2026', sessions: Array.from({ length: 8 }, (_, i) => ({ label: 'Session ' + (i + 1), title: 'T' + (i + 1), when: 'Tue 1 Dec 2026, 7:00 PM KSA' })), courseUrl: 'https://learn.example/training/REFM', cta: 'Enrol in the course' });
