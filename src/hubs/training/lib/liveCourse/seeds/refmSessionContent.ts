@@ -118,7 +118,7 @@ export const REFM_SESSION_CONTENT: Record<number, SessionSections> = {
       "Move capitalised cost into CWIP and fixed assets, and run the cash waterfall"
     ],
     "learnConcepts": [
-      "What drives the funding need: development cost, marketing and commission, and Zakat, less collections and spare cash",
+      "What drives the funding need: development cost, marketing and commission, and Zakat/Tax, less collections and spare cash",
       "Splitting the need between debt and equity",
       "Finance cost capitalised during construction and expensed after",
       "Fund fees: structuring, management, and custody and administration"
@@ -268,19 +268,19 @@ export const REFM_SESSION_CONTENT: Record<number, SessionSections> = {
   },
   6: {
     "overview": [
-      "Add a simple Zakat charge",
+      "Add a simple Zakat/Tax charge",
       "Decide how cash goes back to shareholders",
       "Complete share capital and retained earnings",
       "Review all three statements and prove they tie"
     ],
     "learnConcepts": [
-      "The Zakat base, and why the exit gain needs a switch",
+      "The Zakat/Tax base, and why the exit gain needs a switch",
       "Dividends from profits compared with capital reduction for excess cash",
       "Cash and land contributions in share capital",
       "The usual reasons a balance sheet does not balance"
     ],
     "learnHandsOn": [
-      "Zakat base, charge, and the payable corkscrew, paid the year after",
+      "Zakat/Tax base, charge, and the payable corkscrew, paid the year after",
       "Distributions split into dividends and capital reduction",
       "Share capital and retained earnings corkscrews",
       "Three proofs: net income to equity, cash agrees, balance sheet balances",
@@ -288,8 +288,8 @@ export const REFM_SESSION_CONTENT: Record<number, SessionSections> = {
     ],
     "flow": [
       "Recap of Session 5",
-      "Zakat",
-      "Build with Claude: the Zakat and equity rows",
+      "Zakat/Tax",
+      "Build with Claude: the Zakat/Tax and equity rows",
       "Distributions: dividends and capital reduction",
       "Share capital and retained earnings",
       "Full review of the three statements",
@@ -297,12 +297,12 @@ export const REFM_SESSION_CONTENT: Record<number, SessionSections> = {
       "Questions"
     ],
     "build": [
-      "Tax and equity tab: Zakat, distributions, share capital and retained earnings",
+      "Tax and equity tab: Zakat/Tax, distributions, share capital and retained earnings",
       "Three complete statements with every check green in every year"
     ],
     "claude": [
-      "Claude writes the Zakat and equity rows",
-      "The prompt gives the Zakat rate, the base definition, the exit-gain switch and the distribution rule",
+      "Claude writes the Zakat/Tax and equity rows",
+      "The prompt gives the Zakat/Tax rate, the base definition, the exit-gain switch and the distribution rule",
       "We check the payable clears the next year and dividends never exceed retained earnings"
     ],
     "before": [
