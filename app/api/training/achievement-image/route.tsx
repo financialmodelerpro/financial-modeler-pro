@@ -104,7 +104,20 @@ export async function GET(req: NextRequest) {
             return `data:image/svg+xml;base64,${buf.toString('base64')}`;
           }
         }
+        // The image renderer (satori) draws PNG and JPEG only. The site logo became
+        // WebP when the marketing images were optimised, and every card then failed
+        // ("u2 is not iterable", 2026-11-10): anything that is not PNG or JPEG is
+        // converted to PNG first.
         const mime = ct.startsWith('image/') ? ct.split(';')[0] : 'image/png';
+        if (mime !== 'image/png' && mime !== 'image/jpeg') {
+          try {
+            const pngBuf = await sharp(buf).png().toBuffer();
+            return `data:image/png;base64,${pngBuf.toString('base64')}`;
+          } catch (convErr) {
+            console.error(`[achievement-image] ${label} ${mime} to PNG failed:`, convErr);
+            return '';
+          }
+        }
         return `data:${mime};base64,${buf.toString('base64')}`;
       } catch (fetchErr) {
         console.error(`[achievement-image] ${label} fetch error:`, fetchErr);

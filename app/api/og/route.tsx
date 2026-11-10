@@ -19,6 +19,11 @@ async function fetchAsBase64(url: string): Promise<string> {
       catch { return `data:image/svg+xml;base64,${buf.toString('base64')}`; }
     }
     const mime = ct.startsWith('image/') ? ct.split(';')[0] : 'image/png';
+    // The renderer (satori) draws PNG and JPEG only; the site logo is WebP since the
+    // marketing images were optimised, which failed every image here (2026-11-10).
+    if (mime !== 'image/png' && mime !== 'image/jpeg') {
+      try { return `data:image/png;base64,${(await sharp(buf).png().toBuffer()).toString('base64')}`; } catch { return ''; }
+    }
     return `data:${mime};base64,${buf.toString('base64')}`;
   } catch { return ''; }
 }
