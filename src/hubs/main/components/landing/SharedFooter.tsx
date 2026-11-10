@@ -19,6 +19,8 @@ interface SharedFooterProps {
   // these no longer gate Privacy / Confidentiality individually.
   showPrivacy?:        boolean;
   showConfidentiality?: boolean;
+  /** Legal links already read by the caller (the live course pages pass the 60 s cached copy); absent, read here as before. */
+  legalLinks?: Awaited<ReturnType<typeof getFooterLegalLinks>>;
 }
 
 export async function SharedFooter({
@@ -28,11 +30,12 @@ export async function SharedFooter({
   showDescription  = true,
   showQuickLinks   = true,
   showCompanyLinks = true,
+  legalLinks: preloadedLegalLinks,
 }: SharedFooterProps) {
   // Legal links are the PUBLISHED legal pages, in order. A page set to draft in
   // the Page Builder disappears here; a newly published one (e.g. Refund Policy)
   // appears automatically. No hardcoded list.
-  const legalLinks = await getFooterLegalLinks();
+  const legalLinks = preloadedLegalLinks ?? await getFooterLegalLinks();
   const heightPadding = { compact: '32px', standard: '40px', large: '64px' }[height];
   const topPad    = paddingTop    ? `${paddingTop}px`    : heightPadding;
   const bottomPad = paddingBottom ? `${paddingBottom}px` : heightPadding;

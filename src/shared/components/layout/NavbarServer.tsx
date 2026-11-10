@@ -9,6 +9,12 @@ import { Navbar } from './Navbar';
 
 interface Props {
   topOffset?: number;
+  /**
+   * Nav pages and header settings already read by the caller (the live course
+   * pages pass the 60 s cached copies from src/shared/cms/cached.ts). Absent,
+   * the navbar reads them itself, as before.
+   */
+  preloaded?: { sitePages: Awaited<ReturnType<typeof getSitePages>>; content: Awaited<ReturnType<typeof getCmsContent>> };
 }
 
 const MAIN_URL  = process.env.NEXT_PUBLIC_MAIN_URL  ?? 'https://financialmodelerpro.com';
@@ -22,11 +28,10 @@ function absolutizeHref(href: string): string {
   return `${MAIN_URL}${href}`;
 }
 
-export async function NavbarServer({ topOffset = 0 }: Props) {
-  const [sitePages, content] = await Promise.all([
-    getSitePages(),
-    getCmsContent(),
-  ]);
+export async function NavbarServer({ topOffset = 0, preloaded }: Props) {
+  const [sitePages, content] = preloaded
+    ? [preloaded.sitePages, preloaded.content]
+    : await Promise.all([getSitePages(), getCmsContent()]);
 
   // Read all header_settings from cms_content
   const hs = (k: string, fallback: string) => cms(content, 'header_settings', k, fallback);

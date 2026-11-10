@@ -3,6 +3,9 @@ import { NavbarServer } from '@/src/shared/components/layout/NavbarServer';
 import { SharedFooter } from '@/src/hubs/main/components/landing/SharedFooter';
 import { getServerClient } from '@/src/core/db/supabase';
 import { getAllPageSections } from '@/src/shared/cms';
+import { getSitePagesCached, getCmsContentCached, getFooterLegalLinksCached } from '@/src/shared/cms/cached';
+import { unstable_cache } from 'next/cache';
+import { LIVE_COURSE_CACHE_TAG } from '@/src/hubs/training/lib/liveCourse/cachedReads';
 import { canonicalUrl } from '@/src/shared/seo/canonical';
 import { SessionsClient, type PublicSession, type HeroContent } from './SessionsClient';
 import type { PublicCourseOffer } from './PublicCourseOffers';
@@ -116,11 +119,31 @@ async function getCourseOffers(): Promise<PublicCourseOffer[]> {
   }
 }
 
+/**
+ * The page's data, shared across requests for 60 seconds (2026-11-10). Every
+ * render made several SEQUENTIAL reads from a database on another continent
+ * (Tokyo, from functions in Virginia), 3 to 8 seconds in all. The page is the
+ * same for every visitor (a student's enrolment is fetched in the browser), so
+ * one copy serves everyone; an admin session or course save clears it at once
+ * (tag `live-course`, invalidateLiveCourseCache), and registration counts and
+ * CMS edits show within 60 seconds. Whole-page caching is not possible: the
+ * root layout reads per-request data, so every route renders dynamically.
+ */
+const getPageDataCached = unstable_cache(
+  async () => {
+    const [sessions, cmsSections, courses] = await Promise.all([getSessions(), getAllPageSections('training-sessions'), getCourseOffers()]);
+    return { sessions, cmsSections, courses };
+  },
+  ['training-sessions-page'],
+  { revalidate: 60, tags: [LIVE_COURSE_CACHE_TAG] },
+);
+
 export default async function TrainingSessionsPage() {
-  const [sessions, cmsSections, courses] = await Promise.all([
-    getSessions(),
-    getAllPageSections('training-sessions'),
-    getCourseOffers(),
+  const [{ sessions, cmsSections, courses }, sitePages, content, legalLinks] = await Promise.all([
+    getPageDataCached(),
+    getSitePagesCached(),
+    getCmsContentCached(),
+    getFooterLegalLinksCached(),
   ]);
 
   // Extract hero from CMS
@@ -131,7 +154,7 @@ export default async function TrainingSessionsPage() {
 
   return (
     <div style={{ fontFamily: "'Inter', sans-serif", background: '#fff', minHeight: '100vh' }}>
-      <NavbarServer />
+      <NavbarServer preloaded={{ sitePages, content }} />
       <div style={{ height: 64 }} />
 
       <SessionsClient sessions={sessions} hero={heroContent} courses={courses} />
@@ -141,6 +164,7 @@ export default async function TrainingSessionsPage() {
         founder="Financial Modeler Pro Team"
         copyright={`\u00A9 ${new Date().getFullYear()} Financial Modeler Pro`}
         height="compact"
+        legalLinks={legalLinks}
       />
     </div>
   );

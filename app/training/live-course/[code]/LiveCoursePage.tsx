@@ -3,36 +3,17 @@ import { notFound, redirect } from 'next/navigation';
 import { getTrainingCookieSession } from '@/src/hubs/training/lib/session/trainingSessionCookie';
 import { getServerClient } from '@/src/core/db/supabase';
 import { isLiveCourseRow, isPubliclyVisible, canRegister } from '@/src/hubs/training/lib/liveCourse/courseSettings';
-import { getLiveCourseCached, listCourseSessionsCached } from '@/src/hubs/training/lib/liveCourse/cachedReads';
+import { getLiveCourseCached, listCourseSessionsCached, courseTemplateSamplesCached, courseEnrolledCountCached, pickedTestimonialsCached } from '@/src/hubs/training/lib/liveCourse/cachedReads';
+import { getAllPageSectionsCached } from '@/src/shared/cms/cached';
 import { isValidPreviewToken } from '@/src/hubs/training/lib/liveCourse/preview';
 import { loadCourseInstructors } from '@/src/hubs/training/lib/liveCourse/courseInstructors';
 import { CoursePageFrame } from '../CoursePageFrame';
 import { LiveCourseClient, type PublicCourseData } from './LiveCourseClient';
 import { coursePagePath } from '@/src/hubs/training/lib/liveCourse/paths';
-import { getAllPageSections } from '@/src/shared/cms';
 import { FounderShortCard } from '@/src/hubs/main/components/landing/FounderShortCard';
-import { loadPickedTestimonials } from '@/src/hubs/training/lib/liveCourse/courseTestimonials';
 import { TestimonialsCarousel } from '../../TestimonialsCarousel';
 
 // Rendered at /training/<CODE> through app/training/[courseId]/page.tsx (paths.ts).
-
-/**
- * The course's uploaded certificate and badge templates, as samples for the
- * certification section; null until each exists (the section then hides it).
- */
-async function templateSamples(sb: ReturnType<typeof getServerClient>, code: string): Promise<{ certificateUrl: string | null; badgeUrl: string | null }> {
-  const c = code.toLowerCase();
-  const has = async (bucket: string, name: string) => {
-    const { data } = await sb.storage.from(bucket).list('templates', { search: name, limit: 5 });
-    return (data ?? []).some((f) => f.name === name) ? sb.storage.from(bucket).getPublicUrl(`templates/${name}`).data.publicUrl : null;
-  };
-  try {
-    const [certificateUrl, badgeUrl] = await Promise.all([has('certificates', `${c}-template.pdf`), has('badges', `${c}-badge.png`)]);
-    return { certificateUrl, badgeUrl };
-  } catch {
-    return { certificateUrl: null, badgeUrl: null };
-  }
-}
 
 /** Server time for the session status labels (read outside render). */
 async function serverNow(): Promise<number> { return Date.now(); }
@@ -97,14 +78,15 @@ export default async function LiveCoursePage({
   // ── Landing page data (mig 252 sections; nothing secret) ──
   const page = course.page;
   const instructors = loadedInstructors;
-  const [{ count: enrolledCount }, samples, founderContent, testimonials] = await Promise.all([
-    sb.from('training_enrollments').select('id', { count: 'exact', head: true }).eq('course_code', course.courseCode),
-    templateSamples(sb, course.courseCode),
+  // Cached for 60 s and cleared by every admin course write (cachedReads.ts); only the instructors above are read live.
+  const [enrolledCount, samples, founderContent, testimonials] = await Promise.all([
+    courseEnrolledCountCached(course.courseCode),
+    courseTemplateSamplesCached(course.courseCode),
     // THE founder profile (the home page's one CMS record), only if the founder teaches this course.
     instructors.some((i) => i.isFounder)
-      ? getAllPageSections('home').then((secs) => (secs.find((s) => s.section_type === 'team')?.content as Record<string, unknown> | undefined) ?? null).catch(() => null)
+      ? getAllPageSectionsCached('home').then((secs) => (secs.find((s) => s.section_type === 'team')?.content as Record<string, unknown> | undefined) ?? null).catch(() => null)
       : Promise.resolve(undefined),
-    page.sections.testimonials.enabled ? loadPickedTestimonials(sb, page.sections.testimonials.ids) : Promise.resolve([]),
+    page.sections.testimonials.enabled ? pickedTestimonialsCached(page.sections.testimonials.ids) : Promise.resolve([]),
   ]);
 
   const content = (
