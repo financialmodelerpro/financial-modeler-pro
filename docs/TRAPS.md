@@ -3748,7 +3748,8 @@ the course and CMS reads, passed into the shared navbar and footer as props (the
 next/cache: client components import them). Training Sessions 3.41 to 1.43 s, overview 2.17 to 1.16 s.
 **Before tuning a slow page, read `x-vercel-id` and the database host first.** Moving the functions to
 `hnd1` would cut every read site-wide, but it is a project setting (and `vercel.json` is on the do-not-touch
-list), so it is the founder's call.
+list), so it is the founder's call. **Done 2026-11-10 at the founder's request** (`regions: ["hnd1"]`): home 2.03 to 0.90 s,
+Training Sessions 1.58 to 0.66 s, overview 1.34 to 0.61 s.
 
 ## 10. Verifier discipline
 
