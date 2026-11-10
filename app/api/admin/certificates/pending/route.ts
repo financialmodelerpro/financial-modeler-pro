@@ -4,15 +4,18 @@ import { authOptions } from '@/src/shared/auth/nextauth';
 import { getServerClient } from '@/src/core/db/supabase';
 import { findAllEligibleFromSupabase } from '@/src/hubs/training/lib/certificates/certificateEligibility';
 import { COURSES } from '@/src/hubs/training/config/courses';
+import { listLiveCourses } from '@/src/hubs/training/lib/liveCourse/courseSettings';
 
 export const dynamic = 'force-dynamic';
 
 /**
  * GET /api/admin/certificates/pending
  *
- * Safety-net view: every (email, course_code) that has `final_passed=true`
- * in the certificate_eligibility_raw view and no `Issued` row in
- * student_certificates. Populates the "Eligible but not issued" panel on
+ * Safety-net view: every (email, course_code) with no `Issued` row in
+ * student_certificates that has either `final_passed=true` in the
+ * certificate_eligibility_raw view (exam courses) or an approved model (live
+ * courses such as REFM, whose attendance rule checkEligibility applies).
+ * Populates the "Eligible but not issued" panel on
  * /admin/training-hub/certificates so an operator can trigger cert generation
  * for anyone the inline-trigger missed (network blip, PDF lib crash, etc.).
  */
@@ -60,6 +63,7 @@ export async function GET() {
       if (ts && (!existing || ts > existing)) passAtByKey.set(key, ts);
     }
 
+    const liveTitles = new Map((await listLiveCourses(sb, { includeInactive: true })).map(c => [c.courseCode.toUpperCase(), c.title]));
     const pending = reallyEligible.map(e => {
       const emailKey = e.email.toLowerCase();
       const courseCode = e.course.toUpperCase();
@@ -70,10 +74,11 @@ export async function GET() {
         name:           meta?.name ?? '',
         registrationId: meta?.registrationId ?? '',
         courseCode,
-        courseName:     course?.title ?? courseCode,
+        courseName:     course?.title ?? liveTitles.get(courseCode) ?? courseCode,
         finalScore:     e.finalScore ?? null,
         avgScore:       e.avgScore ?? null,
-        passedAt:       passAtByKey.get(`${emailKey}|${courseCode}`) ?? null,
+        // Live courses: the model approval date (no exam pass exists).
+        passedAt:       e.completedAt ?? passAtByKey.get(`${emailKey}|${courseCode}`) ?? null,
       };
     });
 

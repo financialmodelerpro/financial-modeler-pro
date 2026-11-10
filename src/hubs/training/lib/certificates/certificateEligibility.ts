@@ -12,7 +12,7 @@
 
 import { COURSES } from '@/src/hubs/training/config/courses';
 import { getServerClient } from '@/src/core/db/supabase';
-import { getLiveCourseSettings, isLiveCourseRow } from '@/src/hubs/training/lib/liveCourse/courseSettings';
+import { getLiveCourseSettings, isLiveCourseRow, listLiveCourses } from '@/src/hubs/training/lib/liveCourse/courseSettings';
 import { loadStudentEligibility } from '@/src/hubs/training/lib/liveCourse/eligibility';
 import { getStudentProgressFromSupabase as getStudentProgress } from '@/src/hubs/training/lib/progress/progressFromSupabase';
 
@@ -25,6 +25,8 @@ export interface EligibilityResult {
   finalScore: number | null;
   avgScore: number | null;
   reason?: string;
+  /** Live courses: when the model was approved (the "passed at" of the pending list). */
+  completedAt?: string | null;
 }
 
 /** Build tab_keys for a course in the same format `training_assessment_results` stores them. */
@@ -191,21 +193,24 @@ export async function findAllEligibleFromSupabase(): Promise<Array<EligibilityRe
     .select('email, course_code, final_passed')
     .eq('final_passed', true);
 
-  if (!raws || raws.length === 0) return [];
-
-  // existing issued certs → skip
-  const { data: existing } = await sb
-    .from('student_certificates')
-    .select('email, course_code, cert_status');
+  // existing issued certs → skip. Paged: PostgREST returns at most 1000 rows.
   const alreadyIssued = new Set<string>();
-  for (const r of existing ?? []) {
-    if (r.cert_status === 'Issued' || r.cert_status === 'Forced') {
-      alreadyIssued.add(`${(r.email as string).toLowerCase()}|${(r.course_code as string).toUpperCase()}`);
+  for (let from = 0; ; from += 1000) {
+    const { data: page } = await sb
+      .from('student_certificates')
+      .select('email, course_code, cert_status')
+      .order('email')
+      .range(from, from + 999);
+    for (const r of page ?? []) {
+      if (r.cert_status === 'Issued' || r.cert_status === 'Forced') {
+        alreadyIssued.add(`${(r.email as string).toLowerCase()}|${(r.course_code as string).toUpperCase()}`);
+      }
     }
+    if (!page || page.length < 1000) break;
   }
 
   const results: EligibilityResult[] = [];
-  for (const r of raws as Array<{ email: string; course_code: string; final_passed: boolean }>) {
+  for (const r of (raws ?? []) as Array<{ email: string; course_code: string; final_passed: boolean }>) {
     const key = `${r.email.toLowerCase()}|${r.course_code.toUpperCase()}`;
     if (alreadyIssued.has(key)) continue;
     // Only process course codes we have config for.
@@ -214,5 +219,47 @@ export async function findAllEligibleFromSupabase(): Promise<Array<EligibilityRe
     const check = await checkEligibility(r.email, knownCourse.id);
     results.push(check);
   }
+
+  // LIVE courses have no exam, so the view above never lists them. A live
+  // student is a candidate once their model is APPROVED (an active row: an
+  // admin reset supersedes rows) and no certificate is issued. checkEligibility
+  // then applies the same attendance rule the engine re-checks on issue, so the
+  // list never offers a row the engine would refuse.
+  const live = await listLiveCourses(sb, { includeInactive: true });
+  if (live.length) {
+    const { data: approved } = await sb
+      .from('model_submissions')
+      .select('email, course_code, status, reviewed_at, superseded_at')
+      .in('course_code', live.map((c) => c.courseCode))
+      .eq('status', 'approved');
+    for (const c of liveCertificateCandidates((approved ?? []) as LiveApprovedRow[], alreadyIssued)) {
+      const check = await checkEligibility(c.email, c.courseCode);
+      results.push({ ...check, completedAt: c.approvedAt });
+    }
+  }
   return results;
+}
+
+export interface LiveApprovedRow { email: string; course_code: string; status: string; reviewed_at: string | null; superseded_at: string | null }
+
+/**
+ * Live-course certificate candidates: one per (email, course) with an active
+ * approved model and no Issued / Forced certificate. Pure.
+ */
+export function liveCertificateCandidates(
+  rows: LiveApprovedRow[],
+  alreadyIssued: Set<string>,
+): Array<{ email: string; courseCode: string; approvedAt: string | null }> {
+  const out = new Map<string, { email: string; courseCode: string; approvedAt: string | null }>();
+  for (const r of rows) {
+    if (r.status !== 'approved' || r.superseded_at) continue;
+    const email = String(r.email ?? '').trim().toLowerCase();
+    const courseCode = String(r.course_code ?? '').trim().toUpperCase();
+    if (!email || !courseCode) continue;
+    const key = `${email}|${courseCode}`;
+    if (alreadyIssued.has(key)) continue;
+    const prev = out.get(key);
+    if (!prev || (r.reviewed_at ?? '') > (prev.approvedAt ?? '')) out.set(key, { email, courseCode, approvedAt: r.reviewed_at ?? null });
+  }
+  return [...out.values()];
 }

@@ -1407,6 +1407,52 @@ async function unit15(): Promise<void> {
   check('U15.6d up to three highlights, and the short bio is an admin setting', FSC.includes('.slice(0, 3)') && readFileSync('app/admin/training-hub/live-training/[code]/CoursePageSectionsTab.tsx', 'utf8').includes('data-testid="instructor-short-bio"'));
 }
 
+async function unit16(): Promise<void> {
+  console.log('\n=== My Model tab and the certificate pending list cover live courses ===\n');
+  const panel = readFileSync('src/hubs/training/components/sessions/LiveCourseSubmission.tsx', 'utf8');
+  const client = readFileSync('app/training/live-course/[code]/LiveCourseClient.tsx', 'utf8');
+  const view = readFileSync('src/hubs/training/components/dashboard/MyModelView.tsx', 'utf8');
+  const history = readFileSync('app/api/training/model-submission/history/route.ts', 'utf8');
+  const submit = readFileSync('app/api/training/model-submission/route.ts', 'utf8');
+
+  // ONE submission panel, on the course page and in My Model.
+  check('U16.1a the submission panel is one shared component', panel.includes('export function LiveCourseSubmission') && !client.includes('function LiveCourseSubmission') && client.includes("from '@/src/hubs/training/components/sessions/LiveCourseSubmission'"));
+  check('U16.1b My Model renders that same panel for each live course', view.includes('<LiveCourseSubmission courseCode={c.code}') && view.includes('liveCourses.map'));
+  check('U16.1c the panel reads the status route and posts to the submission route', panel.includes('/api/training/model-submission?courseCode=') && panel.includes("fetch('/api/training/model-submission', { method: 'POST'"));
+  check('U16.1d the panel shows the eligibility gate, pending review and the attempts lock', ['submission-gate-locked', 'submission-pending', 'submission-attempts-locked', 'submission-upload'].every((t) => panel.includes(t)));
+  // The server still enforces every rule, whichever page posts.
+  check('U16.1e the server refuses an ineligible, a pending, an approved and an exhausted submission', submit.includes("error: 'not_eligible'") && submit.includes("error: 'pending_review_in_flight'") && submit.includes("error: 'already_approved'") && submit.includes("error: 'attempts_exhausted'"));
+  check('U16.1f the history route lists live course attempts and the live courses the student is enrolled in', history.includes('listLiveCourses(') && history.includes(".from('training_enrollments')") && history.includes(".eq('registration_id', session.registrationId)") && history.includes('liveCourses'));
+  check('U16.1g the history route still reads only the signed student\'s rows and no storage path', /\.ilike\('email', session\.email/.test(history) && !/storage_path:/.test(history));
+  check('U16.1h an attempt an admin reset cleared is listed and marked as reset', history.includes('superseded: !!r.superseded_at') && view.includes('a.superseded &&'));
+
+  // The pending list.
+  const CE = await import('../src/hubs/training/lib/certificates/certificateEligibility');
+  const issued = new Set(['done@x.com|REFM']);
+  const cands = CE.liveCertificateCandidates([
+    { email: 'A@x.com', course_code: 'refm', status: 'approved', reviewed_at: '2027-02-01T10:00:00Z', superseded_at: null },
+    { email: 'a@x.com', course_code: 'REFM', status: 'approved', reviewed_at: '2027-02-03T10:00:00Z', superseded_at: null },
+    { email: 'done@x.com', course_code: 'REFM', status: 'approved', reviewed_at: '2027-02-01T10:00:00Z', superseded_at: null },
+    { email: 'reset@x.com', course_code: 'REFM', status: 'approved', reviewed_at: '2027-02-01T10:00:00Z', superseded_at: '2027-02-02T10:00:00Z' },
+    { email: 'rej@x.com', course_code: 'REFM', status: 'rejected', reviewed_at: '2027-02-01T10:00:00Z', superseded_at: null },
+  ], issued);
+  check('U16.2a an approved, uncertified live student is a candidate, once, dated by the latest approval', cands.length === 1 && cands[0].email === 'a@x.com' && cands[0].courseCode === 'REFM' && cands[0].approvedAt === '2027-02-03T10:00:00Z', JSON.stringify(cands));
+  check('U16.2b an issued certificate, a reset approval and a rejection are not candidates', !cands.some((c) => ['done@x.com', 'reset@x.com', 'rej@x.com'].includes(c.email)));
+  const elig = readFileSync('src/hubs/training/lib/certificates/certificateEligibility.ts', 'utf8');
+  check('U16.2c the sweep adds live candidates after the exam view and runs the engine\'s own eligibility on each', elig.includes('liveCertificateCandidates((approved') && elig.includes('const check = await checkEligibility(c.email, c.courseCode)'));
+  check('U16.2d the sweep no longer returns nothing when no exam student is pending (live rows still count)', !elig.includes('if (!raws || raws.length === 0) return [];'));
+  check('U16.2e issued certificates are read in pages (PostgREST stops at 1000 rows)', /\.range\(from, from \+ 999\)/.test(elig));
+  const pendingRoute = readFileSync('app/api/admin/certificates/pending/route.ts', 'utf8');
+  check('U16.2f the pending list names a live course by its title and dates it by the approval', pendingRoute.includes('liveTitles.get(courseCode)') && pendingRoute.includes('e.completedAt ??'));
+  const issueRoute = readFileSync('app/api/admin/certificates/issue-pending/route.ts', 'utf8');
+  check('U16.2g Issue all and Issue now go through the same engine (live courses included)', issueRoute.includes('findAllEligibleFromSupabase()') && issueRoute.includes('issueCertificateForStudent(e.email, e.course'));
+
+  if (hasCreds()) {
+    const all = await CE.findAllEligibleFromSupabase();
+    check('U16.3a live: the sweep runs against the live database', Array.isArray(all), `${all.length} rows`);
+  }
+}
+
 (async () => {
   await unit0();
   await unit1();
@@ -1425,6 +1471,7 @@ async function unit15(): Promise<void> {
   await unit13();
   await unit14();
   await unit15();
+  await unit16();
   console.log(`\n${passed} passed, ${failed} failed`);
   if (failed) { console.log('Failed:'); for (const f of fails) console.log(`  - ${f}`); process.exit(1); }
 })().catch((e) => { console.error(e); process.exit(1); });

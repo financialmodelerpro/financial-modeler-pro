@@ -61,6 +61,14 @@ export interface ModelAttemptView {
   hasReviewedFile: boolean;
   reviewedFileName: string | null;
   reviewedFileSize: number | null;
+  /** An admin reset cleared this attempt (mig 248): kept as history, never counted. */
+  superseded?: boolean;
+}
+
+/** A live course the student is enrolled in, as the My Model tab lists it. */
+export interface MyModelLiveCourse {
+  code: string;
+  title: string;
 }
 
 /**

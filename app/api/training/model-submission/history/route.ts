@@ -1,12 +1,11 @@
 import { NextResponse } from 'next/server';
 import { getServerClient } from '@/src/core/db/supabase';
 import { getTrainingCookieSession } from '@/src/hubs/training/lib/session/trainingSessionCookie';
-import type { ModelSubmissionRow, ModelAttemptView } from '@/src/hubs/training/lib/modelSubmission/types';
+import { listLiveCourses } from '@/src/hubs/training/lib/liveCourse/courseSettings';
+import type { ModelSubmissionRow, ModelAttemptView, MyModelLiveCourse } from '@/src/hubs/training/lib/modelSubmission/types';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
-
-type CourseCode = ModelAttemptView['courseCode'];
 
 /**
  * GET /api/training/model-submission/history
@@ -21,6 +20,11 @@ type CourseCode = ModelAttemptView['courseCode'];
  * earlier attempt's reviewed file became unreachable as soon as the student
  * resubmitted. This route exposes the full list.
  *
+ * Courses: 3SFM and BVM (exam courses), plus every LIVE course
+ * (training_course_settings). `liveCourses` lists the live courses the student
+ * is enrolled in or has submitted for, so the view can show each one with its
+ * submission panel; the gate, attempts and lock stay on the status route.
+ *
  * AUTH: training_session cookie. Rows are selected BY the session email, so a
  * student can only ever read their own submissions (no id is accepted here).
  */
@@ -31,7 +35,7 @@ export async function GET() {
   const sb = getServerClient();
   const { data, error } = await sb
     .from('model_submissions')
-    .select('id, course_code, attempt_number, status, submitted_at, reviewed_at, review_note, file_name, file_size, reviewed_file_path, reviewed_file_name, reviewed_file_size')
+    .select('id, course_code, attempt_number, status, submitted_at, reviewed_at, review_note, file_name, file_size, reviewed_file_path, reviewed_file_name, reviewed_file_size, superseded_at')
     .ilike('email', session.email.toLowerCase())
     .order('submitted_at', { ascending: false });
 
@@ -40,11 +44,14 @@ export async function GET() {
     return NextResponse.json({ error: 'Failed to load your submissions' }, { status: 500 });
   }
 
-  const byCourse: Record<CourseCode, ModelAttemptView[]> = { '3SFM': [], BVM: [] };
+  const live = await listLiveCourses(sb, { includeInactive: true });
+  const liveByCode = new Map(live.map((c) => [c.courseCode.toUpperCase(), c]));
+
+  const byCourse: Record<string, ModelAttemptView[]> = { '3SFM': [], BVM: [] };
   for (const r of (data ?? []) as Record<string, unknown>[]) {
     const code = String(r.course_code ?? '').toUpperCase();
-    if (code !== '3SFM' && code !== 'BVM') continue;
-    byCourse[code].push({
+    if (code !== '3SFM' && code !== 'BVM' && !liveByCode.has(code)) continue;
+    (byCourse[code] ??= []).push({
       id: String(r.id),
       courseCode: code,
       attemptNumber: Number(r.attempt_number ?? 0),
@@ -57,8 +64,24 @@ export async function GET() {
       hasReviewedFile: !!r.reviewed_file_path,
       reviewedFileName: (r.reviewed_file_name as string | null) ?? null,
       reviewedFileSize: (r.reviewed_file_size as number | null) ?? null,
+      superseded: !!r.superseded_at,
     });
   }
 
-  return NextResponse.json({ ok: true, courses: byCourse });
+  // Live courses the student is enrolled in (by registration id), or has
+  // already submitted for.
+  const enrolledLive = new Set<string>();
+  if (session.registrationId && live.length) {
+    const { data: enr } = await sb
+      .from('training_enrollments')
+      .select('course_code')
+      .eq('registration_id', session.registrationId)
+      .in('course_code', live.map((c) => c.courseCode));
+    for (const e of (enr ?? []) as { course_code: string }[]) enrolledLive.add(String(e.course_code).toUpperCase());
+  }
+  const liveCourses: MyModelLiveCourse[] = live
+    .filter((c) => enrolledLive.has(c.courseCode.toUpperCase()) || (byCourse[c.courseCode.toUpperCase()]?.length ?? 0) > 0)
+    .map((c) => ({ code: c.courseCode.toUpperCase(), title: c.title }));
+
+  return NextResponse.json({ ok: true, courses: byCourse, liveCourses });
 }

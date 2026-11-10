@@ -1,7 +1,8 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import type { ModelAttemptView } from '@/src/hubs/training/lib/modelSubmission/types';
+import { useCallback, useEffect, useState } from 'react';
+import type { ModelAttemptView, MyModelLiveCourse } from '@/src/hubs/training/lib/modelSubmission/types';
+import { LiveCourseSubmission } from '@/src/hubs/training/components/sessions/LiveCourseSubmission';
 
 /**
  * "My Model" dashboard view.
@@ -15,7 +16,13 @@ import type { ModelAttemptView } from '@/src/hubs/training/lib/modelSubmission/t
  * the reviewer's note, and the marked-up model returned by the reviewer (which
  * now comes back on a reject as well as an approve).
  *
- * Read-only. Submitting still happens on the course tab's ModelSubmissionCard,
+ * Live courses (2026-11-10): every live course the student is enrolled in is
+ * listed too, with the SAME submission panel the course page renders
+ * (LiveCourseSubmission), so a live student submits here: gated by attendance
+ * eligibility, 3 attempts, locked after the last rejection until an admin
+ * reset. Attempts an admin reset cleared stay listed, marked as reset.
+ *
+ * Exam courses stay read-only here. Submitting still happens on the course tab's ModelSubmissionCard,
  * which owns the upload state machine and the attempt guard.
  *
  * No em dashes in this file.
@@ -88,6 +95,11 @@ function AttemptCard({ a }: { a: ModelAttemptView }) {
         <span style={{ fontSize: 11, fontWeight: 700, color: tone.fg, background: '#fff', border: `1px solid ${tone.border}`, borderRadius: 20, padding: '2px 10px' }}>
           {tone.label}
         </span>
+        {a.superseded && (
+          <span data-testid="attempt-reset" style={{ fontSize: 11, fontWeight: 700, color: '#6B7280', background: '#fff', border: '1px solid #E5E7EB', borderRadius: 20, padding: '2px 10px' }}>
+            Reset by admin (not counted)
+          </span>
+        )}
         <span style={{ marginLeft: 'auto', fontSize: 11.5, color: '#6B7280' }}>
           Submitted {fmtDate(a.submittedAt)}
           {a.reviewedAt ? ` · reviewed ${fmtDate(a.reviewedAt)}` : ''}
@@ -138,24 +150,28 @@ export function MyModelView({ enrolledCourses }: { enrolledCourses: string[] }) 
   const [courses, setCourses] = useState<CoursesPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [liveCourses, setLiveCourses] = useState<MyModelLiveCourse[]>([]);
+
+  // Reloaded after a live-course submission so the new attempt is listed.
+  const load = useCallback(async (isCancelled: () => boolean = () => false) => {
+    try {
+      const res = await fetch('/api/training/model-submission/history');
+      const j = await res.json() as { ok?: boolean; courses?: CoursesPayload; liveCourses?: MyModelLiveCourse[]; error?: string };
+      if (isCancelled()) return;
+      if (!res.ok || !j.ok) { setError(j.error ?? 'Could not load your submissions.'); }
+      else { setError(''); setCourses(j.courses ?? {}); setLiveCourses(j.liveCourses ?? []); }
+    } catch {
+      if (!isCancelled()) setError('Could not load your submissions.');
+    } finally {
+      if (!isCancelled()) setLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
-    (async () => {
-      try {
-        const res = await fetch('/api/training/model-submission/history');
-        const j = await res.json() as { ok?: boolean; courses?: CoursesPayload; error?: string };
-        if (cancelled) return;
-        if (!res.ok || !j.ok) { setError(j.error ?? 'Could not load your submissions.'); }
-        else { setCourses(j.courses ?? {}); }
-      } catch {
-        if (!cancelled) setError('Could not load your submissions.');
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
+    void load(() => cancelled);
     return () => { cancelled = true; };
-  }, []);
+  }, [load]);
 
   // Show a course when the student is enrolled OR has already submitted for it.
   const visible = (['3SFM', 'BVM'] as const).filter(code => {
@@ -169,7 +185,9 @@ export function MyModelView({ enrolledCourses }: { enrolledCourses: string[] }) 
         <h1 style={{ fontSize: 24, fontWeight: 800, color: '#0D2E5A', margin: '0 0 6px' }}>My Model</h1>
         <p style={{ fontSize: 13.5, color: '#6B7280', margin: 0, lineHeight: 1.6 }}>
           Every model you have submitted, the reviewer&apos;s comments, and the marked-up model they sent back.
-          Submit or resubmit from the course page.
+          {liveCourses.length > 0
+            ? 'Submit your live course model here once every session is complete; other courses submit from the course page.'
+            : 'Submit or resubmit from the course page.'}
         </p>
       </div>
 
@@ -183,7 +201,7 @@ export function MyModelView({ enrolledCourses }: { enrolledCourses: string[] }) 
         </div>
       )}
 
-      {!loading && !error && visible.length === 0 && (
+      {!loading && !error && visible.length === 0 && liveCourses.length === 0 && (
         <div style={{ padding: '40px 24px', textAlign: 'center', background: '#F9FAFB', border: '1px solid #E5E7EB', borderRadius: 12 }}>
           <div style={{ fontSize: 26, marginBottom: 8 }} aria-hidden>📄</div>
           <div style={{ fontSize: 14, fontWeight: 700, color: '#374151', marginBottom: 4 }}>No model submissions yet</div>
@@ -208,6 +226,26 @@ export function MyModelView({ enrolledCourses }: { enrolledCourses: string[] }) 
             ) : (
               attempts.map(a => <AttemptCard key={a.id} a={a} />)
             )}
+          </section>
+        );
+      })}
+
+      {/* Live courses: the course page's own submission panel (gate, attempts,
+          lock), then every attempt. */}
+      {!loading && !error && liveCourses.map(c => {
+        const attempts = courses?.[c.code] ?? [];
+        return (
+          <section key={c.code} style={{ marginBottom: 30 }} data-testid={`my-model-course-${c.code}`}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12, flexWrap: 'wrap' }}>
+              <h2 style={{ fontSize: 15, fontWeight: 800, color: '#0D2E5A', margin: 0 }}>{c.title || c.code}</h2>
+              <span style={{ fontSize: 11, fontWeight: 700, color: '#6B7280', background: '#F3F4F6', borderRadius: 20, padding: '2px 10px' }}>
+                {attempts.length === 0 ? 'Not submitted' : `${attempts.length} attempt${attempts.length === 1 ? '' : 's'}`}
+              </span>
+            </div>
+            <div style={{ marginBottom: attempts.length ? 14 : 0 }}>
+              <LiveCourseSubmission courseCode={c.code} title={null} onChange={() => void load()} />
+            </div>
+            {attempts.map(a => <AttemptCard key={a.id} a={a} />)}
           </section>
         );
       })}

@@ -10,7 +10,7 @@ Built and pushed today (CHANGELOG 2026-11-08, CLAUDE-FEATURES "Live Courses"): U
 2. **Microsoft**: grant `OnlineMeetingArtifact.Read.All` (application) + admin consent on the existing app; confirm the host's application access policy; attendance report On. Then one real test meeting through Sync attendance before session 1.
 3. **REFM certificate + badge templates**: upload in the Certificate Designer (same field positions as 3SFM; the engine has one layout for all courses).
 4. **Create all 8 REFM sessions up front** (course REFM, session no. 1 to 8, Auto-generate Teams). Eligibility counts published course sessions.
-5. **Known, not built**: course students do not appear in the dashboard's My Model tab (the course page carries the submission); `findAllEligibleFromSupabase` (admin "issue pending") is exam-only, force-issue accepts REFM; the session-reminders cron `maxDuration` 120 s now also runs the attendance pull.
+5. **DONE 2026-11-10**: live course students appear in My Model (with the course page's submission panel) and live courses are on the admin "issue pending" list. Still known: the session-reminders cron `maxDuration` 120 s now also runs the attendance pull.
 6. **Zoom report (founder, 2026-11-08)**: no code zooms marketing pages; likely per-host browser zoom plus inconsistent hero sizes (36 to 52 px) and widths (800 to 1560 px). Awaiting "standardise" after Ctrl+0 on each host.
 
 ## START HERE 2026-11-03 (close-out): THE LIVE WORKBOOK REBUILD IS CLOSED
