@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Target, Eye, CheckCircle2, Award } from 'lucide-react';
 import { LiveSessionCardLarge } from './LiveSessionCardLarge';
+import { groupCourseSessions } from '@/src/hubs/training/lib/liveCourse/liveSessionsGroups';
+import { courseSessionPath } from '@/src/hubs/training/lib/liveCourse/paths';
 import { RecordedLiveSessionRow } from './RecordedLiveSessionRow';
 import type {
   LiveSession,
@@ -63,6 +65,13 @@ export function LiveSessionsPanel({ studentEmail, studentName = '', registration
   const [regStatus, setRegStatus] = useState<Record<string, RegistrationStatus>>({});
   const [watchMap, setWatchMap] = useState<Record<string, WatchHistoryEntry>>({});
   const [attemptMap, setAttemptMap] = useState<AttemptSummaryMap>({});
+  // Live course titles and session counts, for the course headings.
+  const [courseInfo, setCourseInfo] = useState<{ courseCode: string; title: string; sessionCount: number }[]>([]);
+  useEffect(() => {
+    fetch('/api/training/live-course').then((r) => (r.ok ? r.json() : { courses: [] })).then((j: { courses?: { courseCode: string; title: string; sessionCount: number }[] }) => setCourseInfo(j.courses ?? [])).catch(() => {});
+  }, []);
+  // Course sessions grouped under their course; single sessions keep the grid below.
+  const grouped = useMemo(() => groupCourseSessions(upcoming, courseInfo), [upcoming, courseInfo]);
 
   useEffect(() => {
     let cancelled = false;
@@ -178,11 +187,39 @@ export function LiveSessionsPanel({ studentEmail, studentName = '', registration
         </div>
       )}
 
-      {loaded && upcoming.length > 0 && (
+      <style>{`
+        .fmp-upcoming-grid {
+          display: grid;
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+          gap: 16px;
+        }
+        @media (max-width: 900px) {
+          .fmp-upcoming-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        }
+        @media (max-width: 600px) {
+          .fmp-upcoming-grid { grid-template-columns: 1fr; }
+        }
+      `}</style>
+      {/* Live course sessions, under their course ("Real Estate Financial Modeling, 8 sessions"). */}
+      {loaded && grouped.courses.map((g) => (
+        <section key={g.courseCode} data-testid="live-sessions-course-group" style={{ marginBottom: 36 }}>
+          <h2 style={{ fontSize: 17, fontWeight: 800, color: NAVY, margin: '0 0 16px', display: 'flex', alignItems: 'center', gap: 10 }}>
+            {g.heading}
+          </h2>
+          <div className="fmp-upcoming-grid">
+            {g.sessions.map(s => (
+              <LiveSessionCardLarge key={s.id} variant="upcoming" session={s} reg={regStatus[s.id]} href={courseSessionPath(g.courseCode, s.id)}
+                studentEmail={studentEmail} studentName={studentName} registrationId={registrationId} />
+            ))}
+          </div>
+        </section>
+      ))}
+
+      {loaded && grouped.singles.length > 0 && (
         <section style={{ marginBottom: 36 }}>
           <h2 style={{ fontSize: 17, fontWeight: 800, color: NAVY, margin: '0 0 16px', display: 'flex', alignItems: 'center', gap: 10 }}>
             Upcoming Sessions
-            <span style={{ fontSize: 11, color: '#6B7280', fontWeight: 600 }}>({upcoming.length})</span>
+            <span style={{ fontSize: 11, color: '#6B7280', fontWeight: 600 }}>({grouped.singles.length})</span>
           </h2>
           {/* Fixed 3-slot grid (2 tablet, 1 mobile). Cards stretch to
               their 1/3 column slot. Previous 280px width cap reverted
@@ -190,21 +227,8 @@ export function LiveSessionsPanel({ studentEmail, studentName = '', registration
               level (bannerStyle + bodyStyle). Shared
               `fmp-upcoming-grid` class keeps dashboard preview and
               Live Sessions tab visually consistent. */}
-          <style>{`
-            .fmp-upcoming-grid {
-              display: grid;
-              grid-template-columns: repeat(3, minmax(0, 1fr));
-              gap: 16px;
-            }
-            @media (max-width: 900px) {
-              .fmp-upcoming-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-            }
-            @media (max-width: 600px) {
-              .fmp-upcoming-grid { grid-template-columns: 1fr; }
-            }
-          `}</style>
           <div className="fmp-upcoming-grid">
-            {upcoming.map(s => (
+            {grouped.singles.map(s => (
               <LiveSessionCardLarge
                 key={s.id}
                 variant="upcoming"

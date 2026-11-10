@@ -37,7 +37,7 @@ import {
 import { ShareExperienceModal } from '@/src/shared/components/ShareExperienceModal';
 import { LiveSessionsContent } from '@/src/hubs/training/components/dashboard/LiveSessionsContent';
 import { MyModelView } from '@/src/hubs/training/components/dashboard/MyModelView';
-import { coursePagePath } from '@/src/hubs/training/lib/liveCourse/paths';
+import { LiveCourseDashboardView } from '@/src/hubs/training/components/dashboard/LiveCourseDashboardView';
 import { LiveSessionsSection } from '@/src/hubs/training/components/dashboard/LiveSessionsSection';
 import { LiveCourseCards } from '@/src/hubs/training/components/dashboard/LiveCourseCards';
 import { formatShareDate } from '@/src/shared/share/shareTemplates';
@@ -128,7 +128,7 @@ export default function TrainingDashboardPage() {
   const [tourRun,   setTourRun]   = useState(false);
   const [tourReady, setTourReady] = useState(false);
   // View mode: 'overview' (landing page), 'course' (course detail), or 'live-sessions'
-  const [activeView, setActiveView]               = useState<'overview' | 'course' | 'live-sessions' | 'my-model'>('overview');
+  const [activeView, setActiveView]               = useState<'overview' | 'course' | 'live-sessions' | 'my-model' | 'live-course'>('overview');
   const [reviewedModelCount, setReviewedModelCount] = useState(0);
   // share + testimonials
   // Structured event carrying everything the ShareModal forwarder needs to
@@ -274,16 +274,20 @@ export default function TrainingDashboardPage() {
 
   // Fetch upcoming-session counters for the sidebar + quick actions bar.
   // Per-card registration status is fetched by LiveSessionsSection.
-  // Live courses the student is enrolled in, for My Courses (progress = sessions complete / total).
-  const [myLiveCourses, setMyLiveCourses] = useState<{ courseCode: string; title: string; progress: { completed: number; total: number } | null }[]>([]);
-  useEffect(() => {
+  // Live courses for My Courses, for EVERY student (founder, 2026-11-10): not
+  // enrolled shows "Enrol free", enrolled shows sessions completed / total. The
+  // course opens inside the dashboard (LiveCourseDashboardView).
+  const [myLiveCourses, setMyLiveCourses] = useState<{ courseCode: string; title: string; enrolled: boolean; sessionCount: number; progress: { completed: number; total: number } | null }[]>([]);
+  const [activeLiveCourse, setActiveLiveCourse] = useState<string>('');
+  const loadLiveCourses = useCallback(() => {
     fetch('/api/training/live-course')
       .then(r => (r.ok ? r.json() : { courses: [] }))
-      .then((j: { courses?: { courseCode: string; title: string; enrolled: boolean; progress: { completed: number; total: number } | null }[] }) => {
-        setMyLiveCourses((j.courses ?? []).filter(c => c.enrolled));
+      .then((j: { courses?: { courseCode: string; title: string; enrolled: boolean; sessionCount: number; progress: { completed: number; total: number } | null }[] }) => {
+        setMyLiveCourses(j.courses ?? []);
       })
       .catch(() => {});
   }, []);
+  useEffect(() => { const t = setTimeout(loadLiveCourses, 0); return () => clearTimeout(t); }, [loadLiveCourses]);
 
   useEffect(() => {
     fetch('/api/training/live-sessions?type=upcoming')
@@ -322,14 +326,16 @@ export default function TrainingDashboardPage() {
     localStorage.setItem('fmp_sidebar_collapsed', String(next));
   }
 
-  function navigateTo(view: 'overview' | 'course' | 'live-sessions' | 'my-model', courseId?: string) {
+  function navigateTo(view: 'overview' | 'course' | 'live-sessions' | 'my-model' | 'live-course', courseId?: string) {
     setActiveView(view);
-    if (courseId) setActiveCourse(courseId);
+    if (view === 'live-course' && courseId) setActiveLiveCourse(courseId);
+    else if (courseId) setActiveCourse(courseId);
     setMobileSidebarOpen(false);
     // Update URL without full navigation
     const url = view === 'overview' ? '/training/dashboard'
       : view === 'live-sessions' ? '/training/dashboard?tab=live-sessions'
       : view === 'my-model' ? '/training/dashboard?tab=my-model'
+      : view === 'live-course' ? `/training/dashboard?livecourse=${encodeURIComponent(courseId ?? activeLiveCourse)}`
       : `/training/dashboard?course=${courseId ?? activeCourse}`;
     window.history.replaceState({}, '', url);
   }
@@ -516,6 +522,12 @@ export default function TrainingDashboardPage() {
     // student's submitted + reviewed models.
     if (tabParam === 'my-model') {
       setActiveView('my-model');
+    }
+    // ?livecourse=REFM opens the live course inside the dashboard.
+    const liveCourseParam = params.get('livecourse');
+    if (liveCourseParam) {
+      setActiveLiveCourse(liveCourseParam.toUpperCase());
+      setActiveView('live-course');
     }
     // If ?course= is set, go directly to course view
     const courseParam = params.get('course');
@@ -1113,20 +1125,21 @@ export default function TrainingDashboardPage() {
               );
             })}
 
-            {/* LIVE COURSES the student is enrolled in (REFM, and any live course
-                later): the course page holds its sessions, recordings and materials. */}
+            {/* LIVE COURSES (REFM, and any live course later), for every student:
+                not enrolled "Enrol free", enrolled sessions completed / total. Opens the
+                course inside the dashboard, like 3SFM and BVM. */}
             {myLiveCourses.map(lc => {
-              const p = lc.progress ?? { completed: 0, total: 0 };
+              const p = lc.progress ?? { completed: 0, total: lc.sessionCount };
               return (
                 <SidebarItem
                   key={lc.courseCode}
                   icon={<BookOpen size={16} />}
                   label={lc.title}
-                  active={false}
-                  onClick={() => { setMobileSidebarOpen(false); router.push(coursePagePath(lc.courseCode)); }}
-                  badge={`${p.completed}/${p.total}`}
-                  badgeColor={p.total > 0 && p.completed === p.total ? '#C9A84C' : '#2EAA4A'}
-                  tooltip={`${lc.title}: ${p.completed}/${p.total} sessions complete`}
+                  active={activeView === 'live-course' && activeLiveCourse === lc.courseCode}
+                  onClick={() => navigateTo('live-course', lc.courseCode)}
+                  badge={lc.enrolled ? `${p.completed}/${p.total}` : 'Enrol free'}
+                  badgeColor={!lc.enrolled ? '#1B4F8A' : p.total > 0 && p.completed === p.total ? '#C9A84C' : '#2EAA4A'}
+                  tooltip={lc.enrolled ? `${lc.title}: ${p.completed}/${p.total} sessions complete` : `${lc.title}: enrol free`}
                   wrapLabel
                 />
               );
@@ -1747,6 +1760,11 @@ export default function TrainingDashboardPage() {
           {/* ════════════════════════════════════════════════════════════════════ */}
           {/* MY MODEL TAB                                                        */}
           {/* ════════════════════════════════════════════════════════════════════ */}
+          {/* LIVE COURSE (inside the dashboard) */}
+          {activeView === 'live-course' && localSession && activeLiveCourse && (
+            <LiveCourseDashboardView key={activeLiveCourse} courseCode={activeLiveCourse} onEnrolled={loadLiveCourses} />
+          )}
+
           {activeView === 'my-model' && localSession && (
             <MyModelView enrolledCourses={enrolledCourses} />
           )}

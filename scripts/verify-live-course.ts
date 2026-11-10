@@ -1715,7 +1715,8 @@ async function unit20(): Promise<void> {
   const api = readFileSync('app/api/training/live-course/route.ts', 'utf8');
   const dash = readFileSync('app/training/dashboard/page.tsx', 'utf8');
   check('U20.1b the dashboard API returns it for an enrolled student, through the one eligibility rule', api.includes('const elig = enrolled ? await loadStudentEligibility(sb, sess.email, c.courseCode) : null;') && api.includes('progress: elig ? courseProgress(elig) : null'));
-  check('U20.1c My Courses lists enrolled live courses beside 3SFM and BVM, with the count, opening the course and its sessions', dash.includes('myLiveCourses.map(lc =>') && dash.includes('badge={`${p.completed}/${p.total}`}') && dash.includes('router.push(coursePagePath(lc.courseCode))') && dash.indexOf('myLiveCourses.map(lc =>') > dash.indexOf("(['3sfm', 'bvm'] as const).map(cId =>"));
+  // Re-aimed 2026-11-10: the course opens INSIDE the dashboard now (unit 24).
+  check('U20.1c My Courses lists enrolled live courses beside 3SFM and BVM, with the count, opening the course and its sessions', dash.includes('myLiveCourses.map(lc =>') && dash.includes("badge={lc.enrolled ? `${p.completed}/${p.total}` : 'Enrol free'}") && dash.includes("onClick={() => navigateTo('live-course', lc.courseCode)}") && dash.indexOf('myLiveCourses.map(lc =>') > dash.indexOf("(['3sfm', 'bvm'] as const).map(cId =>"));
 
   // ── Live Sessions: a course session leaves once its recording is added ──
   const future = new Date(Date.now() + 7 * 864e5).toISOString();
@@ -1918,6 +1919,46 @@ async function unit23(): Promise<void> {
   check('U23.6 the admin shows active / inactive students and today\'s usage against the limit', readFileSync('app/admin/training-hub/live-training/AnnouncementAudience.tsx', 'utf8').includes('data-testid="email-budget-students"') && readFileSync('app/admin/training-hub/live-training/AnnouncementAudience.tsx', 'utf8').includes('data-testid="email-budget-usage"') && readFileSync('app/admin/training-hub/live-training/page.tsx', 'utf8').includes('<EmailBudgetPanel />'));
 }
 
+async function unit24(): Promise<void> {
+  console.log('\n=== Dashboard: REFM in My Courses for everyone, the course view, recordings on their sessions, Live Sessions grouped ===\n');
+  const dash = readFileSync('app/training/dashboard/page.tsx', 'utf8');
+  const api = readFileSync('app/api/training/live-course/route.ts', 'utf8');
+  check('U24.1a My Courses lists every live course offered to the student, enrolled or not', dash.includes('setMyLiveCourses(j.courses ?? [])') && !dash.includes('.filter(c => c.enrolled)') && api.includes('if (!enrolled && !isPubliclyVisible(c)) return null;'));
+  check('U24.1b not enrolled: "Enrol free"; enrolled: sessions completed / total; both open the course view in the dashboard', dash.includes("badge={lc.enrolled ? `${p.completed}/${p.total}` : 'Enrol free'}") && dash.includes("onClick={() => navigateTo('live-course', lc.courseCode)}") && dash.includes('<LiveCourseDashboardView key={activeLiveCourse} courseCode={activeLiveCourse}'));
+  const view = readFileSync('src/hubs/training/components/dashboard/LiveCourseDashboardView.tsx', 'utf8');
+  check('U24.1c the course view: Enrol free at the top (creates the course enrolment), progress once enrolled', view.includes('data-testid="live-course-dashboard-enrol"') && view.includes("fetch('/api/training/enroll'") && view.includes('data-testid="live-course-dashboard-progress"'));
+  check('U24.1d each row: number, title, KSA-first time, status, What is in this session (Overview, learn, flow) and a link to the full page', view.includes('<CourseTime iso={s.scheduled_datetime} />') && view.includes('What&apos;s in this session') && view.includes('overview: sec.overview, learnConcepts: sec.learnConcepts, learnHandsOn: sec.learnHandsOn, flow: sec.flow') && view.includes('courseSessionPath(course.courseCode, s.id)'));
+  check('U24.1e buttons: Enrol in course / Join live (the shared button), Watch recording, or the lock message; materials after the session for enrolled students', view.includes('<CourseSessionAction ') && view.includes('Watch recording') && view.includes("action.kind === 'locked'") && view.includes('enrolled && s.materialsReleased && s.materials.length > 0'));
+  const V = await import('../src/hubs/training/components/dashboard/LiveCourseDashboardView');
+  const S = (o: Partial<Parameters<typeof V.dashboardSessionStatus>[0]>) => V.dashboardSessionStatus({ nav: 'upcoming', met: false, enrolled: true, locked: false, ...o });
+  check('U24.2a statuses: Upcoming, Live now, Recording available, Locked, Completed', S({}) === 'upcoming' && S({ nav: 'live' }) === 'live' && S({ nav: 'recorded' }) === 'recording' && S({ nav: 'recorded', locked: true }) === 'locked' && S({ nav: 'recorded', met: true }) === 'completed');
+  check('U24.2b a visitor (not enrolled) sees a recording as available, never Completed or Locked', S({ nav: 'recorded', enrolled: false, locked: true, met: true }) === 'recording');
+  const nav = await import('../src/hubs/training/lib/liveCourse/courseNav');
+  const RA = await import('../src/hubs/training/lib/liveCourse/recordingAccess');
+  const past = new Date(Date.now() - 3 * 864e5).toISOString();
+  const before = { id: 's1', title: 'S1', course_session_no: 1, scheduled_datetime: past, duration_minutes: 150, session_type: 'recorded', youtube_url: null };
+  const after = { ...before, youtube_url: RA.RECORDING_MARKER };
+  const aBefore = nav.sessionMainAction({ courseCode: 'REFM', sessionId: 's1', status: nav.navStatus(before), enrolled: true, signedIn: true, canRegister: true });
+  const aAfter = nav.sessionMainAction({ courseCode: 'REFM', sessionId: 's1', status: nav.navStatus(after), enrolled: true, signedIn: true, canRegister: true });
+  check('U24.3a before upload the session says Recording coming soon; after, Watch recording on that same session', aBefore.kind === 'recording-soon' && aAfter.kind === 'watch' && aAfter.href === '/training/REFM/sessions/s1/watch');
+  check('U24.3b Live Sessions still shows upcoming and live course sessions for quick joining (and not a recorded one)', RA.showInLiveSessions({ course_code: 'REFM', session_type: 'upcoming', scheduled_datetime: new Date(Date.now() + 864e5).toISOString(), duration_minutes: 150, youtube_url: null }) && !RA.showInLiveSessions({ course_code: 'REFM', session_type: 'recorded', scheduled_datetime: past, duration_minutes: 150, youtube_url: 'x' }));
+  const E = (no: number, liveMet: boolean, recordingMet: boolean) => ({ sessionId: 's' + no, no, liveMet, recordingMet, met: liveMet || recordingMet });
+  check('U24.3c the unlock rule is unchanged (in order for recording-only, any qualified session for a live attendee)', RA.recordingUnlock([E(1, false, true), E(2, false, false), E(3, false, false)], 's3').message === 'Complete Session 2 to unlock' && RA.recordingUnlock([E(1, true, false), E(2, true, false), E(3, false, false), E(4, true, false)], 's4').unlocked);
+  const G = await import('../src/hubs/training/lib/liveCourse/liveSessionsGroups');
+  const g = G.groupCourseSessions([{ id: 'a', course_code: 'REFM', course_session_no: 2 }, { id: 'single' }, { id: 'b', course_code: 'REFM', course_session_no: 1 }], [{ courseCode: 'REFM', title: 'Real Estate Financial Modeling', sessionCount: 8 }]);
+  check('U24.4a course sessions are grouped under "Real Estate Financial Modeling, 8 sessions", in order; single sessions stay apart', g.courses.length === 1 && g.courses[0].heading === 'Real Estate Financial Modeling, 8 sessions' && g.courses[0].sessions.map((x) => x.id).join() === 'b,a' && g.singles.map((x) => x.id).join() === 'single');
+  const panel = readFileSync('src/hubs/training/components/dashboard/LiveSessionsPanel.tsx', 'utf8');
+  check('U24.4b the Live Sessions page renders the groups, then single sessions in their usual grid', panel.includes('data-testid="live-sessions-course-group"') && panel.includes('{grouped.singles.map(s => ('));
+  if (hasCreds()) {
+    const sb = await db();
+    const CV = await import('../src/hubs/training/lib/liveCourse/courseView');
+    const SC = await import('../src/hubs/training/lib/liveCourse/sessionContent');
+    const v = await CV.loadCourseView(sb, { email: 'not-enrolled-verify@example.com', registrationId: 'FMP-NOT-ENROLLED' }, 'REFM');
+    check('U24.5a live: a student who is not enrolled opens REFM in the dashboard (not enrolled)', !!v && v.enrolled === false);
+    check('U24.5b live: the course view lists all 8 sessions, each with its content, before any recording', !!v && v.sessions.length === 8 && v.sessions.every((x) => { const c = SC.sessionSections(x); return c.overview.length > 0 && c.flow.length > 0; }) && v.sessions.every((x) => !x.youtube_url || x.youtube_url === RA.RECORDING_MARKER));
+  }
+}
+
 (async () => {
   await unit0();
   await unit1();
@@ -1944,6 +1985,7 @@ async function unit23(): Promise<void> {
   await unit21();
   await unit22();
   await unit23();
+  await unit24();
   console.log(`\n${passed} passed, ${failed} failed`);
   if (failed) { console.log('Failed:'); for (const f of fails) console.log(`  - ${f}`); process.exit(1); }
 })().catch((e) => { console.error(e); process.exit(1); });

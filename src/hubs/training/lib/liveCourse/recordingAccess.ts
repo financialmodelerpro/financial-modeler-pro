@@ -48,9 +48,10 @@ export function unlockMap(e: Eligibility): Map<string, RecordingUnlock> {
 }
 
 /**
- * Listed under Live Sessions: a single session always (unchanged); a COURSE
- * session only while upcoming or live and with no recording yet. Once its
- * recording is added it lives in the course under My Courses.
+ * Listed under Live Sessions (quick joining): a single session always
+ * (unchanged); a COURSE session only while upcoming or live with no recording
+ * yet. Every course session is listed in its course (My Courses) from the
+ * start, and its recording appears on it there once uploaded (2026-11-10).
  */
 export function showInLiveSessions(
   row: { course_code?: string | null; youtube_url?: string | null; session_type?: string | null; scheduled_datetime?: string | null; duration_minutes?: number | null },
