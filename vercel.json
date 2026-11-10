@@ -1,5 +1,6 @@
 {
   "framework": "nextjs",
+  "regions": ["hnd1"],
   "buildCommand": "npm run build",
   "outputDirectory": ".next",
   "installCommand": "npm install",
