@@ -8,6 +8,7 @@ import { InstructorPicker } from '@/src/components/admin/InstructorPicker';
 import { KSA_TZ, utcToZonedParts, zonedWallTimeToUtc } from '@/src/hubs/training/lib/liveCourse/time';
 import { CourseSessionTools } from './CourseSessionTools';
 import { coursePlaylistIds } from '@/src/hubs/training/lib/liveCourse/publicListing';
+import { adminKsaLabel } from '@/src/hubs/training/lib/liveCourse/time';
 import { AudiencePicker, AudienceCountLine, audienceQuery, DEFAULT_AUDIENCE, type AudienceValue } from './AnnouncementAudience';
 import { SECTION_KEYS, SECTION_LABELS, sessionSections, linesToList, listToLines, type SectionKey, type SessionContentRow } from '@/src/hubs/training/lib/liveCourse/sessionContent';
 
@@ -1618,7 +1619,9 @@ export function LiveSessionsManager({ courseCode = null, embedded = false }: { c
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
               <thead>
                 <tr style={{ borderBottom: `2px solid ${BORDER}` }}>
-                  {['Title', 'Type', 'Date / Time', 'Playlist', 'Registered', 'YouTube', 'Published', 'Announced', 'Actions'].map(h => (
+                  {/* A course's Sessions tab: no per-session Registered or Announced (enrolment and the
+                      announcement are course level); single sessions keep every column. */}
+                  {(courseCode ? ['Title', 'Type', 'Date / Time (KSA)', 'Playlist', 'YouTube', 'Published', 'Actions'] : ['Title', 'Type', 'Date / Time', 'Playlist', 'Registered', 'YouTube', 'Published', 'Announced', 'Actions']).map(h => (
                     <th key={h} style={{ textAlign: 'left', padding: '8px 10px', color: NAVY, fontWeight: 700, fontSize: 11, textTransform: 'uppercase' as const }}>{h}</th>
                   ))}
                 </tr>
@@ -1646,16 +1649,20 @@ export function LiveSessionsManager({ courseCode = null, embedded = false }: { c
                         }}>{badge.label}</span>
                       </td>
                       <td style={{ padding: '10px 10px', color: '#6B7280', fontSize: 12 }}>
-                        {s.date ? `${s.date} ${s.time ?? ''}` : <span style={{ color: '#D1D5DB' }}>No date set</span>}
+                        {courseCode && (s as unknown as { scheduled_datetime?: string | null }).scheduled_datetime
+                          ? <span data-testid="admin-course-session-time">{adminKsaLabel((s as unknown as { scheduled_datetime?: string | null }).scheduled_datetime)}</span>
+                          : s.date ? `${s.date} ${s.time ?? ''}` : <span style={{ color: '#D1D5DB' }}>No date set</span>}
                       </td>
                       <td style={{ padding: '10px 10px', color: '#6B7280', fontSize: 12 }}>
                         {s.playlist_name ?? '-'}
                       </td>
+                      {!courseCode && (
                       <td style={{ padding: '10px 10px' }}>
                         <button onClick={() => openRegModal(s)} style={{ fontSize: 11, color: '#1B4F8A', background: 'none', border: '1px solid #C7D9F2', borderRadius: 4, padding: '3px 8px', cursor: 'pointer', fontWeight: 600 }}>
                           View
                         </button>
                       </td>
+                      )}
                       <td style={{ padding: '10px 10px' }}>
                         {s.youtube_url ? (
                           <button
@@ -1685,6 +1692,7 @@ export function LiveSessionsManager({ courseCode = null, embedded = false }: { c
                           color: s.published ? '#065F46' : '#9CA3AF',
                         }}>{s.published ? 'Yes' : 'No'}</span>
                       </td>
+                      {!courseCode && (
                       <td style={{ padding: '10px 10px' }}>
                         {(() => {
                           const sent  = s.announcement_sent === true;
@@ -1710,6 +1718,7 @@ export function LiveSessionsManager({ courseCode = null, embedded = false }: { c
                           );
                         })()}
                       </td>
+                      )}
                       <td style={{ padding: '10px 10px' }}>
                         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                           <button style={{ ...btnSecondary, padding: '4px 10px', fontSize: 11 }} onClick={() => setPreviewSession(s)}>Preview</button>

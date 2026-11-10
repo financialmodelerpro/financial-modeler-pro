@@ -80,6 +80,14 @@ export function courseTimeLabel(iso: string | null | undefined, opts: { year?: b
   return `${day}, ${clockIn(d, KSA_TZ)} KSA`;
 }
 
+/** "1 Dec 2026, 7:00 PM KSA": the admin's course session list (no weekday). */
+export function adminKsaLabel(iso: string | null | undefined): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  return `${d.toLocaleDateString('en-GB', { timeZone: KSA_TZ, day: 'numeric', month: 'short', year: 'numeric' })}, ${clockIn(d, KSA_TZ)} KSA`;
+}
+
 /**
  * The viewer's own clock for a course session, only when it differs from
  * KSA: "9:00 PM", or with the day when that differs too, "Wed 2 Dec, 1:00 AM".

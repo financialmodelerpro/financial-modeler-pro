@@ -1964,6 +1964,15 @@ async function unit24(): Promise<void> {
   }
 }
 
+async function unit25(): Promise<void> {
+  console.log('\n=== Admin course Sessions list: KSA times, no per-session Registered / Announced ===\n');
+  const TM = await import('../src/hubs/training/lib/liveCourse/time');
+  check('U25.1 the admin course list reads "1 Dec 2026, 7:00 PM KSA"', TM.adminKsaLabel('2026-12-01T16:00:00Z') === '1 Dec 2026, 7:00 PM KSA');
+  const m = readFileSync('app/admin/training-hub/live-training/LiveSessionsManager.tsx', 'utf8');
+  check('U25.2 a course Sessions tab shows that label; a single session keeps its own date and time', m.includes('{adminKsaLabel((s as unknown as { scheduled_datetime?: string | null }).scheduled_datetime)}') && m.includes("s.date ? `${s.date} ${s.time ?? ''}`"));
+  check('U25.3 a course Sessions tab has no Registered or Announced column; single sessions keep both', m.includes("(courseCode ? ['Title', 'Type', 'Date / Time (KSA)', 'Playlist', 'YouTube', 'Published', 'Actions'] : ['Title', 'Type', 'Date / Time', 'Playlist', 'Registered', 'YouTube', 'Published', 'Announced', 'Actions'])") && (m.match(/\{!courseCode && \(\n\s+<td style=\{\{ padding: '10px 10px' \}\}>/g) ?? []).length === 2);
+}
+
 (async () => {
   await unit0();
   await unit1();
@@ -1991,6 +2000,7 @@ async function unit24(): Promise<void> {
   await unit22();
   await unit23();
   await unit24();
+  await unit25();
   console.log(`\n${passed} passed, ${failed} failed`);
   if (failed) { console.log('Failed:'); for (const f of fails) console.log(`  - ${f}`); process.exit(1); }
 })().catch((e) => { console.error(e); process.exit(1); });
