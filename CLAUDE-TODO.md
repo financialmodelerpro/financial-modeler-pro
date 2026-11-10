@@ -4,7 +4,7 @@
 
 ## START HERE 2026-11-08: THE REFM LIVE COURSE IS LIVE (5f2700c0); FOUNDER TESTING ON LIVE
 
-**2026-11-10 (later): apply migration 255** (`supabase/migrations/255_email_budget_and_announcement_queue.sql`): until then emails are not counted and announcement overflow is reported as not sent instead of queued. **2026-11-10 additions:** (a) DONE: migration 254 applied by the founder. (b) DONE: images compressed (upload routes + the 13 existing). (c) Founder decision: only the website says Zakat/Tax; slides, PDFs, prompts and the workbook keep "Zakat".
+**2026-11-10 (later): migration 255 APPLIED** (founder): emails are counted per day and announcement overflow is queued. **2026-11-10 additions:** (a) DONE: migration 254 applied by the founder. (b) DONE: images compressed (upload routes + the 13 existing). (c) Founder decision: only the website says Zakat/Tax; slides, PDFs, prompts and the workbook keep "Zakat".
 
 Built and pushed today (CHANGELOG 2026-11-08, CLAUDE-FEATURES "Live Courses"): Units 0 to 7, then Live Training admin + status + banners + time zones + session certificates (f53aecaf), migs 247 + 248 + 249 APPLIED, `verify-live-course` 265. OPEN, in order:
 1. **Founder test pass on live**, on the DRAFT TEST course, then clean-up SQL (given in chat 2026-11-08). Browser proof of every unit is still owed.
