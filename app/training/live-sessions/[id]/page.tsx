@@ -27,6 +27,8 @@ interface Session {
   youtube_embed?: boolean; instructor_title?: string; show_like_button?: boolean;
   /** A course session's time zone list (courseMedia.ts); null = the default regions. */
   course_time_zones?: string[] | null;
+  /** A course recording locked for this student (recordingAccess.ts): the reason, e.g. "Complete Session 2 to unlock". */
+  recording_locked?: string | null;
 }
 
 function fmtDate(iso: string): string {
@@ -560,7 +562,12 @@ export default function LiveSessionDetailPage() {
         isLoggedIn={true}
         backUrl="/training/dashboard?tab=live-sessions"
         backLabel="Live Sessions"
-        topContent={registerCard}
+        topContent={session.recording_locked ? (
+          <div data-testid="recording-locked" style={{ background: '#FFF7ED', borderRadius: 10, border: '1px solid #FED7AA', padding: 20 }}>
+            <h3 style={{ fontSize: 14, fontWeight: 700, color: NAVY, margin: '0 0 6px' }}>🔒 Recording locked</h3>
+            <p style={{ fontSize: 13.5, color: '#4B5563', margin: 0, lineHeight: 1.55 }}>{session.recording_locked}. A recording unlocks when you attended that session live, or when every earlier session is complete.</p>
+          </div>
+        ) : registerCard}
       >
         {/* Attachments */}
         {session.attachments.length > 0 && (

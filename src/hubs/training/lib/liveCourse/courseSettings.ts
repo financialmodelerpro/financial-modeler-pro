@@ -16,6 +16,7 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { resolvePage, type PageConfig } from './pageSections';
+import { withoutCourseRecordingLink } from './recordingLink';
 
 export type CertRoute = 'live' | 'recording';
 export type CourseStatus = 'draft' | 'published' | 'archived';
@@ -250,5 +251,7 @@ export async function listCourseSessions(
     console.warn('[liveCourse] sessions read failed', { code, error: error.message });
     return [];
   }
-  return (data ?? []) as unknown as CourseSession[];
+  // A course recording link never leaves through this list (recordingAccess.ts):
+  // the marker keeps "a recording exists" true; the checked session API alone hands out the link.
+  return ((data ?? []) as unknown as CourseSession[]).map((s) => withoutCourseRecordingLink(s));
 }

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerClient } from '@/src/core/db/supabase';
 import { publicSessionFilter } from '@/src/hubs/training/lib/liveCourse/publicVisibility';
+import { withoutCourseRecordingLink } from '@/src/hubs/training/lib/liveCourse/recordingAccess';
 
 export const dynamic = 'force-dynamic';
 
@@ -40,7 +41,7 @@ export async function GET(req: NextRequest) {
 
     // Get registration counts (non-blocking - if table doesn't exist, skip)
     const sessionIds = (data ?? []).map(s => s.id);
-    let regCounts: Record<string, number> = {};
+    const regCounts: Record<string, number> = {};
     if (sessionIds.length > 0) {
       try {
         const { data: regs } = await sb
@@ -68,7 +69,8 @@ export async function GET(req: NextRequest) {
       instructor_name: s.instructor_name,
       tags: s.tags,
       is_featured: s.is_featured,
-      youtube_url: s.youtube_url ?? null,
+      // A course recording link is never public (recordingAccess.ts).
+      youtube_url: withoutCourseRecordingLink({ course_code: (s as { course_code?: string | null }).course_code ?? null, youtube_url: s.youtube_url ?? null }).youtube_url,
       youtube_embed: s.youtube_embed ?? false,
       instructor_title: s.instructor_title ?? null,
       playlist: s.live_playlists,

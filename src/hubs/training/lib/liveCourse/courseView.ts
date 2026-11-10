@@ -13,6 +13,7 @@ import { effectiveSessionType } from './joinWindow';
 import { computeEligibility, loadProgressMaps, type Eligibility } from './eligibility';
 import { loadCourseInstructors, type CourseInstructor } from './courseInstructors';
 import { listMaterials, materialsReleased, materialPath } from './materials';
+import { unlockMap, type RecordingUnlock } from './recordingAccess';
 
 export interface CourseSessionView extends CourseSession {
   state: 'upcoming' | 'live' | 'recorded';
@@ -23,6 +24,8 @@ export interface CourseSessionView extends CourseSession {
   joinUrl: string | null;
   joinOpensAt: string | null;
   joinClosesAt: string | null;
+  /** The recording and materials unlock for this student (recordingAccess.ts); null when not enrolled. */
+  recordingLock: RecordingUnlock | null;
 }
 
 export interface CourseView {
@@ -67,6 +70,7 @@ export async function loadCourseView(
   const maps = await loadProgressMaps(sb, ids, [...new Set([lower, student.email.trim()])]);
   const eligibility = computeEligibility(course, sessions, maps.attendance.get(lower) ?? new Map(), maps.watch.get(lower) ?? new Map(), now);
 
+  const unlocks = unlockMap(eligibility);
   const instructors = await loadCourseInstructors(sb, course.instructorIds);
   const mats = enrolled ? await listMaterials(sb, ids) : [];
   const { data: meta } = await sb.from('training_registrations_meta').select('name').eq('registration_id', student.registrationId).maybeSingle();
@@ -99,6 +103,7 @@ export async function loadCourseView(
         joinUrl: st.joinUrl,
         joinOpensAt: st.window?.opensAt ?? null,
         joinClosesAt: st.window?.closesAt ?? null,
+        recordingLock: enrolled ? unlocks.get(s.id) ?? null : null,
       };
     }),
   };

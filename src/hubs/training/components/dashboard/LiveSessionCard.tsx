@@ -9,6 +9,7 @@ import { useShareTemplate } from '@/src/shared/share/useShareTemplate';
 import { renderShareTemplate, formatShareDate } from '@/src/shared/share/shareTemplates';
 import { JoinLiveButton } from '@/src/hubs/training/components/sessions/JoinLiveButton';
 import type { LiveSession, RegistrationStatus, WatchHistoryEntry } from '@/src/hubs/training/lib/liveSessions/liveSessionsForStudent';
+import { CourseTime } from '@/src/hubs/training/components/sessions/CourseTime';
 
 const NAVY = '#0D2E5A';
 const TEAL = '#14B8A6';
@@ -186,7 +187,7 @@ export function LiveSessionCard(props: Props) {
 
           <div style={metaRow}>
             <Calendar size={13} strokeWidth={2} />
-            <span>{formatDateTime(session.scheduled_datetime)}</span>
+            <span>{(session as { course_code?: string | null }).course_code ? <CourseTime iso={session.scheduled_datetime} /> : formatDateTime(session.scheduled_datetime)}</span>
           </div>
           {session.duration_minutes && (
             <div style={metaRow}>

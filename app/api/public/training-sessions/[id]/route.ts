@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerClient } from '@/src/core/db/supabase';
 import { publicSessionFilter } from '@/src/hubs/training/lib/liveCourse/publicVisibility';
+import { withoutCourseRecordingLink } from '@/src/hubs/training/lib/liveCourse/recordingAccess';
 
 export const dynamic = 'force-dynamic';
 
@@ -19,7 +20,7 @@ export async function GET(
     const sb = getServerClient();
     const { data } = await sb
       .from('live_sessions')
-      .select('id, title, description, session_type, scheduled_datetime, timezone, category, banner_url, duration_minutes, max_attendees, difficulty_level, prerequisites, instructor_name, tags, is_featured, youtube_url, youtube_embed, playlist_id, live_playlists(id, name)')
+      .select('id, title, description, session_type, scheduled_datetime, timezone, category, banner_url, duration_minutes, max_attendees, difficulty_level, prerequisites, instructor_name, tags, is_featured, youtube_url, youtube_embed, playlist_id, course_code, live_playlists(id, name)')
       .eq('id', id)
       .eq('is_published', true)
       .or(await publicSessionFilter(sb))
@@ -47,7 +48,7 @@ export async function GET(
     if (data.playlist_id || data.category) {
       let rq = sb
         .from('live_sessions')
-        .select('id, title, banner_url, session_type, scheduled_datetime, duration_minutes, instructor_name, difficulty_level, youtube_url')
+        .select('id, title, banner_url, session_type, scheduled_datetime, duration_minutes, instructor_name, difficulty_level, youtube_url, course_code')
         .eq('is_published', true)
       .or(await publicSessionFilter(sb))
         .neq('id', id)
@@ -75,7 +76,7 @@ export async function GET(
         instructor_name: data.instructor_name,
         tags: data.tags,
         is_featured: data.is_featured,
-        youtube_url: data.session_type === 'recorded' ? data.youtube_url : null,
+        youtube_url: data.session_type === 'recorded' ? withoutCourseRecordingLink(data as { course_code?: string | null; youtube_url?: string | null }).youtube_url ?? null : null,
         youtube_embed: data.youtube_embed ?? false,
         playlist: data.live_playlists,
         registration_count: count ?? 0,
@@ -85,7 +86,7 @@ export async function GET(
           session_type: r.session_type, scheduled_datetime: r.scheduled_datetime,
           duration_minutes: r.duration_minutes, instructor_name: r.instructor_name,
           difficulty_level: r.difficulty_level,
-          youtube_url: r.session_type === 'recorded' ? r.youtube_url : null,
+          youtube_url: r.session_type === 'recorded' ? withoutCourseRecordingLink(r as { course_code?: string | null; youtube_url?: string | null }).youtube_url ?? null : null,
         })),
       },
     });

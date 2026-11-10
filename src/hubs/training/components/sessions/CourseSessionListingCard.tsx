@@ -9,9 +9,9 @@
  * registration.
  */
 import Link from 'next/link';
-import { formatSessionTime } from '@/src/hubs/training/lib/liveCourse/time';
 import { coursePagePath } from '@/src/hubs/training/lib/liveCourse/paths';
 import { courseCardAction, seriesLabel } from '@/src/hubs/training/lib/liveCourse/publicListing';
+import { CourseTime } from '@/src/hubs/training/components/sessions/CourseTime';
 
 const NAVY = '#0D2E5A';
 const BLUE = '#1B4F8A';
@@ -59,7 +59,7 @@ export function CourseSessionListingCard({ s, total, enrolled, signedIn, enrolme
           )}
         </div>
         <div style={{ fontWeight: 800, fontSize: 16, color: NAVY, lineHeight: 1.35 }}>{s.title}</div>
-        <div style={{ fontSize: 13, color: SLATE }}>{formatSessionTime(s.scheduled_datetime)}</div>
+        <div style={{ fontSize: 13, color: SLATE }}><CourseTime iso={s.scheduled_datetime} /></div>
         <Link data-testid="course-session-listing-series" href={coursePagePath(s.course_code)} style={{ fontSize: 12.5, fontWeight: 700, color: BLUE, textDecoration: 'none' }}>
           Part of {seriesLabel(s.course_short_title, s.course_code)} →
         </Link>

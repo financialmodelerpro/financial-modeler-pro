@@ -37,6 +37,7 @@ import {
 import { ShareExperienceModal } from '@/src/shared/components/ShareExperienceModal';
 import { LiveSessionsContent } from '@/src/hubs/training/components/dashboard/LiveSessionsContent';
 import { MyModelView } from '@/src/hubs/training/components/dashboard/MyModelView';
+import { coursePagePath } from '@/src/hubs/training/lib/liveCourse/paths';
 import { LiveSessionsSection } from '@/src/hubs/training/components/dashboard/LiveSessionsSection';
 import { LiveCourseCards } from '@/src/hubs/training/components/dashboard/LiveCourseCards';
 import { formatShareDate } from '@/src/shared/share/shareTemplates';
@@ -273,6 +274,17 @@ export default function TrainingDashboardPage() {
 
   // Fetch upcoming-session counters for the sidebar + quick actions bar.
   // Per-card registration status is fetched by LiveSessionsSection.
+  // Live courses the student is enrolled in, for My Courses (progress = sessions complete / total).
+  const [myLiveCourses, setMyLiveCourses] = useState<{ courseCode: string; title: string; progress: { completed: number; total: number } | null }[]>([]);
+  useEffect(() => {
+    fetch('/api/training/live-course')
+      .then(r => (r.ok ? r.json() : { courses: [] }))
+      .then((j: { courses?: { courseCode: string; title: string; enrolled: boolean; progress: { completed: number; total: number } | null }[] }) => {
+        setMyLiveCourses((j.courses ?? []).filter(c => c.enrolled));
+      })
+      .catch(() => {});
+  }, []);
+
   useEffect(() => {
     fetch('/api/training/live-sessions?type=upcoming')
       .then(r => r.json())
@@ -1096,6 +1108,25 @@ export default function TrainingDashboardPage() {
                   badge={isLocked ? 'LOCKED' : `${cStats.passed}/${cStats.total}`}
                   badgeColor={isLocked ? 'rgba(255,255,255,0.15)' : cStats.pct === 100 ? '#C9A84C' : '#2EAA4A'}
                   tooltip={isLocked ? `${c.title} - complete the 3SFM Final Exam to unlock` : `${c.title}: ${cStats.passed}/${cStats.total} sessions`}
+                  wrapLabel
+                />
+              );
+            })}
+
+            {/* LIVE COURSES the student is enrolled in (REFM, and any live course
+                later): the course page holds its sessions, recordings and materials. */}
+            {myLiveCourses.map(lc => {
+              const p = lc.progress ?? { completed: 0, total: 0 };
+              return (
+                <SidebarItem
+                  key={lc.courseCode}
+                  icon={<BookOpen size={16} />}
+                  label={lc.title}
+                  active={false}
+                  onClick={() => { setMobileSidebarOpen(false); router.push(coursePagePath(lc.courseCode)); }}
+                  badge={`${p.completed}/${p.total}`}
+                  badgeColor={p.total > 0 && p.completed === p.total ? '#C9A84C' : '#2EAA4A'}
+                  tooltip={`${lc.title}: ${p.completed}/${p.total} sessions complete`}
                   wrapLabel
                 />
               );

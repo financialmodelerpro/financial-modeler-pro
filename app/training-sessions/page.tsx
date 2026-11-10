@@ -12,6 +12,7 @@ import type { PublicCourseOffer } from './PublicCourseOffers';
 import { listLiveCourses, listCourseSessions } from '@/src/hubs/training/lib/liveCourse/courseSettings';
 import { applyCourseMedia } from '@/src/hubs/training/lib/liveCourse/courseMedia';
 import { publicSessionFilter } from '@/src/hubs/training/lib/liveCourse/publicVisibility';
+import { withoutCourseRecordingLink } from '@/src/hubs/training/lib/liveCourse/recordingAccess';
 
 // Canonical lives on the learn subdomain because main-domain hits are 307'd to
 // learn (next.config.ts /training-sessions redirect). Pointing canonical at
@@ -47,7 +48,7 @@ async function getSessions(): Promise<PublicSession[]> {
 
     // Get registration counts
     const sessionIds = (data ?? []).map(s => s.id);
-    let regCounts: Record<string, number> = {};
+    const regCounts: Record<string, number> = {};
     if (sessionIds.length > 0) {
       try {
         const { data: regs } = await sb
@@ -77,7 +78,8 @@ async function getSessions(): Promise<PublicSession[]> {
       instructor_name: s.instructor_name,
       tags: s.tags,
       is_featured: s.is_featured,
-      youtube_url: s.youtube_url ?? null,
+      // A course recording link is never public (recordingAccess.ts).
+      youtube_url: withoutCourseRecordingLink({ course_code: (s.course_code as string | null) ?? null, youtube_url: s.youtube_url ?? null }).youtube_url,
       youtube_embed: s.youtube_embed ?? false,
       instructor_title: s.instructor_title ?? null,
       playlist: (Array.isArray(s.live_playlists) ? s.live_playlists[0] : s.live_playlists) as PublicSession['playlist'],

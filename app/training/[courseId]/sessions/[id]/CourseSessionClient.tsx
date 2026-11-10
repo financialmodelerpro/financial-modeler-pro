@@ -11,7 +11,7 @@ import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import type { LiveCourseSettings, CourseSession } from '@/src/hubs/training/lib/liveCourse/courseSettings';
 import type { CourseView } from '@/src/hubs/training/lib/liveCourse/courseView';
-import { formatSessionTime } from '@/src/hubs/training/lib/liveCourse/time';
+import { courseTimeLabel } from '@/src/hubs/training/lib/liveCourse/time';
 import { courseSessionPath, coursePagePath } from '@/src/hubs/training/lib/liveCourse/paths';
 import { navStatus, prevNext, sessionMainAction, sessionLabel, STATUS_LABEL } from '@/src/hubs/training/lib/liveCourse/courseNav';
 import { sessionCertificateAvailable } from '@/src/hubs/training/lib/liveCourse/sessionCertificate';
@@ -22,6 +22,7 @@ import { SessionCertificateButton } from '@/src/hubs/training/components/session
 import { SessionProgress } from '../../../live-course/[code]/LiveCourseClient';
 import { SessionContentSections } from '@/src/hubs/training/components/sessions/SessionContentSections';
 import { sessionSections } from '@/src/hubs/training/lib/liveCourse/sessionContent';
+import { CourseTime } from '@/src/hubs/training/components/sessions/CourseTime';
 
 const NAVY = '#0D2E5A';
 const BLUE = '#1B4F8A';
@@ -50,7 +51,7 @@ export function CourseSessionClient({ course, sessions, sessionId, signedIn, can
   const vs = view?.sessions.find((x) => x.id === sessionId);
   const enrolled = !!view?.enrolled;
   const status = navStatus(s, now);
-  const action = sessionMainAction({ courseCode: course.courseCode, sessionId, status, enrolled, signedIn, canRegister });
+  const action = sessionMainAction({ courseCode: course.courseCode, sessionId, status, enrolled, signedIn, canRegister, recordingLocked: vs?.recordingLock?.unlocked === false ? vs.recordingLock.message : null });
   const { prev, next } = prevNext(sessions, sessionId);
   const e = view?.eligibility.sessions.find((x) => x.sessionId === sessionId);
   const completed = new Set((view?.eligibility.sessions ?? []).filter((x) => x.met).map((x) => x.sessionId));
@@ -69,7 +70,7 @@ export function CourseSessionClient({ course, sessions, sessionId, signedIn, can
     const base: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', padding: '12px 24px', borderRadius: 10, fontWeight: 800, fontSize: 14.5, textDecoration: 'none' };
     if (action.kind === 'join') return <JoinLiveButton joinUrl={vs?.joinUrl ?? null} joinOpensAt={vs?.joinOpensAt ?? null} joinClosesAt={vs?.joinClosesAt ?? null} studentName={view?.student.name ?? null} />;
     if (action.href) return <Link data-testid="session-main-action" data-action={action.kind} href={action.href} style={{ ...base, background: action.kind === 'watch' ? BLUE : GREEN, color: '#fff' }}>{action.kind === 'watch' ? '▶ ' : ''}{action.label}</Link>;
-    return <span data-testid="session-main-action" data-action={action.kind} style={{ ...base, background: '#F1F3F5', color: SLATE }}>{action.label}</span>;
+    return <span data-testid="session-main-action" data-action={action.kind} style={{ ...base, background: action.kind === 'locked' ? '#FFF7ED' : '#F1F3F5', color: action.kind === 'locked' ? '#9A5B00' : SLATE }}>{action.kind === 'locked' ? '🔒 ' : ''}{action.label}</span>;
   })();
 
   return (
@@ -90,8 +91,8 @@ export function CourseSessionClient({ course, sessions, sessionId, signedIn, can
           {/* Smaller than a page title: the image already shows it. */}
           <h1 data-testid="course-session-title" style={{ fontSize: 'clamp(18px,2.2vw,22px)', fontWeight: 800, color: NAVY, margin: '6px 0 4px', lineHeight: 1.3 }}>{s.title}</h1>
           <div style={{ fontSize: 14.5, color: SLATE }}>
-            {formatSessionTime(s.scheduled_datetime)}
-            {s.rescheduled_from && <span style={{ marginLeft: 8, color: '#9A5B00', fontWeight: 700 }}>(rescheduled, was {formatSessionTime(s.rescheduled_from)})</span>}
+            <CourseTime iso={s.scheduled_datetime} />
+            {s.rescheduled_from && <span style={{ marginLeft: 8, color: '#9A5B00', fontWeight: 700 }}>(rescheduled, was {courseTimeLabel(s.rescheduled_from)})</span>}
           </div>
           {s.scheduled_datetime && <TimeZoneTable iso={s.scheduled_datetime} zones={course.timeZones} collapsible />}
 
@@ -112,7 +113,9 @@ export function CourseSessionClient({ course, sessions, sessionId, signedIn, can
 
           <SessionContentSections sections={sections} />
 
-          {block('Materials', enrolled && vs?.materialsReleased && vs.materials.length > 0 ? (
+          {block('Materials', enrolled && vs?.recordingLock?.unlocked === false && vs.materialsReleased ? (
+            <p data-testid="course-session-materials-locked" style={{ margin: 0, fontSize: 14, color: '#9A5B00' }}>🔒 {vs.recordingLock.message}: the materials unlock with the recording.</p>
+          ) : enrolled && vs?.materialsReleased && vs.materials.length > 0 ? (
             <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'grid', gap: 6 }}>
               {vs.materials.map((m) => (
                 <li key={m.id}>{m.url ? <a href={m.url} style={{ color: BLUE, fontWeight: 700 }}>⬇ {m.fileName}</a> : <span>{m.fileName}</span>}</li>

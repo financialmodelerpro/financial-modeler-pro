@@ -241,6 +241,7 @@ scripts/verify-live-course.ts                                    # 265 checks, U
 #   app/admin/training-hub/live-sessions/page.tsx + live-course/page.tsx are now REDIRECTS; model-submissions/ModelSubmissionsManager.tsx is the shared screen
 #   app/api/admin/live-course: GET list (+counts) / POST create; [code]: GET (+previewUrl) / PATCH (details, rules, status); [code]/image: POST/DELETE banner|card
 #   src/hubs/training/lib/liveCourse/{timeZones, courseAdmin, courseMedia, preview, sessionCertificate}.ts; lib/liveSessions/achievementCard.ts
+#   src/hubs/training/lib/liveCourse/{recordingAccess, recordingLink}.ts (recording unlock, link marker); components/sessions/CourseTime.tsx (KSA-first time); src/shared/storage/optimizeImage.ts (image compression)
 #   src/hubs/training/lib/liveCourse/nameMatch.ts (guest name matching); src/shared/cms/cached.ts (opt-in cached CMS reads); app/api/training/registered-name
 #   src/hubs/training/lib/liveCourse/{sessionContent, cachedReads}.ts (2026-11-10: session page lists, cached course reads); seeds/refmSessionContent.ts (generated)
 #   src/hubs/training/components/sessions/{SessionContentSections, LiveCourseSubmission}.tsx; scripts/{gen-refm-session-content, apply-migration-253}.ts

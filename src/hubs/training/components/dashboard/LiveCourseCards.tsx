@@ -7,8 +7,8 @@
  */
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { formatSessionTime } from '@/src/hubs/training/lib/liveCourse/time';
 import { coursePagePath } from '@/src/hubs/training/lib/liveCourse/paths';
+import { CourseTime } from '@/src/hubs/training/components/sessions/CourseTime';
 
 interface CourseCard {
   courseCode: string;
@@ -50,7 +50,7 @@ export function LiveCourseCards() {
           <div style={{ flex: '1 1 280px' }}>
             <div style={{ fontSize: 11, letterSpacing: 1, textTransform: 'uppercase', opacity: 0.85 }}>Live course · {c.sessionCount} sessions</div>
             <div style={{ fontSize: 18, fontWeight: 800, margin: '4px 0' }}>{c.title}</div>
-            <div style={{ fontSize: 13, opacity: 0.9 }}>{c.nextSessionAt ? `Next: ${formatSessionTime(c.nextSessionAt)}` : c.description}</div>
+            <div style={{ fontSize: 13, opacity: 0.9 }}>{c.nextSessionAt ? <>Next: <CourseTime iso={c.nextSessionAt} /></> : c.description}</div>
             {msg[c.courseCode] && <div style={{ fontSize: 12.5, marginTop: 6 }}>{msg[c.courseCode]}</div>}
           </div>
           {c.enrolled ? (

@@ -1305,7 +1305,8 @@ async function unit14(): Promise<void> {
   check('U14.4c enrolled: "View session" under the course', enr.label === 'View session' && enr.href === '/training/REFM/sessions/S1');
   check('U14.4d no branch goes to single-session registration', [out, inn, enr].every((a) => !a.href.includes('/training-sessions/') && !a.href.includes('/live-sessions/')));
   const card = readFileSync('src/hubs/training/components/sessions/CourseSessionListingCard.tsx', 'utf8');
-  check('U14.4e the card shows "Session X of N", KSA time, Rescheduled and "Part of ... Live Series"', card.includes('Session {s.course_session_no} of {total}') && card.includes('formatSessionTime(s.scheduled_datetime)') && card.includes('Rescheduled') && card.includes('Part of {seriesLabel('));
+  // Re-aimed 2026-11-10: course times use the one KSA-first label (CourseTime, unit 20).
+  check('U14.4e the card shows "Session X of N", KSA time, Rescheduled and "Part of ... Live Series"', card.includes('Session {s.course_session_no} of {total}') && card.includes('<CourseTime iso={s.scheduled_datetime} />') && card.includes('Rescheduled') && card.includes('Part of {seriesLabel('));
   const detail = readFileSync('app/training-sessions/[id]/page.tsx', 'utf8');
   check('U14.4f a course session\'s public detail page sends visitors to the course', detail.includes('if (session?.course_code) redirect(coursePagePath(session.course_code))'));
 
@@ -1697,6 +1698,82 @@ async function unit19(): Promise<void> {
   }
 }
 
+async function unit20(): Promise<void> {
+  console.log('\n=== Dashboard: My Courses progress, Live Sessions, recording unlock, KSA-first times ===\n');
+  const RA = await import('../src/hubs/training/lib/liveCourse/recordingAccess');
+  const E = (no: number, liveMet: boolean, recordingMet: boolean) => ({ sessionId: `s${no}`, no, liveMet, recordingMet, met: liveMet || recordingMet });
+
+  // ── Progress count ──
+  const elig = { courseCode: 'REFM', sessions: [E(1, true, false), E(2, false, true), E(3, true, false), E(4, false, false), E(5, false, false), E(6, false, false), E(7, false, false), E(8, false, false)] } as unknown as import('../src/hubs/training/lib/liveCourse/eligibility').Eligibility;
+  const pr = RA.courseProgress(elig);
+  check('U20.1a progress is sessions complete over the course\'s sessions (3/8)', pr.completed === 3 && pr.total === 8);
+  const api = readFileSync('app/api/training/live-course/route.ts', 'utf8');
+  const dash = readFileSync('app/training/dashboard/page.tsx', 'utf8');
+  check('U20.1b the dashboard API returns it for an enrolled student, through the one eligibility rule', api.includes('const elig = enrolled ? await loadStudentEligibility(sb, sess.email, c.courseCode) : null;') && api.includes('progress: elig ? courseProgress(elig) : null'));
+  check('U20.1c My Courses lists enrolled live courses beside 3SFM and BVM, with the count, opening the course and its sessions', dash.includes('myLiveCourses.map(lc =>') && dash.includes('badge={`${p.completed}/${p.total}`}') && dash.includes('router.push(coursePagePath(lc.courseCode))') && dash.indexOf('myLiveCourses.map(lc =>') > dash.indexOf("(['3sfm', 'bvm'] as const).map(cId =>"));
+
+  // ── Live Sessions: a course session leaves once its recording is added ──
+  const future = new Date(Date.now() + 7 * 864e5).toISOString();
+  const past = new Date(Date.now() - 7 * 864e5).toISOString();
+  const base = { course_code: 'REFM', session_type: 'upcoming', duration_minutes: 150 };
+  check('U20.2a an upcoming course session is under Live Sessions', RA.showInLiveSessions({ ...base, scheduled_datetime: future, youtube_url: null }));
+  check('U20.2b once its recording is added it leaves Live Sessions (it is in the course under My Courses)', !RA.showInLiveSessions({ ...base, scheduled_datetime: past, session_type: 'recorded', youtube_url: 'https://youtu.be/x' }) && !RA.showInLiveSessions({ ...base, scheduled_datetime: future, youtube_url: 'https://youtu.be/x' }));
+  check('U20.2c an ended course session with no recording yet is not under Live Sessions either', !RA.showInLiveSessions({ ...base, scheduled_datetime: past, youtube_url: null }));
+  check('U20.2d a single session is unchanged (a recorded one still lists)', RA.showInLiveSessions({ course_code: null, scheduled_datetime: past, session_type: 'recorded', youtube_url: 'https://youtu.be/x' }));
+  check('U20.2e the Live Sessions API applies the rule', readFileSync('app/api/training/live-sessions/route.ts', 'utf8').includes('.filter((s) => showInLiveSessions(s, now))'));
+
+  // ── The unlock rule ──
+  const rec = [E(1, false, true), E(2, false, false), E(3, false, false), E(4, false, false)];
+  const s3 = RA.recordingUnlock(rec, 's3');
+  check('U20.3a a recording-only student is blocked from Session 3 until 1 and 2 are complete', !s3.unlocked && s3.message === 'Complete Session 2 to unlock' && s3.blockedBy === 2);
+  check('U20.3b ... and Session 3 unlocks once Session 2 is complete', RA.recordingUnlock([E(1, false, true), E(2, false, true), E(3, false, false)], 's3').unlocked);
+  check('U20.3c Session 1 is always open to an enrolled student (nothing earlier)', RA.recordingUnlock(rec, 's1').unlocked);
+  const live4 = [E(1, true, false), E(2, true, false), E(3, false, false), E(4, true, false), E(5, false, false)];
+  check('U20.3d a live attendee of Session 4 opens it even with Session 3 incomplete (and Session 5 waits on Session 3)', RA.recordingUnlock(live4, 's4').unlocked && RA.recordingUnlock(live4, 's5').message === 'Complete Session 3 to unlock');
+  check('U20.3e the lock names the FIRST earlier session not complete', RA.recordingUnlock([E(1, false, false), E(2, false, false), E(3, false, false)], 's3').message === 'Complete Session 1 to unlock');
+
+  // ── Enforced on the server: the player's session API, watch progress, materials ──
+  const { client } = fakeDb({
+    training_course_settings: [REFM_ROW],
+    live_sessions: [1, 2, 3, 4].map((n) => ({ id: `s${n}`, title: `S${n}`, course_code: 'REFM', course_session_no: n, is_published: true, session_type: 'recorded', scheduled_datetime: new Date(Date.now() - (10 - n) * 864e5).toISOString(), duration_minutes: 150, youtube_url: `https://youtu.be/v${n}` })),
+    training_enrollments: [{ registration_id: 'FMP-R', course_code: 'REFM' }, { registration_id: 'FMP-L', course_code: 'REFM' }],
+    session_registrations: [],
+    live_session_attendance: [{ id: 'a4', session_id: 's4', student_email: 'live@x.com', intervals: [], attended_pct: 90, session_seconds: 9000, source: 'manual' }],
+    session_watch_history: [{ id: 'w1', session_id: 's1', student_email: 'rec@x.com', watch_seconds: 9000, total_seconds: 9000, watch_percentage: 100 }],
+  });
+  const sess = (n: number) => ({ id: `s${n}`, course_code: 'REFM', live_url: null, scheduled_datetime: null, duration_minutes: 150 });
+  const recS3 = await RA.loadRecordingUnlock(client, { email: 'rec@x.com', registrationId: 'FMP-R' }, sess(3));
+  const liveS4 = await RA.loadRecordingUnlock(client, { email: 'live@x.com', registrationId: 'FMP-L' }, sess(4));
+  const liveS3 = await RA.loadRecordingUnlock(client, { email: 'live@x.com', registrationId: 'FMP-L' }, sess(3));
+  const stranger = await RA.loadRecordingUnlock(client, { email: 'x@x.com', registrationId: 'FMP-X' }, sess(1));
+  const anon = await RA.loadRecordingUnlock(client, null, sess(1));
+  check('U20.4a server: the recording-only student is refused Session 3 ("Complete Session 2 to unlock")', !recS3.unlocked && recS3.message === 'Complete Session 2 to unlock', JSON.stringify(recS3));
+  check('U20.4b server: the live attendee of Session 4 is allowed it, and still refused Session 3', liveS4.unlocked && !liveS3.unlocked, JSON.stringify({ liveS4, liveS3 }));
+  check('U20.4c server: someone not enrolled, or not signed in, is refused', !stranger.unlocked && !anon.unlocked);
+  const matRoute = readFileSync('app/api/training/live-sessions/[id]/materials/[materialId]/route.ts', 'utf8');
+  check('U20.4d locked materials are refused by the server (the download route runs the same unlock before any link)', matRoute.includes('const unlock = await loadRecordingUnlock(sb, sess, session as SessionForAccess);') && matRoute.indexOf('loadRecordingUnlock(') < matRoute.indexOf('createSignedUrl('));
+  const detail = readFileSync('app/api/training/live-sessions/[id]/route.ts', 'utf8');
+  check('U20.4e the player\'s session API hands out a course recording only when unlocked, else the marker and the reason', detail.includes('const unlock = await loadRecordingUnlock(sb, await getTrainingCookieSession(), session);') && detail.includes('row = withoutCourseRecordingLink(row); recordingLocked = unlock.message;'));
+  check('U20.4f watch progress for a locked course recording is refused', readFileSync('app/api/training/live-sessions/[id]/watched/route.ts', 'utf8').includes("if (!unlock.unlocked) return NextResponse.json({ success: false, error: unlock.message ?? 'This recording is locked.' }, { status: 403 });"));
+  const CS = await import('../src/hubs/training/lib/liveCourse/courseSettings');
+  const listed = await CS.listCourseSessions(client, 'REFM');
+  check('U20.4g course recording links never travel in the session list (marker only; "a recording exists" stays true)', listed.length === 4 && listed.every((s) => s.youtube_url === RA.RECORDING_MARKER));
+  const leaks = ['app/api/public/training-sessions/route.ts', 'app/api/public/training-sessions/[id]/route.ts', 'app/training-sessions/page.tsx', 'app/api/training/live-sessions/route.ts'].filter((f) => !readFileSync(f, 'utf8').includes('withoutCourseRecordingLink('));
+  check('U20.4h nor in the public APIs, the Training Sessions page or the Live Sessions list', leaks.length === 0, leaks.join(', '));
+  const nav = await import('../src/hubs/training/lib/liveCourse/courseNav');
+  const act = nav.sessionMainAction({ courseCode: 'REFM', sessionId: 's3', status: 'recorded', enrolled: true, signedIn: true, canRegister: true, recordingLocked: 'Complete Session 2 to unlock' });
+  check('U20.4i the session page button shows the lock instead of Watch recording', act.kind === 'locked' && act.label === 'Complete Session 2 to unlock' && act.href === null);
+
+  // ── Times: KSA first, plus the viewer's own when it differs ──
+  const TM = await import('../src/hubs/training/lib/liveCourse/time');
+  check('U20.5a a course session time reads KSA first: "Tue 1 Dec, 7:00 PM KSA"', TM.courseTimeLabel('2026-12-01T16:00:00Z') === 'Tue 1 Dec, 7:00 PM KSA');
+  check('U20.5b plus "(9:00 PM your time)" when the viewer\'s zone differs, nothing in KSA, the day when it changes', TM.viewerTimeSuffix('2026-12-01T16:00:00Z', 'Asia/Karachi') === '(9:00 PM your time)' && TM.viewerTimeSuffix('2026-12-01T16:00:00Z', 'Asia/Riyadh') === '' && TM.viewerTimeSuffix('2026-12-01T16:00:00Z', 'Asia/Tokyo') === '(Wed 2 Dec, 1:00 AM your time)');
+  const card = readFileSync('src/hubs/training/components/dashboard/LiveSessionCard.tsx', 'utf8');
+  check('U20.5c the dashboard card shows a course session KSA first; a single session keeps its own format', card.includes('.course_code ? <CourseTime iso={session.scheduled_datetime} /> : formatDateTime(session.scheduled_datetime)'));
+  const surfaces = ['src/hubs/training/components/dashboard/LiveSessionCardLarge.tsx', 'src/hubs/training/components/sessions/CourseSessionListingCard.tsx', 'src/hubs/training/components/dashboard/LiveCourseCards.tsx', 'app/training/[courseId]/sessions/[id]/CourseSessionClient.tsx', 'src/hubs/training/components/sessions/CourseShell.tsx'].filter((f) => !readFileSync(f, 'utf8').includes('<CourseTime iso='));
+  check('U20.5d every course session time surface uses the one KSA-first label', surfaces.length === 0, surfaces.join(', '));
+}
+
 (async () => {
   await unit0();
   await unit1();
@@ -1719,6 +1796,7 @@ async function unit19(): Promise<void> {
   await unit17();
   await unit18();
   await unit19();
+  await unit20();
   console.log(`\n${passed} passed, ${failed} failed`);
   if (failed) { console.log('Failed:'); for (const f of fails) console.log(`  - ${f}`); process.exit(1); }
 })().catch((e) => { console.error(e); process.exit(1); });

@@ -11,6 +11,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import { coursePagePath, courseSessionPath } from '@/src/hubs/training/lib/liveCourse/paths';
 import { navStatus, orderSessions, STATUS_LABEL, type NavSession, type NavStatus } from '@/src/hubs/training/lib/liveCourse/courseNav';
+import { CourseTime } from './CourseTime';
 
 const NAVY = '#0D2E5A';
 const ACCENT = '#9EC3E8';
@@ -162,7 +163,7 @@ export function CourseSessionsTable({ courseCode, sessions, completed, now }: { 
             </span>
             <span style={{ minWidth: 0 }}>
               <span style={{ display: 'block', fontWeight: 800, color: '#0D2E5A', fontSize: 14.5, lineHeight: 1.35 }}>{s.title}</span>
-              <span style={{ display: 'block', fontSize: 12.5, color: '#5A6675', marginTop: 2 }}>{s.scheduled_datetime ? new Date(s.scheduled_datetime).toLocaleString('en-GB', { timeZone: 'Asia/Riyadh', weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true }) + ' KSA' : 'Date to be announced'}</span>
+              <span style={{ display: 'block', fontSize: 12.5, color: '#5A6675', marginTop: 2 }}><CourseTime iso={s.scheduled_datetime} /></span>
             </span>
             <span style={{ fontSize: 11.5, fontWeight: 800, color: st === 'live' ? '#2E7D52' : st === 'rescheduled' ? '#9A5B00' : '#1B4F8A', background: st === 'live' ? '#E7F4EC' : st === 'rescheduled' ? '#FFF4E5' : '#EEF3FA', borderRadius: 12, padding: '3px 9px', whiteSpace: 'nowrap' }}>{STATUS_LABEL[st]}</span>
           </Link>

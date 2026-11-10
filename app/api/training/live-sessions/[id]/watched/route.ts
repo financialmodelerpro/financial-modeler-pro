@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerClient } from '@/src/core/db/supabase';
 import { getTrainingCookieSession } from '@/src/hubs/training/lib/session/trainingSessionCookie';
 import { detectVideoChange } from '@/src/hubs/training/lib/watch/detectVideoChange';
+import { loadRecordingUnlock } from '@/src/hubs/training/lib/liveCourse/recordingAccess';
 import {
   hydrateIntervals,
   unionIntervals,
@@ -56,6 +57,13 @@ export async function POST(
     if (!email) return NextResponse.json({ success: false, error: 'Email required' }, { status: 400 });
 
     const sb = getServerClient();
+
+    // A course recording that is locked for this student records no progress (recordingAccess.ts).
+    const { data: target } = await sb.from('live_sessions').select('id, course_code, scheduled_datetime, duration_minutes').eq('id', id).maybeSingle();
+    if (target?.course_code) {
+      const unlock = await loadRecordingUnlock(sb, sess, target);
+      if (!unlock.unlocked) return NextResponse.json({ success: false, error: unlock.message ?? 'This recording is locked.' }, { status: 403 });
+    }
 
     // Current row (if any). Now also reads watch_intervals JSONB so we can
     // union with the incoming snapshot for cross-session accumulation,

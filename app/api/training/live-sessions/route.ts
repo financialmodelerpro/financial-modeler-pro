@@ -3,6 +3,7 @@ import { getServerClient } from '@/src/core/db/supabase';
 import { withoutPrivateFields } from '@/src/hubs/training/lib/liveSessions/privateSessionFields';
 import { applyCourseMedia } from '@/src/hubs/training/lib/liveCourse/courseMedia';
 import { publicSessionFilter } from '@/src/hubs/training/lib/liveCourse/publicVisibility';
+import { showInLiveSessions, withoutCourseRecordingLink } from '@/src/hubs/training/lib/liveCourse/recordingAccess';
 
 export const dynamic = 'force-dynamic';
 
@@ -36,7 +37,7 @@ export async function GET(req: NextRequest) {
 
     // Fetch attachments for all sessions
     const sessionIds = (data ?? []).map(s => `LIVE_${s.id}`);
-    let attachments: Record<string, unknown[]> = {};
+    const attachments: Record<string, unknown[]> = {};
     if (sessionIds.length) {
       const { data: atts } = await sb
         .from('course_attachments')
@@ -53,7 +54,12 @@ export async function GET(req: NextRequest) {
     // Unauthenticated route: the join link, password and dial-in never leave
     // here. A registered student gets them from the register status routes.
     // A course session with no banner shows the course banner (courseMedia.ts).
-    const sessions = (await applyCourseMedia(sb, (data ?? []).map(s => withoutPrivateFields(s)))).map(s => ({
+    // A course session is listed only while upcoming or live (once its recording
+    // is added it lives in the course under My Courses), and never with its
+    // recording link (recordingAccess.ts). Single sessions are unchanged.
+    const now = Date.now();
+    const listed = (data ?? []).filter((s) => showInLiveSessions(s, now)).map((s) => withoutCourseRecordingLink(s));
+    const sessions = (await applyCourseMedia(sb, listed.map(s => withoutPrivateFields(s)))).map(s => ({
       ...s,
       playlist: (s as Record<string, unknown>).live_playlists,
       attachments: attachments[String((s as Record<string, unknown>).id)] ?? [],
