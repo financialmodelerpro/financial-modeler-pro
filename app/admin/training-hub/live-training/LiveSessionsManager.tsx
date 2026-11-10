@@ -8,6 +8,7 @@ import { InstructorPicker } from '@/src/components/admin/InstructorPicker';
 import { KSA_TZ, utcToZonedParts, zonedWallTimeToUtc } from '@/src/hubs/training/lib/liveCourse/time';
 import { CourseSessionTools } from './CourseSessionTools';
 import { coursePlaylistIds } from '@/src/hubs/training/lib/liveCourse/publicListing';
+import { AudiencePicker, AudienceCountLine, audienceQuery, DEFAULT_AUDIENCE, type AudienceValue } from './AnnouncementAudience';
 import { SECTION_KEYS, SECTION_LABELS, sessionSections, linesToList, listToLines, type SectionKey, type SessionContentRow } from '@/src/hubs/training/lib/liveCourse/sessionContent';
 
 /* ── Types ─────────────────────────────────────────────────────── */
@@ -410,6 +411,10 @@ export function LiveSessionsManager({ courseCode = null, embedded = false }: { c
     loading:    boolean;
     sendResult: { sent: number; failed: number; sendLogId: string } | null;
     log:        AnnounceLogRow[];
+    /** The audience (announcements/audience.ts) and its counts before sending. */
+    aud:        AudienceValue;
+    counts:     { total: number; excludedUnsubscribed: number; excludedBounced: number } | null;
+    allowance:  number | null;
   } | null>(null);
 
   /* ── Teams integration test ── */
@@ -906,19 +911,20 @@ export function LiveSessionsManager({ courseCode = null, embedded = false }: { c
   };
 
   /* ── Announcement flow (rich picker modal) ── */
-  const openAnnounceModal = async (s: LiveSession) => {
+  const openAnnounceModal = async (s: LiveSession, aud: AudienceValue = DEFAULT_AUDIENCE) => {
     setAnnounceModal({
       session: s, recipients: [], selected: new Set(),
       search: '', courseFilter: 'all', loading: true,
-      sendResult: null, log: [],
+      sendResult: null, log: [], aud, counts: null, allowance: null,
     });
     try {
-      const res = await fetch(`/api/admin/live-sessions/${s.id}/notify?target=all`);
+      // The chosen audience (active students by default); unsubscribed and bounced excluded on the server.
+      const res = await fetch(`/api/admin/live-sessions/${s.id}/notify?${audienceQuery(aud)}`);
       if (res.ok) {
-        const j = await res.json() as { recipients?: AnnouncePickerRecipient[] };
+        const j = await res.json() as { recipients?: AnnouncePickerRecipient[]; audienceCounts?: { total: number; excludedUnsubscribed: number; excludedBounced: number }; allowance?: number };
         const recipients = j.recipients ?? [];
         setAnnounceModal(m => m ? {
-          ...m, recipients,
+          ...m, recipients, counts: j.audienceCounts ?? null, allowance: j.allowance ?? null,
           // Default selection: every confirmed student. Admin can deselect
           // individuals or use Clear All before sending.
           selected: new Set(recipients.map(r => r.email.toLowerCase())),
@@ -983,11 +989,12 @@ export function LiveSessionsManager({ courseCode = null, embedded = false }: { c
         }),
       });
       if (res.ok) {
-        const j = await res.json() as { sent?: number; failed?: number; sendLogId?: string };
+        const j = await res.json() as { sent?: number; failed?: number; sendLogId?: string; queued?: number; notSent?: number };
         const sent = j.sent ?? 0; const failed = j.failed ?? 0;
-        toast(failed > 0
-          ? `Sent to ${sent} students, ${failed} failed (see status panel)`
-          : `Announcement sent to ${sent} student${sent === 1 ? '' : 's'}`);
+        const later = j.queued ? ` ${j.queued} queued for the next days (daily email budget).` : j.notSent ? ` ${j.notSent} not sent: apply migration 255 to queue them.` : '';
+        toast((failed > 0
+          ? `Sent to ${sent} students, ${failed} failed (see status panel).`
+          : `Announcement sent to ${sent} student${sent === 1 ? '' : 's'}.`) + later);
         // Pull the per-recipient log so the admin sees the outcome inline
         // and can hit Retry Failed without closing the modal.
         if (j.sendLogId) {
@@ -1245,6 +1252,10 @@ export function LiveSessionsManager({ courseCode = null, embedded = false }: { c
                 <div style={{ flex: 1, overflowY: 'auto', padding: '16px 24px' }}>
                   {!sentRow && (
                     <>
+                      <div style={{ display: 'grid', gap: 6, marginBottom: 12, paddingBottom: 12, borderBottom: '1px solid #E5E7EB' }}>
+                        <AudiencePicker value={m.aud} disabled={m.loading || busy} onChange={(v) => { void openAnnounceModal(m.session, v); }} />
+                        <AudienceCountLine counts={m.counts} allowance={m.allowance} />
+                      </div>
                       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
                         <button style={{ ...btnSecondary, padding: '6px 12px', fontSize: 12 }}
                           onClick={announceSendToMyself} disabled={m.loading || busy}>
@@ -1704,6 +1715,8 @@ export function LiveSessionsManager({ courseCode = null, embedded = false }: { c
                           <button style={{ ...btnSecondary, padding: '4px 10px', fontSize: 11 }} onClick={() => setPreviewSession(s)}>Preview</button>
                           <button style={{ ...btnSecondary, padding: '4px 10px', fontSize: 11 }} onClick={() => openEditSession(s)}>Edit</button>
                           <button style={{ ...btnSecondary, padding: '4px 10px', fontSize: 11 }} onClick={() => duplicateSession(s)}>Duplicate</button>
+                          {/* A course session is announced once, with its course (Live Training > course > Announce). */}
+                          {!(s as unknown as { course_code?: string | null }).course_code && (
                           <button
                             style={{
                               ...btnPrimary, padding: '4px 10px', fontSize: 11,
@@ -1717,6 +1730,7 @@ export function LiveSessionsManager({ courseCode = null, embedded = false }: { c
                           >
                             {s.announcement_sent ? '\u2709 Re-announce' : '\u2709 Announce'}
                           </button>
+                          )}
                           <button style={{ ...btnSecondary, padding: '4px 10px', fontSize: 11 }} onClick={() => {
                             const next = !s.published;
                             fetch(`/api/admin/live-sessions/${s.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ is_published: next }) })

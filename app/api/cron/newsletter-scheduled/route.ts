@@ -11,6 +11,8 @@
 import { NextRequest } from 'next/server';
 import { getServerClient } from '@/src/core/db/supabase';
 import { sendCampaign } from '@/src/shared/newsletter/sender';
+import { processAnnouncementQueue } from '@/src/hubs/training/lib/announcements/queue';
+import { realQueueDeps } from '@/src/hubs/training/lib/announcements/realDeps';
 import type { SegmentKey } from '@/src/shared/newsletter/segments';
 
 export const runtime = 'nodejs';
@@ -34,6 +36,12 @@ export async function GET(req: NextRequest) {
   const sb = getServerClient();
   const now = new Date().toISOString();
 
+  // Queued announcements (announcements/queue.ts): the overflow of earlier days,
+  // oldest first, within today's announcement budget. Runs after the 06:00
+  // system reminders, so system emails keep priority. Never blocks the campaigns.
+  let queue: unknown = null;
+  try { queue = await processAnnouncementQueue(sb, realQueueDeps(sb)); } catch (e) { queue = { error: String(e) }; }
+
   const { data, error } = await sb
     .from('newsletter_campaigns')
     .select('id, subject, body, target_hub, segment, scheduled_at')
@@ -48,7 +56,7 @@ export async function GET(req: NextRequest) {
 
   const campaigns = (data ?? []) as ScheduledCampaign[];
   if (campaigns.length === 0) {
-    return Response.json({ ok: true, processed: 0 });
+    return Response.json({ ok: true, processed: 0, queue });
   }
 
   const results: Array<{ id: string; sent: number; failed: number; error?: string }> = [];
@@ -71,5 +79,5 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  return Response.json({ ok: true, processed: campaigns.length, results });
+  return Response.json({ ok: true, processed: campaigns.length, results, queue });
 }

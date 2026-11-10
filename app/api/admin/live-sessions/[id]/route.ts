@@ -170,8 +170,10 @@ export async function PATCH(
   }
 
   // ── Newsletter auto-notifications (opt-in subscribers, not training roster)
-  // A private live course's session (e.g. a TEST course) is never announced.
-  const announceable = await isPublicSession(sb, courseCode);
+  // A COURSE session never triggers its own announcement or auto-notify, on
+  // publish, edit, recording or reschedule (founder, 2026-11-10): the course is
+  // announced once, from the course page. Single sessions keep their behaviour.
+  const announceable = !courseCode && await isPublicSession(sb, courseCode);
   if (announceable && before && !before.is_published && body.is_published === true) {
     const { data: sess } = await sb.from('live_sessions').select('*').eq('id', id).single();
     if (sess) {

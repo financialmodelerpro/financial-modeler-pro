@@ -1,4 +1,5 @@
 import { BrevoClient } from '@getbrevo/brevo';
+import { recordEmailSent, type EmailKind } from './emailBudget';
 
 let _brevo: BrevoClient | null = null;
 function getBrevo(): BrevoClient {
@@ -50,7 +51,19 @@ interface SendEmailResult {
   id: string;
 }
 
-export async function sendEmail({ to, subject, html, text, from, attachments, replyTo }: SendEmailOptions): Promise<SendEmailResult> {
+/**
+ * Every email the platform sends is counted against the day's budget
+ * (emailBudget.ts): a direct send is a SYSTEM email; announcements pass
+ * { kind: 'announcement' } to the batch senders below.
+ */
+export async function sendEmail(opts: SendEmailOptions): Promise<SendEmailResult> {
+  const r = await sendEmailUncounted(opts);
+  await recordEmailSent('system', Array.isArray(opts.to) ? opts.to.length : 1);
+  return r;
+}
+
+/** The Brevo call alone; callers count the send themselves. */
+async function sendEmailUncounted({ to, subject, html, text, from, attachments, replyTo }: SendEmailOptions): Promise<SendEmailResult> {
   const sender = parseSender(from ?? FROM.training);
   const replyToSender = replyTo ? parseSender(replyTo) : undefined;
   const recipients = (Array.isArray(to) ? to : [to]).map(email => ({ email }));
@@ -153,11 +166,11 @@ export interface PerRecipientOutcome { ok: boolean; id?: string; error?: string 
  * they mean. This shares the constants and the underlying Brevo call, so there
  * is still ONE sending path and one pacing rule.
  */
-export async function sendEmailPerRecipient(items: PerRecipientItem[]): Promise<PerRecipientOutcome[]> {
+export async function sendEmailPerRecipient(items: PerRecipientItem[], opts: { kind?: EmailKind } = {}): Promise<PerRecipientOutcome[]> {
   const out: PerRecipientOutcome[] = new Array(items.length);
   for (let start = 0; start < items.length; start += BATCH_WAVE_SIZE) {
     const wave = items.slice(start, start + BATCH_WAVE_SIZE);
-    const settled = await Promise.allSettled(wave.map((it) => sendEmail({
+    const settled = await Promise.allSettled(wave.map((it) => sendEmailUncounted({
       to: it.to, subject: it.subject, html: it.html, text: it.text, from: it.from, replyTo: it.replyTo,
     })));
     for (let j = 0; j < settled.length; j++) {
@@ -168,10 +181,11 @@ export async function sendEmailPerRecipient(items: PerRecipientItem[]): Promise<
     }
     if (start + BATCH_WAVE_SIZE < items.length) await sleep(INTER_WAVE_DELAY_MS);
   }
+  await recordEmailSent(opts.kind ?? 'system', out.filter((o) => o?.ok).length);
   return out;
 }
 
-export async function sendEmailBatch(items: BatchEmailItem[]): Promise<BatchEmailResult> {
+export async function sendEmailBatch(items: BatchEmailItem[], opts: { kind?: EmailKind } = {}): Promise<BatchEmailResult> {
   if (items.length === 0) return { ok: true, ids: [] };
   if (items.length > 100) {
     return { ok: false, ids: [], error: 'Batch exceeds limit of 100 emails per request' };
@@ -213,6 +227,8 @@ export async function sendEmailBatch(items: BatchEmailItem[]): Promise<BatchEmai
     if (start + BATCH_WAVE_SIZE < items.length) await sleep(INTER_WAVE_DELAY_MS);
   }
 
+  // Count what Brevo accepted against today's budget (emailBudget.ts).
+  await recordEmailSent(opts.kind ?? 'system', ids.filter(Boolean).length);
   if (errors.length === 0) return { ok: true, ids };
   return {
     ok: false,

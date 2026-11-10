@@ -15,6 +15,7 @@ import { CmsAdminNav } from '@/src/components/admin/CmsAdminNav';
 import { formatSessionTime } from '@/src/hubs/training/lib/liveCourse/time';
 import { LiveSessionsManager } from './LiveSessionsManager';
 import { StatusBadge } from './StatusBadge';
+import { EmailBudgetPanel } from './AnnouncementAudience';
 
 const NAVY = '#1B4F8A';
 const SLATE = '#5A6675';
@@ -70,6 +71,8 @@ function LiveTrainingInner() {
       <main data-testid="admin-live-training" style={{ flex: 1, padding: 36, overflowY: 'auto', color: '#2A3440' }}>
         <h1 style={{ fontSize: 24, fontWeight: 800, color: '#0D2E5A', margin: '0 0 4px' }}>Live Training</h1>
         <p style={{ color: SLATE, fontSize: 13, margin: '0 0 18px' }}>Live courses (several sessions, attendance, certificate) and single live sessions.</p>
+        {/* Today's email budget, active / inactive students and the announcement queue. */}
+        <div style={{ marginBottom: 16 }}><EmailBudgetPanel /></div>
         <div style={{ display: 'flex', gap: 8, marginBottom: 20, borderBottom: `2px solid ${PALE}` }}>
           {(['courses', 'sessions'] as const).map((t) => (
             <button key={t} data-testid={`live-training-tab-${t}`} onClick={() => switchTab(t)} style={{ padding: '10px 18px', border: 'none', borderBottom: tab === t ? `3px solid ${NAVY}` : '3px solid transparent', background: 'none', color: tab === t ? NAVY : SLATE, fontWeight: 800, fontSize: 14, cursor: 'pointer', marginBottom: -2 }}>

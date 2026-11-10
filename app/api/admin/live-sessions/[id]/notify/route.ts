@@ -43,6 +43,9 @@ import { authOptions } from '@/src/shared/auth/nextauth';
 import { getServerClient } from '@/src/core/db/supabase';
 import { sendEmailBatch, FROM, type BatchEmailItem } from '@/src/shared/email/sendEmail';
 import { liveSessionNotificationTemplate } from '@/src/shared/email/templates/liveSessionNotification';
+import { audienceFrom, resolveAudience, loadExclusions, applyExclusions } from '@/src/hubs/training/lib/announcements/audience';
+import { enqueueJob, NAME_TOKEN } from '@/src/hubs/training/lib/announcements/queue';
+import { todayUsage, announcementAllowance } from '@/src/shared/email/emailBudget';
 
 export const maxDuration = 300;
 export const runtime     = 'nodejs';
@@ -136,10 +139,12 @@ export async function GET(
   const sb = getServerClient();
   const { data: session } = await sb
     .from('live_sessions')
-    .select('id, title, announcement_sent, announcement_sent_at, announcement_sent_count, announcement_sent_by')
+    .select('id, title, announcement_sent, announcement_sent_at, announcement_sent_count, announcement_sent_by, course_code')
     .eq('id', id)
     .single();
   if (!session) return NextResponse.json({ error: 'Session not found' }, { status: 404 });
+  // A course session is announced ONCE, with its course (Live Training > course > Announce).
+  if (session.course_code) return NextResponse.json({ error: 'course_session', message: 'Course sessions are announced once for the whole course, from the course page.' }, { status: 409 });
 
   // Per-recipient drill-down for a specific dispatch. Used by the "View
   // recipients" panel + the Retry Failed flow.
@@ -152,7 +157,12 @@ export async function GET(
     return NextResponse.json({ recipients: rows ?? [] });
   }
 
-  const recipients = await fetchRecipients(sb, target);
+  // The audience (announcements/audience.ts): active students by default;
+  // unsubscribed and bounced addresses are always excluded.
+  void target;
+  const usage = await todayUsage(sb);
+  const aud = await resolveAudience(sb, audienceFrom({ audience: url.searchParams.get('audience'), courseCode: url.searchParams.get('courseCode'), days: url.searchParams.get('days') }), usage.activeDays);
+  const recipients: RecipientRow[] = aud.recipients.map((r) => ({ email: r.email, name: r.name, registration_id: r.registrationId, courses: [] }));
 
   const { data: history } = await sb
     .from('announcement_send_log')
@@ -172,6 +182,9 @@ export async function GET(
     },
     recipients,
     recipientCount: recipients.length,
+    audienceCounts: aud.counts,
+    usage,
+    allowance:      announcementAllowance(usage),
     history:        history ?? [],
   });
 }
@@ -199,6 +212,8 @@ export async function POST(
 
   const { data: liveSession } = await sb.from('live_sessions').select('*').eq('id', id).single();
   if (!liveSession) return NextResponse.json({ error: 'Session not found' }, { status: 404 });
+  // A course session never sends its own announcement: the course is announced once.
+  if (liveSession.course_code) return NextResponse.json({ error: 'course_session', message: 'Course sessions are announced once for the whole course, from the course page.' }, { status: 409 });
 
   const { data: atts } = await sb
     .from('course_attachments')
@@ -246,8 +261,16 @@ export async function POST(
         if (looksLikeEmail(e)) recipients.push({ email: e, name: '', registration_id: null, courses: [] });
       }
     }
+    // Unsubscribed and bounced addresses are excluded here too.
+    const ex = await loadExclusions(sb);
+    recipients = applyExclusions(recipients, ex).kept;
   } else {
-    recipients = await fetchRecipients(sb, target);
+    // The chosen audience (active students by default), unsubscribed and bounced excluded.
+    // The older reminder button sends a 3SFM / BVM target: that is "enrolled in the course".
+    const legacy = !(body as { audience?: unknown }).audience && (target === '3sfm' || target === 'bvm') ? { audience: 'enrolled', courseCode: target.toUpperCase() } : null;
+    const spec = audienceFrom(legacy ?? (body as { audience?: unknown; courseCode?: unknown; days?: unknown }));
+    const aud = await resolveAudience(sb, spec, (await todayUsage(sb)).activeDays);
+    recipients = aud.recipients.map((r) => ({ email: r.email, name: r.name, registration_id: r.registrationId, courses: [] }));
   }
 
   if (recipients.length === 0) {
@@ -298,6 +321,24 @@ export async function POST(
       dialInConferenceId: dialIn?.conferenceId,
     });
     return { to: r.email, subject, html, from: FROM.training };
+  }
+
+  // ── Today's email budget (emailBudget.ts): send what it allows now; the
+  // rest is QUEUED (identical content, the name filled per recipient) and
+  // sent on the next days, oldest first. System emails always keep their room.
+  let queued = 0, notSent = 0;
+  if (!preview) {
+    const allowance = announcementAllowance(await todayUsage(sb));
+    if (validRecipients.length > allowance) {
+      const overflow = validRecipients.splice(allowance);
+      if (!isRetry) {
+        const tpl = await buildItem({ email: '', name: NAME_TOKEN, registration_id: null, courses: [] });
+        const job = await enqueueJob(sb, { kind: 'session', ref: id, label: liveSession.title, audience: body, subject: tpl.subject, html: tpl.html, from: tpl.from ?? null, createdBy: user.email ?? null }, overflow.map((r) => ({ email: r.email, name: r.name })));
+        if (job) queued = overflow.length; else notSent = overflow.length;
+      } else {
+        notSent = overflow.length;
+      }
+    }
   }
 
   // ── Create or reuse the parent audit row before any send fires ─────────
@@ -368,7 +409,7 @@ export async function POST(
   for (let i = 0; i < items.length; i += RESEND_BATCH_LIMIT) {
     const slice       = items.slice(i, i + RESEND_BATCH_LIMIT);
     const sliceEmails = itemEmails.slice(i, i + RESEND_BATCH_LIMIT);
-    const result      = await sendEmailBatch(slice);
+    const result      = await sendEmailBatch(slice, { kind: 'announcement' });
 
     if (result.ok) {
       sent += slice.length;
@@ -462,6 +503,9 @@ export async function POST(
     isRetry,
     sendLogId,
     target,
+    // Beyond today's budget: queued for the next days, or (before mig 255) not sent.
+    queued,
+    notSent,
     error:      lastError,
   });
 }

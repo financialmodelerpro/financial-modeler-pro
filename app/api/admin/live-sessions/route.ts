@@ -188,8 +188,9 @@ export async function POST(req: NextRequest) {
   //
   // The newsletter auto-notify still fires because it targets opt-in
   // subscribers, not the training roster, and has its own duplicate-prevention.
-  // A private live course's session (e.g. a TEST course) is never announced.
-  if (data && data.is_published && await isPublicSession(sb, data.course_code)) {
+  // A COURSE session never triggers its own announcement or auto-notify
+  // (founder, 2026-11-10): the course is announced once, from the course page.
+  if (data && data.is_published && !data.course_code && await isPublicSession(sb, data.course_code)) {
     const nlTz = data.timezone ?? 'Asia/Riyadh';
     const dt = data.scheduled_datetime ? new Date(data.scheduled_datetime) : null;
     void sendAutoNewsletter('live_session_scheduled', data.id, {

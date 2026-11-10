@@ -17,6 +17,7 @@ import { LiveSessionsManager } from '../LiveSessionsManager';
 import { StatusBadge } from '../StatusBadge';
 import { CourseDetailsTab } from './CourseDetailsTab';
 import { CourseCertificateTab } from './CourseCertificateTab';
+import { CourseAnnounceTab } from './CourseAnnounceTab';
 import { CourseAttendancePanel } from './CourseAttendancePanel';
 import { ModelSubmissionsManager } from '../../model-submissions/ModelSubmissionsManager';
 import { TeamsMeetingsButton } from './TeamsMeetingsButton';
@@ -32,6 +33,7 @@ const TABS = [
   { key: 'students', label: 'Students and attendance' },
   { key: 'submissions', label: 'Submissions' },
   { key: 'certificate', label: 'Certificate' },
+  { key: 'announce', label: 'Announce' },
 ] as const;
 type TabKey = (typeof TABS)[number]['key'];
 
@@ -136,6 +138,7 @@ function CourseAdminInner() {
             )}
             {tab === 'students' && <CourseAttendancePanel courseCode={course.courseCode} attendanceThresholdPct={course.attendanceThresholdPct} />}
             {tab === 'submissions' && <ModelSubmissionsManager courseCode={course.courseCode} embedded />}
+            {tab === 'announce' && <CourseAnnounceTab course={course} />}
             {tab === 'certificate' && <CourseCertificateTab key={`c${reloadKey}`} course={course} onSaved={flash} />}
           </>
         )}

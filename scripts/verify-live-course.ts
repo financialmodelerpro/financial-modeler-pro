@@ -210,7 +210,8 @@ export function fakeDb(seed: Record<string, Row[]> = {}) {
     let ignoreDup = false;
     let orderBy: { col: string; asc: boolean }[] = [];
     let lim: number | null = null;
-    const run = (): { data: Row[]; error: null | { message: string } } => {
+    let headOnly = false;
+    const run = (): { data: Row[]; error: null | { message: string }; count?: number } => {
       const rows = tables[table];
       if (op === 'insert' || op === 'upsert') {
         const list = Array.isArray(payload) ? payload : [payload as Row];
@@ -233,11 +234,12 @@ export function fakeDb(seed: Record<string, Row[]> = {}) {
       if (op === 'update') { for (const r of sel) Object.assign(r, payload); return { data: sel, error: null }; }
       if (op === 'delete') { tables[table] = rows.filter((r) => !sel.includes(r)); return { data: sel, error: null }; }
       for (const o of [...orderBy].reverse()) sel = [...sel].sort((a, b) => ((a[o.col] as number | string) > (b[o.col] as number | string) ? 1 : -1) * (o.asc ? 1 : -1));
+      const total = sel.length;
       if (lim != null) sel = sel.slice(0, lim);
-      return { data: sel, error: null };
+      return { data: headOnly ? [] : sel, error: null, count: total } as { data: Row[]; error: null; count: number };
     };
     const q: Record<string, unknown> = {
-      select: () => q,
+      select: (_c?: string, o?: { count?: string; head?: boolean }) => { if (o?.head) headOnly = true; return q; },
       eq: (c: string, v: unknown) => { filters.push((r) => r[c] === v); return q; },
       neq: (c: string, v: unknown) => { filters.push((r) => r[c] !== v); return q; },
       is: (c: string, v: unknown) => { filters.push((r) => (r[c] ?? null) === v); return q; },
@@ -808,7 +810,8 @@ async function unit8(): Promise<void> {
   check('U8.2b the session detail route is NOT filtered (enrolled students open private-course sessions)', !readFileSync('app/api/training/live-sessions/[id]/route.ts', 'utf8').includes('publicSessionFilter'));
   const post = readFileSync('app/api/admin/live-sessions/route.ts', 'utf8');
   const patch = readFileSync('app/api/admin/live-sessions/[id]/route.ts', 'utf8');
-  check('U8.3a creating a private-course session never emails newsletter subscribers', post.includes('data.is_published && await isPublicSession(sb, data.course_code)'));
+  // Re-aimed 2026-11-10: stronger now, NO course session (private or public) auto-notifies; the course is announced once.
+  check('U8.3a creating a private-course session never emails newsletter subscribers', post.includes('data.is_published && !data.course_code && await isPublicSession(sb, data.course_code)'));
   check('U8.3b publishing or recording a private-course session never emails them either', (patch.match(/if \(announceable && before/g) ?? []).length === 2);
   if (hasCreds()) {
     const sb = await db();
@@ -1838,6 +1841,83 @@ async function unit22(): Promise<void> {
   check('U22.3c the page reads the count and the admin threshold per course', readFileSync('app/training-sessions/page.tsx', 'utf8').includes('enrolledThreshold: c.page.sections.sideCard.enrolledThreshold'));
 }
 
+async function unit23(): Promise<void> {
+  console.log('\n=== Announcements: one per course, none per course session, audiences, the daily budget and its queue ===\n');
+  // ── One announcement per course; none per course session ──
+  const courseRoute = readFileSync('app/api/admin/live-course/[code]/announce/route.ts', 'utf8');
+  check('U23.1a the course announcement is ONE email with the whole schedule (every session, KSA), sent once per POST', (courseRoute.match(/dispatchAnnouncement\(/g) ?? []).length === 1 && courseRoute.includes("sessions: d.sessions.map((s, i) => ({ label: ") && courseRoute.includes('courseTimeLabel(s.scheduled_datetime, { year: true })') && courseRoute.includes("kind: 'course'"));
+  check('U23.1b only a published course is announced', courseRoute.includes("if (!isPubliclyVisible(d.course)) return NextResponse.json({ error: 'Publish the course before announcing it.' }"));
+  if (hasCreds()) {
+    const T = await import('../src/shared/email/templates/liveCourseAnnouncement');
+    const t = await T.liveCourseAnnouncementTemplate({ courseTitle: 'REFM', tagline: 'Tag', startDate: 'Tue 1 Dec 2026', sessions: Array.from({ length: 8 }, (_, i) => ({ label: 'Session ' + (i + 1), title: 'T' + (i + 1), when: 'Tue 1 Dec 2026, 7:00 PM KSA' })), courseUrl: 'https://learn.example/training/REFM', cta: 'Enrol in the course' });
+    check('U23.1c the email lists all 8 sessions with KSA times, the Enrol link and a {{name}} greeting', [1, 2, 3, 4, 5, 6, 7, 8].every((n) => t.html.includes('Session ' + n)) && t.html.includes('7:00 PM KSA') && t.html.includes('https://learn.example/training/REFM') && t.html.includes('{{name}}'));
+  }
+  const notify = readFileSync('app/api/admin/live-sessions/[id]/notify/route.ts', 'utf8');
+  check('U23.2a a course session cannot send its own announcement (GET and POST refuse it)', (notify.match(/if \(\w+\.course_code\) return NextResponse\.json\(\{ error: 'course_session'/g) ?? []).length === 2);
+  check('U23.2b nor trigger the newsletter auto-notify, on create, publish or recording', readFileSync('app/api/admin/live-sessions/route.ts', 'utf8').includes('data.is_published && !data.course_code && await isPublicSession(') && readFileSync('app/api/admin/live-sessions/[id]/route.ts', 'utf8').includes('const announceable = !courseCode && await isPublicSession('));
+  check('U23.2c reschedule sends no announcement (only the enrolled students\' reschedule email)', !/sendAutoNewsletter|notify/.test(readFileSync('app/api/admin/live-sessions/[id]/reschedule/route.ts', 'utf8')) && !/sendAutoNewsletter/.test(readFileSync('src/hubs/training/lib/liveCourse/rescheduleApply.ts', 'utf8')));
+  check('U23.2d the admin hides Announce on a course session and offers Announce on the course', readFileSync('app/admin/training-hub/live-training/LiveSessionsManager.tsx', 'utf8').includes('!(s as unknown as { course_code?: string | null }).course_code && (') && readFileSync('app/admin/training-hub/live-training/[code]/page.tsx', 'utf8').includes("{ key: 'announce', label: 'Announce' }"));
+
+  // ── Audiences ──
+  const A = await import('../src/hubs/training/lib/announcements/audience');
+  const now = Date.parse('2026-11-10T12:00:00Z');
+  const d = (n: number) => now - n * 864e5;
+  const st = (email: string, o: Partial<import('../src/hubs/training/lib/announcements/audience').StudentSignals>) => ({ email, name: email, registrationId: null, createdAt: d(400), lastActivityAt: null, hasCertificate: false, courses: new Set<string>(), ...o });
+  const students = [
+    st('new@x.com', { createdAt: d(5) }),
+    st('watcher@x.com', { lastActivityAt: d(10) }),
+    st('cert@x.com', { hasCertificate: true }),
+    st('old@x.com', { lastActivityAt: d(60), courses: new Set(['3SFM']) }),
+    st('refm@x.com', { lastActivityAt: d(20), courses: new Set(['REFM']) }),
+  ];
+  const emails = (l: { email: string }[]) => l.map((x) => x.email).sort().join(',');
+  check('U23.3a active = signed up, active, or certified in the last 30 days', emails(A.selectAudience(students, { kind: 'active' }, now, 30)) === 'cert@x.com,new@x.com,refm@x.com,watcher@x.com');
+  check('U23.3b all students', A.selectAudience(students, { kind: 'all' }, now, 30).length === 5);
+  check('U23.3c enrolled in a course / not yet enrolled in it', emails(A.selectAudience(students, { kind: 'enrolled', courseCode: 'refm' }, now, 30)) === 'refm@x.com' && A.selectAudience(students, { kind: 'not_enrolled', courseCode: 'REFM' }, now, 30).length === 4);
+  check('U23.3d active in the last N days (custom)', emails(A.selectAudience(students, { kind: 'active_days', days: 7 }, now, 30)) === 'cert@x.com,new@x.com' && A.selectAudience(students, { kind: 'active_days', days: 90 }, now, 30).length === 5);
+  const ex = A.applyExclusions(students, { unsubscribed: new Set(['new@x.com']), bounced: new Set(['old@x.com']) });
+  check('U23.3e unsubscribed and bounced are always excluded, and counted', ex.kept.length === 3 && ex.excludedUnsubscribed === 1 && ex.excludedBounced === 1);
+  check('U23.3f the session and course announcements resolve the audience through the one resolver', notify.includes('await resolveAudience(sb, spec,') && courseRoute.includes('await resolveAudience(d.sb, spec, usage.activeDays)'));
+
+  // ── The daily budget ──
+  const B = await import('../src/shared/email/emailBudget');
+  check('U23.4a announcements get the cap left, never more than the daily limit left (system emails keep their room)', B.announcementAllowance({ announcementCap: 200, announcement: 150, dailyLimit: 300, total: 280 }) === 20 && B.announcementAllowance({ announcementCap: 200, announcement: 0, dailyLimit: 300, total: 300 }) === 0 && B.announcementAllowance({ announcementCap: 200, announcement: 0, dailyLimit: 300, total: 50 }) === 200);
+  const send = readFileSync('src/shared/email/sendEmail.ts', 'utf8');
+  check('U23.4b every email is counted: a direct send as system, announcement batches as announcement', send.includes("await recordEmailSent('system',") && send.includes("await recordEmailSent(opts.kind ?? 'system',") && notify.includes("sendEmailBatch(slice, { kind: 'announcement' })") && readFileSync('src/hubs/training/lib/announcements/realDeps.ts', 'utf8').includes("{ kind: 'announcement' }"));
+  check('U23.4c system emails are never held back by the budget (only announcements read the allowance)', !/announcementAllowance|todayUsage/.test(send));
+
+  // ── The queue carries over to the next day, oldest first ──
+  const Q = await import('../src/hubs/training/lib/announcements/queue');
+  const db = fakeDb({ announcement_jobs: [], announcement_job_items: [] });
+  const sent: string[] = [];
+  let budget = 2;
+  const deps = { allowance: async () => budget, send: async (items: { to: string; html: string }[]) => { for (const i of items) sent.push(i.to + (i.html.includes('{{name}}') ? '!token' : '')); budget -= items.length; return items.map(() => ({ ok: true })); } };
+  const job = { kind: 'course' as const, ref: 'REFM', label: 'REFM course announcement', audience: {}, subject: 'S', html: '<p>Hi {{name}}</p>' };
+  const r1 = await Q.dispatchAnnouncement(db.client, deps, job, ['a', 'b', 'c', 'd', 'e'].map((x) => ({ email: x + '@x.com', name: x })));
+  check('U23.5a day 1: today\'s allowance goes now, the rest is queued', r1.sentNow === 2 && r1.queued === 3 && r1.queueAvailable && sent.join() === 'a@x.com,b@x.com');
+  // Day 2: a newer job arrives; the older job's items go first.
+  for (const j of db.tables.announcement_jobs) j.created_at ??= '2026-11-10T09:00:00Z'; // the database default
+  db.tables.announcement_jobs.push({ id: 'zz-newer', created_at: '2999-01-01T00:00:00Z', kind: 'session', ref: 's', label: 'newer', subject: 'S2', html: 'Hi {{name}}', from_address: null, status: 'queued', total: 1, sent: 0, failed: 0 });
+  db.tables.announcement_job_items.push({ id: 999, job_id: 'zz-newer', email: 'z@x.com', name: 'z', status: 'pending' });
+  budget = 2;
+  const r2 = await Q.processAnnouncementQueue(db.client, deps, new Date('2026-11-11T07:00:00Z'));
+  check('U23.5b day 2: the queue continues within the new day\'s allowance, OLDEST job first', r2.sent === 2 && sent.slice(2).join() === 'c@x.com,d@x.com' && r2.remaining === 2);
+  budget = 10;
+  const r3 = await Q.processAnnouncementQueue(db.client, deps, new Date('2026-11-12T07:00:00Z'));
+  const firstJob = db.tables.announcement_jobs.find((j) => j.id !== 'zz-newer')!;
+  check('U23.5c day 3: the rest goes, the older job finishes before the newer one, each marked done', r3.sent === 2 && sent.slice(4).join() === 'e@x.com,z@x.com' && firstJob.status === 'done' && firstJob.sent === 5 && r3.remaining === 0);
+  check('U23.5d every queued email had the name filled (no {{name}} left)', !sent.some((x) => x.endsWith('!token')));
+  budget = 0;
+  const r4 = await Q.processAnnouncementQueue(db.client, deps);
+  check('U23.5e no allowance, nothing sent', r4.sent === 0);
+  const noQueue = { ...db.client, from: (t: string) => t === 'announcement_jobs' ? { insert: () => ({ select: () => ({ single: async () => ({ data: null, error: { message: 'relation "announcement_jobs" does not exist' } }) }) }) } : (db.client as unknown as { from: (t: string) => unknown }).from(t) } as unknown as import('@supabase/supabase-js').SupabaseClient;
+  budget = 1; sent.length = 0;
+  const r5 = await Q.dispatchAnnouncement(noQueue, deps, job, ['p', 'q', 'r'].map((x) => ({ email: x + '@x.com', name: x })));
+  check('U23.5f before migration 255: today\'s allowance is sent, the rest reported as not sent (nothing fails)', !r5.queueAvailable && r5.sentNow === 1 && r5.notSent === 2);
+  check('U23.5g the daily cron sends the queue, after the 06:00 system reminders', readFileSync('app/api/cron/newsletter-scheduled/route.ts', 'utf8').includes('processAnnouncementQueue(sb, realQueueDeps(sb))') && /"\/api\/cron\/newsletter-scheduled",\s*"schedule": "0 7 \* \* \*"/.test(readFileSync('vercel.json', 'utf8')) && /"\/api\/cron\/session-reminders",\s*"schedule": "0 6 \* \* \*"/.test(readFileSync('vercel.json', 'utf8')));
+  check('U23.6 the admin shows active / inactive students and today\'s usage against the limit', readFileSync('app/admin/training-hub/live-training/AnnouncementAudience.tsx', 'utf8').includes('data-testid="email-budget-students"') && readFileSync('app/admin/training-hub/live-training/AnnouncementAudience.tsx', 'utf8').includes('data-testid="email-budget-usage"') && readFileSync('app/admin/training-hub/live-training/page.tsx', 'utf8').includes('<EmailBudgetPanel />'));
+}
+
 (async () => {
   await unit0();
   await unit1();
@@ -1863,6 +1943,7 @@ async function unit22(): Promise<void> {
   await unit20();
   await unit21();
   await unit22();
+  await unit23();
   console.log(`\n${passed} passed, ${failed} failed`);
   if (failed) { console.log('Failed:'); for (const f of fails) console.log(`  - ${f}`); process.exit(1); }
 })().catch((e) => { console.error(e); process.exit(1); });
