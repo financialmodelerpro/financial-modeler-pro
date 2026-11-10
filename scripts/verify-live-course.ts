@@ -385,7 +385,8 @@ async function unit2(): Promise<void> {
     check(`U2.5c ${f.split('/').slice(-2).join('/')}: Join follows the one window rule`, src.includes('joinStatusFrom(') && !src.includes('180 * 60000') && !src.includes("!!session?.scheduled_datetime;"));
   }
   const btnUsers = ['app/training/live-sessions/[id]/page.tsx', 'src/hubs/training/components/dashboard/LiveSessionCard.tsx', 'app/training/[courseId]/sessions/[id]/CourseSessionClient.tsx']; // a course's Join button is on its session page since 2026-11-08
-  check('U2.5d detail page, dashboard card and course session page all use THE Join button', btnUsers.every((f) => readFileSync(f, 'utf8').includes('<JoinLiveButton')));
+  // Re-aimed 2026-11-10: a course session's button is CourseSessionAction, which renders THE Join button in the window.
+  check('U2.5d detail page, dashboard card and course session page all use THE Join button', btnUsers.every((f) => /<JoinLiveButton|<CourseSessionAction/.test(readFileSync(f, 'utf8'))) && readFileSync('src/hubs/training/components/sessions/CourseSessionAction.tsx', 'utf8').includes('<JoinLiveButton '));
 
   // Same-day reminder at 9:00 AM KSA (cron 06:00 UTC).
   check('U2.6a 19:00 KSA is later today at 09:00 KSA', dr.startsLaterToday(start, new Date('2026-12-01T06:00:00Z')));
@@ -1300,8 +1301,9 @@ async function unit14(): Promise<void> {
   const out = PL.courseCardAction({ ...base, enrolled: false, signedIn: false });
   const inn = PL.courseCardAction({ ...base, enrolled: false, signedIn: true });
   const enr = PL.courseCardAction({ ...base, enrolled: true, signedIn: true });
-  check('U14.4a signed out: "Register free" to course registration', out.label === 'Register free' && out.href === '/register?course=REFM');
-  check('U14.4b signed in: "Enrol" to the course page, which enrols on arrival', inn.label === 'Enrol' && inn.href === '/training/REFM?enrol=1');
+  // Re-aimed 2026-11-10: one wording, "Enrol in course" (account + enrolment for a visitor).
+  check('U14.4a signed out: "Enrol in course" to course registration', out.label === 'Enrol in course' && out.href === '/register?course=REFM');
+  check('U14.4b signed in: "Enrol in course" to the course page, which enrols on arrival', inn.label === 'Enrol in course' && inn.href === '/training/REFM?enrol=1');
   check('U14.4c enrolled: "View session" under the course', enr.label === 'View session' && enr.href === '/training/REFM/sessions/S1');
   check('U14.4d no branch goes to single-session registration', [out, inn, enr].every((a) => !a.href.includes('/training-sessions/') && !a.href.includes('/live-sessions/')));
   const card = readFileSync('src/hubs/training/components/sessions/CourseSessionListingCard.tsx', 'utf8');
@@ -1774,6 +1776,48 @@ async function unit20(): Promise<void> {
   check('U20.5d every course session time surface uses the one KSA-first label', surfaces.length === 0, surfaces.join(', '));
 }
 
+async function unit21(): Promise<void> {
+  console.log('\n=== Course sessions: enrolment is the registration ===\n');
+  const SA = await import('../src/hubs/training/lib/liveCourse/sessionAccess');
+  const sessions = [1, 2, 3, 4, 5, 6, 7, 8].map((n) => ({ id: 'c' + n, course_code: 'REFM', course_session_no: n, live_url: 'https://teams.example/x', scheduled_datetime: new Date(Date.now() + n * 7 * 864e5).toISOString(), duration_minutes: 150 }));
+  const { client } = fakeDb({
+    training_enrollments: [{ registration_id: 'FMP-E', course_code: 'REFM' }],
+    // An OLD per-session row on a course session (8 exist on live): must be ignored.
+    session_registrations: [{ session_id: 'c3', student_email: 'stray@x.com' }, { session_id: 'single1', student_email: 'single@x.com' }],
+  });
+  const enrolled = { email: 'enrolled@x.com', registrationId: 'FMP-E' };
+  const access = await Promise.all(sessions.map((x) => SA.studentHasSessionAccess(client, enrolled, x)));
+  check('U21.1a one enrolment gives access to all 8 sessions (no per-session row exists to create, so later sessions are covered too)', access.every(Boolean), JSON.stringify(access));
+  const inWindow = { ...sessions[0], scheduled_datetime: new Date(Date.now() + 5 * 60_000).toISOString() };
+  const st = SA.joinStatusFrom(await SA.studentHasSessionAccess(client, enrolled, inWindow), inWindow, 15);
+  check('U21.1b ... and Join live inside the join window', st.canJoinNow && !!st.joinUrl);
+  check('U21.1c an old per-session row on a course session gives NO access without enrolment', !(await SA.studentHasSessionAccess(client, { email: 'stray@x.com', registrationId: 'FMP-S' }, sessions[2])));
+  const single = { id: 'single1', course_code: null, live_url: 'https://teams.example/s', scheduled_datetime: sessions[0].scheduled_datetime, duration_minutes: 90 };
+  check('U21.1d a single session still needs its own registration', (await SA.studentHasSessionAccess(client, { email: 'single@x.com', registrationId: 'FMP-1' }, single)) && !(await SA.studentHasSessionAccess(client, enrolled, single)));
+
+  // No Register on course sessions.
+  const act = readFileSync('src/hubs/training/components/sessions/CourseSessionAction.tsx', 'utf8');
+  check('U21.2a the course session button: Enrol in course / Join live / Enrolled with the date and Add to calendar, never Register', act.includes('Enrol in course') && act.includes('<JoinLiveButton ') && act.includes('Enrolled</span>') && act.includes('<CourseTime iso={p.scheduledIso} />') && act.includes('Add to calendar') && !/>\s*Register/.test(act));
+  const cards = ['src/hubs/training/components/dashboard/LiveSessionCard.tsx', 'src/hubs/training/components/dashboard/LiveSessionCardLarge.tsx', 'app/training/live-sessions/[id]/page.tsx'].filter((f) => !readFileSync(f, 'utf8').includes('<CourseSessionAction courseCode='));
+  check('U21.2b dashboard cards, Live Sessions and the session player page use it for a course session', cards.length === 0, cards.join(', '));
+  check('U21.2c the course session page uses it in place of Join', readFileSync('app/training/[courseId]/sessions/[id]/CourseSessionClient.tsx', 'utf8').includes("if (action.kind === 'join') return <CourseSessionAction"));
+  const reg = readFileSync('app/api/training/live-sessions/[id]/register/route.ts', 'utf8');
+  const guard = reg.indexOf('if (session.course_code) {');
+  check('U21.2d registering for a course session is refused before any row or email', guard > 0 && guard < reg.indexOf('.upsert({') && guard < reg.indexOf('await sendEmail(') && reg.includes("error: 'course_session'"));
+  check('U21.2e no per-session count on a course session (status API, Training Sessions page, public API)', reg.includes('registrationCount: session.course_code ? null : count ?? 0') && readFileSync('app/training-sessions/page.tsx', 'utf8').includes('registration_count: s.course_code ? 0 :') && readFileSync('app/api/public/training-sessions/route.ts', 'utf8').includes('course_code ? 0 : regCounts'));
+  check('U21.2f the batch status counts a course session as registered exactly when enrolled', readFileSync('app/api/training/live-sessions/registration-status-batch/route.ts', 'utf8').includes('const registered = session.course_code ? enrolled.has(session.course_code) : regSet.has(id);'));
+
+  // Reminders and reschedule emails go to every enrolled student.
+  const cron = readFileSync('app/api/cron/session-reminders/route.ts', 'utf8');
+  check('U21.3a no per-session reminder for a course session, in the 24-hour AND the 1-hour pass', (cron.match(/if \(session\.course_code\) continue;/g) ?? []).length === 2);
+  check('U21.3b the session-day reminder and the reschedule email go to the course\'s enrolled students', readFileSync('src/hubs/training/lib/liveCourse/dayReminder.ts', 'utf8').includes('listEnrolledStudents(sb, course.courseCode)') && readFileSync('src/hubs/training/lib/liveCourse/rescheduleApply.ts', 'utf8').includes('listEnrolledStudents(sb, course.courseCode)'));
+  const ES = await import('../src/hubs/training/lib/liveCourse/enrolledStudents');
+  const db2 = fakeDb({ training_enrollments: [{ registration_id: 'A', course_code: 'REFM' }, { registration_id: 'B', course_code: 'REFM' }, { registration_id: 'C', course_code: 'BVM' }], training_registrations_meta: [{ registration_id: 'A', email: 'a@x.com', name: 'A' }, { registration_id: 'B', email: 'b@x.com', name: 'B' }, { registration_id: 'C', email: 'c@x.com', name: 'C' }], session_registrations: [{ session_id: 'c1', student_email: 'stray@x.com' }] });
+  const recips = (await ES.listEnrolledStudents(db2.client, 'REFM')).map((r) => r.email).sort();
+  check('U21.3c recipients are every enrolled student and only them (not a per-session registrant)', JSON.stringify(recips) === JSON.stringify(['a@x.com', 'b@x.com']), JSON.stringify(recips));
+  check('U21.4 the enrolment email still attaches the course calendar (all sessions)', readFileSync('src/hubs/training/lib/liveCourse/enrolment.ts', 'utf8').includes('icsAttachment(buildCourseIcs(settings, sessions), settings.courseCode)'));
+}
+
 (async () => {
   await unit0();
   await unit1();
@@ -1797,6 +1841,7 @@ async function unit20(): Promise<void> {
   await unit18();
   await unit19();
   await unit20();
+  await unit21();
   console.log(`\n${passed} passed, ${failed} failed`);
   if (failed) { console.log('Failed:'); for (const f of fails) console.log(`  - ${f}`); process.exit(1); }
 })().catch((e) => { console.error(e); process.exit(1); });

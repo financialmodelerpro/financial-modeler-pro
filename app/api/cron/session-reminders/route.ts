@@ -76,7 +76,7 @@ export async function GET(req: NextRequest) {
     // the reminder (per-reg flag).
     const [{ data: sessions24 }, { data: sessions1h }] = await Promise.all([
       sb.from('live_sessions')
-        .select('id, title, description, scheduled_datetime, timezone, live_url, banner_url, duration_minutes, session_type')
+        .select('id, title, description, scheduled_datetime, timezone, live_url, banner_url, duration_minutes, session_type, course_code')
         .in('session_type', ['upcoming', 'live'])
         .eq('announcement_sent', true)
         .gte('scheduled_datetime', from24)
@@ -90,6 +90,8 @@ export async function GET(req: NextRequest) {
     ]);
 
     for (const session of (sessions24 ?? []) as SessionRow[]) {
+      // Live-course sessions: enrolled students get the same-day 9:00 AM KSA reminder; no per-session reminders.
+      if (session.course_code) continue;
       const { sent, fail } = await dispatchReminder(sb, session, 'reminder_24h_sent', 'session_reminder_24h', false);
       sent24h += sent;
       failed  += fail;

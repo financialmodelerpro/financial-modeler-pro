@@ -55,10 +55,15 @@ export async function POST(
   const sb = getServerClient();
 
   // Check session exists
-  const { data: session } = await sb.from('live_sessions').select('title, scheduled_datetime, timezone, live_url').eq('id', id).maybeSingle();
+  const { data: session } = await sb.from('live_sessions').select('title, scheduled_datetime, timezone, live_url, course_code').eq('id', id).maybeSingle();
   if (!session) {
     console.warn('[live-sessions/register POST] session not found', { sessionId: id });
     return NextResponse.json({ error: 'Session not found' }, { status: 404 });
+  }
+  // A course session has no registration of its own: enrolling in the course
+  // registers the student for every session. No row, no email.
+  if (session.course_code) {
+    return NextResponse.json({ error: 'course_session', message: 'This session is part of a course. Enrol in the course and you are registered for every session.', courseCode: session.course_code }, { status: 409 });
   }
 
   // Upsert registration (idempotent on UNIQUE(session_id, student_email)).
@@ -196,6 +201,8 @@ export async function GET(
     joinOpensAt: status.window?.opensAt ?? null,
     joinClosesAt: status.window?.closesAt ?? null,
     registrationRequired: session?.registration_required ?? true,
-    registrationCount: count ?? 0,
+    // A course session: `registered` means enrolled in the course, and there is no per-session count.
+    courseSession: !!session.course_code,
+    registrationCount: session.course_code ? null : count ?? 0,
   });
 }

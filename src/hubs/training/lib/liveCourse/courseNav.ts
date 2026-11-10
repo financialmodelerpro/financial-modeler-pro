@@ -60,7 +60,7 @@ export interface MainAction { kind: MainActionKind; label: string; href: string 
 
 /**
  * The session page's main button.
- *   not enrolled: Register free (signed out) / Enrol (signed in) / Enrolment closed
+ *   not enrolled: Enrol in course (signed out: account + enrolment; signed in: the course page) / Enrolment closed
  *   enrolled, before or during the session: Join live (the join button opens in its window)
  *   enrolled, after it: Watch recording, or Recording coming soon; a recording
  *   locked for this student (recordingAccess.ts) reads "Complete Session X to unlock"
@@ -73,8 +73,8 @@ export function sessionMainAction(p: {
 }): MainAction {
   if (!p.enrolled) {
     if (!p.canRegister) return { kind: 'closed', label: 'Enrolment closed', href: null };
-    if (p.signedIn) return { kind: 'enrol', label: 'Enrol', href: `${coursePagePath(p.courseCode)}?enrol=1` };
-    return { kind: 'register', label: 'Register free', href: `/register?course=${encodeURIComponent(p.courseCode)}` };
+    if (p.signedIn) return { kind: 'enrol', label: 'Enrol in course', href: `${coursePagePath(p.courseCode)}?enrol=1` };
+    return { kind: 'register', label: 'Enrol in course', href: `/register?course=${encodeURIComponent(p.courseCode)}` };
   }
   if (p.status === 'recorded' && p.recordingLocked) return { kind: 'locked', label: p.recordingLocked, href: null };
   if (p.status === 'recorded') return { kind: 'watch', label: 'Watch recording', href: `${courseSessionPath(p.courseCode, p.sessionId)}/watch` };

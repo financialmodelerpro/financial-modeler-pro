@@ -10,6 +10,7 @@ import { renderShareTemplate, formatShareDate } from '@/src/shared/share/shareTe
 import { JoinLiveButton } from '@/src/hubs/training/components/sessions/JoinLiveButton';
 import type { LiveSession, RegistrationStatus, WatchHistoryEntry } from '@/src/hubs/training/lib/liveSessions/liveSessionsForStudent';
 import { CourseTime } from '@/src/hubs/training/components/sessions/CourseTime';
+import { CourseSessionAction } from '@/src/hubs/training/components/sessions/CourseSessionAction';
 
 const NAVY = '#0D2E5A';
 const TEAL = '#14B8A6';
@@ -142,7 +143,9 @@ export function LiveSessionCard(props: Props) {
     const registered = !!reg?.registered;
     const startingSoon = registered && minsUntil <= 15 && minsUntil >= -180;
     const canJoin = registered && !!reg?.joinLinkAvailable;
-    const badgeLabel = session.session_type === 'live' ? 'LIVE NOW' : registered ? 'REGISTERED' : 'UPCOMING';
+    // A course session has no registration of its own: `registered` is the course enrolment.
+    const courseCode = (session as { course_code?: string | null }).course_code ?? null;
+    const badgeLabel = session.session_type === 'live' ? 'LIVE NOW' : registered ? (courseCode ? 'ENROLLED' : 'REGISTERED') : 'UPCOMING';
     const badgeBg = session.session_type === 'live' ? RED : registered ? GREEN : ORANGE;
     // CHANGE 1 (2026-04-23): joinLinkAvailable is now true the
     // moment a student registers (no 30-min-before-start gate). The
@@ -218,6 +221,13 @@ export function LiveSessionCard(props: Props) {
                   -> "View Details" (registration happens on detail
                      page, no inline Register button - one canonical
                      place to read the brief and commit) */}
+          {courseCode ? (
+            // A course session: Enrol in course / Join live / Enrolled + date + Add to calendar.
+            <div style={{ marginTop: 'auto' }}>
+              <CourseSessionAction courseCode={courseCode} enrolled={registered} signedIn joinUrl={reg?.liveUrl ?? null}
+                joinOpensAt={reg?.joinOpensAt ?? null} joinClosesAt={reg?.joinClosesAt ?? null} scheduledIso={session.scheduled_datetime ?? null} size="sm" />
+            </div>
+          ) : (
           <div style={{ display: 'flex', gap: 8, marginTop: 'auto' }}>
             {canJoin && liveUrl ? (
               // THE Join button (liveUrl is the logged join route).
@@ -264,6 +274,7 @@ export function LiveSessionCard(props: Props) {
               title="Add to calendar"
             />
           </div>
+          )}
         </div>
       </div>
     );

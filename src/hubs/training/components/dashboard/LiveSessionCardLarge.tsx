@@ -10,6 +10,7 @@ import { useShareTemplate } from '@/src/shared/share/useShareTemplate';
 import { renderShareTemplate, formatShareDate } from '@/src/shared/share/shareTemplates';
 import type { LiveSession, RegistrationStatus, WatchHistoryEntry } from '@/src/hubs/training/lib/liveSessions/liveSessionsForStudent';
 import { CourseTime } from '@/src/hubs/training/components/sessions/CourseTime';
+import { CourseSessionAction } from '@/src/hubs/training/components/sessions/CourseSessionAction';
 
 const NAVY = '#0D2E5A';
 const TEAL = '#14B8A6';
@@ -309,7 +310,9 @@ export function LiveSessionCardLarge(props: Props) {
     const startingSoon = registered && mins <= 15 && mins >= -180;
     const canJoin = reg?.joinLinkAvailable;
     const isLiveNow = session.session_type === 'live';
-    const badgeLabel = isLiveNow ? 'LIVE NOW' : registered ? 'REGISTERED' : 'UPCOMING';
+    // A course session has no registration of its own: `registered` is the course enrolment.
+    const courseCode = (session as { course_code?: string | null }).course_code ?? null;
+    const badgeLabel = isLiveNow ? 'LIVE NOW' : registered ? (courseCode ? 'ENROLLED' : 'REGISTERED') : 'UPCOMING';
     const badgeBg = isLiveNow ? RED : registered ? GREEN : ORANGE;
     const countdown = describeTimeUntil(session.scheduled_datetime);
 
@@ -358,7 +361,7 @@ export function LiveSessionCardLarge(props: Props) {
           {/* Registered pill + countdown. Only shown once the student is
               actually registered, before that, the Register button below
               is the whole CTA row. */}
-          {registered && !canJoin && !startingSoon && countdown && (
+          {!courseCode && registered && !canJoin && !startingSoon && countdown && (
             <div style={{
               display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap',
               marginBottom: 10, fontSize: 12, color: '#374151',
@@ -395,6 +398,13 @@ export function LiveSessionCardLarge(props: Props) {
                                         the student can get the join link)
                 registered, far out → View Details (secondary)
                 not registered      → Register button (inline, no redirect) */}
+          {courseCode ? (
+            // A course session: Enrol in course / Join live / Enrolled + date + Add to calendar.
+            <div style={{ marginTop: 'auto' }}>
+              <CourseSessionAction courseCode={courseCode} enrolled={registered} signedIn joinUrl={reg?.liveUrl ?? null}
+                joinOpensAt={reg?.joinOpensAt ?? null} joinClosesAt={reg?.joinClosesAt ?? null} scheduledIso={session.scheduled_datetime ?? null} size="sm" />
+            </div>
+          ) : (
           <div style={{ display: 'flex', gap: 8, marginTop: 'auto' }}>
             {canJoin && registered ? (
               <Link href={href} style={primaryBtn(RED)}>
@@ -429,6 +439,7 @@ export function LiveSessionCardLarge(props: Props) {
               <DownloadIcon size={15} />
             </button>
           </div>
+          )}
         </div>
       </div>
     );

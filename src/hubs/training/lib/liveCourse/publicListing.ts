@@ -50,8 +50,8 @@ export function courseCardAction(p: {
 }): CourseCardAction {
   if (p.enrolled) return { kind: 'view', label: 'View session', href: courseSessionPath(p.courseCode, p.sessionId) };
   if (!p.enrolmentOpen) return { kind: 'course', label: 'View course', href: coursePagePath(p.courseCode) };
-  if (p.signedIn) return { kind: 'enrol', label: 'Enrol', href: `${coursePagePath(p.courseCode)}?enrol=1` };
-  return { kind: 'register', label: 'Register free', href: `/register?course=${encodeURIComponent(p.courseCode)}` };
+  if (p.signedIn) return { kind: 'enrol', label: 'Enrol in course', href: `${coursePagePath(p.courseCode)}?enrol=1` };
+  return { kind: 'register', label: 'Enrol in course', href: `/register?course=${encodeURIComponent(p.courseCode)}` };
 }
 
 /** Playlists that hold course sessions (left out of the single-session screens). Pure. */

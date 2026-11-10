@@ -53,7 +53,8 @@ export async function POST(req: NextRequest) {
     for (const id of sessionIds) {
       const session = sessionMap.get(id);
       if (!session) { registrations[id] = { registered: false, joinLinkAvailable: false, liveUrl: null, joinOpensAt: null, joinClosesAt: null }; continue; }
-      const registered = regSet.has(id) || (!!session.course_code && enrolled.has(session.course_code));
+      // A course session: enrolment only (old per-session rows are ignored).
+      const registered = session.course_code ? enrolled.has(session.course_code) : regSet.has(id);
       const opens = session.course_code && opensBy.has(session.course_code)
         ? opensBy.get(session.course_code)!
         : (session.show_join_link_minutes_before ?? DEFAULT_OPENS_MINUTES_BEFORE);

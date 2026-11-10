@@ -16,7 +16,7 @@ import { courseSessionPath, coursePagePath } from '@/src/hubs/training/lib/liveC
 import { navStatus, prevNext, sessionMainAction, sessionLabel, STATUS_LABEL } from '@/src/hubs/training/lib/liveCourse/courseNav';
 import { sessionCertificateAvailable } from '@/src/hubs/training/lib/liveCourse/sessionCertificate';
 import { CourseShell } from '@/src/hubs/training/components/sessions/CourseShell';
-import { JoinLiveButton } from '@/src/hubs/training/components/sessions/JoinLiveButton';
+import { CourseSessionAction } from '@/src/hubs/training/components/sessions/CourseSessionAction';
 import { TimeZoneTable } from '@/src/hubs/training/components/sessions/TimeZoneTable';
 import { SessionCertificateButton } from '@/src/hubs/training/components/sessions/SessionCertificateButton';
 import { SessionProgress } from '../../../live-course/[code]/LiveCourseClient';
@@ -68,7 +68,8 @@ export function CourseSessionClient({ course, sessions, sessionId, signedIn, can
 
   const button = (() => {
     const base: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', padding: '12px 24px', borderRadius: 10, fontWeight: 800, fontSize: 14.5, textDecoration: 'none' };
-    if (action.kind === 'join') return <JoinLiveButton joinUrl={vs?.joinUrl ?? null} joinOpensAt={vs?.joinOpensAt ?? null} joinClosesAt={vs?.joinClosesAt ?? null} studentName={view?.student.name ?? null} />;
+    // Enrolled, before or during the session: Join live in its window, else Enrolled + date + Add to calendar.
+    if (action.kind === 'join') return <CourseSessionAction courseCode={course.courseCode} enrolled signedIn={signedIn} joinUrl={vs?.joinUrl ?? null} joinOpensAt={vs?.joinOpensAt ?? null} joinClosesAt={vs?.joinClosesAt ?? null} scheduledIso={s.scheduled_datetime} studentName={view?.student.name ?? null} />;
     if (action.href) return <Link data-testid="session-main-action" data-action={action.kind} href={action.href} style={{ ...base, background: action.kind === 'watch' ? BLUE : GREEN, color: '#fff' }}>{action.kind === 'watch' ? '▶ ' : ''}{action.label}</Link>;
     return <span data-testid="session-main-action" data-action={action.kind} style={{ ...base, background: action.kind === 'locked' ? '#FFF7ED' : '#F1F3F5', color: action.kind === 'locked' ? '#9A5B00' : SLATE }}>{action.kind === 'locked' ? '🔒 ' : ''}{action.label}</span>;
   })();

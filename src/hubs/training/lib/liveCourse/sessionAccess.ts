@@ -47,6 +47,19 @@ export async function studentHasSessionAccess(
   s: SessionForAccess,
 ): Promise<boolean> {
   const email = student.email.trim().toLowerCase();
+  // A COURSE session has no registration of its own (founder, 2026-11-10):
+  // enrolment in the course is the access, for every session including ones
+  // added or rescheduled later. Old per-session rows on course sessions are ignored.
+  if (s.course_code) {
+    if (!student.registrationId) return false;
+    const { data: enr } = await sb
+      .from('training_enrollments')
+      .select('id')
+      .eq('registration_id', student.registrationId)
+      .eq('course_code', s.course_code)
+      .maybeSingle();
+    return !!enr;
+  }
   const { data: reg } = await sb
     .from('session_registrations')
     .select('id')

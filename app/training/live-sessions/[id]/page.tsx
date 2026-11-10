@@ -12,6 +12,7 @@ import { extractYouTubeId } from '@/src/shared/cms';
 import type { WatchProgressPayload } from '@/src/hubs/training/components/YouTubePlayer';
 import { hydrateIntervals, serializeIntervals, type Interval } from '@/src/hubs/training/lib/watch/watchTracker';
 import { effectiveSessionType } from '@/src/hubs/training/lib/liveCourse/joinWindow';
+import { CourseSessionAction } from '@/src/hubs/training/components/sessions/CourseSessionAction';
 import { JoinLiveButton } from '@/src/hubs/training/components/sessions/JoinLiveButton';
 import { TimeZoneTable } from '@/src/hubs/training/components/sessions/TimeZoneTable';
 import { courseSessionPath } from '@/src/hubs/training/lib/liveCourse/paths';
@@ -29,6 +30,8 @@ interface Session {
   course_time_zones?: string[] | null;
   /** A course recording locked for this student (recordingAccess.ts): the reason, e.g. "Complete Session 2 to unlock". */
   recording_locked?: string | null;
+  /** A live course's session: no registration of its own (CourseSessionAction). */
+  course_code?: string | null;
 }
 
 function fmtDate(iso: string): string {
@@ -383,7 +386,18 @@ export default function LiveSessionDetailPage() {
       ? sessStart.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })
       : '';
 
-    const registerCard = effType !== 'recorded' ? (
+    // A COURSE session has no registration of its own: enrolment in the course
+    // registers the student for every session (CourseSessionAction).
+    const registerCard = effType !== 'recorded' && session.course_code ? (
+      <div data-testid="course-session-card" style={{ background: '#fff', borderRadius: 10, border: '1px solid #E5E7EB', padding: 24 }}>
+        <h3 style={{ fontSize: 14, fontWeight: 700, color: NAVY, marginBottom: 6 }}>{registered ? 'You are enrolled' : 'Part of a live course'}</h3>
+        <p style={{ fontSize: 13, color: '#4B5563', lineHeight: 1.55, marginTop: 0, marginBottom: 12 }}>
+          {registered ? 'Your course enrolment covers every session. Join live opens shortly before the start.' : 'Enrol in the course and you are registered for every session.'}
+        </p>
+        <CourseSessionAction courseCode={session.course_code} enrolled={registered} signedIn={!!studentSession} joinUrl={session.live_url || null}
+          joinOpensAt={joinWindow.opensAt} joinClosesAt={joinWindow.closesAt} scheduledIso={session.scheduled_datetime || null} size="sm" />
+      </div>
+    ) : effType !== 'recorded' ? (
       <div style={{ background: '#fff', borderRadius: 10, border: '1px solid #E5E7EB', padding: 24 }}>
         <h3 style={{ fontSize: 14, fontWeight: 700, color: NAVY, marginBottom: 6 }}>
           {registered ? 'You are registered' : 'Register for this session'}

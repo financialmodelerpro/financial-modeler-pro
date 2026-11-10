@@ -74,7 +74,8 @@ export async function GET(req: NextRequest) {
       youtube_embed: s.youtube_embed ?? false,
       instructor_title: s.instructor_title ?? null,
       playlist: s.live_playlists,
-      registration_count: regCounts[s.id] ?? 0,
+      // A course session has no per-session registration, so no count.
+      registration_count: (s as { course_code?: string | null }).course_code ? 0 : regCounts[s.id] ?? 0,
     }));
 
     return NextResponse.json({ sessions });

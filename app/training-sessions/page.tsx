@@ -83,7 +83,8 @@ async function getSessions(): Promise<PublicSession[]> {
       youtube_embed: s.youtube_embed ?? false,
       instructor_title: s.instructor_title ?? null,
       playlist: (Array.isArray(s.live_playlists) ? s.live_playlists[0] : s.live_playlists) as PublicSession['playlist'],
-      registration_count: regCounts[s.id] ?? 0,
+      // A course session has no per-session registration, so no count.
+      registration_count: s.course_code ? 0 : regCounts[s.id] ?? 0,
       course_code: (s.course_code as string | null) ?? null,
       course_session_no: (s.course_session_no as number | null) ?? null,
       course_short_title: s.course_short_title ?? null,
