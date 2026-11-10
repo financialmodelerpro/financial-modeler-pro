@@ -112,6 +112,9 @@ async function getCourseOffers(): Promise<PublicCourseOffer[]> {
       cardImageAlt: c.cardImageAlt,
       enrolmentOpen: c.enrolmentOpen,
       timeZones: c.timeZones,
+      // "X enrolled", shown only from the admin threshold (the side card's rule).
+      enrolledCount: (await sb.from('training_enrollments').select('id', { count: 'exact', head: true }).eq('course_code', c.courseCode)).count ?? 0,
+      enrolledThreshold: c.page.sections.sideCard.enrolledThreshold,
       sessions: (await listCourseSessions(sb, c.courseCode)).map((s) => ({
         no: s.course_session_no, title: s.title, scheduled_datetime: s.scheduled_datetime,
       })),

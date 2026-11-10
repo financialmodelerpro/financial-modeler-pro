@@ -1818,6 +1818,26 @@ async function unit21(): Promise<void> {
   check('U21.4 the enrolment email still attaches the course calendar (all sessions)', readFileSync('src/hubs/training/lib/liveCourse/enrolment.ts', 'utf8').includes('icsAttachment(buildCourseIcs(settings, sessions), settings.courseCode)'));
 }
 
+async function unit22(): Promise<void> {
+  console.log('\n=== Training Sessions page: course sessions enrol in the course, KSA-first time, enrolment count ===\n');
+  const PL = await import('../src/hubs/training/lib/liveCourse/publicListing');
+  const client = readFileSync('app/training-sessions/SessionsClient.tsx', 'utf8');
+  const a = PL.courseCardAction({ courseCode: 'REFM', sessionId: 's1', enrolled: false, signedIn: true, enrolmentOpen: true });
+  const v = PL.courseCardAction({ courseCode: 'REFM', sessionId: 's1', enrolled: true, signedIn: true, enrolmentOpen: true });
+  check('U22.1a a course session\'s Enrol goes to the course page, which creates the COURSE enrolment (never a session registration)', a.kind === 'enrol' && a.href === '/training/REFM?enrol=1' && readFileSync('app/training/live-course/[code]/LiveCourseClient.tsx', 'utf8').includes("enrol('dashboard')") && readFileSync('app/api/training/enroll/route.ts', 'utf8').includes('enrolInLiveCourse('));
+  check('U22.1b an enrolled student sees View session', v.kind === 'view' && v.label === 'View session' && v.href === '/training/REFM/sessions/s1');
+  check('U22.1c the Next session card uses the same course action for a course session', client.includes('const nextAction = nextSession?.course_code') && client.includes('courseCardAction({ courseCode: nextSession.course_code') && client.includes('href={nextAction ? nextAction.href : registerUrl(nextSession.id)}'));
+  const TM = await import('../src/hubs/training/lib/liveCourse/time');
+  check('U22.2a the time reads "Tue 1 Dec 2026, 7:00 PM KSA" (KSA, not the viewer\'s clock labelled Riyadh)', TM.courseTimeLabel('2026-12-01T16:00:00Z', { year: true }) === 'Tue 1 Dec 2026, 7:00 PM KSA');
+  check('U22.2b a viewer in KSA sees no "Your time"; a viewer in Pakistan sees "Your time: 9:00 PM"', TM.viewerClock('2026-12-01T16:00:00Z', 'Asia/Riyadh') === '' && TM.viewerClock('2026-12-01T16:00:00Z', 'Asia/Karachi') === '9:00 PM' && readFileSync('src/hubs/training/components/sessions/CourseTime.tsx', 'utf8').includes('Your time: {clock}'));
+  check('U22.2c the Next session card shows a course session that way; a single session in its own zone', client.includes('<CourseTime iso={nextSession.scheduled_datetime} year variant="line" />') && client.includes('fmtTime(nextSession.scheduled_datetime, nextSession.timezone)') && /hour12: true, \.\.\.\(timeZone \? \{ timeZone \} : \{\}\)/.test(client));
+  check('U22.2d the player page header reads the session\'s own zone too (KSA for a course session)', readFileSync('src/hubs/training/components/player/CoursePlayerLayout.tsx', 'utf8').includes("const tzLabel = timezone === 'Asia/Riyadh' ? 'KSA' : timezone;") && readFileSync('src/hubs/training/components/player/CoursePlayerLayout.tsx', 'utf8').includes('hour12: true, ...tzOpt'));
+  const PS = await import('../src/hubs/training/lib/liveCourse/pageSections');
+  check('U22.3a the enrolment count follows the threshold (24 of 25 hidden, 25 shown)', !PS.showEnrolledCount(24, 25) && PS.showEnrolledCount(25, 25));
+  check('U22.3b a course session shows "X enrolled" from the course, never "people registered"', client.includes('showEnrolledCount(offer.enrolledCount ?? 0, offer.enrolledThreshold ?? 25)') && client.includes('{offer.enrolledCount} enrolled') && client.indexOf('{nextSession.course_code ? (() => {') < client.indexOf('people registered'));
+  check('U22.3c the page reads the count and the admin threshold per course', readFileSync('app/training-sessions/page.tsx', 'utf8').includes('enrolledThreshold: c.page.sections.sideCard.enrolledThreshold'));
+}
+
 (async () => {
   await unit0();
   await unit1();
@@ -1842,6 +1862,7 @@ async function unit21(): Promise<void> {
   await unit19();
   await unit20();
   await unit21();
+  await unit22();
   console.log(`\n${passed} passed, ${failed} failed`);
   if (failed) { console.log('Failed:'); for (const f of fails) console.log(`  - ${f}`); process.exit(1); }
 })().catch((e) => { console.error(e); process.exit(1); });

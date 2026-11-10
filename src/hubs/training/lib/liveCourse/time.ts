@@ -71,12 +71,29 @@ const clockIn = (d: Date, timeZone: string) =>
 const dayIn = (d: Date, timeZone: string) =>
   d.toLocaleDateString('en-GB', { timeZone, weekday: 'short', day: 'numeric', month: 'short' }).replace(',', '');
 
-/** "Tue 1 Dec, 7:00 PM KSA": a course session's time, KSA first. */
-export function courseTimeLabel(iso: string | null | undefined): string {
+/** "Tue 1 Dec, 7:00 PM KSA" (with `year`: "Tue 1 Dec 2026, 7:00 PM KSA"): a course session's time, KSA first. */
+export function courseTimeLabel(iso: string | null | undefined, opts: { year?: boolean } = {}): string {
   if (!iso) return 'Date to be announced';
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return 'Date to be announced';
-  return `${dayIn(d, KSA_TZ)}, ${clockIn(d, KSA_TZ)} KSA`;
+  const day = opts.year ? `${dayIn(d, KSA_TZ)} ${d.toLocaleDateString('en-GB', { timeZone: KSA_TZ, year: 'numeric' })}` : dayIn(d, KSA_TZ);
+  return `${day}, ${clockIn(d, KSA_TZ)} KSA`;
+}
+
+/**
+ * The viewer's own clock for a course session, only when it differs from
+ * KSA: "9:00 PM", or with the day when that differs too, "Wed 2 Dec, 1:00 AM".
+ * Empty in KSA (or an unknown zone).
+ */
+export function viewerClock(iso: string | null | undefined, viewerTz: string | null | undefined): string {
+  if (!iso || !viewerTz) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  try {
+    const mine = clockIn(d, viewerTz), myDay = dayIn(d, viewerTz);
+    if (mine === clockIn(d, KSA_TZ) && myDay === dayIn(d, KSA_TZ)) return '';
+    return myDay === dayIn(d, KSA_TZ) ? mine : `${myDay}, ${mine}`;
+  } catch { return ''; }
 }
 
 /**
@@ -85,11 +102,6 @@ export function courseTimeLabel(iso: string | null | undefined): string {
  * "(Wed 2 Dec, 1:00 AM your time)". Empty when the viewer is on KSA time.
  */
 export function viewerTimeSuffix(iso: string | null | undefined, viewerTz: string | null | undefined): string {
-  if (!iso || !viewerTz) return '';
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '';
-  let mine: string, ksa: string, myDay: string;
-  try { mine = clockIn(d, viewerTz); myDay = dayIn(d, viewerTz); ksa = clockIn(d, KSA_TZ); } catch { return ''; }
-  if (mine === ksa && myDay === dayIn(d, KSA_TZ)) return '';
-  return myDay === dayIn(d, KSA_TZ) ? `(${mine} your time)` : `(${myDay}, ${mine} your time)`;
+  const c = viewerClock(iso, viewerTz);
+  return c ? `(${c} your time)` : '';
 }

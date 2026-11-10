@@ -27,6 +27,9 @@ export interface PublicCourseOffer {
   enrolmentOpen?: boolean;
   timeZones?: string[] | null;
   sessions: { no: number | null; title: string; scheduled_datetime: string | null }[];
+  /** Students enrolled, and the count from which it is shown (Page sections > side card threshold, default 25). */
+  enrolledCount?: number;
+  enrolledThreshold?: number;
 }
 
 const NAVY = '#1B4F8A';

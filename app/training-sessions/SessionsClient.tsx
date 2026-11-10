@@ -8,6 +8,8 @@ import { WelcomeModal } from '@/src/hubs/training/components/WelcomeModal';
 import { PublicCourseOffers, type PublicCourseOffer } from './PublicCourseOffers';
 import { CourseSessionListingCard } from '@/src/hubs/training/components/sessions/CourseSessionListingCard';
 import { listingOf, seriesLabel, seriesValue, courseCardAction } from '@/src/hubs/training/lib/liveCourse/publicListing';
+import { CourseTime } from '@/src/hubs/training/components/sessions/CourseTime';
+import { showEnrolledCount } from '@/src/hubs/training/lib/liveCourse/pageSections';
 
 export interface PublicSession {
   id: string; title: string; description: string; youtube_url: string | null;
@@ -32,11 +34,13 @@ export interface HeroContent {
   cta_secondary_text?: string; cta_secondary_url?: string;
 }
 
-function fmtDate(iso: string): string {
-  try { return new Date(iso).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' }); } catch { return ''; }
+// In the SESSION's zone (it was the viewer's, labelled with the session's zone:
+// 9:00 PM Pakistan shown as "(Asia/Riyadh)").
+function fmtDate(iso: string, timeZone?: string | null): string {
+  try { return new Date(iso).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', ...(timeZone ? { timeZone } : {}) }); } catch { return ''; }
 }
-function fmtTime(iso: string): string {
-  try { return new Date(iso).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true }); } catch { return ''; }
+function fmtTime(iso: string, timeZone?: string | null): string {
+  try { return new Date(iso).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true, ...(timeZone ? { timeZone } : {}) }); } catch { return ''; }
 }
 
 const NAVY = '#0D2E5A';
@@ -206,11 +210,20 @@ export function SessionsClient({ sessions, hero, courses = [] }: { sessions: Pub
                   {nextSession.session_type === 'live' ? 'LIVE NOW' : 'NEXT SESSION'}
                 </div>
                 <h2 style={{ fontSize: 20, fontWeight: 800, color: NAVY, margin: '0 0 8px', lineHeight: 1.3 }}>{nextSession.title}</h2>
-                <div style={{ fontSize: 13, color: '#374151', marginBottom: 4 }}>
-                  {fmtDate(nextSession.scheduled_datetime)} &middot; {fmtTime(nextSession.scheduled_datetime)} ({nextSession.timezone})
-                </div>
-                {localTz && localTz !== nextSession.timezone && (
-                  <div style={{ fontSize: 12, color: '#1B4F8A', marginBottom: 4 }}>Your time: {localTime(nextSession.scheduled_datetime)}</div>
+                {nextSession.course_code ? (
+                  // A course session: KSA first, the viewer's own time on its own line only when it differs.
+                  <div data-testid="next-session-time" style={{ fontSize: 13, color: '#374151', marginBottom: 4 }}>
+                    <CourseTime iso={nextSession.scheduled_datetime} year variant="line" />
+                  </div>
+                ) : (
+                  <>
+                    <div style={{ fontSize: 13, color: '#374151', marginBottom: 4 }}>
+                      {fmtDate(nextSession.scheduled_datetime, nextSession.timezone)} &middot; {fmtTime(nextSession.scheduled_datetime, nextSession.timezone)} ({nextSession.timezone})
+                    </div>
+                    {localTz && localTz !== nextSession.timezone && (
+                      <div style={{ fontSize: 12, color: '#1B4F8A', marginBottom: 4 }}>Your time: {localTime(nextSession.scheduled_datetime)}</div>
+                    )}
+                  </>
                 )}
                 {nextSession.duration_minutes && (
                   <div style={{ fontSize: 12, color: '#6B7280', marginBottom: 12 }}>
@@ -218,7 +231,13 @@ export function SessionsClient({ sessions, hero, courses = [] }: { sessions: Pub
                   </div>
                 )}
                 {countdown && <div style={{ fontSize: 14, fontWeight: 700, color: '#1D4ED8', marginBottom: 14 }}>Countdown: {countdown}</div>}
-                {nextSession.registration_count > 0 && (
+                {/* A course session: the course's enrolment count, from the admin threshold; never a per-session count. */}
+                {nextSession.course_code ? (() => {
+                  const offer = courses.find((c) => c.courseCode === nextSession.course_code);
+                  return offer && showEnrolledCount(offer.enrolledCount ?? 0, offer.enrolledThreshold ?? 25)
+                    ? <div data-testid="next-session-enrolled" style={{ fontSize: 12, color: '#6B7280', marginBottom: 12 }}>{offer.enrolledCount} enrolled</div>
+                    : null;
+                })() : nextSession.registration_count > 0 && (
                   <div style={{ fontSize: 12, color: '#6B7280', marginBottom: 12 }}>{nextSession.registration_count} people registered</div>
                 )}
                 <Link href={nextAction ? nextAction.href : registerUrl(nextSession.id)}

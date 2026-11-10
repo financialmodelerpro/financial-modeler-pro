@@ -225,8 +225,11 @@ export function CoursePlayerLayout({
     if (isMobile && hasVideo && !videoOpen) setVideoOpen(true);
   }, [isMobile, hasVideo, videoOpen]);
 
-  const fmtDate = (iso: string) => { try { return new Date(iso).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }); } catch { return ''; } };
-  const fmtTime = (iso: string) => { try { return new Date(iso).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true }); } catch { return ''; } };
+  // In the session's own zone (it was the viewer's clock labelled with the session's zone).
+  const tzOpt = timezone ? { timeZone: timezone } : {};
+  const fmtDate = (iso: string) => { try { return new Date(iso).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', ...tzOpt }); } catch { return ''; } };
+  const fmtTime = (iso: string) => { try { return new Date(iso).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true, ...tzOpt }); } catch { return ''; } };
+  const tzLabel = timezone === 'Asia/Riyadh' ? 'KSA' : timezone;
 
   // CTA for sessions without embedded video.
   //
@@ -372,7 +375,7 @@ export function CoursePlayerLayout({
               {/* Date, duration, difficulty */}
               <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 16, fontSize: 13, color: '#6b7280' }}>
                 {scheduledDatetime && (
-                  <span>{fmtDate(scheduledDatetime)} at {fmtTime(scheduledDatetime)}{timezone ? ` (${timezone})` : ''}</span>
+                  <span>{fmtDate(scheduledDatetime)} at {fmtTime(scheduledDatetime)}{tzLabel ? ` (${tzLabel})` : ''}</span>
                 )}
                 {durationMinutes && <span>{durationMinutes} min</span>}
               </div>
