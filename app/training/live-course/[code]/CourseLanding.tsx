@@ -14,7 +14,7 @@ import {
   FileSpreadsheet, Video, Monitor, Award, CheckCircle2, Calendar, Clock, Target, ShieldCheck, Star,
 } from 'lucide-react';
 import type { PageConfig, SectionKey, IconItem, IconName } from '@/src/hubs/training/lib/liveCourse/pageSections';
-import { countdownText, showEnrolledCount, visibleSections } from '@/src/hubs/training/lib/liveCourse/pageSections';
+import { countdownText, showEnrolledCount, visibleSections, nextSessionLine } from '@/src/hubs/training/lib/liveCourse/pageSections';
 import { formatSessionTime } from '@/src/hubs/training/lib/liveCourse/time';
 import { courseEyebrow } from '@/src/hubs/training/lib/liveCourse/paths';
 import { TimeZoneTable } from '@/src/hubs/training/components/sessions/TimeZoneTable';
@@ -42,6 +42,10 @@ export interface LandingData {
   bannerUrl: string | null;
   bannerAlt: string;
   facts: string[];
+  /** The side card's key facts from the schedule (pageSections.scheduleFacts). */
+  sideFacts: string[];
+  /** One line, shown on the side card. */
+  prerequisites: string;
   /** The next session not yet started (countdown + side card), or null once the course has run. */
   next: { no: number | null; startIso: string } | null;
   timeZones: string[] | null;
@@ -73,14 +77,19 @@ export function CourseLanding({
 
   const sideCard = S.sideCard.enabled && (
     <div data-testid="landing-side-card" style={{ background: '#fff', border: `1px solid ${PALE}`, borderRadius: 14, padding: 20, boxShadow: '0 8px 24px rgba(13,46,90,0.08)' }}>
-      <div style={{ fontSize: 26, fontWeight: 800, color: DARK }}>Free</div>
-      {d.next && (
-        <div style={{ fontSize: 13.5, color: SLATE, margin: '6px 0 14px' }}>
-          Next session{d.next.no != null ? ` (${d.next.no})` : ''}:<br /><strong style={{ color: INK }}>{formatSessionTime(d.next.startIso)}</strong>
-        </div>
+      {d.next && <div data-testid="landing-side-next" style={{ fontSize: 14.5, fontWeight: 800, color: DARK, lineHeight: 1.4 }}>{nextSessionLine(d.next)}</div>}
+      {d.sideFacts.length > 0 && (
+        <ul data-testid="landing-side-facts" style={{ listStyle: 'none', margin: '12px 0 0', padding: 0, display: 'grid', gap: 6 }}>
+          {d.sideFacts.map((f, i) => (
+            <li key={i} style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 13.5, color: INK }}>
+              <CheckCircle2 size={15} color="#2E7D52" aria-hidden style={{ flexShrink: 0 }} />{f}
+            </li>
+          ))}
+        </ul>
       )}
-      <div className="lc-side-action">{actions.light}</div>
-      {calendarHref && <a href={calendarHref} style={{ display: 'block', marginTop: 12, color: NAVY, fontWeight: 700, fontSize: 13.5 }}>📅 Add to calendar</a>}
+      {d.prerequisites && <div data-testid="landing-side-prereq" style={{ fontSize: 13, color: SLATE, marginTop: 12, lineHeight: 1.45 }}><strong style={{ color: DARK }}>Prerequisites:</strong> {d.prerequisites}</div>}
+      <div className="lc-side-action" style={{ marginTop: 14 }}>{actions.light}</div>
+      {calendarHref && <a data-testid="landing-side-calendar" href={calendarHref} style={{ display: 'block', marginTop: 12, color: NAVY, fontWeight: 700, fontSize: 13.5 }}>📅 Add to calendar</a>}
       {showCount && <div data-testid="landing-enrolled-count" style={{ marginTop: 12, fontSize: 13, color: SLATE }}>👥 {d.enrolledCount} enrolled</div>}
       {d.next && <TimeZoneTable iso={d.next.startIso} zones={d.timeZones} collapsible />}
     </div>

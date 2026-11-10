@@ -3,6 +3,7 @@ import { getServerClient } from '@/src/core/db/supabase';
 import { adminEmail } from '@/src/hubs/training/lib/liveCourse/adminGuard';
 import { listLiveCourses } from '@/src/hubs/training/lib/liveCourse/courseSettings';
 import { createCourse } from '@/src/hubs/training/lib/liveCourse/courseAdmin';
+import { invalidateLiveCourseCache } from '@/src/hubs/training/lib/liveCourse/cachedReads';
 
 export const dynamic = 'force-dynamic';
 
@@ -48,5 +49,6 @@ export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({})) as { courseCode?: string; title?: string };
   const r = await createCourse(getServerClient(), { courseCode: body.courseCode ?? '', title: body.title ?? '' });
   if (!r.ok) return NextResponse.json({ error: r.error }, { status: 400 });
+  invalidateLiveCourseCache();
   return NextResponse.json(r);
 }

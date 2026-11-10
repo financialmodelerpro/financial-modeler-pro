@@ -16,7 +16,7 @@ import type { CourseView } from '@/src/hubs/training/lib/liveCourse/courseView';
 import type { LiveCourseSettings, CourseSession } from '@/src/hubs/training/lib/liveCourse/courseSettings';
 import type { CourseInstructor } from '@/src/hubs/training/lib/liveCourse/courseInstructors';
 import type { PageConfig } from '@/src/hubs/training/lib/liveCourse/pageSections';
-import { autoFacts, nextSession } from '@/src/hubs/training/lib/liveCourse/pageSections';
+import { autoFacts, nextSession, scheduleFacts } from '@/src/hubs/training/lib/liveCourse/pageSections';
 import { CourseLanding } from './CourseLanding';
 import { CourseShell, CourseSessionsTable } from '@/src/hubs/training/components/sessions/CourseShell';
 import { coursePagePath } from '@/src/hubs/training/lib/liveCourse/paths';
@@ -213,6 +213,8 @@ export function LiveCourseClient({ courseCode, autoEnrol, signedIn, publicData, 
           bannerUrl: course.bannerUrl,
           bannerAlt: course.bannerAlt,
           facts: landing.page.sections.hero.facts.length ? landing.page.sections.hero.facts : autoFacts(sessions),
+          sideFacts: scheduleFacts(sessions),
+          prerequisites: prereq.replace(/s+/g, ' '),
           next: next?.scheduled_datetime ? { no: next.course_session_no, startIso: next.scheduled_datetime } : null,
           timeZones: course.timeZones,
           enrolledCount: landing.enrolledCount,

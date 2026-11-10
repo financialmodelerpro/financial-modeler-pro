@@ -1391,7 +1391,8 @@ async function unit15(): Promise<void> {
   check('U15.4c enrolled, after: Watch recording (the tracked player) or Recording coming soon', A({ enrolled: true, signedIn: true, status: 'recorded' }).href === '/training/REFM/sessions/a/watch' && A({ enrolled: true, signedIn: true, status: 'ended' }).kind === 'recording-soon');
   check('U15.4d enrolment closed is stated, never a dead button', A({ canRegister: false }).kind === 'closed' && A({ canRegister: false }).href === null);
   check('U15.4e the tracked recording player stays, at ./watch', readFileSync('app/training/[courseId]/sessions/[id]/watch/page.tsx', 'utf8').includes("export { default } from '../../../../live-sessions/[id]/page'"));
-  check('U15.4f the session page: 16:9 whole image (course card fallback), content blocks, collapsed time zones, materials rule, certificate card', sessPage.includes('s.banner_url || course.cardImageUrl') && sessPage.includes("aspectRatio: '16 / 9'") && sessPage.includes("objectFit: 'contain'") && sessPage.includes("'What you will learn'") && sessPage.includes("'By the end of this session'") && sessPage.includes("'Build with Claude'") && sessPage.includes('collapsible') && sessPage.includes('Materials will be available after the session.') && sessPage.includes('vs?.materialsReleased') && sessPage.includes('course-session-certificate'));
+  // Re-aimed 2026-11-10: the content blocks moved into the shared SessionContentSections (unit 17).
+  check('U15.4f the session page: 16:9 whole image (course card fallback), content blocks, collapsed time zones, materials rule, certificate card', sessPage.includes('s.banner_url || course.cardImageUrl') && sessPage.includes("aspectRatio: '16 / 9'") && sessPage.includes("objectFit: 'contain'") && sessPage.includes('<SessionContentSections sections={sections} />') && sessPage.includes('collapsible') && sessPage.includes('Materials will be available after the session.') && sessPage.includes('vs?.materialsReleased') && sessPage.includes('course-session-certificate'));
 
   // ── Previous / next ──
   const pn = CN.prevNext(list, 'b');
@@ -1453,6 +1454,110 @@ async function unit16(): Promise<void> {
   }
 }
 
+async function unit17(): Promise<void> {
+  console.log('\n=== Session page content lists, layout, sidebar, fast navigation, side card ===\n');
+  const SC = await import('../src/hubs/training/lib/liveCourse/sessionContent');
+  const { createElement } = await import('react');
+  const { renderToStaticMarkup } = await import('react-dom/server');
+
+  // ── The content model: eight lists, one reader, older fields mapped in ──
+  check('U17.1a eight sections in the founder\'s order', SC.SECTION_KEYS.join(',') === 'overview,learnConcepts,learnHandsOn,flow,build,claude,before,after');
+  const legacy = SC.sessionSections({ content_overview: 'Old  paragraph.', content_learn: ['a', ' - b '], content_outcome: 'Out', content_claude: 'Cl' });
+  check('U17.1b a session with only the older fields maps them in (overview paragraph becomes the Overview list)', JSON.stringify(legacy.overview) === '["Old paragraph."]' && JSON.stringify(legacy.learnConcepts) === '["a","b"]' && JSON.stringify(legacy.build) === '["Out"]' && JSON.stringify(legacy.claude) === '["Cl"]' && legacy.flow.length === 0);
+  const fresh = SC.sessionSections({ content_sections: { overview: ['- x', '', '2. y'], flow: 'one\n\ntwo', junk: ['z'] }, content_overview: 'ignored' });
+  check('U17.1c new lists win as a whole; markers and blank lines dropped; unknown keys ignored', JSON.stringify(fresh.overview) === '["x","y"]' && JSON.stringify(fresh.flow) === '["one","two"]' && !('junk' in fresh) && fresh.learnConcepts.length === 0);
+  check('U17.1d an empty object is no content (the older fields still show)', SC.sessionSections({ content_sections: {}, content_overview: 'Kept' }).overview[0] === 'Kept');
+  check('U17.1e the editor parses one bullet per line', JSON.stringify(SC.linesToList(' a \n\n- b\n3) c')) === '["a","b","c"]');
+
+  const mdPath = 'docs/REFM_Live_Course_Materials/REFM_Session_Content.md';
+  const { REFM_SESSION_CONTENT } = await import('../src/hubs/training/lib/liveCourse/seeds/refmSessionContent');
+  const committedFull = [1, 2, 3, 4, 5, 6, 7, 8].every((n) => REFM_SESSION_CONTENT[n] && SC.SECTION_KEYS.every((k) => REFM_SESSION_CONTENT[n][k].length > 0));
+  check('U17.2a the committed REFM content has all 8 sessions with every section filled', committedFull);
+  if (existsSync(mdPath)) {
+    const parsed = SC.parseSessionContentMd(readFileSync(mdPath, 'utf8'));
+    check('U17.2b the content file parses to sessions 1 to 8, every section filled', parsed.map((p) => p.no).join(',') === '1,2,3,4,5,6,7,8' && parsed.every((p) => SC.SECTION_KEYS.every((k) => p.sections[k].length > 0)));
+    check('U17.2c the committed content matches the file (regenerate with scripts/gen-refm-session-content.ts)', parsed.every((p) => JSON.stringify(p.sections) === JSON.stringify(REFM_SESSION_CONTENT[p.no])));
+    const { REFM_SESSIONS } = await import('../src/hubs/training/lib/liveCourse/seeds/refmSessions');
+    check('U17.2d the file\'s session titles match the seeded titles', parsed.every((p) => REFM_SESSIONS.find((s) => s.no === p.no)?.title === p.title));
+  } else {
+    console.log('        (content file not on this machine; committed content checked above)');
+  }
+  const seed = readFileSync('scripts/seed-refm-sessions.ts', 'utf8');
+  check('U17.2e the seed writes the lists and still imports no email or newsletter code', seed.includes('content_sections: REFM_SESSION_CONTENT[s.no]') && !/sendEmail|newsletter|autoNotify|notify\//i.test(seed.replace(/No email or newsletter was sent/g, '').replace(/no newsletter auto-notify/gi, '')));
+
+  if (hasCreds()) {
+    const sb = await db();
+    const { data: rows } = await sb.from('live_sessions').select('course_session_no, content_sections, announcement_sent').eq('course_code', 'REFM').order('course_session_no');
+    const bad = (rows ?? []).filter((r) => SC.SECTION_KEYS.some((k) => SC.normaliseSections(r.content_sections)[k].length === 0)).map((r) => r.course_session_no);
+    check('U17.2f live: all 8 REFM sessions have every new section filled', (rows ?? []).length === 8 && bad.length === 0, `missing in sessions ${bad.join(', ')}`);
+    check('U17.2g live: writing the content announced nothing', (rows ?? []).every((r) => !r.announcement_sent));
+  }
+
+  // ── Lists render with visible markers ──
+  const { SessionContentSections } = await import('../src/hubs/training/components/sessions/SessionContentSections');
+  const html = renderToStaticMarkup(createElement(SessionContentSections, { sections: REFM_SESSION_CONTENT[1] }));
+  const items = (html.match(/data-testid="session-list-item"/g) ?? []).length;
+  const markers = (html.match(/data-testid="session-list-marker"/g) ?? []).length;
+  const total = SC.SECTION_KEYS.reduce((n, k) => n + REFM_SESSION_CONTENT[1][k].length, 0);
+  check('U17.3a every list item renders with a visible marker', items === total && markers === total, `${items} items, ${markers} markers, ${total} expected`);
+  check('U17.3b What you will learn uses check markers, in two labelled groups', /data-testid="session-list-learnConcepts" data-marker="check"/.test(html) && /data-testid="session-list-learnHandsOn" data-marker="check"/.test(html) && html.includes('>Concepts<') && html.includes('>Hands-on in Excel<'));
+  const flowHtml = html.slice(html.indexOf('session-list-flow'), html.indexOf('course-session-build'));
+  check('U17.3c Session flow is numbered 1 to N', /data-testid="session-list-flow" data-marker="number"/.test(html) && REFM_SESSION_CONTENT[1].flow.every((_, i) => flowHtml.includes(`>${i + 1}</span>`)));
+  check('U17.3d the other lists use bullet markers', ['overview', 'build', 'claude', 'before', 'after'].every((k) => new RegExp(`data-testid="session-list-${k}" data-marker="bullet"`).test(html)));
+  const order = ['course-session-overview', 'course-session-learn', 'course-session-flow', 'course-session-build', 'course-session-claude', 'course-session-before', 'course-session-after'].map((t) => html.indexOf(`data-testid="${t}"`));
+  check('U17.3e sections render in the founder\'s order', order.every((v, i) => v >= 0 && (i === 0 || v > order[i - 1])), JSON.stringify(order));
+  const legacyHtml = renderToStaticMarkup(createElement(SessionContentSections, { sections: legacy }));
+  check('U17.3f older content still renders (one learn group, no group labels)', legacyHtml.includes('course-session-overview') && !legacyHtml.includes('>Concepts<'));
+
+  const sessPage = readFileSync('app/training/[courseId]/sessions/[id]/CourseSessionClient.tsx', 'utf8');
+  const pos = (needle: string) => sessPage.indexOf(needle);
+  const seq = ['data-testid="course-session-image"', 'data-testid="course-session-status"', 'data-testid="course-session-title"', '<TimeZoneTable', '{button}', '<SessionContentSections sections={sections} />', "block('Materials'", 'data-testid="course-session-prevnext"'].map(pos);
+  check('U17.4a session page order: image, number and status, title, time and zones, button, content, materials, previous / next', seq.every((v, i) => v >= 0 && (i === 0 || v > seq[i - 1])), JSON.stringify(seq));
+  check('U17.4b the title is smaller than a page title (the image shows it)', sessPage.includes("fontSize: 'clamp(18px,2.2vw,22px)'"));
+  check('U17.4c the page reads content through the one reader', sessPage.includes('sessionSections(s)') && !sessPage.includes('s.content_overview'));
+
+  // ── Sidebar: fits the screen, scrolls on its own, lists every session ──
+  const shell = readFileSync('src/hubs/training/components/sessions/CourseShell.tsx', 'utf8');
+  check('U17.5a the sidebar is capped at the screen height and its session list scrolls', shell.includes('max-height: calc(100dvh - 92px)') && /\.cs-list \{[^}]*overflow-y: auto/.test(shell) && /\.cs-list \{[^}]*min-height: 0/.test(shell));
+  check('U17.5b it sticks for a signed-in student too (the shell main area clips instead of scrolling, course pages only)', shell.includes('.ts-main:has(.cs-shell) { overflow-x: clip !important; overflow-y: visible !important; }') && readFileSync('src/hubs/training/components/TrainingShell.tsx', 'utf8').includes('className="ts-main"'));
+  const { CourseSidebarList } = await import('../src/hubs/training/components/sessions/CourseShell');
+  const navSessions = Array.from({ length: 8 }, (_, i) => ({ id: `s${i + 1}`, title: `Session title ${i + 1}`, course_session_no: i + 1, scheduled_datetime: new Date(Date.parse('2026-12-01T16:00:00Z') + i * 7 * 864e5).toISOString(), duration_minutes: 150, session_type: 'upcoming' as const }));
+  let navHtml = '';
+  try { navHtml = renderToStaticMarkup(createElement(CourseSidebarList, { courseCode: 'REFM', courseTitle: 'REFM', sessions: navSessions, current: 's1', now: Date.parse('2026-11-10T00:00:00Z') })); } catch (e) { navHtml = `render failed: ${String(e)}`; }
+  check('U17.5c the sidebar lists all 8 sessions, Session 8 included', (navHtml.match(/data-testid="course-sidebar-session"/g) ?? []).length === 8 && navHtml.includes('Session title 8'), navHtml.slice(0, 120));
+
+  // ── Navigation is fast: cached reads, prefetched links ──
+  const cached = readFileSync('src/hubs/training/lib/liveCourse/cachedReads.ts', 'utf8');
+  check('U17.6a course and session reads are cached per request and across requests, tagged', cached.includes("from 'react'") && cached.includes('unstable_cache(') && cached.includes('tags: [LIVE_COURSE_CACHE_TAG]'));
+  const readers = { 'session page': 'app/training/[courseId]/sessions/[id]/page.tsx', 'session layout': 'app/training/[courseId]/sessions/[id]/layout.tsx', 'course route': 'app/training/[courseId]/page.tsx', 'overview page': 'app/training/live-course/[code]/LiveCoursePage.tsx' };
+  const notCached = Object.entries(readers).filter(([, f]) => !readFileSync(f, 'utf8').includes('cachedReads')).map(([k]) => k);
+  check('U17.6b the session page, its layout and the overview read through the cache', notCached.length === 0, notCached.join(', '));
+  check('U17.6c the course pages no longer read the settings directly', !readFileSync(readers['overview page'], 'utf8').includes('getLiveCourseSettings(') && !readFileSync(readers['session page'], 'utf8').includes('getLiveCourseSettings(') && !readFileSync(readers['course route'], 'utf8').includes('getLiveCourseSettings('));
+  const writers = ['app/api/admin/live-course/route.ts', 'app/api/admin/live-course/[code]/route.ts', 'app/api/admin/live-course/[code]/image/route.ts', 'app/api/admin/live-sessions/route.ts', 'app/api/admin/live-sessions/[id]/route.ts', 'app/api/admin/live-sessions/[id]/reschedule/route.ts'];
+  const noInvalidate = writers.filter((f) => !readFileSync(f, 'utf8').includes('invalidateLiveCourseCache()'));
+  check('U17.6d every admin write to a course or its sessions clears the cache, so an edit shows at once', noInvalidate.length === 0, noInvalidate.join(', '));
+  check('U17.6e sidebar, previous, next and Course overview links are prefetched', (shell.match(/<Link href=\{[^}]+\}\s+prefetch/g) ?? []).length >= 2 && sessPage.includes('<Link prefetch data-testid="course-session-prev"') && sessPage.includes('<Link prefetch data-testid="course-session-next"') && sessPage.includes('<Link prefetch data-testid="course-session-overview-link"'));
+  check('U17.6f an exam course (3SFM, BVM) still renders its own page (the live check returns null)', readFileSync(readers['course route'], 'utf8').includes('if (live) return <LiveCoursePage') && readFileSync(readers['course route'], 'utf8').includes('getCourseWithLessons(courseId)'));
+
+  // ── Editor, routes, other readers ──
+  const editor = readFileSync('app/admin/training-hub/live-training/LiveSessionsManager.tsx', 'utf8');
+  check('U17.7a the session editor has one textarea per section, one bullet per line, prefilled through the reader', editor.includes('SECTION_KEYS.map((k) => (') && editor.includes('admin-session-content-${k}') && editor.includes('sessionSections(s as unknown as SessionContentRow)') && editor.includes('linesToList(form.content_sections[k])'));
+  check('U17.7b create and edit store the lists through the one normaliser', readFileSync('app/api/admin/live-sessions/[id]/route.ts', 'utf8').includes('updates[k] = normaliseSections(body[k])') && readFileSync('app/api/admin/live-sessions/route.ts', 'utf8').includes('content_sections: normaliseSections(body.content_sections)'));
+  check('U17.7c page metadata and the calendar file read the overview through the reader', readFileSync('app/training/[courseId]/sessions/[id]/page.tsx', 'utf8').includes('overviewText(d.session)') && readFileSync('src/hubs/training/lib/liveCourse/calendar.ts', 'utf8').includes('overviewText(s)'));
+  check('U17.7d the session read tolerates a database without mig 253, then 251', readFileSync('src/hubs/training/lib/liveCourse/courseSettings.ts', 'utf8').includes('run(COURSE_SESSION_251_COLUMNS)'));
+
+  // ── Overview side card ──
+  const PS = await import('../src/hubs/training/lib/liveCourse/pageSections');
+  check('U17.8a the next line reads "Next: Session 1, Tue 1 Dec 2026, 7:00 PM KSA"', PS.nextSessionLine({ no: 1, startIso: '2026-12-01T16:00:00Z' }) === 'Next: Session 1, Tue 1 Dec 2026, 7:00 PM KSA', PS.nextSessionLine({ no: 1, startIso: '2026-12-01T16:00:00Z' }));
+  const facts = PS.scheduleFacts(navSessions);
+  check('U17.8b key facts: 8 live sessions, 2.5 hours each, Tuesdays 7:00 to 9:30 PM KSA, Free, Certificate', JSON.stringify(facts) === JSON.stringify(['8 live sessions', '2.5 hours each', 'Tuesdays 7:00 to 9:30 PM KSA', 'Free', 'Certificate']), JSON.stringify(facts));
+  check('U17.8c mixed lengths or days leave that fact out rather than state a wrong one', JSON.stringify(PS.scheduleFacts([{ scheduled_datetime: '2026-12-01T16:00:00Z', duration_minutes: 150 }, { scheduled_datetime: '2026-12-03T16:00:00Z', duration_minutes: 90 }])) === JSON.stringify(['2 live sessions', 'Free', 'Certificate']));
+  const landing = readFileSync('app/training/live-course/[code]/CourseLanding.tsx', 'utf8');
+  const client = readFileSync('app/training/live-course/[code]/LiveCourseClient.tsx', 'utf8');
+  check('U17.8d the side card shows the next line, the facts, Prerequisites and Add to calendar (enrolled)', landing.includes('{nextSessionLine(d.next)}') && landing.includes('data-testid="landing-side-facts"') && landing.includes('data-testid="landing-side-prereq"') && landing.includes('data-testid="landing-side-calendar"') && client.includes('sideFacts: scheduleFacts(sessions)') && client.includes("calendarHref={enrolled ?"));
+  check('U17.8e the old "Next session (1):" wording is gone', !landing.includes('Next session{d.next.no'));
+}
+
 (async () => {
   await unit0();
   await unit1();
@@ -1472,6 +1577,7 @@ async function unit16(): Promise<void> {
   await unit14();
   await unit15();
   await unit16();
+  await unit17();
   console.log(`\n${passed} passed, ${failed} failed`);
   if (failed) { console.log('Failed:'); for (const f of fails) console.log(`  - ${f}`); process.exit(1); }
 })().catch((e) => { console.error(e); process.exit(1); });

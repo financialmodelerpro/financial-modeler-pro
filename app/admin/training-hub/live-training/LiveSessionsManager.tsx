@@ -8,6 +8,7 @@ import { InstructorPicker } from '@/src/components/admin/InstructorPicker';
 import { KSA_TZ, utcToZonedParts, zonedWallTimeToUtc } from '@/src/hubs/training/lib/liveCourse/time';
 import { CourseSessionTools } from './CourseSessionTools';
 import { coursePlaylistIds } from '@/src/hubs/training/lib/liveCourse/publicListing';
+import { SECTION_KEYS, SECTION_LABELS, sessionSections, linesToList, listToLines, type SectionKey, type SessionContentRow } from '@/src/hubs/training/lib/liveCourse/sessionContent';
 
 /* ── Types ─────────────────────────────────────────────────────── */
 
@@ -298,7 +299,12 @@ interface FormState {
   content_learn: string;
   content_outcome: string;
   content_claude: string;
+  /** Session page lists (mig 253), one bullet per line, per section. */
+  content_sections: Record<SectionKey, string>;
 }
+
+const emptyContentLines = (): Record<SectionKey, string> =>
+  Object.fromEntries(SECTION_KEYS.map((k) => [k, ''])) as Record<SectionKey, string>;
 
 const defaultForm: FormState = {
   title: '', description: '', category: '', playlist_id: '',
@@ -311,6 +317,7 @@ const defaultForm: FormState = {
   meeting_provider: 'manual', auto_generate_teams: false,
   course_code: '', course_session_no: '', banner_alt: '',
   content_overview: '', content_learn: '', content_outcome: '', content_claude: '',
+  content_sections: emptyContentLines(),
 };
 
 /* ── Component ─────────────────────────────────────────────────── */
@@ -634,6 +641,12 @@ export function LiveSessionsManager({ courseCode = null, embedded = false }: { c
     content_learn: (((s as unknown as Record<string, unknown>).content_learn as string[] | null) ?? []).join('\n'),
     content_outcome: String((s as unknown as Record<string, unknown>).content_outcome ?? ''),
     content_claude: String((s as unknown as Record<string, unknown>).content_claude ?? ''),
+    // Through the one reader, so a session with only the mig 251 fields opens
+    // with them mapped into the lists, and saving stores the lists.
+    content_sections: (() => {
+      const sec = sessionSections(s as unknown as SessionContentRow);
+      return Object.fromEntries(SECTION_KEYS.map((k) => [k, listToLines(sec[k])])) as Record<SectionKey, string>;
+    })(),
   };};
 
   const openNewSession = () => {
@@ -735,6 +748,7 @@ export function LiveSessionsManager({ courseCode = null, embedded = false }: { c
           content_learn: form.content_learn.split('\n').map(l => l.replace(/^\s*[-*•]\s*/, '').trim()).filter(Boolean),
           content_outcome: form.content_outcome.trim() || null,
           content_claude: form.content_claude.trim() || null,
+          content_sections: Object.fromEntries(SECTION_KEYS.map((k) => [k, linesToList(form.content_sections[k])])),
         } : {}),
       };
 
@@ -1912,18 +1926,15 @@ export function LiveSessionsManager({ courseCode = null, embedded = false }: { c
                 </div>
               )}
               {form.course_code && (
-                // Course session content (mig 251): the public course page shows the
-                // overview with the rest behind "See what you will learn"; enrolled
-                // students see all four.
+                // Session page content (mig 253): eight bullet lists, one bullet per
+                // line. The session page renders them in this order.
                 <div data-testid="admin-session-content" style={{ display: 'grid', gap: 10, marginBottom: 14 }}>
-                  <div><label style={labelStyle}>Overview</label>
-                    <textarea style={{ ...inputStyle, minHeight: 70 }} value={form.content_overview} onChange={e => setForm(f => ({ ...f, content_overview: e.target.value }))} /></div>
-                  <div><label style={labelStyle}>What you will learn (one point per line)</label>
-                    <textarea style={{ ...inputStyle, minHeight: 110 }} value={form.content_learn} onChange={e => setForm(f => ({ ...f, content_learn: e.target.value }))} /></div>
-                  <div><label style={labelStyle}>By the end of this session</label>
-                    <textarea style={{ ...inputStyle, minHeight: 50 }} value={form.content_outcome} onChange={e => setForm(f => ({ ...f, content_outcome: e.target.value }))} /></div>
-                  <div><label style={labelStyle}>Build with Claude</label>
-                    <textarea style={{ ...inputStyle, minHeight: 50 }} value={form.content_claude} onChange={e => setForm(f => ({ ...f, content_claude: e.target.value }))} /></div>
+                  <div style={{ fontSize: 12, color: '#6B7280' }}>Session page content. One bullet per line; Session flow is numbered on the page.</div>
+                  {SECTION_KEYS.map((k) => (
+                    <div key={k}><label style={labelStyle}>{SECTION_LABELS[k]}</label>
+                      <textarea data-testid={`admin-session-content-${k}`} style={{ ...inputStyle, minHeight: k === 'flow' || k.startsWith('learn') ? 110 : 80 }} value={form.content_sections[k]}
+                        onChange={e => { const v = e.target.value; setForm(f => ({ ...f, content_sections: { ...f.content_sections, [k]: v } })); }} /></div>
+                  ))}
                 </div>
               )}
               {form.course_code && editSession && (

@@ -9,6 +9,9 @@
  * "Create missing Teams meetings", which runs the existing integration on the
  * server where the Azure credentials live.
  *
+ * Session page content: the eight lists per session (mig 253) come from
+ * seeds/refmSessionContent.ts (scripts/gen-refm-session-content.ts).
+ *
  * Idempotent: a session that already exists (same course and number) gets its
  * title and content refreshed and KEEPS its time, so a reschedule is never
  * undone. `--reset-times` also restores the seeded times.
@@ -18,6 +21,7 @@
 import { getServerClient } from '../src/core/db/supabase';
 import { REFM_SESSIONS, REFM_COURSE_CODE, REFM_DURATION_MINUTES } from '../src/hubs/training/lib/liveCourse/seeds/refmSessions';
 import { REFM_PAGE } from '../src/hubs/training/lib/liveCourse/seeds/refmPage';
+import { REFM_SESSION_CONTENT } from '../src/hubs/training/lib/liveCourse/seeds/refmSessionContent';
 import { syncCoursePlaylist } from '../src/hubs/training/lib/liveCourse/coursePlaylist';
 
 /**
@@ -55,6 +59,8 @@ const resetTimes = process.argv.includes('--reset-times');
       content_learn: s.learn,
       content_outcome: s.outcome,
       content_claude: s.claude,
+      // The session page lists (mig 253), generated from the founder's content file.
+      content_sections: REFM_SESSION_CONTENT[s.no],
       updated_at: new Date().toISOString(),
     };
     const row = byNo.get(s.no);

@@ -5,6 +5,7 @@ import { applyReschedule } from '@/src/hubs/training/lib/liveCourse/rescheduleAp
 import { zonedWallTimeToUtc, KSA_TZ } from '@/src/hubs/training/lib/liveCourse/time';
 import { isTeamsConfigured, updateMeetingOrEvent } from '@/src/integrations/teams/teamsMeetings';
 import { sendEmail, FROM } from '@/src/shared/email/sendEmail';
+import { invalidateLiveCourseCache } from '@/src/hubs/training/lib/liveCourse/cachedReads';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
@@ -47,5 +48,6 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     },
   });
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 400 });
+  invalidateLiveCourseCache();
   return NextResponse.json({ ...result, teamsConfigured: isTeamsConfigured() });
 }

@@ -155,6 +155,54 @@ export function autoFacts(sessions: { scheduled_datetime: string | null }[]): st
   return facts;
 }
 
+const KSA = 'Asia/Riyadh';
+// ICU puts a narrow no-break space before AM / PM; normalise it to a plain space.
+const clock = (d: Date) => d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: KSA }).replace(/[  ]/g, ' ');
+
+/** The side card's next line: "Next: Session 1, Tue 1 Dec 2026, 7:00 PM KSA". */
+export function nextSessionLine(next: { no: number | null; startIso: string }): string {
+  const d = new Date(next.startIso);
+  const date = d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', timeZone: KSA }).replace(',', '');
+  return `Next: ${next.no != null ? `Session ${next.no}, ` : ''}${date}, ${clock(d)} KSA`;
+}
+
+/** "2.5 hours", "2 hours", "90 minutes". */
+function durationText(min: number): string {
+  if (min % 30 !== 0 || min < 60) return `${min} minutes`;
+  const h = min / 60;
+  return `${Number.isInteger(h) ? h : h.toFixed(1)} hour${h === 1 ? '' : 's'}`;
+}
+
+/**
+ * The side card's key facts from the live schedule, e.g. "8 live sessions",
+ * "2.5 hours each", "Tuesdays 7:00 to 9:30 PM KSA", "Free", "Certificate". A
+ * fact the schedule does not support (mixed lengths, days or times) is left out.
+ */
+export function scheduleFacts(sessions: { scheduled_datetime: string | null; duration_minutes?: number | null }[]): string[] {
+  const facts: string[] = [];
+  if (sessions.length) facts.push(`${sessions.length} live session${sessions.length === 1 ? '' : 's'}`);
+  const mins = [...new Set(sessions.map((s) => s.duration_minutes ?? 0))];
+  const dur = mins.length === 1 && mins[0] > 0 ? mins[0] : null;
+  if (dur) facts.push(`${durationText(dur)} each`);
+  const dated = sessions.filter((s) => s.scheduled_datetime).map((s) => new Date(s.scheduled_datetime!));
+  if (dated.length) {
+    const days = new Set(dated.map((d) => d.toLocaleDateString('en-GB', { weekday: 'long', timeZone: KSA })));
+    const starts = new Set(dated.map(clock));
+    if (days.size === 1 && starts.size === 1) {
+      const start = clock(dated[0]);
+      let when = start;
+      if (dur) {
+        const end = clock(new Date(dated[0].getTime() + dur * 60_000));
+        const [sT, sM] = start.split(' '), [eT, eM] = end.split(' ');
+        when = sM === eM ? `${sT} to ${eT} ${eM}` : `${start} to ${end}`;
+      }
+      facts.push(`${[...days][0]}s ${when} KSA`);
+    }
+  }
+  facts.push('Free', 'Certificate');
+  return facts;
+}
+
 /** Validate an admin save: the same merge, so what is stored is what renders. */
 export function pageFromBody(body: unknown): { ok: boolean; page: PageConfig; errors: string[] } {
   const page = resolvePage(body);

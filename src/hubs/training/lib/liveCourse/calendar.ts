@@ -9,11 +9,12 @@
  */
 import { DEFAULT_DURATION_MINUTES } from './joinWindow';
 import { coursePagePath } from './paths';
+import { overviewText, type SessionContentRow } from './sessionContent';
 
 const LEARN_URL = process.env.NEXT_PUBLIC_LEARN_URL ?? 'https://learn.financialmodelerpro.com';
 const DOMAIN = 'financialmodelerpro.com';
 
-export interface IcsSession {
+export interface IcsSession extends SessionContentRow {
   id: string;
   title: string;
   course_session_no: number | null;
@@ -57,7 +58,8 @@ export function buildCourseIcs(
     const start = new Date(s.scheduled_datetime);
     const end = new Date(start.getTime() + (s.duration_minutes && s.duration_minutes > 0 ? s.duration_minutes : DEFAULT_DURATION_MINUTES) * 60_000);
     const label = s.course_session_no != null ? `Session ${s.course_session_no}: ${s.title}` : s.title;
-    const desc = `${s.content_overview ? `${s.content_overview}\n\n` : ''}Join from your course page (the Join live button opens shortly before the start): ${page}`;
+    const overview = overviewText(s);
+    const desc = `${overview ? `${overview}\n\n` : ''}Join from your course page (the Join live button opens shortly before the start): ${page}`;
     lines.push(
       'BEGIN:VEVENT',
       `UID:${eventUid(s.id)}`,

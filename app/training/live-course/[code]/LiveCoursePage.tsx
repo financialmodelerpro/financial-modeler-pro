@@ -2,9 +2,8 @@ import type { Metadata } from 'next';
 import { notFound, redirect } from 'next/navigation';
 import { getTrainingCookieSession } from '@/src/hubs/training/lib/session/trainingSessionCookie';
 import { getServerClient } from '@/src/core/db/supabase';
-import {
-  getLiveCourseSettings, isLiveCourseRow, isPubliclyVisible, canRegister, listCourseSessions,
-} from '@/src/hubs/training/lib/liveCourse/courseSettings';
+import { isLiveCourseRow, isPubliclyVisible, canRegister } from '@/src/hubs/training/lib/liveCourse/courseSettings';
+import { getLiveCourseCached, listCourseSessionsCached } from '@/src/hubs/training/lib/liveCourse/cachedReads';
 import { isValidPreviewToken } from '@/src/hubs/training/lib/liveCourse/preview';
 import { loadCourseInstructors } from '@/src/hubs/training/lib/liveCourse/courseInstructors';
 import { CoursePageFrame } from '../CoursePageFrame';
@@ -40,7 +39,7 @@ async function serverNow(): Promise<number> { return Date.now(); }
 
 export async function generateMetadata({ params }: { params: Promise<{ code: string }> }): Promise<Metadata> {
   const { code } = await params;
-  const course = await getLiveCourseSettings(getServerClient(), code);
+  const course = await getLiveCourseCached(code);
   if (!isPubliclyVisible(course)) return { title: 'Live Course | FMP Training Hub', robots: { index: false } };
   return {
     title: `${course!.title} | FMP Training Hub`,
@@ -65,7 +64,7 @@ export default async function LiveCoursePage({
   const { code } = await params;
   const { enrol, preview } = await searchParams;
   const sb = getServerClient();
-  const course = await getLiveCourseSettings(sb, code);
+  const course = await getLiveCourseCached(code);
   if (!isLiveCourseRow(course)) notFound();
 
   const sess = await getTrainingCookieSession();
@@ -79,11 +78,16 @@ export default async function LiveCoursePage({
   // A signed-out visitor sees only a public course, or one through a preview link.
   if (!sess && !visible && !previewOk) notFound();
 
+  // In parallel: the sessions (cached) and the instructors (read live, so a profile edit shows).
+  const [sessions, loadedInstructors] = await Promise.all([
+    listCourseSessionsCached(course.courseCode),
+    loadCourseInstructors(sb, course.instructorIds),
+  ]);
   const publicData: PublicCourseData | null = visible || previewOk
     ? {
         course,
-        sessions: await listCourseSessions(sb, course.courseCode),
-        instructors: await loadCourseInstructors(sb, course.instructorIds),
+        sessions,
+        instructors: loadedInstructors,
         preview: !visible && previewOk,
         canRegister: canRegister(course),
       }
@@ -92,7 +96,7 @@ export default async function LiveCoursePage({
   const renderedAt = await serverNow();
   // ── Landing page data (mig 252 sections; nothing secret) ──
   const page = course.page;
-  const instructors = publicData?.instructors ?? await loadCourseInstructors(sb, course.instructorIds);
+  const instructors = loadedInstructors;
   const [{ count: enrolledCount }, samples, founderContent, testimonials] = await Promise.all([
     sb.from('training_enrollments').select('id', { count: 'exact', head: true }).eq('course_code', course.courseCode),
     templateSamples(sb, course.courseCode),

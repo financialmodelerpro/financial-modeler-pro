@@ -5,6 +5,7 @@ import { getLiveCourseSettings, isLiveCourseRow, listCourseSessions } from '@/sr
 import { courseUpdateFromBody, isCourseStatus, statusUpdate } from '@/src/hubs/training/lib/liveCourse/courseAdmin';
 import { previewToken } from '@/src/hubs/training/lib/liveCourse/preview';
 import { coursePagePath } from '@/src/hubs/training/lib/liveCourse/enrolment';
+import { invalidateLiveCourseCache } from '@/src/hubs/training/lib/liveCourse/cachedReads';
 
 const LEARN_URL = process.env.NEXT_PUBLIC_LEARN_URL ?? 'https://learn.financialmodelerpro.com';
 
@@ -74,5 +75,6 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ co
     const hint = /column .* does not exist|schema cache/i.test(error.message) ? ' (apply migration 249)' : '';
     return NextResponse.json({ error: `${error.message}${hint}` }, { status: 500 });
   }
+  invalidateLiveCourseCache();
   return NextResponse.json({ ok: true, course: await getLiveCourseSettings(sb, course.courseCode) });
 }

@@ -9,6 +9,8 @@ import { recordingRecipientsForCourseSession } from '@/src/hubs/training/lib/liv
 import { isPublicSession } from '@/src/hubs/training/lib/liveCourse/publicVisibility';
 import { publicSessionUrl, sessionPlatformLabel } from '@/src/hubs/training/lib/liveSessions/privateSessionFields';
 import { syncCoursePlaylist } from '@/src/hubs/training/lib/liveCourse/coursePlaylist';
+import { normaliseSections } from '@/src/hubs/training/lib/liveCourse/sessionContent';
+import { invalidateLiveCourseCache } from '@/src/hubs/training/lib/liveCourse/cachedReads';
 
 const LEARN_URL = process.env.NEXT_PUBLIC_LEARN_URL ?? 'https://learn.financialmodelerpro.com';
 const AUTO_DELETE_TEAMS_MEETING_ON_SESSION_DELETE = true;
@@ -46,11 +48,15 @@ export async function PATCH(
     'course_code', 'course_session_no',
     // Course session content (mig 251).
     'content_overview', 'content_learn', 'content_outcome', 'content_claude',
+    // Session page lists (mig 253), cleaned by the one normaliser.
+    'content_sections',
   ];
   for (const k of allowed) {
     if (body[k] !== undefined) {
       if ((k === 'playlist_id' || k === 'instructor_id' || k === 'course_code' || k === 'course_session_no') && (body[k] === '' || body[k] === null)) {
         updates[k] = null;
+      } else if (k === 'content_sections') {
+        updates[k] = normaliseSections(body[k]);
       } else if (k === 'course_code') {
         updates[k] = String(body[k]).trim().toUpperCase();
       } else if (k === 'course_session_no') {
@@ -187,6 +193,7 @@ export async function PATCH(
     }
   }
 
+  invalidateLiveCourseCache();
   return NextResponse.json({ ok: true });
 }
 
@@ -224,5 +231,6 @@ export async function DELETE(
   await sb.from('course_attachments').delete().eq('tab_key', `LIVE_${id}`);
   const { error } = await sb.from('live_sessions').delete().eq('id', id);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  invalidateLiveCourseCache();
   return NextResponse.json({ ok: true });
 }

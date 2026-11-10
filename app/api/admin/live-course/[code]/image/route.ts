@@ -3,6 +3,7 @@ import { getServerClient } from '@/src/core/db/supabase';
 import { adminEmail } from '@/src/hubs/training/lib/liveCourse/adminGuard';
 import { getLiveCourseSettings, isLiveCourseRow } from '@/src/hubs/training/lib/liveCourse/courseSettings';
 import { STORAGE_CACHE_REPLACEABLE } from '@/src/shared/storage/cacheControl';
+import { invalidateLiveCourseCache } from '@/src/hubs/training/lib/liveCourse/cachedReads';
 
 export const dynamic = 'force-dynamic';
 
@@ -44,6 +45,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ cod
   }
   const { error } = await sb.from('training_course_settings').update(update).eq('course_code', course.courseCode);
   if (error) return NextResponse.json({ error: `${error.message}${/does not exist|schema cache/i.test(error.message) ? ' (apply migration 249)' : ''}` }, { status: 500 });
+  invalidateLiveCourseCache();
   return NextResponse.json({ ok: true, url: update[KINDS[kind].url] ?? null });
 }
 
@@ -56,5 +58,6 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ c
   const { error } = await sb.from('training_course_settings')
     .update({ [KINDS[kind].url]: null, [KINDS[kind].alt]: null }).eq('course_code', code.toUpperCase());
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  invalidateLiveCourseCache();
   return NextResponse.json({ ok: true });
 }

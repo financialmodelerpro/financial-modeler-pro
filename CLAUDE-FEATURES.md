@@ -328,6 +328,8 @@ Fixed bottom bar (56px): Home, Courses, Live, Achieve, Profile
 
 ## Live Courses (REFM live course, 2026-11-08, LIVE; founder testing pending)
 
+- **2026-11-10**: session pages are eight bullet lists (`content_sections`, mig 253, `sessionContent.ts`), the sidebar fits the screen and sticks for students, course navigation is cached and prefetched (`cachedReads.ts`), the side card states the next session and the schedule facts; live courses appear in My Model and on the certificate pending list.
+
 A course certified by live attendance or recordings plus an approved model, with no assessments. Rules per course in `training_course_settings` (mig 247); a course with no row (3SFM, BVM) is an exam course and never touches this code. All logic in `src/hubs/training/lib/liveCourse/`. Verifier: `scripts/verify-live-course.ts` (204).
 
 ### Flow

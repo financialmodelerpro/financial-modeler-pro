@@ -193,8 +193,10 @@ export async function listLiveCourses(
  */
 const COURSE_SESSION_BASE_COLUMNS =
   'id, title, description, session_type, scheduled_datetime, timezone, duration_minutes, youtube_url, youtube_embed, banner_url, instructor_name, course_code, course_session_no, is_published, actual_start_at, actual_end_at';
-export const COURSE_SESSION_COLUMNS =
+const COURSE_SESSION_251_COLUMNS =
   `${COURSE_SESSION_BASE_COLUMNS}, content_overview, content_learn, content_outcome, content_claude, rescheduled_from, rescheduled_at, ics_sequence`;
+/** Plus the session page lists (mig 253, liveCourse/sessionContent.ts). */
+export const COURSE_SESSION_COLUMNS = `${COURSE_SESSION_251_COLUMNS}, content_sections`;
 
 export interface CourseSession {
   id: string;
@@ -218,6 +220,8 @@ export interface CourseSession {
   content_learn?: string[] | null;
   content_outcome?: string | null;
   content_claude?: string | null;
+  /** The session page lists (mig 253); read through sessionSections(). */
+  content_sections?: unknown;
   /** The start before the latest reschedule, and when it moved (mig 251). */
   rescheduled_from?: string | null;
   rescheduled_at?: string | null;
@@ -238,8 +242,10 @@ export async function listCourseSessions(
     return q.order('course_session_no', { ascending: true, nullsFirst: false }).order('scheduled_datetime', { ascending: true });
   };
   let { data, error } = await run(COURSE_SESSION_COLUMNS);
-  // Schema tolerance: before mig 251 the content columns do not exist.
-  if (error && /does not exist|schema cache/i.test(error.message)) ({ data, error } = await run(COURSE_SESSION_BASE_COLUMNS));
+  // Schema tolerance: without mig 253, then 251, the newer columns do not exist.
+  const missing = (e: { message: string } | null) => !!e && /does not exist|schema cache/i.test(e.message);
+  if (missing(error)) ({ data, error } = await run(COURSE_SESSION_251_COLUMNS));
+  if (missing(error)) ({ data, error } = await run(COURSE_SESSION_BASE_COLUMNS));
   if (error) {
     console.warn('[liveCourse] sessions read failed', { code, error: error.message });
     return [];

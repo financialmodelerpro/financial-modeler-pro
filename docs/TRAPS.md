@@ -1607,6 +1607,19 @@ Playwright drag, run BEFORE and AFTER, proved both. Wait for hydration (`__react
 not `waitForSelector`: SSR markup exists before handlers attach. Note `app/_folder` is a PRIVATE
 folder in the App Router (404), so name a temp harness route without the underscore.
 
+### 6.3 A sticky sidebar that never sticks: an ancestor with `overflow: auto` (2026-11-10)
+
+**Symptom.** The live course sidebar had `position: sticky` and a `max-height` with its own scroll, and
+read correct in the code, yet students saw the last session cut off below the fold.
+**Mechanism.** The Training Hub shell's `<main>` sets `overflowY: 'auto'` (with no height, so it never
+scrolls). Any overflow other than `visible` or `clip` makes an element a scroll container, and sticky
+positions against the NEAREST scroll container, which here never moves: the sidebar scrolled away with
+the page for every signed-in student, and only visitors (no shell) got a working sticky.
+**Fix.** On course pages only, `.ts-main:has(.cs-shell) { overflow-x: clip !important; overflow-y:
+visible !important; }` (`clip` makes no scroll container), plus a sidebar capped at `100dvh` whose list
+scrolls on its own. **Proof.** `verify-live-course` U17.5a/b. Before trusting sticky, walk the ancestors
+for an `overflow` that is not `visible` or `clip`.
+
 ---
 
 ## 7. Engine and model

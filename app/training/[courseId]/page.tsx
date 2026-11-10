@@ -4,8 +4,8 @@ import Link from 'next/link';
 import { getCourseWithLessons } from '@/src/shared/cms';
 import { VideoPlayer } from '@/src/hubs/main/components/landing/VideoPlayer';
 import { NavbarServer } from '@/src/shared/components/layout/NavbarServer';
-import { getServerClient } from '@/src/core/db/supabase';
-import { getLiveCourseSettings, isLiveCourseRow } from '@/src/hubs/training/lib/liveCourse/courseSettings';
+import { isLiveCourseRow } from '@/src/hubs/training/lib/liveCourse/courseSettings';
+import { getLiveCourseCached } from '@/src/hubs/training/lib/liveCourse/cachedReads';
 import LiveCoursePage, { generateMetadata as liveCourseMetadata } from '../live-course/[code]/LiveCoursePage';
 
 // Dynamic: a live course page reads the student's session cookie.
@@ -13,7 +13,8 @@ export const dynamic = 'force-dynamic';
 
 /** A live course code (e.g. REFM) renders the live course page here (liveCourse/paths.ts). */
 async function liveCourseCode(courseId: string): Promise<string | null> {
-  const c = await getLiveCourseSettings(getServerClient(), courseId).catch(() => null);
+  // Cached per request and for 60 s (cachedReads.ts); an exam course reads null.
+  const c = await getLiveCourseCached(courseId).catch(() => null);
   return isLiveCourseRow(c) ? c.courseCode : null;
 }
 

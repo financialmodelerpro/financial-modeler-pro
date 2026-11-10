@@ -42,30 +42,31 @@ export interface CourseShellProps {
 export function CourseSidebarList({ courseCode, courseTitle, sessions, current, completed, now, onNavigate }: Omit<CourseShellProps, 'children'> & { onNavigate?: () => void }) {
   const here = (k: string) => k === current;
   return (
-    <nav data-testid="course-sidebar" aria-label={`${courseTitle} sessions`} style={{ background: NAVY, borderRadius: 14, padding: '14px 12px 16px', color: '#fff' }}>
-      <Link href={coursePagePath(courseCode)} onClick={onNavigate} data-testid="course-sidebar-overview" aria-current={here('overview') ? 'page' : undefined}
+    <nav data-testid="course-sidebar" aria-label={`${courseTitle} sessions`} className="cs-nav" style={{ background: NAVY, borderRadius: 14, padding: '14px 12px 12px', color: '#fff' }}>
+      <Link href={coursePagePath(courseCode)} prefetch onClick={onNavigate} data-testid="course-sidebar-overview" aria-current={here('overview') ? 'page' : undefined}
         style={{ display: 'block', padding: '9px 10px', borderRadius: 8, textDecoration: 'none', fontSize: 13.5, fontWeight: 800, color: '#fff', background: here('overview') ? 'rgba(158,195,232,0.18)' : 'transparent', borderLeft: here('overview') ? `3px solid ${GOLD}` : '3px solid transparent' }}>
         Course overview
       </Link>
       <div style={{ fontSize: 11, fontWeight: 700, color: ACCENT, letterSpacing: '0.08em', textTransform: 'uppercase', margin: '12px 10px 8px' }}>Sessions</div>
-      <ol style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 3 }}>
+      {/* The list scrolls on its own inside a sidebar that fits the screen, so every session is reachable. */}
+      <ol data-testid="course-sidebar-list" className="cs-list" style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
         {orderSessions(sessions).map((s, i) => {
           const isHere = here(s.id);
           const st = navStatus(s, now);
           const done = completed?.has(s.id);
           return (
             <li key={s.id}>
-              <Link href={courseSessionPath(courseCode, s.id)} onClick={onNavigate} data-testid="course-sidebar-session" data-current={isHere ? 'true' : undefined} data-status={st} aria-current={isHere ? 'page' : undefined}
-                style={{ display: 'flex', gap: 10, alignItems: 'flex-start', padding: '7px 8px', borderRadius: 8, textDecoration: 'none', background: isHere ? 'rgba(158,195,232,0.16)' : 'transparent' }}>
+              <Link href={courseSessionPath(courseCode, s.id)} prefetch onClick={onNavigate} data-testid="course-sidebar-session" data-current={isHere ? 'true' : undefined} data-status={st} aria-current={isHere ? 'page' : undefined}
+                style={{ display: 'flex', gap: 10, alignItems: 'flex-start', padding: '6px 8px', borderRadius: 8, textDecoration: 'none', background: isHere ? 'rgba(158,195,232,0.16)' : 'transparent' }}>
                 <span style={{ flexShrink: 0, width: 22, height: 22, borderRadius: '50%', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 10.5, fontWeight: 800, background: done ? '#2E7D52' : isHere ? ACCENT : 'rgba(255,255,255,0.1)', color: done ? '#fff' : isHere ? NAVY : 'rgba(255,255,255,0.8)' }}>
                   {done ? <span data-testid="course-sidebar-done" aria-label="Completed">✓</span> : (s.course_session_no ?? i + 1)}
                 </span>
                 <span style={{ flex: 1, minWidth: 0 }}>
-                  <span style={{ display: 'block', fontSize: 12.5, fontWeight: isHere ? 700 : 500, color: isHere ? '#fff' : 'rgba(255,255,255,0.82)', lineHeight: 1.35 }}>{s.title}</span>
+                  <span title={s.title} style={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', fontSize: 12.5, fontWeight: isHere ? 700 : 500, color: isHere ? '#fff' : 'rgba(255,255,255,0.82)', lineHeight: 1.3 }}>{s.title}</span>
                   <span style={{ display: 'block', fontSize: 11, color: 'rgba(255,255,255,0.55)', marginTop: 2 }}>
                     {shortDate(s.scheduled_datetime)} · <span data-testid="course-sidebar-status" style={{ color: STATUS_COLOR[st], fontWeight: 700 }}>{STATUS_LABEL[st]}</span>
+                    {isHere && <span style={{ fontSize: 9.5, fontWeight: 700, color: ACCENT, letterSpacing: '0.06em', textTransform: 'uppercase', marginLeft: 6 }}>You are here</span>}
                   </span>
-                  {isHere && <span style={{ display: 'block', fontSize: 9.5, fontWeight: 700, color: ACCENT, letterSpacing: '0.06em', textTransform: 'uppercase', marginTop: 2 }}>You are here</span>}
                 </span>
               </Link>
             </li>
@@ -92,7 +93,15 @@ export function CourseShell(props: CourseShellProps) {
       <style>{`
         .cs-shell { display: grid; grid-template-columns: 280px minmax(0, 1fr); gap: 28px; align-items: start; }
         .cs-shell--hidden { grid-template-columns: minmax(0, 1fr); }
-        .cs-aside { position: sticky; top: 84px; max-height: calc(100vh - 100px); overflow-y: auto; }
+        /* The sidebar fits the screen: a fixed header, and the session list
+           scrolls on its own (dvh, so a phone's browser bar is accounted for). */
+        .cs-aside { position: sticky; top: 76px; max-height: calc(100vh - 92px); max-height: calc(100dvh - 92px); display: flex; flex-direction: column; }
+        .cs-aside .cs-nav { flex: 0 1 auto; min-height: 0; display: flex; flex-direction: column; }
+        .cs-aside .cs-list { flex: 0 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: rgba(158,195,232,0.5) transparent; padding-right: 2px; }
+        /* For a signed-in student the training shell's main area sets overflow,
+           which stops a sticky child; on a course page only, clip instead
+           (clip creates no scroll box, so the sidebar sticks). */
+        .ts-main:has(.cs-shell) { overflow-x: clip !important; overflow-y: visible !important; }
         .cs-mobile-btn { display: none; }
         @media (max-width: 900px) {
           .cs-shell, .cs-shell--hidden { grid-template-columns: minmax(0, 1fr); }

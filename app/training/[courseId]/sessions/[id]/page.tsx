@@ -1,8 +1,9 @@
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
-import { getServerClient } from '@/src/core/db/supabase';
 import { getTrainingCookieSession } from '@/src/hubs/training/lib/session/trainingSessionCookie';
-import { getLiveCourseSettings, isLiveCourseRow, isPubliclyVisible, canRegister, listCourseSessions } from '@/src/hubs/training/lib/liveCourse/courseSettings';
+import { isLiveCourseRow, isPubliclyVisible, canRegister } from '@/src/hubs/training/lib/liveCourse/courseSettings';
+import { getLiveCourseCached, listCourseSessionsCached } from '@/src/hubs/training/lib/liveCourse/cachedReads';
+import { overviewText } from '@/src/hubs/training/lib/liveCourse/sessionContent';
 import { CoursePageFrame } from '../../../live-course/CoursePageFrame';
 import { CourseSessionClient } from './CourseSessionClient';
 
@@ -14,11 +15,10 @@ export const dynamic = 'force-dynamic';
  * the session certificate and previous / next. The recording player is at
  * ./watch. The layout beside this checks the session belongs to the course.
  */
+// Cached (cachedReads.ts): the metadata, the layout and the page share one read.
 async function load(courseId: string, id: string) {
-  const sb = getServerClient();
-  const course = await getLiveCourseSettings(sb, courseId);
+  const [course, sessions] = await Promise.all([getLiveCourseCached(courseId), listCourseSessionsCached(decodeURIComponent(courseId))]);
   if (!isLiveCourseRow(course)) return null;
-  const sessions = await listCourseSessions(sb, course.courseCode);
   const session = sessions.find((s) => s.id === id);
   return session ? { course, sessions, session, now: Date.now() } : null;
 }
@@ -28,7 +28,7 @@ export async function generateMetadata({ params }: { params: Promise<{ courseId:
   const d = await load(courseId, id);
   if (!d) return { title: 'Session not found' };
   const no = d.session.course_session_no != null ? `Session ${d.session.course_session_no}: ` : '';
-  return { title: `${no}${d.session.title} | ${d.course.title}`, description: d.session.content_overview || d.course.tagline || d.course.description };
+  return { title: `${no}${d.session.title} | ${d.course.title}`, description: overviewText(d.session) || d.course.tagline || d.course.description };
 }
 
 export default async function CourseSessionPage({ params }: { params: Promise<{ courseId: string; id: string }> }) {
