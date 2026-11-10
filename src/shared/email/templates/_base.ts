@@ -62,8 +62,14 @@ export async function baseLayoutBranded(
     ...(overrides?.signature_html != null ? { signature_html: overrides.signature_html } : {}),
     ...(overrides?.footer_text != null ? { footer_text: overrides.footer_text } : {}),
   };
-  const logoBlock = b.logo_url
-    ? `<img src="${b.logo_url}" alt="${b.logo_alt}" width="${b.logo_width}" style="display:block;margin:0 auto;max-width:100%;height:auto;" />`
+  // The header band is navy, so the logo must be the LIGHT-on-dark PNG at a
+  // full https URL (email_branding.logo_url; Outlook does not render WebP).
+  // Width as an attribute AND in the style (Outlook reads the attribute), no
+  // border, and white alt text so a client that blocks images still shows the
+  // name on the navy band instead of an empty header (2026-11-10).
+  const logoWidth = Number(b.logo_width) > 0 ? Math.round(Number(b.logo_width)) : 180;
+  const logoBlock = b.logo_url && /^https:\/\//i.test(b.logo_url)
+    ? `<img src="${escapeHtml(b.logo_url)}" alt="${escapeHtml(b.logo_alt || 'Financial Modeler Pro')}" width="${logoWidth}" border="0" style="display:block;margin:0 auto;width:${logoWidth}px;max-width:100%;height:auto;border:0;outline:none;text-decoration:none;color:#ffffff;font-family:Arial,Helvetica,sans-serif;font-size:20px;font-weight:700;line-height:28px;" />`
     : `<span style="font-size:22px;font-weight:700;color:#ffffff;letter-spacing:0.5px;">Financial Modeler Pro</span>
        <div style="font-size:11px;color:rgba(255,255,255,0.55);margin-top:4px;letter-spacing:0.8px;text-transform:uppercase;">Structured Modeling. Real-World Finance.</div>`;
 

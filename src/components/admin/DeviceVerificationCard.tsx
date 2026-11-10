@@ -4,6 +4,8 @@ import { useEffect, useState } from 'react';
 
 interface Props {
   onMessage?: (msg: string, type: 'success' | 'error') => void;
+  /** 'training': the Training Hub switch (Training Hub students only). Default: the shared switch. */
+  scope?: 'all' | 'training';
 }
 
 /**
@@ -11,23 +13,25 @@ interface Props {
  * both hubs. `enabled` = verification is REQUIRED. Reads / writes
  * /api/admin/device-verification.
  */
-export function DeviceVerificationCard({ onMessage }: Props) {
+export function DeviceVerificationCard({ onMessage, scope = 'all' }: Props) {
+  const api = scope === 'training' ? '/api/admin/device-verification?scope=training' : '/api/admin/device-verification';
+  const isTraining = scope === 'training';
   const [enabled, setEnabled] = useState(true);
   const [loaded, setLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    fetch('/api/admin/device-verification')
+    fetch(api)
       .then(r => r.json())
       .then((j: { enabled?: boolean }) => setEnabled(j.enabled ?? true))
       .catch(() => {})
       .finally(() => setLoaded(true));
-  }, []);
+  }, [api]);
 
   async function toggle() {
     setSaving(true);
     try {
-      const res = await fetch('/api/admin/device-verification', {
+      const res = await fetch(api, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ enabled: !enabled }),
@@ -36,7 +40,9 @@ export function DeviceVerificationCard({ onMessage }: Props) {
       const j = (await res.json()) as { enabled?: boolean };
       const next = j.enabled ?? !enabled;
       setEnabled(next);
-      onMessage?.(next ? 'New-device verification is now REQUIRED' : 'New-device verification is now OFF', 'success');
+      onMessage?.(isTraining
+        ? (next ? 'Training Hub device verification is ON' : 'Training Hub device verification is OFF')
+        : (next ? 'New-device verification is now REQUIRED' : 'New-device verification is now OFF'), 'success');
     } catch {
       onMessage?.('Update failed', 'error');
     } finally {
@@ -51,10 +57,14 @@ export function DeviceVerificationCard({ onMessage }: Props) {
       <div style={{ display: 'flex', alignItems: 'center', gap: 20, flexWrap: 'wrap' }}>
         <div style={{ flex: 1, minWidth: 220 }}>
           <div style={{ fontSize: 14, fontWeight: 800, color: '#1B3A6B', marginBottom: 4 }}>
-            🔐 New-Device Verification
+            {isTraining ? '🎓 Training Hub device verification' : '🔐 New-Device Verification'}
           </div>
           <div style={{ fontSize: 12, color: '#6B7280' }}>
-            {enabled
+            {isTraining
+              ? (enabled
+                ? 'ON. Training Hub students signing in on a new device enter the emailed one-time code (the switch above still applies).'
+                : 'OFF. Training Hub students sign in without a new-device code. Password lockout and email confirmation at signup still apply. Admin and Modeling Hub accounts are not affected.')
+              : enabled
               ? 'ON. Signing in from a new device requires a one-time code emailed to the user before they can continue (Training + Modeling hubs). Known devices stay trusted for 30 days.'
               : 'OFF. Sign-in works without the emailed one-time code on new devices. Use this to unblock users who report not receiving the code, then turn it back on.'}
           </div>

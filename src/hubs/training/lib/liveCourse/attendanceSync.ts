@@ -15,7 +15,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { buildAttendanceRows, matchStudent, rawFromGraph, type AttendanceRow, type RawAttendee } from './attendance';
 import { DEFAULT_DURATION_MINUTES } from './joinWindow';
-import { matchByName, type NameCandidate } from './nameMatch';
+import { matchByName, excludedReason, type NameCandidate } from './nameMatch';
 import type { GraphAttendanceRecord, GraphAttendanceReport } from '@/src/integrations/teams/teamsMeetings';
 
 export interface GraphDeps {
@@ -41,6 +41,8 @@ export interface ApplyResult {
   byName: number;
   /** Name matches left unmatched because mig 254 (matched_by 'name') is not applied yet. */
   nameMatchesHeld: number;
+  /** The host and bots / assistants (not students, not on the unmatched list). */
+  excluded: number;
 }
 
 /** Platform student emails among a set of attendee keys, plus aliases (email or "noemail:<name>" keys). */
@@ -82,7 +84,7 @@ export async function applyAttendanceRows(
   source: 'graph' | 'csv',
   meta: { reportId?: string | null; by?: string | null } = {},
 ): Promise<ApplyResult> {
-  const res: ApplyResult = { saved: 0, matched: 0, unmatched: 0, keptManual: 0, byName: 0, nameMatchesHeld: 0 };
+  const res: ApplyResult = { saved: 0, matched: 0, unmatched: 0, keptManual: 0, byName: 0, nameMatchesHeld: 0, excluded: 0 };
   if (!rows.length) return res;
   const { students, aliases } = await loadMatchers(sb, rows.map((r) => r.attendee_email));
   const { data: existing } = await sb
@@ -98,10 +100,14 @@ export async function applyAttendanceRows(
     if (before && (before.source === 'manual')) { res.keptManual++; continue; }
     // A manual MATCH survives a re-sync: refresh the minutes, keep the student.
     const keepMatch = before && before.matched_by === 'manual' && before.student_email;
+    // The host (organizer, co-organizer, the host account) and bots or
+    // assistants are never students: no email, alias or name match, and never
+    // on the unmatched list (the admin shows them apart).
+    const notStudent = excludedReason({ role: r.role, email: r.attendee_email, name: r.attendee_name }, process.env.TEAMS_HOST_USER_EMAIL ?? null);
     let m: { studentEmail: string | null; matchedBy: 'email' | 'alias' | 'name' | 'manual' | null } = keepMatch
       ? { studentEmail: before!.student_email as string, matchedBy: 'manual' as const }
-      : matchStudent(r.attendee_email, students, aliases);
-    if (!m.studentEmail && r.attendee_email.startsWith('noemail:')) {
+      : notStudent ? { studentEmail: null, matchedBy: null } : matchStudent(r.attendee_email, students, aliases);
+    if (!notStudent && !m.studentEmail && r.attendee_email.startsWith('noemail:')) {
       joiners ??= await loadSessionJoiners(sb, sessionId);
       const byName = matchByName(r.attendee_name, joiners);
       if (byName.studentEmail) m = { studentEmail: byName.studentEmail, matchedBy: 'name' };
@@ -133,7 +139,7 @@ export async function applyAttendanceRows(
     if (error) throw new Error(`saving attendance failed: ${error.message}`);
     res.saved++;
     if (m.matchedBy === 'name') res.byName++;
-    if (m.studentEmail) res.matched++; else res.unmatched++;
+    if (m.studentEmail) res.matched++; else if (notStudent) res.excluded++; else res.unmatched++;
   }
   return res;
 }

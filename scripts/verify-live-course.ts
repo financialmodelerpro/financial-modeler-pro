@@ -1643,7 +1643,8 @@ async function unit18(): Promise<void> {
   const route = readFileSync('app/api/admin/live-sessions/[id]/attendance/route.ts', 'utf8');
   const panel = readFileSync('app/admin/training-hub/live-training/[code]/CourseAttendancePanel.tsx', 'utf8');
   check('U18.4a the admin route suggests likely students for each unmatched guest, from the session\'s joiners', route.includes('loadSessionJoiners(sb, id)') && route.includes('matchByName(g.attendee_name') && route.includes('suggestions'));
-  check('U18.4b the admin shows how each record was matched (email, name, hand) and the suggestions', panel.includes('MATCHED_BY_LABEL[r.matched_by') && panel.includes('data-testid="admin-name-suggestions"') && panel.includes("useState(suggestions[0]?.email ?? '')"));
+  // Re-aimed 2026-11-10: only an exact or close full-name match is pre-selected (U26.3c).
+  check('U18.4b the admin shows how each record was matched (email, name, hand) and the suggestions', panel.includes('MATCHED_BY_LABEL[r.matched_by') && panel.includes('data-testid="admin-name-suggestions"') && panel.includes("useState(preselectable(suggestions[0]) ? suggestions[0].email : '')"));
   const btn = readFileSync('src/hubs/training/components/sessions/JoinLiveButton.tsx', 'utf8');
   const { joinNameNote } = await import('../src/hubs/training/components/sessions/JoinLiveButton');
   check('U18.5a the Join button opens a note first, and Continue opens Teams through the logged join route', btn.includes('onClick={() => setNoteOpen(true)}') && btn.includes('data-testid="join-name-continue" href={joinUrl}') && !/data-testid="join-live"\s+href=/.test(btn));
@@ -1975,6 +1976,33 @@ async function unit25(): Promise<void> {
   check('U25.3 a course Sessions tab has no Registered or Announced column; single sessions keep both', m.includes("(courseCode ? ['Title', 'Type', 'Date / Time (KSA)', 'Playlist', 'YouTube', 'Published', 'Actions'] : ['Title', 'Type', 'Date / Time', 'Playlist', 'Registered', 'YouTube', 'Published', 'Announced', 'Actions'])") && (m.match(/\{!courseCode && \(\n\s+<td style=\{\{ padding: '10px 10px' \}\}>/g) ?? []).length === 2);
 }
 
+async function unit26(): Promise<void> {
+  console.log('\n=== Training Hub device switch, email logo, attendance: host and assistants are not students ===\n');
+  const dt = readFileSync('src/shared/auth/deviceTrust.ts', 'utf8');
+  check('U26.1a the Training Hub has its own device switch, read ONLY by the Training Hub sign-in; On applies the existing flow unchanged', dt.includes("TRAINING_DEVICE_VERIFICATION_SETTING_KEY = 'training_device_verification'") && dt.includes('return isDeviceVerificationRequired();') && readFileSync('app/api/training/validate/route.ts', 'utf8').includes('if (!trusted && await isTrainingDeviceVerificationRequired())'));
+  check('U26.1b Modeling Hub and admin sign-in never read it (they keep the shared rule)', !readFileSync('src/shared/auth/nextauth.ts', 'utf8').includes('isTrainingDeviceVerificationRequired') && readFileSync('src/shared/auth/nextauth.ts', 'utf8').includes('isDeviceVerificationRequired()'));
+  check('U26.1c the switch is in admin (Launch Settings, the device verification cards), defaulting On when unset', readFileSync('app/admin/modules/page.tsx', 'utf8').includes('<DeviceVerificationCard onMessage={showToast} scope="training" />') && dt.includes("if ((data?.value ?? 'true') === 'false') return false;"));
+  const base = readFileSync('src/shared/email/templates/_base.ts', 'utf8');
+  check('U26.2 the email header logo: an https PNG, width as attribute and style, no border, white alt text on the navy band', base.includes('/^https:\\/\\//i.test(b.logo_url)') && base.includes('width="${logoWidth}" border="0"') && base.includes('color:#ffffff;font-family:Arial'));
+  const NM = await import('../src/hubs/training/lib/liveCourse/nameMatch');
+  check('U26.3a the organizer, a co-organizer and the host account are Host', NM.isHostAttendee({ role: 'Organizer' }) && NM.isHostAttendee({ role: 'Coorganizer' }) && NM.isHostAttendee({ email: 'Host@FMP.com' }, 'host@fmp.com') && !NM.isHostAttendee({ role: 'Attendee', email: 'a@x.com' }, 'host@fmp.com'));
+  check('U26.3b assistants, note-takers, Copilot, recorders, facilitators and bots are not students (and a surname like Abbott is not a bot)', ["Ahmad's Assistant", 'Otter Notetaker', 'Note Taker', 'Copilot', 'Meeting Recorder', 'Facilitator', 'Fireflies Bot'].every((n) => NM.isBotAttendee({ name: n })) && NM.isBotAttendee({ email: 'meeting.bot@x.com' }) && !NM.isBotAttendee({ name: 'Sarah Abbott' }) && !NM.isBotAttendee({ name: 'Ahmad Din' }));
+  check('U26.3c only an exact or close full-name match is pre-selected; a partial match is a hint', NM.preselectable({ reason: 'exact' }) && NM.preselectable({ reason: 'close' }) && !NM.preselectable({ reason: 'partial' }) && !NM.preselectable(undefined));
+  const S = await import('../src/hubs/training/lib/liveCourse/attendanceSync');
+  const A = await import('../src/hubs/training/lib/liveCourse/attendance');
+  const row = (email: string | null, name: string, role = 'Attendee') => ({ attendee_email: A.attendeeKey(email, name), attendee_name: name, role, intervals: [] as [string, string][], attended_seconds: 7200, session_seconds: 9000, attended_pct: 80 });
+  const db = fakeDb({ live_sessions: [{ id: 'h1', course_code: 'REFM' }], training_registrations_meta: [{ registration_id: 'R1', email: 'ahmad@x.com', name: 'Ahmad Din' }], live_session_join_clicks: [{ session_id: 'h1', student_email: 'ahmad@x.com' }], student_email_aliases: [], live_session_attendance: [] });
+  const prevHost = process.env.TEAMS_HOST_USER_EMAIL; process.env.TEAMS_HOST_USER_EMAIL = 'ahmad@x.com';
+  const res = await S.applyAttendanceRows(db.client, 'h1', [row('ahmad@x.com', 'Ahmad Din', 'Organizer'), row(null, "Ahmad's Assistant"), row(null, 'Ahmad Din')], 'graph');
+  if (prevHost === undefined) delete process.env.TEAMS_HOST_USER_EMAIL; else process.env.TEAMS_HOST_USER_EMAIL = prevHost;
+  const at = (k: string) => db.tables.live_session_attendance.find((r) => r.attendee_email === k)!;
+  check('U26.4a the host is never matched to a student, even when the host account is also a student', at('ahmad@x.com').student_email == null);
+  check('U26.4b "Ahmad\'s Assistant" is not matched to Ahmad Din (bot), while a guest typing the full name still is', at("noemail:ahmad's assistant").student_email == null && at('noemail:ahmad din').student_email === 'ahmad@x.com');
+  check('U26.4c host and assistants are counted apart, not as unmatched', res.excluded === 2 && res.unmatched === 0, JSON.stringify(res));
+  const panel = readFileSync('app/admin/training-hub/live-training/[code]/CourseAttendancePanel.tsx', 'utf8');
+  check('U26.4d the admin lists them under Host and assistants, never in Unmatched, and pre-selects only a full-name match', panel.includes('data-testid="admin-not-students"') && panel.includes('!r.student_email && !r.excluded') && panel.includes("useState(preselectable(suggestions[0]) ? suggestions[0].email : '')") && readFileSync('app/api/admin/live-sessions/[id]/attendance/route.ts', 'utf8').includes('!r.excluded && String(r.attendee_email).startsWith('));
+}
+
 (async () => {
   await unit0();
   await unit1();
@@ -2003,6 +2031,7 @@ async function unit25(): Promise<void> {
   await unit23();
   await unit24();
   await unit25();
+  await unit26();
   console.log(`\n${passed} passed, ${failed} failed`);
   if (failed) { console.log('Failed:'); for (const f of fails) console.log(`  - ${f}`); process.exit(1); }
 })().catch((e) => { console.error(e); process.exit(1); });

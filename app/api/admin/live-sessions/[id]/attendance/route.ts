@@ -7,7 +7,7 @@ import {
 import { parseTeamsAttendanceCsv } from '@/src/hubs/training/lib/liveCourse/teamsCsv';
 import { listEnrolledStudents } from '@/src/hubs/training/lib/liveCourse/enrolledStudents';
 import { isTeamsConfigured } from '@/src/integrations/teams/teamsMeetings';
-import { matchByName, type NameSuggestion } from '@/src/hubs/training/lib/liveCourse/nameMatch';
+import { matchByName, excludedReason, type NameSuggestion } from '@/src/hubs/training/lib/liveCourse/nameMatch';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 120;
@@ -27,13 +27,16 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
   ]);
   if (!session) return NextResponse.json({ error: 'Not found' }, { status: 404 });
   const students = session.course_code ? await listEnrolledStudents(sb, session.course_code as string) : [];
-  const guests = (rows ?? []).filter((r) => !r.student_email && String(r.attendee_email).startsWith('noemail:'));
+  // Host (organizer, co-organizer, the host account) and bots / assistants: flagged, never students.
+  const hostEmail = process.env.TEAMS_HOST_USER_EMAIL ?? null;
+  const flagged = (rows ?? []).map((r) => ({ ...r, excluded: r.student_email ? null : excludedReason({ role: r.role as string | null, email: r.attendee_email as string, name: r.attendee_name as string | null }, hostEmail) }));
+  const guests = flagged.filter((r) => !r.student_email && !r.excluded && String(r.attendee_email).startsWith('noemail:'));
   const suggestions: Record<string, NameSuggestion[]> = {};
   if (guests.length) {
     const joiners = await loadSessionJoiners(sb, id);
     for (const g of guests) suggestions[g.attendee_email as string] = matchByName(g.attendee_name as string | null, joiners).suggestions;
   }
-  return NextResponse.json({ session, rows: rows ?? [], students, suggestions, teamsConfigured: isTeamsConfigured() });
+  return NextResponse.json({ session, rows: flagged, students, suggestions, teamsConfigured: isTeamsConfigured() });
 }
 
 /**

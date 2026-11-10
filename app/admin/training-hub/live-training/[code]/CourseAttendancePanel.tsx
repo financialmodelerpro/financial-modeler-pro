@@ -9,7 +9,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { formatSessionTime } from '@/src/hubs/training/lib/liveCourse/time';
 import { LiveCourseProgressTab } from './LiveCourseProgressTab';
-import { MATCHED_BY_LABEL } from '@/src/hubs/training/lib/liveCourse/nameMatch';
+import { MATCHED_BY_LABEL, preselectable } from '@/src/hubs/training/lib/liveCourse/nameMatch';
 
 const NAVY = '#1B4F8A';
 const SLATE = '#5A6675';
@@ -23,6 +23,8 @@ interface AdminSession {
 }
 interface AttRow {
   attendee_email: string; attendee_name: string | null; student_email: string | null; matched_by: string | null;
+  /** 'host' or 'bot' when the record is not a student (server, nameMatch.excludedReason). */
+  excluded?: 'host' | 'bot' | null;
   attended_seconds: number; session_seconds: number; attended_pct: number; source: string; role: string | null;
 }
 interface Student { email: string; name: string; registrationId: string }
@@ -82,7 +84,9 @@ export function CourseAttendancePanel({ courseCode: code, attendanceThresholdPct
     await act(id, { action: 'csv', text, timeZone: 'Asia/Riyadh' }, 'CSV import');
   }
 
-  const unmatched = att?.rows.filter((r) => !r.student_email) ?? [];
+  // Host (organizer, co-organizer, host account) and bots / assistants are never students.
+  const notStudents = att?.rows.filter((r) => !r.student_email && r.excluded) ?? [];
+  const unmatched = att?.rows.filter((r) => !r.student_email && !r.excluded) ?? [];
   const matched = att?.rows.filter((r) => r.student_email) ?? [];
 
   return (
@@ -132,6 +136,18 @@ export function CourseAttendancePanel({ courseCode: code, attendanceThresholdPct
                       {!att && <div style={{ color: SLATE }}>Loading…</div>}
                       {att && (
                         <div style={{ display: 'grid', gap: 18 }}>
+                          {notStudents.length > 0 && (
+                            <div data-testid="admin-not-students">
+                              <h3 style={{ fontSize: 14, color: NAVY, margin: '0 0 8px' }}>Host and assistants ({notStudents.length}): not students</h3>
+                              {notStudents.map((r) => (
+                                <div key={r.attendee_email} style={{ display: 'flex', gap: 10, fontSize: 12.5, padding: '4px 0', borderBottom: `1px solid ${PALE}` }}>
+                                  <span data-testid="admin-not-student-kind" style={{ fontWeight: 800, color: r.excluded === 'host' ? NAVY : SLATE, minWidth: 80 }}>{r.excluded === 'host' ? 'Host' : 'Assistant'}</span>
+                                  <span>{r.attendee_name ?? ''} <span style={{ color: SLATE }}>{r.attendee_email.startsWith('noemail:') ? '' : r.attendee_email}</span></span>
+                                  <span style={{ marginLeft: 'auto' }}>{r.attended_pct.toFixed(1)}%</span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
                           {unmatched.length > 0 && (
                             <div data-testid="admin-unmatched">
                               <h3 style={{ fontSize: 14, color: '#B91C1C', margin: '0 0 8px' }}>Unmatched ({unmatched.length}): Teams attendees with no Training Hub student</h3>
@@ -178,8 +194,8 @@ export function CourseAttendancePanel({ courseCode: code, attendanceThresholdPct
 }
 
 function UnmatchedRow({ row, students, suggestions, onMatch }: { row: AttRow; students: Student[]; suggestions: Suggestion[]; onMatch: (studentEmail: string, remember: boolean) => void }) {
-  // The best suggestion is preselected; the admin confirms with Match.
-  const [pick, setPick] = useState(suggestions[0]?.email ?? '');
+  // Only an exact or close FULL-name match is pre-selected; a partial match is a hint the admin must click.
+  const [pick, setPick] = useState(preselectable(suggestions[0]) ? suggestions[0].email : '');
   const [remember, setRemember] = useState(true);
   const reasonLabel = { exact: 'same name', close: 'same name, different spelling', partial: 'part of the name' } as const;
   return (

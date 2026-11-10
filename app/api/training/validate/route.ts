@@ -14,7 +14,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerClient } from '@/src/core/db/supabase';
-import { isDeviceTrusted, isDeviceVerificationRequired } from '@/src/shared/auth/deviceTrust';
+import { isDeviceTrusted, isTrainingDeviceVerificationRequired } from '@/src/shared/auth/deviceTrust';
 import { getTrainingComingSoonState } from '@/src/hubs/training/lib/comingSoon';
 import { isTrainingIdentifierBypassed } from '@/src/shared/comingSoon/bypassList';
 import bcrypt from 'bcryptjs';
@@ -225,7 +225,8 @@ export async function POST(req: NextRequest) {
     const deviceCookie = req.cookies.get('fmp-trusted-device')?.value;
     const trusted = await isDeviceTrusted(deviceCookie, email, 'training');
 
-    if (!trusted && await isDeviceVerificationRequired()) {
+    // The Training Hub's own switch (admin > Launch Settings), then the shared rule.
+    if (!trusted && await isTrainingDeviceVerificationRequired()) {
       // The password is right; the emailed code finishes the sign-in. The
       // pending cookie is what lets device-verify issue the session, so the
       // code is a second factor and never a way around the password.

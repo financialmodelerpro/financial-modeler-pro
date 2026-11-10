@@ -74,6 +74,14 @@ export function clearTrustCookieHeader(): string {
 export const DEVICE_VERIFICATION_SETTING_KEY = 'device_verification_required';
 
 /**
+ * training_settings key for the admin "Training Hub device verification"
+ * switch (founder, 2026-11-10). Read ONLY by the Training Hub sign-in
+ * (isTrainingDeviceVerificationRequired): Modeling Hub and admin sign-in never
+ * read it, so it can never relax their device check.
+ */
+export const TRAINING_DEVICE_VERIFICATION_SETTING_KEY = 'training_device_verification';
+
+/**
  * Whether new-device verification (the emailed one-time code) is enforced at
  * sign-in. Controlled by an admin toggle stored in training_settings as the
  * string 'true' / 'false'. Shared by both auth stacks (Modeling NextAuth +
@@ -84,6 +92,22 @@ export const DEVICE_VERIFICATION_SETTING_KEY = 'device_verification_required';
  * always-on behaviour and is fail-secure: a flaky settings read never silently
  * drops the device check.
  */
+/**
+ * The Training Hub sign-in's rule: its own switch must be On (default On when
+ * the row is absent or unreadable, fail-secure), and then the existing flow
+ * applies unchanged (isDeviceVerificationRequired). Off: a Training Hub
+ * student signs in without a new-device code; the password lockout and the
+ * email confirmation at signup are untouched.
+ */
+export async function isTrainingDeviceVerificationRequired(): Promise<boolean> {
+  try {
+    const sb = getServerClient();
+    const { data } = await sb.from('training_settings').select('value').eq('key', TRAINING_DEVICE_VERIFICATION_SETTING_KEY).maybeSingle();
+    if ((data?.value ?? 'true') === 'false') return false;
+  } catch { /* fail-secure: fall through to the shared rule */ }
+  return isDeviceVerificationRequired();
+}
+
 export async function isDeviceVerificationRequired(): Promise<boolean> {
   try {
     const sb = getServerClient();

@@ -60,6 +60,37 @@ export function matchByName(displayName: string | null | undefined, candidates: 
   return { studentEmail: null, how: null, suggestions: out.slice(0, 5) };
 }
 
+/**
+ * Not a student (founder, 2026-11-10): the meeting organizer or a co-organizer
+ * (Teams role), or the host account (TEAMS_HOST_USER_EMAIL). Never matched to
+ * a student, never on the unmatched list; shown apart as "Host". Pure.
+ */
+export function isHostAttendee(a: { role?: string | null; email?: string | null }, hostEmail?: string | null): boolean {
+  if (a.role && /organi[sz]er/i.test(a.role)) return true;
+  const e = (a.email ?? '').trim().toLowerCase();
+  const h = (hostEmail ?? '').trim().toLowerCase();
+  return !!h && e === h;
+}
+
+/** A bot, assistant or note-taker that joined the meeting (e.g. "Ahmad's Assistant"). Pure. */
+export const BOT_NAME_PATTERN = /\b(assistant|note[\s-]?taker|copilot|recorder|facilitator|bot)\b/i;
+export function isBotAttendee(a: { name?: string | null; email?: string | null }): boolean {
+  if (BOT_NAME_PATTERN.test(a.name ?? '')) return true;
+  return /(^|[._+-])bot([._+-]|@)/i.test(a.email ?? '');
+}
+
+/** Why a record is not a student, or null. */
+export function excludedReason(a: { role?: string | null; email?: string | null; name?: string | null }, hostEmail?: string | null): 'host' | 'bot' | null {
+  if (isHostAttendee(a, hostEmail)) return 'host';
+  if (isBotAttendee(a)) return 'bot';
+  return null;
+}
+
+/** May a suggestion be pre-selected for the admin? Only an exact or close FULL-name match; a partial match is a hint. */
+export function preselectable(s: Pick<NameSuggestion, 'reason'> | undefined): boolean {
+  return !!s && (s.reason === 'exact' || s.reason === 'close');
+}
+
 /** How a record was matched, as the admin reads it. */
 export const MATCHED_BY_LABEL: Record<string, string> = {
   email: 'By email',

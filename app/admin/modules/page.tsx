@@ -89,6 +89,8 @@ export default function AdminModulesPage() {
           Controls that apply to sign-in across both the Training and Modeling hubs.
         </p>
         <DeviceVerificationCard onMessage={showToast} />
+        {/* Training Hub students only; admin and Modeling Hub sign-in never read it. */}
+        <DeviceVerificationCard onMessage={showToast} scope="training" />
       </main>
 
       {toast && (

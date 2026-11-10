@@ -80,7 +80,9 @@ export function buildAttendanceRows(
     cur.iv.push(...a.intervals);
     cur.fallback += a.fallbackSeconds ?? 0;
     if (!cur.name && a.name) cur.name = a.name;
-    if (a.role === 'Organizer' || a.role === 'Presenter') cur.role = a.role;
+    // Organizer and co-organizer outrank presenter; presenter outranks attendee.
+    if (a.role && /organi[sz]er/i.test(a.role)) cur.role = a.role;
+    else if (a.role === 'Presenter' && !(cur.role && /organi[sz]er/i.test(cur.role))) cur.role = a.role;
     byKey.set(key, cur);
   }
   const rows: AttendanceRow[] = [];
