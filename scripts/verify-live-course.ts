@@ -1657,7 +1657,9 @@ async function unit19(): Promise<void> {
   // ── Teams: lobby bypass Everyone and organizer-only presenters, on COURSE meetings only ──
   const T = readFileSync('src/integrations/teams/teamsMeetings.ts', 'utf8');
   const TM = await import('../src/integrations/teams/teamsMeetings');
-  check('U19.1a course meeting options: everyone (dial-in too) bypasses the lobby, only the organizer presents', TM.MEETING_SETTINGS.lobbyBypassSettings.scope === 'everyone' && TM.MEETING_SETTINGS.lobbyBypassSettings.isDialInBypassEnabled === true && TM.MEETING_SETTINGS.allowedPresenters === 'organizer');
+  check('U19.1a course meeting options: everyone (dial-in too) bypasses the lobby, only the organizer presents, record and transcribe automatically', TM.MEETING_SETTINGS.lobbyBypassSettings.scope === 'everyone' && TM.MEETING_SETTINGS.lobbyBypassSettings.isDialInBypassEnabled === true && TM.MEETING_SETTINGS.allowedPresenters === 'organizer' && TM.MEETING_SETTINGS.recordAutomatically === true);
+  const ts = readFileSync('app/api/admin/live-course/[code]/teams-settings/route.ts', 'utf8');
+  check('U19.1d "Apply meeting options to all sessions" applies them to every course meeting, reads each back from Teams and reports per meeting (saved for re-reading)', ts.includes('await applyMeetingSettings(url)') && ts.includes('readMeetingSettings(await resolveOnlineMeetingIdByJoinUrl(url))') && ts.includes('row.dialInBypass') && ts.includes('row.recordAutomatically') && ts.includes("from('training_settings').upsert") && readFileSync('app/admin/training-hub/live-training/[code]/TeamsMeetingsButton.tsx', 'utf8').includes('data-testid="apply-teams-options"'));
   check('U19.1b they are applied ONLY when the meeting is a course meeting (create and move)', T.includes('return params.courseMeeting ? { ...created, settings: await applyMeetingSettings(created.joinUrl) } : created;') && T.includes('return updates.courseMeeting ? { ...updated, settings: await applyMeetingSettings(updated.joinUrl) } : updated;'));
   const callers = {
     'course create (Create missing Teams meetings)': ['app/api/admin/live-course/[code]/teams-meetings/route.ts', 'courseMeeting: true,'],

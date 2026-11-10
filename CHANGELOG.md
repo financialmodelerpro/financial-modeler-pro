@@ -6,6 +6,8 @@ Entries are grouped by their most recent date. Fuller per-day narrative for REFM
 
 ## 2026-11-10
 
+- **Course meetings record and transcribe automatically; an admin action applies the options to every course meeting and reports what Teams holds.** `MEETING_SETTINGS` gains `recordAutomatically: true` (course meetings only, on create, edit and reschedule; lobby Everyone with dial-in and organizer-only presenters as before). New `POST /api/admin/live-course/[code]/teams-settings` (button "Apply meeting options to all sessions" on the course Sessions tab) PATCHes every course meeting, reads each back from Graph and reports lobby scope, dial-in bypass, presenters and record automatically per session (saved in training_settings `teams_settings_report_<code>`). The founder reported dial-in bypass Off on Session 1 although it was requested; the read-back shows whether Graph holds it. `verify-live-course` U19.1a/d.
+
 - **Admin course Sessions list:** times read "1 Dec 2026, 7:00 PM KSA" (`adminKsaLabel`; the list showed the admin browser's clock with no zone), and a course's Sessions tab drops the per-session Registered and Announced columns (enrolment and the announcement are course level). Single sessions unchanged. `verify-live-course` unit 25: 617 pass / 0 fail, U14.1d now passes (all 8 REFM sessions have their Teams meetings).
 
 - **"Send test to me" on the course Announce tab.** POST `{ test: true }` to `/api/admin/live-course/[code]/announce` sends the same course announcement (subject prefixed [Test]) to the signed-in admin only, through `sendEmail` (one SYSTEM email in the daily count); no audience, no queue, no job, nothing recorded as announced; works on a draft course too. `verify-live-course` U23.1d-f (U23.1b re-aimed).

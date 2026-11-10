@@ -600,9 +600,10 @@ export async function getAttendanceRecords(onlineMeetingId: string, reportId: st
 // and the event API has no lobby control, so the options are set afterwards by
 // a PATCH on the online meeting behind the event (resolved from its join URL).
 // COURSE MEETINGS ONLY (founder, 2026-11-10): everyone, dial-in callers
-// included, bypasses the lobby, and only the organizer presents (guest
-// students cannot share their screen or mute others). A single session's
-// meeting keeps the Teams defaults: callers pass `courseMeeting`. The attendance
+// included, bypasses the lobby, only the organizer presents (guest students
+// cannot share their screen or mute others), and the meeting records and
+// transcribes automatically. A single session's meeting keeps the Teams
+// defaults: callers pass `courseMeeting`. The attendance
 // report has NO Graph property; it is governed by the Teams meeting policy
 // (AllowEngagementReport) and stays a Teams admin center setting.
 // Best effort: a failure is returned, never thrown, so it cannot block a
@@ -612,6 +613,7 @@ export async function getAttendanceRecords(onlineMeetingId: string, reportId: st
 export const MEETING_SETTINGS = {
   lobbyBypassSettings: { scope: 'everyone', isDialInBypassEnabled: true },
   allowedPresenters: 'organizer',
+  recordAutomatically: true,
 } as const;
 
 /** Apply MEETING_SETTINGS to the meeting behind a join URL. */
