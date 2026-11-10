@@ -29,7 +29,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const result = await applyReschedule(getServerClient(), { sessionId: id, newStartIso, mode, by }, {
     teamsUpdate: isTeamsConfigured()
       ? async (meetingId, start, end) => {
-          await updateMeetingOrEvent(meetingId, { startDateTime: start, endDateTime: end, timezone: KSA_TZ });
+          await updateMeetingOrEvent(meetingId, { startDateTime: start, endDateTime: end, timezone: KSA_TZ, courseMeeting: true });
           return null; // the calendar event keeps its join link
         }
       : undefined,

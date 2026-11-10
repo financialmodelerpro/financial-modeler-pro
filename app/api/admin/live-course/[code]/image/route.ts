@@ -4,6 +4,7 @@ import { adminEmail } from '@/src/hubs/training/lib/liveCourse/adminGuard';
 import { getLiveCourseSettings, isLiveCourseRow } from '@/src/hubs/training/lib/liveCourse/courseSettings';
 import { STORAGE_CACHE_REPLACEABLE } from '@/src/shared/storage/cacheControl';
 import { invalidateLiveCourseCache } from '@/src/hubs/training/lib/liveCourse/cachedReads';
+import { storeImage, IMAGE_WIDTH } from '@/src/shared/storage/optimizeImage';
 
 export const dynamic = 'force-dynamic';
 
@@ -38,10 +39,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ cod
     if (file.size > MAX_BYTES) return NextResponse.json({ error: 'The image must be 5 MB or smaller.' }, { status: 400 });
     const ext = file.type === 'image/png' ? 'png' : file.type === 'image/webp' ? 'webp' : 'jpg';
     const path = `courses/${course.courseCode}/${kind}-${Date.now()}.${ext}`;
-    const { error: upErr } = await sb.storage.from('live-session-banners')
-      .upload(path, Buffer.from(await file.arrayBuffer()), { contentType: file.type, upsert: true, cacheControl: STORAGE_CACHE_REPLACEABLE });
-    if (upErr) return NextResponse.json({ error: upErr.message }, { status: 500 });
-    update[KINDS[kind].url] = sb.storage.from('live-session-banners').getPublicUrl(path).data.publicUrl;
+    // Compressed, original kept at originals/<path> (optimizeImage.ts).
+    const stored = await storeImage(sb, { bucket: 'live-session-banners', path, buffer: Buffer.from(await file.arrayBuffer()), contentType: file.type, maxWidth: kind === 'banner' ? IMAGE_WIDTH.banner : IMAGE_WIDTH.card, cacheControl: STORAGE_CACHE_REPLACEABLE });
+    if (stored.error) return NextResponse.json({ error: stored.error }, { status: 500 });
+    update[KINDS[kind].url] = sb.storage.from('live-session-banners').getPublicUrl(stored.path).data.publicUrl;
   }
   const { error } = await sb.from('training_course_settings').update(update).eq('course_code', course.courseCode);
   if (error) return NextResponse.json({ error: `${error.message}${/does not exist|schema cache/i.test(error.message) ? ' (apply migration 249)' : ''}` }, { status: 500 });

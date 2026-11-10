@@ -126,6 +126,8 @@ export async function PATCH(
             endDateTime:   end,
             timezone:      ((updates.timezone as string | undefined) ?? before.timezone ?? '').trim() || 'Asia/Karachi',
             description:   (updates.description as string | undefined) ?? before.description ?? '',
+            // Course meetings keep their options (lobby bypass, organizer-only presenters) after a move.
+            courseMeeting: !!courseCode,
           });
         } catch (err) {
           console.error('[live-sessions PATCH] Teams update failed:', err);

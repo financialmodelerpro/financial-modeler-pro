@@ -1646,6 +1646,57 @@ async function unit18(): Promise<void> {
   check('U18.6 migration 254 widens matched_by to include name (written, not applied by Claude)', readFileSync('supabase/migrations/254_attendance_matched_by_name.sql', 'utf8').includes("CHECK (matched_by IN ('email', 'alias', 'name', 'manual'))"));
 }
 
+async function unit19(): Promise<void> {
+  console.log('\n=== Course meeting options (course only) and compressed images ===\n');
+  // ── Teams: lobby bypass Everyone and organizer-only presenters, on COURSE meetings only ──
+  const T = readFileSync('src/integrations/teams/teamsMeetings.ts', 'utf8');
+  const TM = await import('../src/integrations/teams/teamsMeetings');
+  check('U19.1a course meeting options: everyone (dial-in too) bypasses the lobby, only the organizer presents', TM.MEETING_SETTINGS.lobbyBypassSettings.scope === 'everyone' && TM.MEETING_SETTINGS.lobbyBypassSettings.isDialInBypassEnabled === true && TM.MEETING_SETTINGS.allowedPresenters === 'organizer');
+  check('U19.1b they are applied ONLY when the meeting is a course meeting (create and move)', T.includes('return params.courseMeeting ? { ...created, settings: await applyMeetingSettings(created.joinUrl) } : created;') && T.includes('return updates.courseMeeting ? { ...updated, settings: await applyMeetingSettings(updated.joinUrl) } : updated;'));
+  const callers = {
+    'course create (Create missing Teams meetings)': ['app/api/admin/live-course/[code]/teams-meetings/route.ts', 'courseMeeting: true,'],
+    'session create': ['app/api/admin/live-sessions/route.ts', 'courseMeeting: !!courseFields(body).course_code,'],
+    'session edit (move)': ['app/api/admin/live-sessions/[id]/route.ts', 'courseMeeting: !!courseCode,'],
+    'reschedule': ['app/api/admin/live-sessions/[id]/reschedule/route.ts', 'courseMeeting: true });'],
+  };
+  const missing = Object.entries(callers).filter(([, [f, s]]) => !readFileSync(f, 'utf8').includes(s)).map(([k]) => k);
+  check('U19.1c every create and move says whether it is a course meeting (a single session keeps the Teams defaults)', missing.length === 0, missing.join(', '));
+
+  // ── Images: compressed on upload, original kept ──
+  const OI = await import('../src/shared/storage/optimizeImage');
+  const sharp = (await import('sharp')).default;
+  const noise = Buffer.alloc(2400 * 1350 * 3); for (let i = 0; i < noise.length; i++) noise[i] = (i * 2654435761) >>> 24;
+  const bigPng = await sharp(noise, { raw: { width: 2400, height: 1350, channels: 3 } }).png().toBuffer();
+  const out = await OI.optimizeImage(bigPng, 'image/png', { maxWidth: OI.IMAGE_WIDTH.session });
+  const outMeta = await sharp(out.buffer).metadata();
+  check('U19.2a a large PNG becomes a WebP at or under the target size, no wider than the display width at 2x', out.optimized && out.contentType === 'image/webp' && out.buffer.length <= OI.TARGET_MAX_BYTES && (outMeta.width ?? 9999) <= OI.IMAGE_WIDTH.session, `${bigPng.length} -> ${out.buffer.length} bytes, ${outMeta.width}px`);
+  check('U19.2b aspect ratio is kept (never cropped)', Math.abs((outMeta.width! / outMeta.height!) - 2400 / 1350) < 0.01);
+  const small = await sharp({ create: { width: 400, height: 300, channels: 3, background: '#1B4F8A' } }).jpeg().toBuffer();
+  const tiny = await OI.optimizeImage(small, 'image/jpeg', { maxWidth: 1600 });
+  check('U19.2c a small JPG already under the target is left as uploaded (never enlarged)', !tiny.optimized && tiny.buffer === small);
+  const svg = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"/>');
+  check('U19.2d SVG and GIF are left as uploaded', !(await OI.optimizeImage(svg, 'image/svg+xml', { maxWidth: 1600 })).optimized && !(await OI.optimizeImage(small, 'image/gif', { maxWidth: 1600 })).optimized);
+  const { client, uploads } = fakeDb({});
+  const stored = await OI.storeImage(client, { bucket: 'live-session-banners', path: 'banners/s1.png', buffer: bigPng, contentType: 'image/png', maxWidth: OI.IMAGE_WIDTH.session });
+  check('U19.2e the original is kept at originals/<path> and the compressed copy is served', !stored.error && stored.path === 'banners/s1.webp' && uploads.some((u) => u.path === 'originals/banners/s1.png' && u.bytes === bigPng.length) && uploads.some((u) => u.path === 'banners/s1.webp'));
+  const routes = {
+    'media library': ['app/api/admin/media/route.ts', 'storeImage(sb, { bucket, path, buffer'],
+    'course banner and card': ['app/api/admin/live-course/[code]/image/route.ts', "storeImage(sb, { bucket: 'live-session-banners'"],
+    'session image': ['app/api/admin/live-sessions/route.ts', "storeImage(sb, { bucket: 'live-session-banners', path, buffer: bytes"],
+    'student avatar': ['app/api/training/upload-avatar/route.ts', 'optimizeImage(original, file.type, { maxWidth: IMAGE_WIDTH.avatar })'],
+    'user avatar': ['app/api/user/avatar/route.ts', 'optimizeImage(original, file.type, { maxWidth: IMAGE_WIDTH.avatar })'],
+  };
+  const notWired = Object.entries(routes).filter(([, [f, s]]) => !readFileSync(f, 'utf8').includes(s)).map(([k]) => k);
+  check('U19.2f every image upload route compresses through the one helper', notWired.length === 0, notWired.join(', '));
+  check('U19.2g the existing founder photos and session images have a re-compress script that keeps the originals', readFileSync('scripts/optimize-uploaded-images.ts', 'utf8').includes('withExt(`optimized/${loc.path}`, img.ext)'));
+  if (hasCreds()) {
+    const sb = await db();
+    const { data: s } = await sb.from('live_sessions').select('banner_url').eq('course_code', 'REFM').not('banner_url', 'is', null);
+    const { data: f } = await sb.from('instructors').select('photo_url').eq('is_default', true).maybeSingle();
+    check('U19.3a live: every REFM session image and the founder photo now point at compressed copies', (s ?? []).length > 0 && (s ?? []).every((r) => String(r.banner_url).includes('/optimized/')) && String(f?.photo_url ?? '').includes('/optimized/'));
+  }
+}
+
 (async () => {
   await unit0();
   await unit1();
@@ -1667,6 +1718,7 @@ async function unit18(): Promise<void> {
   await unit16();
   await unit17();
   await unit18();
+  await unit19();
   console.log(`\n${passed} passed, ${failed} failed`);
   if (failed) { console.log('Failed:'); for (const f of fails) console.log(`  - ${f}`); process.exit(1); }
 })().catch((e) => { console.error(e); process.exit(1); });

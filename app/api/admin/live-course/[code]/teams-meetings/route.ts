@@ -38,6 +38,7 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ co
     const end = new Date(new Date(start).getTime() + ((s.duration_minutes as number) || DEFAULT_DURATION_MINUTES) * 60_000).toISOString();
     try {
       const mtg = await createCalendarEventWithMeeting({
+        courseMeeting: true,
         subject: `${course.title}: Session ${s.course_session_no ?? ''} ${s.title}`.trim(),
         startDateTime: start, endDateTime: end, timezone: KSA_TZ,
       });

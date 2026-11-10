@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/src/shared/auth/nextauth';
 import { getServerClient } from '@/src/core/db/supabase';
 import { STORAGE_CACHE_IMMUTABLE } from '@/src/shared/storage/cacheControl';
+import { storeImage, IMAGE_WIDTH } from '@/src/shared/storage/optimizeImage';
 
 /* ── GET /api/admin/media?bucket=cms-assets ─── */
 export async function GET(req: NextRequest) {
@@ -84,9 +85,17 @@ export async function POST(req: NextRequest) {
   const buffer = Buffer.from(await file.arrayBuffer());
   const sb = getServerClient();
 
+  // Images are compressed (WebP, about 250 KB, display width at 2x) with the
+  // original kept at originals/<path> (src/shared/storage/optimizeImage.ts).
+  // Path is `${timestamp}_${name}`, so the bytes at this URL never change.
+  if (file.type.startsWith('image/')) {
+    const r = await storeImage(sb, { bucket, path, buffer, contentType: file.type, maxWidth: IMAGE_WIDTH.media, cacheControl: STORAGE_CACHE_IMMUTABLE, upsert: false });
+    if (r.error) return NextResponse.json({ error: r.error }, { status: 400 });
+    const { data: urlData } = sb.storage.from(bucket).getPublicUrl(r.path);
+    return NextResponse.json({ url: urlData.publicUrl, name: r.path, bucket, optimized: r.optimized, bytes: r.bytes, bytesBefore: r.bytesBefore });
+  }
   const { error } = await sb.storage
     .from(bucket)
-    // Path is `${timestamp}_${name}`, so the bytes at this URL never change.
     .upload(path, buffer, { contentType: file.type, upsert: false, cacheControl: STORAGE_CACHE_IMMUTABLE });
 
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });

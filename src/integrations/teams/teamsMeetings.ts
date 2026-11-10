@@ -58,7 +58,7 @@ export interface TeamsMeeting {
   startDateTime: string;
   endDateTime:   string;
   dialIn:        TeamsDialIn;
-  /** Lobby bypass applied after create / move (best effort; see applyMeetingSettings). */
+  /** Course meeting options applied after create / move (best effort; see applyMeetingSettings). Absent on a single session's meeting. */
   settings?:     { ok: true } | { ok: false; error: string };
 }
 
@@ -322,6 +322,8 @@ export async function createCalendarEventWithMeeting(params: {
   endDateTime:   string;       // UTC ISO
   timezone?:     string;
   description?:  string;
+  /** A live course's session: apply the course meeting options (lobby bypass, organizer-only presenters). */
+  courseMeeting?: boolean;
 }): Promise<TeamsMeeting> {
   const hostId    = await getHostUserId();
   const hostEmail = process.env.TEAMS_HOST_USER_EMAIL!;
@@ -371,12 +373,13 @@ export async function createCalendarEventWithMeeting(params: {
     throw new TeamsIntegrationError('Graph API: createCalendarEventWithMeeting failed', { status: res.status, detail });
   }
   const created = normalizeEvent((await res.json()) as Record<string, unknown>);
-  return { ...created, settings: await applyMeetingSettings(created.joinUrl) };
+  // Course meetings only (lobby bypass, organizer-only presenters); a single session keeps the Teams defaults.
+  return params.courseMeeting ? { ...created, settings: await applyMeetingSettings(created.joinUrl) } : created;
 }
 
 export async function updateCalendarEvent(
   eventId: string,
-  updates: { subject?: string; startDateTime?: string; endDateTime?: string; timezone?: string; description?: string },
+  updates: { subject?: string; startDateTime?: string; endDateTime?: string; timezone?: string; description?: string; courseMeeting?: boolean },
 ): Promise<TeamsMeeting> {
   const hostId = await getHostUserId();
   const tz     = (updates.timezone || '').trim() || DEFAULT_TIMEZONE;
@@ -404,8 +407,8 @@ export async function updateCalendarEvent(
     throw new TeamsIntegrationError('Graph API: updateCalendarEvent failed', { status: res.status, detail });
   }
   const updated = normalizeEvent((await res.json()) as Record<string, unknown>);
-  // Re-applied after a move, in case changing the event resets the meeting options.
-  return { ...updated, settings: await applyMeetingSettings(updated.joinUrl) };
+  // Re-applied after a move (course meetings only), in case changing the event resets the meeting options.
+  return updates.courseMeeting ? { ...updated, settings: await applyMeetingSettings(updated.joinUrl) } : updated;
 }
 
 export async function deleteCalendarEvent(eventId: string): Promise<void> {
@@ -431,7 +434,7 @@ export async function deleteCalendarEvent(eventId: string): Promise<void> {
  */
 export async function updateMeetingOrEvent(
   id: string,
-  updates: { subject?: string; startDateTime?: string; endDateTime?: string; timezone?: string; description?: string },
+  updates: { subject?: string; startDateTime?: string; endDateTime?: string; timezone?: string; description?: string; courseMeeting?: boolean },
 ): Promise<void> {
   try {
     await updateCalendarEvent(id, updates);
@@ -594,9 +597,12 @@ export async function getAttendanceRecords(onlineMeetingId: string, reportId: st
 // Meeting options set through Graph (2026-11-08)
 //
 // A meeting created as a calendar event takes the organizer's policy defaults
-// and the event API has no lobby control, so the lobby is set afterwards by a
-// PATCH on the online meeting behind the event (resolved from its join URL):
-// everyone, dial-in callers included, bypasses the lobby. The attendance
+// and the event API has no lobby control, so the options are set afterwards by
+// a PATCH on the online meeting behind the event (resolved from its join URL).
+// COURSE MEETINGS ONLY (founder, 2026-11-10): everyone, dial-in callers
+// included, bypasses the lobby, and only the organizer presents (guest
+// students cannot share their screen or mute others). A single session's
+// meeting keeps the Teams defaults: callers pass `courseMeeting`. The attendance
 // report has NO Graph property; it is governed by the Teams meeting policy
 // (AllowEngagementReport) and stays a Teams admin center setting.
 // Best effort: a failure is returned, never thrown, so it cannot block a
@@ -605,6 +611,7 @@ export async function getAttendanceRecords(onlineMeetingId: string, reportId: st
 
 export const MEETING_SETTINGS = {
   lobbyBypassSettings: { scope: 'everyone', isDialInBypassEnabled: true },
+  allowedPresenters: 'organizer',
 } as const;
 
 /** Apply MEETING_SETTINGS to the meeting behind a join URL. */

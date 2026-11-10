@@ -12,6 +12,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/src/shared/auth/nextauth';
 import { STORAGE_CACHE_IMMUTABLE } from '@/src/shared/storage/cacheControl';
 import { getServerClient } from '@/src/core/db/supabase';
+import { optimizeImage, withExt, IMAGE_WIDTH } from '@/src/shared/storage/optimizeImage';
 
 const ALLOWED_TYPES = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
 const MAX_BYTES = 2 * 1024 * 1024; // 2 MB
@@ -35,21 +36,27 @@ export async function POST(req: NextRequest) {
     const sb = getServerClient();
     const userId = session.user.id;
     const ext = file.type === 'image/png' ? 'png' : file.type === 'image/webp' ? 'webp' : 'jpg';
-    const filename = `user_${userId}_${Date.now()}.${ext}`;
-    const buffer = Buffer.from(await file.arrayBuffer());
+    const baseName = `user_${userId}_${Date.now()}.${ext}`;
+    const original = Buffer.from(await file.arrayBuffer());
+    // Compressed (optimizeImage.ts); the original is kept at originals/<name>, best effort.
+    const img = await optimizeImage(original, file.type, { maxWidth: IMAGE_WIDTH.avatar });
+    if (img.optimized) await sb.storage.from('avatars').upload(`originals/${baseName}`, original, { contentType: file.type, upsert: true }).catch(() => undefined);
+    const filename = img.optimized ? withExt(baseName, img.ext) : baseName;
+    const buffer = img.buffer;
+    const uploadType = img.contentType;
 
     // Try upload; if the bucket is missing, create it (public) then retry.
     const { error: uploadErr } = await sb.storage
       .from('avatars')
       // filename carries Date.now(), so a replaced avatar is a new URL.
-      .upload(filename, buffer, { contentType: file.type, upsert: true, cacheControl: STORAGE_CACHE_IMMUTABLE });
+      .upload(filename, buffer, { contentType: uploadType, upsert: true, cacheControl: STORAGE_CACHE_IMMUTABLE });
 
     if (uploadErr) {
       if (uploadErr.message.toLowerCase().includes('bucket') || uploadErr.message.toLowerCase().includes('not found')) {
         await sb.storage.createBucket('avatars', { public: true });
         const { error: retryErr } = await sb.storage
           .from('avatars')
-          .upload(filename, buffer, { contentType: file.type, upsert: true, cacheControl: STORAGE_CACHE_IMMUTABLE });
+          .upload(filename, buffer, { contentType: uploadType, upsert: true, cacheControl: STORAGE_CACHE_IMMUTABLE });
         if (retryErr) return NextResponse.json({ error: retryErr.message }, { status: 500 });
       } else {
         return NextResponse.json({ error: uploadErr.message }, { status: 500 });

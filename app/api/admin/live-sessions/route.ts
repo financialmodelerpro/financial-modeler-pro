@@ -10,6 +10,7 @@ import { publicSessionUrl, sessionPlatformLabel } from '@/src/hubs/training/lib/
 import { syncCoursePlaylist } from '@/src/hubs/training/lib/liveCourse/coursePlaylist';
 import { normaliseSections } from '@/src/hubs/training/lib/liveCourse/sessionContent';
 import { invalidateLiveCourseCache } from '@/src/hubs/training/lib/liveCourse/cachedReads';
+import { storeImage, IMAGE_WIDTH } from '@/src/shared/storage/optimizeImage';
 
 const LEARN_URL = process.env.NEXT_PUBLIC_LEARN_URL ?? 'https://learn.financialmodelerpro.com';
 const DEFAULT_SESSION_DURATION_MINUTES = 90;
@@ -39,10 +40,11 @@ export async function PUT(req: NextRequest) {
     const ext = file.name.split('.').pop()?.toLowerCase() ?? 'jpg';
     const path = `banners/${sessionId}.${ext}`;
     const bytes = Buffer.from(await file.arrayBuffer());
-    // Path is `banners/${sessionId}.${ext}` and is overwritten in place, so a
-    // long cache would keep showing the previous banner after a replacement.
-    await sb.storage.from('live-session-banners').upload(path, bytes, { contentType: file.type, upsert: true, cacheControl: STORAGE_CACHE_REPLACEABLE });
-    const { data: { publicUrl } } = sb.storage.from('live-session-banners').getPublicUrl(path);
+    // Compressed (optimizeImage.ts), original kept at originals/<path>. The path
+    // is overwritten in place, so the cache stays short (REPLACEABLE).
+    const stored = await storeImage(sb, { bucket: 'live-session-banners', path, buffer: bytes, contentType: file.type, maxWidth: IMAGE_WIDTH.session, cacheControl: STORAGE_CACHE_REPLACEABLE });
+    if (stored.error) return NextResponse.json({ error: stored.error }, { status: 500 });
+    const { data: { publicUrl } } = sb.storage.from('live-session-banners').getPublicUrl(stored.path);
     await sb.from('live_sessions').update({ banner_url: publicUrl, updated_at: new Date().toISOString() }).eq('id', sessionId);
     return NextResponse.json({ success: true, url: publicUrl });
   } catch (e) { return NextResponse.json({ error: String(e) }, { status: 500 }); }
@@ -108,6 +110,7 @@ export async function POST(req: NextRequest) {
         // isOnlineMeeting:true so Outlook also creates a calendar entry
         // on the host (Ahmad) and emails him the standard meeting invite.
         const mtg = await createCalendarEventWithMeeting({
+          courseMeeting: !!courseFields(body).course_code,
           subject:       (body.title as string | undefined) ?? 'Live Session',
           startDateTime: scheduledDatetime,
           endDateTime:   end,
