@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerClient } from '@/src/core/db/supabase';
 import { adminEmail } from '@/src/hubs/training/lib/liveCourse/adminGuard';
 import { getLiveCourseSettings, isLiveCourseRow, isPubliclyVisible, listCourseSessions } from '@/src/hubs/training/lib/liveCourse/courseSettings';
-import { courseEmailUrl, COURSE_TIME_ZONES_ANCHOR } from '@/src/hubs/training/lib/liveCourse/paths';
+import { coursePublicUrl, COURSE_TIME_ZONES_ANCHOR } from '@/src/hubs/training/lib/liveCourse/paths';
 import { scheduleFacts } from '@/src/hubs/training/lib/liveCourse/pageSections';
 import { loadCourseInstructors } from '@/src/hubs/training/lib/liveCourse/courseInstructors';
 import { courseTimeLabel, KSA_TZ } from '@/src/hubs/training/lib/liveCourse/time';
@@ -78,10 +78,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ cod
     tagline: d.course.tagline,
     startDate: first ? new Date(first).toLocaleDateString('en-GB', { timeZone: KSA_TZ, weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' }).replace(',', '') : '',
     sessions: d.sessions.map((s, i) => ({ label: `Session ${s.course_session_no ?? i + 1}`, title: s.title, when: courseTimeLabel(s.scheduled_datetime, { year: true }) })),
-    courseUrl: courseEmailUrl(LEARN_URL, d.course.courseCode),
-    cta: 'Enrol in the course',
+    courseUrl: coursePublicUrl(LEARN_URL, d.course.courseCode),
+    cta: 'View course and enrol',
     intro: await courseIntro(d.sb, d.course, d.sessions),
-    timesUrl: courseEmailUrl(LEARN_URL, d.course.courseCode, { anchor: COURSE_TIME_ZONES_ANCHOR, enrol: false }),
+    timesUrl: coursePublicUrl(LEARN_URL, d.course.courseCode, { anchor: COURSE_TIME_ZONES_ANCHOR }),
   });
   if (!html.includes(NAME_TOKEN)) return NextResponse.json({ error: 'Template error: no name token.' }, { status: 500 });
 

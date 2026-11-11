@@ -2030,14 +2030,11 @@ async function unit27(): Promise<void> {
 async function unit28(): Promise<void> {
   console.log('\n=== An unpublished session is not part of the course; course email links; the announcement ===\n');
   const P = await import('../src/hubs/training/lib/liveCourse/paths');
-  check('U28.1a every course email links the course page with ?enrol=1 (one rule); a read-only link (time zones) carries none', P.courseEmailUrl('https://learn.x', 'REFM') === 'https://learn.x/training/REFM?enrol=1' && P.courseEmailUrl('https://learn.x/', 'REFM', { anchor: 'time-zones', enrol: false }) === 'https://learn.x/training/REFM#time-zones');
-  const users = { enrolment: 'src/hubs/training/lib/liveCourse/enrolment.ts', reminder: 'src/hubs/training/lib/liveCourse/dayReminder.ts', reschedule: 'src/hubs/training/lib/liveCourse/rescheduleApply.ts', calendar: 'src/hubs/training/lib/liveCourse/calendar.ts', announcement: 'app/api/admin/live-course/[code]/announce/route.ts' };
-  const missing = Object.entries(users).filter(([, f]) => !readFileSync(f, 'utf8').includes('courseEmailUrl(LEARN_URL,')).map(([k]) => k);
-  check('U28.1b the enrolment confirmation, reminder, reschedule, calendar and announcement all use it', missing.length === 0, missing.join(', '));
+  check('U28.1a (re-aimed 2026-11-11) course email links come from paths.ts, one rule per destination (unit 29)', P.coursePublicUrl('https://learn.x/', 'REFM') === 'https://learn.x/training/REFM' && P.coursePublicUrl('https://learn.x', 'REFM', { anchor: 'time-zones' }) === 'https://learn.x/training/REFM#time-zones');
   check('U28.1c a visitor sent to sign in to enrol who chooses Register keeps the course (enrolled at confirmation, lands on the course page)', readFileSync('app/training/signin/SignInForm.tsx', 'utf8').includes('/register?course=${encodeURIComponent(enrolCourse)}') && readFileSync('app/api/training/confirm-email/route.ts', 'utf8').includes('landing = landing || coursePagePath(enrolCourseCode);'));
   const route = readFileSync('app/api/admin/live-course/[code]/announce/route.ts', 'utf8');
   const tpl = readFileSync('src/shared/email/templates/liveCourseAnnouncement.ts', 'utf8');
-  check('U28.2a the announcement opens with the free-course line (from the live schedule and the instructor record) and links the time zone table', route.includes('Free live course with certificate. ${facts.join(') && route.includes('intro: await courseIntro(') && route.includes('anchor: COURSE_TIME_ZONES_ANCHOR, enrol: false') && tpl.includes('See the time in your region'));
+  check('U28.2a the announcement opens with the free-course line (from the live schedule and the instructor record) and links the time zone table', route.includes('Free live course with certificate. ${facts.join(') && route.includes('intro: await courseIntro(') && route.includes('coursePublicUrl(LEARN_URL, d.course.courseCode, { anchor: COURSE_TIME_ZONES_ANCHOR })') && tpl.includes('See the time in your region'));
   const Q = await import('../src/hubs/training/lib/announcements/queue');
   check('U28.2b real sends greet each student by first name', Q.personalise('Hi {{name}},', 'Ahmad Din') === 'Hi Ahmad,' && Q.personalise('Hi {{name}},', '') === 'Hi there,');
   check('U28.2c the course page time zone table answers the email link (#time-zones opens it)', readFileSync('app/training/live-course/[code]/CourseLanding.tsx', 'utf8').includes('anchorId={COURSE_TIME_ZONES_ANCHOR}') && readFileSync('src/hubs/training/components/sessions/TimeZoneTable.tsx', 'utf8').includes('window.location.hash === `#${anchorId}`'));
@@ -2052,6 +2049,36 @@ async function unit28(): Promise<void> {
     check('U28.3a live: an unpublished session is not listed for students (course page, dashboard, Live Sessions read the published list)', listed.length === 8 && !listed.some((x) => hidden.includes(x.id)), `${listed.length} listed, ${hidden.length} unpublished`);
     check('U28.3b live: completion and progress count the 8 published sessions only', !!e && e.sessions.length === 8);
   }
+}
+
+async function unit29(): Promise<void> {
+  console.log('\n=== Course email links by email type ===\n');
+  const P = await import('../src/hubs/training/lib/liveCourse/paths');
+  const L = 'https://learn.x';
+  check('U29.1a announcement: "View course and enrol" opens the public course page, no ?enrol=1, no sign-in', (() => { const r = readFileSync('app/api/admin/live-course/[code]/announce/route.ts', 'utf8'); return r.includes('courseUrl: coursePublicUrl(LEARN_URL, d.course.courseCode),') && r.includes("cta: 'View course and enrol',"); })());
+  const page = readFileSync('app/training/live-course/[code]/LiveCoursePage.tsx', 'utf8');
+  check('U29.1b the course page never redirects to sign-in (with or without ?enrol=1)', !page.includes('redirect(') && !page.includes('/signin'));
+  const client = readFileSync('app/training/live-course/[code]/LiveCourseClient.tsx', 'utf8');
+  check('U29.1c signed out: Register free; signed in and not enrolled: a highlighted Enrol that enrols on its click', client.includes('data-testid="live-course-register"') && /data-testid="live-course-enrol" onClick=\{\(\) => enrol\('dashboard'\)\}[^]*?boxShadow/.test(client));
+  check('U29.2a the dashboard course view link is /training/dashboard?livecourse=<CODE>', P.courseDashboardUrl(L + '/', 'REFM') === L + '/training/dashboard?livecourse=REFM');
+  const uses = (f: string, needle: string) => readFileSync(f, 'utf8').includes(needle);
+  check('U29.2b enrolment confirmation opens the dashboard course view', uses('src/hubs/training/lib/liveCourse/enrolment.ts', 'courseUrl: courseDashboardUrl(LEARN_URL, settings.courseCode),'));
+  check('U29.3a session-day reminder: dashboard course view, plus the session page', uses('src/hubs/training/lib/liveCourse/dayReminder.ts', 'courseUrl: courseDashboardUrl(LEARN_URL, course.courseCode),') && uses('src/hubs/training/lib/liveCourse/dayReminder.ts', 'sessionUrl: courseSessionUrl(LEARN_URL, course.courseCode, s.id as string),'));
+  check('U29.3b reschedule: dashboard course view, plus each moved session page', uses('src/hubs/training/lib/liveCourse/rescheduleApply.ts', 'courseUrl: courseDashboardUrl(LEARN_URL, course.courseCode) });') && uses('src/hubs/training/lib/liveCourse/rescheduleApply.ts', 'url: courseSessionUrl(LEARN_URL, course.courseCode, m.id)'));
+  check('U29.3c the session link is the course session page', P.courseSessionUrl(L, 'REFM', 'abc') === L + '/training/REFM/sessions/abc');
+  const TR = await import('../src/shared/email/templates/liveCourseDayReminder');
+  const r = await TR.liveCourseDayReminderTemplate({ name: 'Sara Khan', courseTitle: 'REFM', sessionTitle: 'Land', sessionNo: 2, when: 'Tue 8 Dec 2026, 7:00 PM KSA', courseUrl: P.courseDashboardUrl(L, 'REFM'), sessionUrl: P.courseSessionUrl(L, 'REFM', 's2'), joinOpensMinutesBefore: 15 });
+  check('U29.3d the reminder renders both links (button to the dashboard, secondary to the session)', r.html.includes('href="https://learn.x/training/dashboard?livecourse=REFM"') && r.html.includes('href="https://learn.x/training/REFM/sessions/s2"') && r.text.includes('Session page: https://learn.x/training/REFM/sessions/s2'));
+  const TS = await import('../src/shared/email/templates/liveCourseReschedule');
+  const m = await TS.liveCourseRescheduleTemplate({ name: 'Sara', courseTitle: 'REFM', courseUrl: P.courseDashboardUrl(L, 'REFM'), moves: [{ label: 'Session 2: Land', oldWhen: 'a', newWhen: 'b', url: P.courseSessionUrl(L, 'REFM', 's2') }] });
+  check('U29.3e the reschedule email renders both links', m.html.includes('href="https://learn.x/training/dashboard?livecourse=REFM"') && m.html.includes('href="https://learn.x/training/REFM/sessions/s2"'));
+  const CAL = await import('../src/hubs/training/lib/liveCourse/calendar');
+  const ics = CAL.buildCourseIcs({ courseCode: 'REFM', title: 'REFM' }, [{ id: 's1', title: 'Overview', course_session_no: 1, scheduled_datetime: '2026-12-01T16:00:00Z', duration_minutes: 150 }]).replace(/\r\n /g, '');
+  check('U29.4 the calendar event link opens the dashboard course view', /URL:https?:\/\/[^\r\n]*\/training\/dashboard\?livecourse=REFM/.test(ics));
+  const dash = readFileSync('app/training/dashboard/page.tsx', 'utf8');
+  check('U29.5 the dashboard sends a signed-out visitor to sign in and back to the same view', dash.includes('router.replace(`/signin?redirect=${encodeURIComponent(window.location.pathname + window.location.search)}`)') && !dash.includes("router.replace('/signin')"));
+  const SI = readFileSync('app/training/signin/SignInForm.tsx', 'utf8');
+  check('U29.5b sign-in honours a same-site redirect to the dashboard view (not an auth page)', SI.includes("const redirectTo   = safeRedirect(searchParams.get('redirect'));") && SI.includes('router.push(redirectTo);'));
 }
 
 (async () => {
@@ -2085,6 +2112,7 @@ async function unit28(): Promise<void> {
   await unit26();
   await unit27();
   await unit28();
+  await unit29();
   console.log(`\n${passed} passed, ${failed} failed`);
   if (failed) { console.log('Failed:'); for (const f of fails) console.log(`  - ${f}`); process.exit(1); }
 })().catch((e) => { console.error(e); process.exit(1); });

@@ -11,7 +11,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { getLiveCourseSettings, isLiveCourseRow } from './courseSettings';
 import { listEnrolledStudents } from './enrolledStudents';
 import { formatSessionTime, zonedDate, KSA_TZ } from './time';
-import { courseEmailUrl } from './paths';
+import { courseDashboardUrl, courseSessionUrl } from './paths';
 
 const LEARN_URL = process.env.NEXT_PUBLIC_LEARN_URL ?? 'https://learn.financialmodelerpro.com';
 
@@ -68,7 +68,8 @@ export async function sendSessionDayReminders(
         sessionTitle: s.title as string,
         sessionNo: (s.course_session_no as number | null) ?? null,
         when: formatSessionTime(s.scheduled_datetime as string),
-        courseUrl: courseEmailUrl(LEARN_URL, course.courseCode),
+        courseUrl: courseDashboardUrl(LEARN_URL, course.courseCode),
+        sessionUrl: courseSessionUrl(LEARN_URL, course.courseCode, s.id as string),
         joinOpensMinutesBefore: course.joinOpensMinutesBefore,
       });
       items.push({ to: st.email, subject: mail.subject, html: mail.html, text: mail.text });

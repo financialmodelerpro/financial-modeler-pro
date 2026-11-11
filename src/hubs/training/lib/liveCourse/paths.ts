@@ -12,16 +12,36 @@ export function coursePagePath(courseCode: string): string {
 /** The id of the course page's time zone table (the side card), linked from emails. */
 export const COURSE_TIME_ZONES_ANCHOR = 'time-zones';
 
-/**
- * THE course link in every course email (2026-11-10, founder): the course page
- * with ?enrol=1. A signed-in student is enrolled in one click (or simply lands,
- * if enrolled already); a signed-out one signs in, or registers with the
- * course, and lands back on the course page.
+/*
+ * Course email links, by email type (2026-11-11, founder):
+ *   announcement            -> coursePublicUrl: the public course page, no sign-in;
+ *                              a visitor sees Register free, a signed-in student Enrol
+ *   enrolment confirmation,
+ *   session-day reminder,
+ *   reschedule, calendar     -> courseDashboardUrl: the dashboard course view (Join live,
+ *                              the current dates); signed out, sign-in lands back on it
+ *   reminder / reschedule    -> courseSessionUrl as the secondary link to the session
  */
-export function courseEmailUrl(learnUrl: string, courseCode: string, opts: { anchor?: string; enrol?: boolean } = {}): string {
-  // A link only to READ the page (the time zone table) carries no ?enrol=1, so a reader is not sent to sign in.
-  const enrol = opts.enrol !== false;
-  return `${learnUrl.replace(/\/$/, '')}${coursePagePath(courseCode)}${enrol ? '?enrol=1' : ''}${opts.anchor ? `#${opts.anchor}` : ''}`;
+const base = (learnUrl: string) => learnUrl.replace(/\/$/, '');
+
+/** The public course page (announcements). Never forces sign-in. */
+export function coursePublicUrl(learnUrl: string, courseCode: string, opts: { anchor?: string } = {}): string {
+  return `${base(learnUrl)}${coursePagePath(courseCode)}${opts.anchor ? `#${opts.anchor}` : ''}`;
+}
+
+/** The dashboard path of a live course's view. */
+export function courseDashboardPath(courseCode: string): string {
+  return `/training/dashboard?livecourse=${encodeURIComponent(courseCode)}`;
+}
+
+/** The dashboard course view (enrolment confirmation, reminders, reschedule, calendar). */
+export function courseDashboardUrl(learnUrl: string, courseCode: string): string {
+  return `${base(learnUrl)}${courseDashboardPath(courseCode)}`;
+}
+
+/** One course session's page (the secondary link in reminders and reschedule emails). */
+export function courseSessionUrl(learnUrl: string, courseCode: string, sessionId: string): string {
+  return `${base(learnUrl)}${courseSessionPath(courseCode, sessionId)}`;
 }
 
 export function courseSessionPath(courseCode: string, sessionId: string): string {

@@ -34,7 +34,7 @@ export async function courseEnrolmentConfirmationTemplate(d: CourseEnrolmentConf
     <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;font-size:14px;margin:12px 0 20px;">${rows}</table>
     ${p('<strong>How to join:</strong> sign in to your Training Hub dashboard and open the course. The <strong>Join live</strong> button on each session opens ' + escapeHtml(String(d.joinOpensMinutesBefore)) + ' minutes before the start and takes you straight into Microsoft Teams. Please join with the same email you registered with, so your attendance is counted.')}
     ${p('Missed a session? Its recording appears on the course page after the session, and watching it in full counts towards your certificate.')}
-    <div style="text-align:center;margin:28px 0;">${button('Open the course', d.courseUrl)}</div>
+    <div style="text-align:center;margin:28px 0;">${button('Open your course', d.courseUrl)}</div>
     ${divider()}
     ${p('If you have any questions, reply to this email.', 'font-size:13px;color:#64748B;')}
   `);
@@ -48,7 +48,7 @@ export async function courseEnrolmentConfirmationTemplate(d: CourseEnrolmentConf
     ...d.sessions.map((s) => `${s.no != null ? `Session ${s.no}: ` : ''}${s.title} - ${s.when}`),
     '',
     `How to join: sign in to your Training Hub dashboard and open the course. The Join live button opens ${d.joinOpensMinutesBefore} minutes before each session.`,
-    `Course page: ${d.courseUrl}`,
+    `Your course: ${d.courseUrl}`,
   ].join('\n');
 
   return { subject, html, text };

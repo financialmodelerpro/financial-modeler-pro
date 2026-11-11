@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import { notFound, redirect } from 'next/navigation';
+import { notFound } from 'next/navigation';
 import { getTrainingCookieSession } from '@/src/hubs/training/lib/session/trainingSessionCookie';
 import { getServerClient } from '@/src/core/db/supabase';
 import { isLiveCourseRow, isPubliclyVisible, canRegister } from '@/src/hubs/training/lib/liveCourse/courseSettings';
@@ -9,7 +9,6 @@ import { isValidPreviewToken } from '@/src/hubs/training/lib/liveCourse/preview'
 import { loadCourseInstructors } from '@/src/hubs/training/lib/liveCourse/courseInstructors';
 import { CoursePageFrame } from '../CoursePageFrame';
 import { LiveCourseClient, type PublicCourseData } from './LiveCourseClient';
-import { coursePagePath } from '@/src/hubs/training/lib/liveCourse/paths';
 import { FounderShortCard } from '@/src/hubs/main/components/landing/FounderShortCard';
 import { TestimonialsCarousel } from '../../TestimonialsCarousel';
 
@@ -52,10 +51,9 @@ export default async function LiveCoursePage({
   const previewOk = isValidPreviewToken(course.courseCode, preview);
   const visible = isPubliclyVisible(course);
 
-  if (!sess && enrol === '1') {
-    // Keep the course (and the enrol intent) through sign-in.
-    redirect(`/signin?redirect=${encodeURIComponent(`${coursePagePath(course.courseCode)}?enrol=1`)}`);
-  }
+  // ?enrol=1 never forces sign-in (2026-11-11, founder): a signed-out visitor
+  // sees the public page with Register free; only a signed-in student's own
+  // click on Enrol (here, or on a page linking here with ?enrol=1) enrols.
   // A signed-out visitor sees only a public course, or one through a preview link.
   if (!sess && !visible && !previewOk) notFound();
 

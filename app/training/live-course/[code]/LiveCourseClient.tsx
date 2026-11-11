@@ -123,7 +123,7 @@ export function LiveCourseClient({ courseCode, autoEnrol, signedIn, publicData, 
     if (signedIn) {
       return (
         <button data-testid="live-course-enrol" onClick={() => enrol('dashboard')} disabled={enrolling}
-          style={{ background: dark ? '#fff' : NAVY, color: dark ? NAVY : '#fff', border: 'none', borderRadius: 10, padding: '13px 28px', fontWeight: 800, fontSize: 15, cursor: enrolling ? 'wait' : 'pointer' }}>
+          style={{ background: dark ? '#fff' : NAVY, color: dark ? NAVY : '#fff', border: 'none', borderRadius: 10, padding: '13px 28px', fontWeight: 800, fontSize: 15, cursor: enrolling ? 'wait' : 'pointer', boxShadow: '0 0 0 4px rgba(245,180,0,0.6)' }}>
           {enrolling ? 'Enrolling…' : 'Enrol in this course'}
         </button>
       );

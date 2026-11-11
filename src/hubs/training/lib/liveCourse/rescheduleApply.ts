@@ -11,7 +11,7 @@ import { getLiveCourseSettings, isLiveCourseRow, listCourseSessions } from './co
 import { listEnrolledStudents } from './enrolledStudents';
 import { buildCourseIcs, icsAttachment } from './calendar';
 import { formatSessionTime } from './time';
-import { courseEmailUrl } from './paths';
+import { courseDashboardUrl, courseSessionUrl } from './paths';
 import { DEFAULT_DURATION_MINUTES } from './joinWindow';
 
 const LEARN_URL = process.env.NEXT_PUBLIC_LEARN_URL ?? 'https://learn.financialmodelerpro.com';
@@ -77,11 +77,11 @@ export async function applyReschedule(
   const { liveCourseRescheduleTemplate } = await import('@/src/shared/email/templates/liveCourseReschedule');
   const moves = plan.moves.map((m) => {
     const s = sessions.find((x) => x.id === m.id)!;
-    return { label: m.no != null ? `Session ${m.no}: ${s.title}` : s.title, oldWhen: formatSessionTime(m.oldStart), newWhen: formatSessionTime(m.newStart) };
+    return { label: m.no != null ? `Session ${m.no}: ${s.title}` : s.title, oldWhen: formatSessionTime(m.oldStart), newWhen: formatSessionTime(m.newStart), url: courseSessionUrl(LEARN_URL, course.courseCode, m.id) };
   });
   const items = [];
   for (const st of students) {
-    const mail = await liveCourseRescheduleTemplate({ name: st.name, courseTitle: course.title, moves, courseUrl: courseEmailUrl(LEARN_URL, course.courseCode) });
+    const mail = await liveCourseRescheduleTemplate({ name: st.name, courseTitle: course.title, moves, courseUrl: courseDashboardUrl(LEARN_URL, course.courseCode) });
     items.push({ to: st.email, subject: mail.subject, html: mail.html, text: mail.text, attachments: [ics] });
   }
   const outcomes = items.length ? await deps.send(items) : [];

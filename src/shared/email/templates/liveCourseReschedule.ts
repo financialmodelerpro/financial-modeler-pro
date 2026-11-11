@@ -9,7 +9,9 @@ export interface LiveCourseRescheduleData {
   name: string;
   courseTitle: string;
   /** Already formatted, e.g. "Tue, 1 Dec 2026, 7:00 PM KSA". */
-  moves: { label: string; oldWhen: string; newWhen: string }[];
+  /** url: the session's own page (secondary link). */
+  moves: { label: string; oldWhen: string; newWhen: string; url?: string }[];
+  /** The dashboard course view (Join live, the updated dates). */
   courseUrl: string;
 }
 
@@ -20,7 +22,7 @@ export async function liveCourseRescheduleTemplate(d: LiveCourseRescheduleData) 
   const subject = one ? `Rescheduled: ${d.moves[0].label}` : `Rescheduled: ${d.moves.length} sessions of ${d.courseTitle}`;
   const rows = d.moves.map((m) => `
     <tr>
-      <td style="padding:8px 10px;border-bottom:1px solid #E8EEF7;color:#1B4F8A;font-weight:700;">${escapeHtml(m.label)}</td>
+      <td style="padding:8px 10px;border-bottom:1px solid #E8EEF7;color:#1B4F8A;font-weight:700;">${m.url ? `<a href="${escapeHtml(m.url)}" style="color:#1B4F8A;">${escapeHtml(m.label)}</a>` : escapeHtml(m.label)}</td>
       <td style="padding:8px 10px;border-bottom:1px solid #E8EEF7;color:#5A6675;text-decoration:line-through;white-space:nowrap;">${escapeHtml(m.oldWhen)}</td>
       <td style="padding:8px 10px;border-bottom:1px solid #E8EEF7;color:#2E7D52;font-weight:700;white-space:nowrap;">${escapeHtml(m.newWhen)}</td>
     </tr>`).join('');
@@ -33,8 +35,9 @@ export async function liveCourseRescheduleTemplate(d: LiveCourseRescheduleData) 
       <tr><th align="left" style="padding:6px 10px;color:#5A6675;font-size:12px;">Session</th><th align="left" style="padding:6px 10px;color:#5A6675;font-size:12px;">Was</th><th align="left" style="padding:6px 10px;color:#5A6675;font-size:12px;">Now</th></tr>
       ${rows}
     </table>
-    ${p('The attached calendar file updates the events already in your calendar. The Join live button on the course page opens shortly before the new start.')}
-    <div style="text-align:center;margin:28px 0;">${button('Open the course', d.courseUrl)}</div>
+    ${p('The attached calendar file updates the events already in your calendar. The Join live button on your course opens shortly before the new start.')}
+    <div style="text-align:center;margin:28px 0;">${button('Open your course', d.courseUrl)}</div>
+    ${one && d.moves[0].url ? `<p style="margin:-12px 0 18px;text-align:center;font-size:13px;"><a href="${escapeHtml(d.moves[0].url)}" style="color:#2E75B6;">View the session page</a></p>` : ''}
     ${divider()}
     ${p('If the new time does not work for you, the recording will be on the course page after the session.', 'font-size:13px;color:#64748B;')}
   `);
@@ -43,8 +46,8 @@ export async function liveCourseRescheduleTemplate(d: LiveCourseRescheduleData) 
   const text = [
     `Hi ${displayName},`, '',
     `${d.courseTitle}: ${one ? 'a session has' : 'sessions have'} a new date.`, '',
-    ...d.moves.map((m) => `${m.label}: was ${m.oldWhen}, now ${m.newWhen}`), '',
-    `Course page: ${d.courseUrl}`,
+    ...d.moves.map((m) => `${m.label}: was ${m.oldWhen}, now ${m.newWhen}${m.url ? ` (${m.url})` : ''}`), '',
+    `Your course: ${d.courseUrl}`,
   ].join('\n');
 
   return { subject, html, text };

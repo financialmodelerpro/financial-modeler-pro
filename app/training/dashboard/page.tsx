@@ -474,7 +474,8 @@ export default function TrainingDashboardPage() {
 
   useEffect(() => {
     const sess = getTrainingSession();
-    if (!sess) { router.replace('/signin'); return; }
+    // Signed out: sign in, then land back on this view (e.g. ?livecourse=REFM from a course email).
+    if (!sess) { router.replace(`/signin?redirect=${encodeURIComponent(window.location.pathname + window.location.search)}`); return; }
     setLocalSession(sess);
 
     // Enrollment is now automatic: every new student gets 3SFM on email

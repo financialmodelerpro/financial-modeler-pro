@@ -8,7 +8,7 @@
  * logged join route); the event points at the course page, where Join opens.
  */
 import { DEFAULT_DURATION_MINUTES } from './joinWindow';
-import { courseEmailUrl } from './paths';
+import { courseDashboardUrl } from './paths';
 import { overviewText, type SessionContentRow } from './sessionContent';
 
 const LEARN_URL = process.env.NEXT_PUBLIC_LEARN_URL ?? 'https://learn.financialmodelerpro.com';
@@ -44,7 +44,7 @@ export function buildCourseIcs(
   sessions: IcsSession[],
   now: Date = new Date(),
 ): string {
-  const page = courseEmailUrl(LEARN_URL, course.courseCode);
+  const page = courseDashboardUrl(LEARN_URL, course.courseCode);
   const lines = [
     'BEGIN:VCALENDAR',
     'VERSION:2.0',
@@ -59,7 +59,7 @@ export function buildCourseIcs(
     const end = new Date(start.getTime() + (s.duration_minutes && s.duration_minutes > 0 ? s.duration_minutes : DEFAULT_DURATION_MINUTES) * 60_000);
     const label = s.course_session_no != null ? `Session ${s.course_session_no}: ${s.title}` : s.title;
     const overview = overviewText(s);
-    const desc = `${overview ? `${overview}\n\n` : ''}Join from your course page (the Join live button opens shortly before the start): ${page}`;
+    const desc = `${overview ? `${overview}\n\n` : ''}Join from your course on the dashboard (the Join live button opens shortly before the start): ${page}`;
     lines.push(
       'BEGIN:VEVENT',
       `UID:${eventUid(s.id)}`,
@@ -69,7 +69,7 @@ export function buildCourseIcs(
       `DTEND:${stamp(end)}`,
       `SUMMARY:${esc(`${course.title}: ${label}`)}`,
       `DESCRIPTION:${esc(desc)}`,
-      `LOCATION:${esc('Microsoft Teams (join from your course page)')}`,
+      `LOCATION:${esc('Microsoft Teams (join from your course on the dashboard)')}`,
       `URL:${page}`,
       'STATUS:CONFIRMED',
       'END:VEVENT',

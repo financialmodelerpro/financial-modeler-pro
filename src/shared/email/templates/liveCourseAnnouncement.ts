@@ -44,7 +44,7 @@ export async function liveCourseAnnouncementTemplate(d: LiveCourseAnnouncementDa
       ${rows}
     </table>
     ${d.timesUrl ? `<p style="margin:-8px 0 18px;font-size:13px;"><a href="${escapeHtml(d.timesUrl)}" style="color:#2E75B6;">See the time in your region</a></p>` : ''}
-    <div style="text-align:center;margin:28px 0;">${button(escapeHtml(d.cta), d.courseUrl)}</div>
+    <div style="text-align:center;margin:28px 0;">${button(d.cta, d.courseUrl)}</div>
     ${divider()}
     ${p('Every session is recorded, and the recordings count towards the certificate.', 'font-size:13px;color:#64748B;')}
   `);
