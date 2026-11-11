@@ -4,6 +4,10 @@
 
 Entries are grouped by their most recent date. Fuller per-day narrative for REFM platform work lives in [CLAUDE-REFM.md](CLAUDE-REFM.md); per-route and migration detail in [CLAUDE-ROUTES.md](CLAUDE-ROUTES.md) and [CLAUDE-DB.md](CLAUDE-DB.md); the general lessons in [docs/TRAPS.md](docs/TRAPS.md); fund-layer standing rules in [docs/FUND_LAYER_GUIDELINE.md](docs/FUND_LAYER_GUIDELINE.md). This file is loaded on demand only and has no size limit.
 
+## 2026-11-11
+
+- **Course emails open the course page (b6320e6c).** `courseEmailUrl` (liveCourse/paths.ts) is the ONE course link in the enrolment confirmation, reminder, reschedule, calendar file and announcement: `/training/<CODE>?enrol=1`. A visitor sent to sign in who picks Register keeps the course (`/register?course=`), is enrolled at confirmation and lands on the course page. The announcement opens with "Free live course with certificate. 8 sessions, 2.5 hours each, Tuesdays 7:00 to 9:30 PM KSA, with <instructor>" (from the live schedule and instructor record), links "See the time in your region" to `#time-zones` (no ?enrol=1; the table opens on arrival) and real sends greet by first name. Session editor: "Remove Teams meeting" for an UNPUBLISHED session. Teams read-back of 2026-11-11 07:11 UTC: all 9 meetings lobby everyone, dial-in bypass on, presenters organizer, record automatically on. Session 9 (Test Session) unpublished: absent from the course page, Training Sessions, the public API and eligibility (8 sessions). `verify-live-course` live checks count PUBLISHED sessions; unit 28; 645 / 0.
+
 ## 2026-11-10
 
 - **Every achievement card and social preview image was failing (500) on live; fixed.** satori draws PNG and JPEG only, and the site logo these routes embed became WebP when the marketing images were optimised (`optimize-marketing-images.ts`), so `/api/training/achievement-image` and `/api/og`, `/api/og/main`, `/api/og/modeling`, `/api/og/certificate/[id]` all threw "u2 is not iterable". Each now converts a non-PNG/JPEG image to PNG with sharp before embedding. Found while checking the session certificate card on live.
