@@ -6,9 +6,13 @@
  * The Modeling Hub's installable-app client half. Mounted once by each Modeling
  * Hub layout. Three jobs, nothing else:
  *
- *   1. REGISTER the service worker (/sw.js), only on the app host or a local
- *      dev host, so the main site and the Training Hub never get one. The
- *      worker caches the shell only and never an API response (see sw.js).
+ *   1. OFFER THE INSTALL ONLY WHEN SIGNED IN (2026-11-11): the manifest link,
+ *      the iOS home-screen tags and the service worker (/sw.js, app host or a
+ *      local dev host only) are added by InstallAppHead, and only for a
+ *      signed-in user on one of the hub's signed-in pages
+ *      (installApps.offersInstall). Public, marketing, sign-in and register
+ *      pages offer no install. The worker caches the shell only and never an
+ *      API response (see sw.js).
  *   2. SAY SO WHEN THE CONNECTION DROPS. A page already open keeps what it
  *      rendered, but nothing new can load or save, so a user must not read the
  *      figures on screen as current without knowing. The notice asks them to
@@ -27,11 +31,14 @@
  */
 import React, { useEffect, useState } from 'react';
 import { usePathname } from 'next/navigation';
+import { useSession } from 'next-auth/react';
+import { InstallAppHead } from '@/src/shared/pwa/InstallAppHead';
+import { INSTALL_APPS, offersInstall } from '@/src/shared/pwa/installApps';
 import {
   isMarketingPath, linkTarget, installedAppCss, INSTALLED_DISPLAY_MODES, INSTALLED_ATTR, APP_NAME,
 } from '@/src/hubs/modeling/lib/pwa/appManifest';
 
-const APP_HOST = 'app.financialmodelerpro.com';
+const APP = INSTALL_APPS.modeling;
 
 /** True when this page is running as the installed app, not in a browser tab. */
 function isInstalledWindow(): boolean {
@@ -43,6 +50,9 @@ function isInstalledWindow(): boolean {
 export default function PwaClient(): React.JSX.Element | null {
   const [offline, setOffline] = useState(false);
   const pathname = usePathname();
+  const { status } = useSession();
+  // A NEW install is offered only to a signed-in user on a signed-in page.
+  const canOffer = offersInstall(APP, pathname ?? '/', status === 'authenticated');
 
   // The installed window: mark <html> (so the hiding CSS also applies on an
   // iPhone home-screen app) and title the window "Modeling Hub". Next sets the
@@ -85,14 +95,6 @@ export default function PwaClient(): React.JSX.Element | null {
   }, []);
 
   useEffect(() => {
-    const host = window.location.hostname;
-    const allowed = host === APP_HOST || host === 'localhost' || host === '127.0.0.1';
-    if (allowed && 'serviceWorker' in navigator) {
-      navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(() => {
-        // Registration failing costs the install prompt, nothing else; the app
-        // works exactly as it does in a tab.
-      });
-    }
     const sync = (): void => setOffline(navigator.onLine === false);
     sync();
     window.addEventListener('online', sync);
@@ -105,7 +107,12 @@ export default function PwaClient(): React.JSX.Element | null {
 
   // The hiding rule is rendered on the server with the page, so the installed
   // window never shows the website header even for a frame.
-  const installedStyle = <style data-installed-app-css dangerouslySetInnerHTML={{ __html: installedAppCss() }} />;
+  const installedStyle = (
+    <>
+      <style data-installed-app-css dangerouslySetInnerHTML={{ __html: installedAppCss() }} />
+      <InstallAppHead app={APP} enabled={canOffer} />
+    </>
+  );
   if (!offline) return installedStyle;
   return (
     <>

@@ -9,8 +9,10 @@ import {
   LayoutDashboard, BookOpen, Lock, Video, Award, Medal,
   FileText, User, LogOut, ChevronLeft, ChevronRight, ArrowLeft, Star,
   Flame, Zap, Target, Rocket, Trophy, Timer, Footprints, Sparkles,
-  Eye, Download, X, PlayCircle,
+  Eye, Download, X, PlayCircle, Smartphone,
 } from 'lucide-react';
+import { InstallAppBanner, InstallAppSidebarItem } from '@/src/shared/pwa/InstallAppEntry';
+import { INSTALL_APPS } from '@/src/shared/pwa/installApps';
 import { extractYouTubeId } from '@/src/shared/cms';
 import { getTrainingSession, clearTrainingSession } from '@/src/hubs/training/lib/session/training-session';
 import { useInactivityLogout } from '@/src/shared/hooks/useInactivityLogout';
@@ -1193,6 +1195,14 @@ export default function TrainingDashboardPage() {
             {canShareExperience && (
               <SidebarItem icon={<Star size={16} />} label="Share Experience" onClick={() => { setTestimonialModal('written'); setMobileSidebarOpen(false); }} />
             )}
+            {/* Install app (2026-11-11): only when this browser can install the
+                Training Hub app and it is not already running as it. */}
+            <InstallAppSidebarItem
+              app={INSTALL_APPS.training}
+              renderItem={({ label, onClick }) => (
+                <SidebarItem icon={<Smartphone size={16} />} label={label} onClick={() => { onClick(); setMobileSidebarOpen(false); }} />
+              )}
+            />
             <SidebarItem icon={<LogOut size={16} />} label="Sign Out" onClick={handleLogout} />
 
             {/* Follow Us */}
@@ -1249,6 +1259,9 @@ export default function TrainingDashboardPage() {
 
         {/* ── MAIN CONTENT ───────────────────────────────────────────────────── */}
         <main className="dash-main" style={{ flex: 1, minWidth: 0, padding: '28px 28px 64px', overflowY: 'auto' }}>
+
+          {/* Install the Training Hub app (2026-11-11): dismissal remembered per student in this browser. */}
+          {localSession && <InstallAppBanner app={INSTALL_APPS.training} userKey={localSession.registrationId} />}
 
           {/* Share banner (dismissable) */}
           {!loading && canShareExperience && !shareBannerDismissed && (

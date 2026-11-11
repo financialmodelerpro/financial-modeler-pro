@@ -14,6 +14,8 @@ import BillingView from '@/src/hubs/modeling/components/BillingView';
 import { ShareExperienceModal } from '@/src/shared/components/ShareExperienceModal';
 import { isOffline } from '@/src/shared/utils/connection';
 import { logoForDarkHeader } from '@/src/shared/cms/headerLogo';
+import { InstallAppBanner, InstallAppSidebarItem } from '@/src/shared/pwa/InstallAppEntry';
+import { INSTALL_APPS } from '@/src/shared/pwa/installApps';
 
 // DB row shape returned by GET /api/admin/modules. Only fields we map to
 // `Platform` are listed; unused columns are tolerated as `unknown`.
@@ -801,6 +803,30 @@ export default function ModelingDashboardPage() {
                 </div>
               );
             })}
+            {/* Install app (2026-11-11): shown only when this browser can install
+                the Modeling Hub app and it is not already running as it. */}
+            <InstallAppSidebarItem
+              app={INSTALL_APPS.modeling}
+              renderItem={({ label, onClick }) => (
+                <div
+                  title={collapsed ? label : undefined}
+                  className="mh-nav-item"
+                  data-testid="nav-install-app"
+                  role="button"
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: collapsed ? 0 : 9,
+                    justifyContent: collapsed ? 'center' : 'flex-start',
+                    padding: collapsed ? '9px 0' : '8px 10px',
+                    borderRadius: 8, marginBottom: 2, borderLeft: '3px solid transparent',
+                    cursor: 'pointer', transition: 'background 0.15s',
+                  }}
+                  onClick={() => { onClick(); setMobileSidebarOpen(false); }}
+                >
+                  <span style={{ fontSize: 16, flexShrink: 0 }}>📲</span>
+                  {!collapsed && <span style={{ fontSize: 13, fontWeight: 500, color: 'rgba(255,255,255,0.7)', flex: 1 }}>{label}</span>}
+                </div>
+              )}
+            />
           </div>
 
           {/* Footer: dark mode + sign out + collapse */}
@@ -921,6 +947,7 @@ export default function ModelingDashboardPage() {
 
           {activeView === 'dashboard' && (
           <>
+          <InstallAppBanner app={INSTALL_APPS.modeling} userKey={session.user?.email ?? ''} />
           <div style={{ marginBottom: noPlan ? 16 : 30 }}>
             <h1 style={{ fontSize: 22, fontWeight: 800, color: theme.heading, margin: '0 0 4px' }}>
               Welcome back{user.name ? `, ${user.name.split(' ')[0]}` : ''}

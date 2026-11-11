@@ -547,17 +547,18 @@ function TrainingSignInInner() {
               </div>
             )}
 
-            <div style={{ marginTop: 18, display: 'flex', alignItems: 'center', gap: 10 }}>
+            {/* data-pwa-hide: the installed Training Hub app offers no Modeling Hub sign-in or signup (installedWindow.ts). */}
+            <div data-pwa-hide style={{ marginTop: 18, display: 'flex', alignItems: 'center', gap: 10 }}>
               <div style={{ flex: 1, height: 1, background: '#F3F4F6' }} />
               <span style={{ fontSize: 11, color: '#D1D5DB', whiteSpace: 'nowrap' }}>separate from platform</span>
               <div style={{ flex: 1, height: 1, background: '#F3F4F6' }} />
             </div>
-            <div style={{ marginTop: 14, textAlign: 'center' }}>
+            <div data-pwa-hide style={{ marginTop: 14, textAlign: 'center' }}>
               <a href={`${process.env.NEXT_PUBLIC_APP_URL ?? 'https://app.financialmodelerpro.com'}/modeling/signin`} style={{ fontSize: 12, color: '#9CA3AF', textDecoration: 'underline' }}>Modeling Hub Sign In →</a>
             </div>
           </div>
 
-          <p style={{ textAlign: 'center', marginTop: 20, fontSize: 12, color: '#9CA3AF' }}>
+          <p data-pwa-hide style={{ textAlign: 'center', marginTop: 20, fontSize: 12, color: '#9CA3AF' }}>
             <Link href="/training" style={{ color: '#9CA3AF', textDecoration: 'none' }}>← Back to Training Hub</Link>
           </p>
         </div>

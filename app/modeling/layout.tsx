@@ -13,10 +13,8 @@ export const metadata: Metadata = {
   // Override the root layout's MAIN_URL canonical so modeling-hub pages
   // default to app.* rather than inheriting the main-domain canonical.
   alternates: { canonical: APP_URL },
-  // INSTALLABLE APP (2026-09-24): the manifest is linked ONLY from the Modeling
-  // Hub's layouts, so the main site and the Training Hub never offer an install.
-  manifest: '/app.webmanifest',
-  appleWebApp: { capable: true, title: 'Modeling Hub', statusBarStyle: 'default' },
+  // INSTALLABLE APP: no manifest here (2026-11-11). PwaClient adds it, with the
+  // iOS tags, only for a signed-in user on a signed-in page (installApps.ts).
 
   openGraph: {
     type: 'website',
@@ -37,10 +35,6 @@ export const metadata: Metadata = {
 export default function ModelingLayout({ children }: { children: React.ReactNode }) {
   return (
     <>
-      {/* iOS reads its home-screen icon from this link, not the manifest. A
-          <link> rather than metadata.icons, which would replace the root
-          layout's CMS favicon on every app page. */}
-      <link rel="apple-touch-icon" href="/app-icon/apple-touch-icon.png" />
       <PwaClient />
       {children}
       <InstalledAppFooter />

@@ -60,6 +60,7 @@ function check(label: string, ok: boolean, detail = ''): void {
 const src = (p: string): string => { try { return readFileSync(p, 'utf8'); } catch { return ''; } };
 
 (async () => {
+  const SA = await import('../src/shared/pwa/installApps');
   console.log('=== A. It installs, and only from the Modeling Hub ===');
   const FAV = 'https://example.test/favicon.png';
   const manifest = buildAppManifest(FAV) as {
@@ -91,16 +92,24 @@ const src = (p: string): string => { try { return readFileSync(p, 'utf8'); } cat
   }
   const modelingLayout = src('app/modeling/layout.tsx');
   const refmLayout = src('app/refm/layout.tsx');
+  // Re-aimed 2026-11-11 (founder: install only when signed in): the layouts link NO manifest and no iOS
+  // home-screen tags in the server HTML; PwaClient adds them through InstallAppHead, only when allowed (section K).
   for (const [name, l] of [['app/modeling/layout.tsx', modelingLayout], ['app/refm/layout.tsx', refmLayout]] as const) {
-    check(`A7 ${name} links the manifest, the touch icon and mounts the client`,
-      /manifest: '\/app\.webmanifest'/.test(l) && /rel="apple-touch-icon" href="\/app-icon\/apple-touch-icon\.png"/.test(l)
-      && /<PwaClient \/>/.test(l) && /appleWebApp: \{ capable: true, title: 'Modeling Hub'/.test(l));
+    check(`A7 ${name} mounts the client and puts no manifest or iOS app tags in the server HTML`,
+      /<PwaClient \/>/.test(l) && !/webmanifest|appleWebApp|apple-touch-icon/.test(l));
   }
-  check('A8 the ROOT layout links no manifest, so the main site and Training Hub never offer an install',
-    !/webmanifest|PwaClient/.test(src('app/layout.tsx')) && !/webmanifest|PwaClient/.test(src('app/training/layout.tsx')));
+  // Re-aimed 2026-11-11: the Training Hub now has its OWN app, added by TrainingPwaClient only when allowed.
+  check('A8 the ROOT layout links no manifest and mounts no app client, so the main site never offers an install; the Training Hub layout mounts only its own',
+    !/webmanifest|PwaClient/.test(src('app/layout.tsx'))
+    && /<TrainingPwaClient \/>/.test(src('app/training/layout.tsx')) && !/webmanifest|<PwaClient/.test(src('app/training/layout.tsx')));
   const client = src('src/hubs/modeling/components/pwa/PwaClient.tsx');
-  check('A9 the worker registers only on the app host or a local dev host',
-    /host === APP_HOST \|\| host === 'localhost'/.test(client) && /APP_HOST = 'app\.financialmodelerpro\.com'/.test(client));
+  // Re-aimed 2026-11-11: registration lives in InstallAppHead (signed in, install pages only) behind swHostAllowed.
+  const head = src('src/shared/pwa/InstallAppHead.tsx');
+  check('A9 the worker registers only on the app host or a local dev host, and only when an install is allowed',
+    /swHostAllowed\(app, window\.location\.hostname\)/.test(head) && /if \(!enabled\) return;/.test(head)
+    && !/serviceWorker\.register/.test(client) && /<InstallAppHead app=\{APP\} enabled=\{canOffer\} \/>/.test(client)
+    && SA.swHostAllowed(SA.INSTALL_APPS.modeling, 'app.financialmodelerpro.com') && !SA.swHostAllowed(SA.INSTALL_APPS.modeling, 'learn.financialmodelerpro.com')
+    && !SA.swHostAllowed(SA.INSTALL_APPS.modeling, 'www.financialmodelerpro.com'));
 
   console.log('\n=== B. The worker, RUN: shell only, never an API response ===');
   type Handler = (e: unknown) => void;
@@ -250,7 +259,7 @@ const src = (p: string): string => { try { return readFileSync(p, 'utf8'); } cat
     'src/hubs/modeling/components/pwa/PwaClient.tsx', 'scripts/generate-pwa-icons.ts'].filter((f) => /icon_as_favicon/.test(src(f)));
   check('F2 no reader restates the favicon rule for itself', readers.length === 0, readers.join(', '));
   check('F3 the route draws with the real renderer and falls back to the static copy, never a blank',
-    /renderAppIcon\(/.test(iconRoute) && /\/pwa\/\$\{file\}/.test(iconRoute) && /isAppIconFile\(file\)/.test(iconRoute));
+    /renderAppIcon\(/.test(iconRoute) && /\/pwa\/\$\{file\}/.test(iconRoute) && /isAppIconFile\(base\)/.test(iconRoute));
   const gen = src('scripts/generate-pwa-icons.ts');
   check('F4 the static fallback is drawn from the favicon by the same rule and renderer, never a second mark',
     /readSiteFaviconUrl\(/.test(gen) && /renderAppIcon\(/.test(gen) && !/<svg/.test(gen));
@@ -339,6 +348,97 @@ const src = (p: string): string => { try { return readFileSync(p, 'utf8'); } cat
   check('H12 the full-window REFM workspace gives up the footer\'s height ONLY in the installed window (the variable is unset in a tab)',
     src('src/hubs/modeling/platforms/refm/components/RealEstatePlatform.tsx').includes(`height: 'calc((100vh - var(${INSTALLED_FOOTER_VAR}, 0px)) / 0.8)'`)
     && !css.replace(/@media[^{]+\{ (.+?) \} \} /, '').replace(/html\[data-installed-app\][^}]*\}/g, '').includes(INSTALLED_FOOTER_VAR));
+
+
+  console.log('\n=== K. Two apps, each installable only when signed in, from its own dashboard ===');
+  const TM = await import('../src/shared/pwa/trainingAppManifest');
+  const { trainingManifestIcons } = await import('../app/training.webmanifest/icons');
+  const AI = await import('../src/hubs/modeling/lib/pwa/appIcon');
+  const M = SA.INSTALL_APPS.modeling, T = SA.INSTALL_APPS.training;
+  const tm = TM.buildTrainingAppManifest(trainingManifestIcons(FAV)) as typeof manifest & { theme_color?: string };
+  check('K1 the Modeling Hub app keeps its identity (existing installs update, not duplicate)',
+    manifest.id === '/dashboard' && manifest.name === 'FMP Modeling Hub' && M.name === manifest.name);
+  check('K2 the Training Hub app: "FMP Training Hub", standalone, opens at the student dashboard, scope its own origin',
+    tm.name === 'FMP Training Hub' && tm.short_name === 'Training Hub' && tm.display === 'standalone'
+    && tm.id === '/training/dashboard' && tm.start_url === '/training/dashboard?source=pwa' && tm.scope === '/' && T.name === tm.name);
+  const tIcons = tm.icons ?? [];
+  check('K3 its icons are its own (the training- set, versioned by the favicon), 192, 512 and maskable',
+    tIcons.length === 3 && tIcons.every((i) => i.src.startsWith('/app-icon/training-') && i.src.endsWith(`?v=${iconVersion(FAV)}`))
+    && tIcons.some((i) => i.sizes === '192x192') && tIcons.some((i) => i.purpose === 'maskable'));
+  check('K4 two SEPARATE apps: different ids, names, hosts, manifests, workers, offline pages and icons',
+    tm.id !== manifest.id && M.host !== T.host && M.manifestHref !== T.manifestHref && M.swPath !== T.swPath
+    && M.offlinePath !== T.offlinePath && M.appleTouchIcon !== T.appleTouchIcon && M.host === 'app.financialmodelerpro.com' && T.host === 'learn.financialmodelerpro.com');
+  const tRoute = src('app/training.webmanifest/route.ts');
+  check('K5 the Training Hub manifest is served by its own route (no static file to shadow it)',
+    !existsSync('public/training.webmanifest') && /buildTrainingAppManifest\(trainingManifestIcons\(favicon\)\)/.test(tRoute) && /application\/manifest\+json/.test(tRoute));
+  const tsw = src('public/sw-training.js');
+  check('K6 its own worker: its own cache name, its own offline page, the same shell-only rules',
+    /const VERSION = 'fmp-training-shell-v1';/.test(tsw) && !/'fmp-shell-v1'/.test(tsw) && /caches\.match\('\/offline-training\.html'/.test(tsw)
+    && /if \(url\.pathname\.startsWith\('\/api\/'\)\) return;/.test(tsw) && /if \(req\.mode !== 'navigate'\) return;/.test(tsw)
+    && SA.swHostAllowed(T, 'learn.financialmodelerpro.com') && !SA.swHostAllowed(T, 'app.financialmodelerpro.com'));
+  const toff = src('public/offline-training.html');
+  check('K7 its own offline page: Training Hub words and icon, no sign-in, no script beyond retry', /Training Hub/.test(toff) && /\/pwa\/training-icon-192\.png/.test(toff) && !/<form|<script/i.test(toff));
+  // Install only when signed in, and only on the hub's signed-in pages.
+  const offer = (a: typeof M, path: string, inn: boolean) => SA.offersInstall(a, path, inn);
+  const mIn = ['/dashboard', '/dashboard?source=pwa', '/modeling/dashboard', '/refm', '/refm/abc', '/settings'];
+  const mOut = ['/', '/modeling', '/modeling/real-estate', '/pricing', '/modeling/pricing', '/choose-plan', '/signin', '/register', '/modeling/signin', '/refmx'];
+  const tIn = ['/training/dashboard', '/training/dashboard?livecourse=REFM', '/training/watch/x', '/training/assessment/y', '/training/material/z', '/training/certificate', '/training/transcript/abc'];
+  const tOut = ['/', '/training', '/training/REFM', '/training/REFM/sessions/s1', '/training-sessions', '/training-sessions/abc', '/signin', '/register', '/training/signin', '/training/register', '/training/set-password'];
+  check('K8 signed out, NO page offers an install, on either hub', [...mIn, ...mOut].every((p) => !offer(M, p, false)) && [...tIn, ...tOut].every((p) => !offer(T, p, false)));
+  check('K9 signed in, the Modeling Hub offers it on the dashboard, platforms and settings only', mIn.every((p) => offer(M, p, true)) && mOut.every((p) => !offer(M, p, true)), mOut.filter((p) => offer(M, p, true)).join(', '));
+  check('K10 signed in, the Training Hub offers it on the student dashboard area only (not the home, course landing, Training Sessions, sign-in or register)', tIn.every((p) => offer(T, p, true)) && tOut.every((p) => !offer(T, p, true)), tOut.filter((p) => offer(T, p, true)).join(', '));
+  const tClient = src('src/hubs/training/components/pwa/TrainingPwaClient.tsx');
+  check('K11 each hub reads its OWN sign-in (NextAuth for the Modeling Hub, the student session for the Training Hub) and passes it to the one rule',
+    /offersInstall\(APP, pathname \?\? '\/', status === 'authenticated'\)/.test(client) && /setSignedIn\(!!getTrainingSession\(\)\)/.test(tClient) && /offersInstall\(APP, pathname, signedIn\)/.test(tClient)
+    && /<InstallAppHead app=\{APP\} enabled=\{canOffer\} \/>/.test(tClient));
+  check('K12 the manifest and iOS tags are added on the client only when allowed, and removed when no longer allowed',
+    /addTag\('link', \{ rel: 'manifest', href: app\.manifestHref \}\)/.test(head) && /apple-mobile-web-app-capable/.test(head)
+    && /return \(\) => \{ document\.head\.querySelectorAll\(`\[\$\{MARK\}\]`\)\.forEach\(\(el\) => el\.remove\(\)\); \};/.test(head)
+    && head.indexOf('startInstallCapture();') < head.indexOf("rel: 'manifest'"));
+  // Entry points.
+  const entry = src('src/shared/pwa/InstallAppEntry.tsx');
+  const prompt = src('src/shared/pwa/installPrompt.ts');
+  const mDash = src('app/modeling/dashboard/page.tsx'), tDash = src('app/training/dashboard/page.tsx');
+  check('K13 both dashboards carry the "Install app" sidebar item and the banner, each for its own app',
+    /<InstallAppSidebarItem\s+app=\{INSTALL_APPS\.modeling\}/.test(mDash) && /<InstallAppBanner app=\{INSTALL_APPS\.modeling\}/.test(mDash)
+    && /<InstallAppSidebarItem\s+app=\{INSTALL_APPS\.training\}/.test(tDash) && /<InstallAppBanner app=\{INSTALL_APPS\.training\}/.test(tDash)
+    && /renderItem\(\{ label: 'Install app', onClick: open \}\)/.test(entry));
+  check('K14 the banner says "Install the <Hub> app for quicker access"', SA.installBannerText(M) === 'Install the Modeling Hub app for quicker access' && SA.installBannerText(T) === 'Install the Training Hub app for quicker access');
+  check('K15 a dismissal is remembered per app and per user in this browser',
+    SA.bannerDismissKey(M, 'A@b.com') === 'fmp_install_banner_dismissed:modeling:a@b.com' && SA.bannerDismissKey(T, 'FMP-1') !== SA.bannerDismissKey(M, 'FMP-1')
+    && /localStorage\.setItem\(key, '1'\)/.test(entry) && /localStorage\.getItem\(key\) === '1'/.test(entry));
+  check('K16 both hidden inside the installed app and when the browser cannot install (mode none), and marked data-pwa-hide as a second guard',
+    /if \(installedThisVisit \|\| isInstalledWindow\(\)\) return 'none';/.test(prompt) && /if \(mode === 'none'\) return null;/.test(entry) && /if \(mode === 'none' \|\| dismissed\) return null;/.test(entry)
+    && (entry.match(/data-pwa-hide/g) ?? []).length >= 3);
+  check('K17 the browser prompt where supported (Chrome, Edge, Android); on iPhone and iPad the Add to Home Screen steps',
+    /e\.preventDefault\(\);\s*deferred = e as BeforeInstallPromptEvent;/.test(prompt) && /await e\.prompt\(\);/.test(prompt) && /if \(deferred\) return 'prompt';/.test(prompt)
+    && /return 'ios';/.test(prompt) && /Add to Home Screen/.test(entry)
+    && SA.isIosDevice('Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)', 'iPhone', 5) && SA.isIosDevice('Mozilla/5.0 (Macintosh)', 'MacIntel', 5) && !SA.isIosDevice('Mozilla/5.0 (Windows NT 10.0)', 'Win32', 0));
+  // The Training Hub app's installed-window rules.
+  const LO = 'https://learn.financialmodelerpro.com';
+  const tAt = (u: string) => TM.trainingLinkTarget(new URL(u, LO), LO);
+  check('K18 Training Hub app: course and session pages and the dashboard stay in the window; the home, Training Sessions, other origins open in a tab',
+    ['/training/dashboard', '/training/REFM', '/training/REFM/sessions/s1', '/training/watch/a', '/signin'].every((u) => tAt(u) === 'app')
+    && ['/', '/training', '/training-sessions', '/training-sessions/abc', 'https://app.financialmodelerpro.com/dashboard', 'https://www.financialmodelerpro.com/'].every((u) => tAt(u) === 'browser'));
+  check('K19 Training Hub app: landing on a public page goes to the dashboard; the window is titled FMP Training Hub; links leave through the one rule',
+    /isInstalledWindow\(\) && isTrainingMarketingPath\(window\.location\.pathname\)\) window\.location\.replace\(APP\.dashboardPath\)/.test(tClient)
+    && /document\.title = APP\.name/.test(tClient) && /trainingLinkTarget\(url, window\.location\.origin\)/.test(tClient) && /installedAppCss\(\)/.test(tClient));
+  const tSignin = src('app/training/signin/SignInForm.tsx');
+  const tBad = ((): string[] => { const L = tSignin.split('\n'); const bad: string[] = []; L.forEach((l, i) => { if (!/modeling|separate from platform/i.test(l) || /^\s*(\/\/|\{\/\*|\*)/.test(l)) return; if (!/data-pwa-hide/.test(L.slice(Math.max(0, i - 3), i + 1).join('\n'))) bad.push(`SignInForm:${i + 1}`); }); return bad; })();
+  check('K20 Training Hub app shows no Modeling Hub link or signup: every one on its sign-in page sits under data-pwa-hide', tBad.length === 0, tBad.join(', '));
+  // Icons: the green tile, drawn by the real renderer, with static fallbacks.
+  const tProbe = await sharp({ create: { width: 64, height: 64, channels: 4, background: { r: 200, g: 30, b: 30, alpha: 1 } } }).png().toBuffer();
+  const tPng = await sharp(await AI.renderAppIcon(tProbe, 'icon-512.png', AI.TRAINING_ICON_TILE)).raw().toBuffer({ resolveWithObject: true });
+  const corner = [tPng.data[0], tPng.data[1], tPng.data[2]];
+  check('K21 the Training Hub icon is the same mark on its green tile (corner pixel is the tile colour)',
+    corner[0] === AI.TRAINING_ICON_TILE.r && corner[1] === AI.TRAINING_ICON_TILE.g && corner[2] === AI.TRAINING_ICON_TILE.b, corner.join(','));
+  for (const f of Object.keys(APP_ICON_FILES) as AppIconFile[]) {
+    const file = `public/pwa/training-${f}`;
+    const meta = existsSync(file) ? await sharp(file).metadata() : null;
+    check(`K22 static fallback ${file} exists at ${APP_ICON_FILES[f].size}px`, !!meta && meta.width === APP_ICON_FILES[f].size, meta ? `${meta.width}` : 'missing');
+  }
+  check('K23 the icon route draws training-<file> on the green tile and 404s anything else',
+    /file\.startsWith\(TRAINING_ICON_PREFIX\)/.test(iconRoute) && /training \? TRAINING_ICON_TILE : undefined/.test(iconRoute));
 
   console.log('\n=== J. The Modeling Hub confirmation email says the app exists ===');
   const { confirmEmailTemplate, MODELING_APP_SIGNIN_URL } = await import('../src/shared/email/templates/confirmEmail');

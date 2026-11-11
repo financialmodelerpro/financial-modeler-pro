@@ -12,20 +12,23 @@
 import { getServerClient } from '@/src/core/db/supabase';
 import { readSiteFaviconUrl } from '@/src/shared/cms/siteFavicon';
 import { isAppIconFile } from '@/src/hubs/modeling/lib/pwa/appManifest';
-import { renderAppIcon } from '@/src/hubs/modeling/lib/pwa/appIcon';
+import { renderAppIcon, TRAINING_ICON_TILE, TRAINING_ICON_PREFIX } from '@/src/hubs/modeling/lib/pwa/appIcon';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(req: Request, ctx: { params: Promise<{ file: string }> }): Promise<Response> {
   const { file } = await ctx.params;
-  if (!isAppIconFile(file)) return new Response('Not found', { status: 404 });
+  // `training-<file>` is the Training Hub app's icon: the same mark on its green tile.
+  const training = file.startsWith(TRAINING_ICON_PREFIX);
+  const base = training ? file.slice(TRAINING_ICON_PREFIX.length) : file;
+  if (!isAppIconFile(base)) return new Response('Not found', { status: 404 });
   const fallback = (): Response => Response.redirect(new URL(`/pwa/${file}`, req.url), 307);
   try {
     const favicon = await readSiteFaviconUrl(getServerClient());
     if (!favicon) return fallback();
     const res = await fetch(favicon, { cache: 'no-store' });
     if (!res.ok) return fallback();
-    const png = await renderAppIcon(Buffer.from(await res.arrayBuffer()), file);
+    const png = await renderAppIcon(Buffer.from(await res.arrayBuffer()), base, training ? TRAINING_ICON_TILE : undefined);
     return new Response(new Uint8Array(png), {
       headers: {
         'Content-Type': 'image/png',

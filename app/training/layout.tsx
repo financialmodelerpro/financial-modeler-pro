@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import TrainingPwaClient from '@/src/hubs/training/components/pwa/TrainingPwaClient';
 
 const LEARN_URL = process.env.NEXT_PUBLIC_LEARN_URL ?? 'https://learn.financialmodelerpro.com';
 const OG_TITLE  = 'Financial Modeler Pro - Free Financial Modeling Certification';
@@ -30,5 +31,7 @@ export const metadata: Metadata = {
 };
 
 export default function TrainingLayout({ children }: { children: React.ReactNode }) {
-  return <>{children}</>;
+  // The Training Hub app (2026-11-11): offers its install only to a signed-in
+  // student on a dashboard page, and runs the installed-window rules.
+  return <><TrainingPwaClient />{children}</>;
 }
