@@ -17,6 +17,9 @@ MISSING TABLE: pricing_features (declared in 014_pricing.sql, 018_pricing_initia
 MISSING TABLE: pricing_modules (declared in 014_pricing.sql, 018_pricing_initial_plans.sql)
 MISSING TABLE: marketing_designs (declared in 100_marketing_studio.sql)
 MISSING TABLE: marketing_brand_kit (declared in 100_marketing_studio.sql)
+# Marketing Studio removed 2026-11-11: migration 256 (APPLIED by the founder) dropped this table on purpose.
+# The audit does not fold DROP TABLE, so 142 still declares it.
+MISSING TABLE: marketing_uploaded_assets (declared in 142_marketing_studio_rebuild.sql)
 MISSING TABLE: refm_account_standards (declared in 242_asset_type_standards.sql)
 UNDECLARED LIVE TABLE: project_scenarios
 # The four eq_* tables are the ERM platform's erm_001_access_foundation.sql, on branch feat/erm
