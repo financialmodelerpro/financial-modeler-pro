@@ -11,7 +11,7 @@ import { getLiveCourseSettings, isLiveCourseRow, listCourseSessions } from './co
 import { listEnrolledStudents } from './enrolledStudents';
 import { buildCourseIcs, icsAttachment } from './calendar';
 import { formatSessionTime } from './time';
-import { coursePagePath } from './enrolment';
+import { courseEmailUrl } from './paths';
 import { DEFAULT_DURATION_MINUTES } from './joinWindow';
 
 const LEARN_URL = process.env.NEXT_PUBLIC_LEARN_URL ?? 'https://learn.financialmodelerpro.com';
@@ -81,7 +81,7 @@ export async function applyReschedule(
   });
   const items = [];
   for (const st of students) {
-    const mail = await liveCourseRescheduleTemplate({ name: st.name, courseTitle: course.title, moves, courseUrl: `${LEARN_URL}${coursePagePath(course.courseCode)}` });
+    const mail = await liveCourseRescheduleTemplate({ name: st.name, courseTitle: course.title, moves, courseUrl: courseEmailUrl(LEARN_URL, course.courseCode) });
     items.push({ to: st.email, subject: mail.subject, html: mail.html, text: mail.text, attachments: [ics] });
   }
   const outcomes = items.length ? await deps.send(items) : [];

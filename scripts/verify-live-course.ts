@@ -1128,7 +1128,7 @@ async function unit11(): Promise<void> {
 
   if (hasCreds()) {
     const sb = await db();
-    const { data: live, error } = await sb.from('live_sessions').select('id, course_session_no, scheduled_datetime, content_overview, content_learn, content_outcome, content_claude, announcement_sent').eq('course_code', 'REFM').order('course_session_no');
+    const { data: live, error } = await sb.from('live_sessions').select('id, course_session_no, scheduled_datetime, content_overview, content_learn, content_outcome, content_claude, announcement_sent').eq('course_code', 'REFM').eq('is_published', true).order('course_session_no'); // published: what students see (2026-11-11)
     if (error) { console.log(`        (live REFM sessions not readable yet: ${error.message})`); return; }
     if ((live ?? []).length === 0) { console.log('        (REFM sessions not seeded yet)'); return; }
     check('U11.9a live: 8 REFM sessions, numbered 1 to 8', live!.length === 8 && live!.every((s, i) => s.course_session_no === i + 1));
@@ -1269,7 +1269,7 @@ async function unit14(): Promise<void> {
     const sb = await db();
     const { data } = await sb.from('live_sessions')
       .select('id, course_session_no, title, scheduled_datetime, duration_minutes, is_published, live_url, announcement_sent')
-      .eq('course_code', RS.REFM_COURSE_CODE).order('course_session_no');
+      .eq('course_code', RS.REFM_COURSE_CODE).eq('is_published', true).order('course_session_no'); // published only: an unpublished test session is not part of the course
     const rows = (data ?? []) as { id: string; course_session_no: number; title: string; scheduled_datetime: string; duration_minutes: number; is_published: boolean; live_url: string | null; announcement_sent: boolean }[];
     check('U14.1a exactly 8 REFM sessions, numbered 1 to 8', rows.length === 8 && rows.map((r) => r.course_session_no).join(',') === '1,2,3,4,5,6,7,8', `${rows.length} rows`);
     const timesOk = RS.REFM_SESSIONS.every((s) => {
@@ -1343,7 +1343,7 @@ async function unit14(): Promise<void> {
   if (hasCreds()) {
     const sb = await db();
     const { data: pls } = await sb.from('live_playlists').select('id').eq('name', 'REFM Live Series');
-    const { data: rs } = await sb.from('live_sessions').select('playlist_id').eq('course_code', 'REFM');
+    const { data: rs } = await sb.from('live_sessions').select('playlist_id').eq('course_code', 'REFM').eq('is_published', true);
     check('U14.7b exactly one "REFM Live Series" playlist, holding every REFM session', (pls ?? []).length === 1 && (rs ?? []).length === 8 && (rs ?? []).every((r) => r.playlist_id === pls?.[0]?.id), `${(pls ?? []).length} playlist(s)`);
     const CP = await import('../src/hubs/training/lib/liveCourse/coursePlaylist');
     const again = await CP.syncCoursePlaylist(sb, 'REFM');
@@ -1494,7 +1494,7 @@ async function unit17(): Promise<void> {
 
   if (hasCreds()) {
     const sb = await db();
-    const { data: rows } = await sb.from('live_sessions').select('course_session_no, content_sections, announcement_sent').eq('course_code', 'REFM').order('course_session_no');
+    const { data: rows } = await sb.from('live_sessions').select('course_session_no, content_sections, announcement_sent').eq('course_code', 'REFM').eq('is_published', true).order('course_session_no');
     const bad = (rows ?? []).filter((r) => SC.SECTION_KEYS.some((k) => SC.normaliseSections(r.content_sections)[k].length === 0)).map((r) => r.course_session_no);
     check('U17.2f live: all 8 REFM sessions have every new section filled', (rows ?? []).length === 8 && bad.length === 0, `missing in sessions ${bad.join(', ')}`);
     check('U17.2g live: writing the content announced nothing', (rows ?? []).every((r) => !r.announcement_sent));
@@ -2027,6 +2027,33 @@ async function unit27(): Promise<void> {
   }
 }
 
+async function unit28(): Promise<void> {
+  console.log('\n=== An unpublished session is not part of the course; course email links; the announcement ===\n');
+  const P = await import('../src/hubs/training/lib/liveCourse/paths');
+  check('U28.1a every course email links the course page with ?enrol=1 (one rule); a read-only link (time zones) carries none', P.courseEmailUrl('https://learn.x', 'REFM') === 'https://learn.x/training/REFM?enrol=1' && P.courseEmailUrl('https://learn.x/', 'REFM', { anchor: 'time-zones', enrol: false }) === 'https://learn.x/training/REFM#time-zones');
+  const users = { enrolment: 'src/hubs/training/lib/liveCourse/enrolment.ts', reminder: 'src/hubs/training/lib/liveCourse/dayReminder.ts', reschedule: 'src/hubs/training/lib/liveCourse/rescheduleApply.ts', calendar: 'src/hubs/training/lib/liveCourse/calendar.ts', announcement: 'app/api/admin/live-course/[code]/announce/route.ts' };
+  const missing = Object.entries(users).filter(([, f]) => !readFileSync(f, 'utf8').includes('courseEmailUrl(LEARN_URL,')).map(([k]) => k);
+  check('U28.1b the enrolment confirmation, reminder, reschedule, calendar and announcement all use it', missing.length === 0, missing.join(', '));
+  check('U28.1c a visitor sent to sign in to enrol who chooses Register keeps the course (enrolled at confirmation, lands on the course page)', readFileSync('app/training/signin/SignInForm.tsx', 'utf8').includes('/register?course=${encodeURIComponent(enrolCourse)}') && readFileSync('app/api/training/confirm-email/route.ts', 'utf8').includes('landing = landing || coursePagePath(enrolCourseCode);'));
+  const route = readFileSync('app/api/admin/live-course/[code]/announce/route.ts', 'utf8');
+  const tpl = readFileSync('src/shared/email/templates/liveCourseAnnouncement.ts', 'utf8');
+  check('U28.2a the announcement opens with the free-course line (from the live schedule and the instructor record) and links the time zone table', route.includes('Free live course with certificate. ${facts.join(') && route.includes('intro: await courseIntro(') && route.includes('anchor: COURSE_TIME_ZONES_ANCHOR, enrol: false') && tpl.includes('See the time in your region'));
+  const Q = await import('../src/hubs/training/lib/announcements/queue');
+  check('U28.2b real sends greet each student by first name', Q.personalise('Hi {{name}},', 'Ahmad Din') === 'Hi Ahmad,' && Q.personalise('Hi {{name}},', '') === 'Hi there,');
+  check('U28.2c the course page time zone table answers the email link (#time-zones opens it)', readFileSync('app/training/live-course/[code]/CourseLanding.tsx', 'utf8').includes('anchorId={COURSE_TIME_ZONES_ANCHOR}') && readFileSync('src/hubs/training/components/sessions/TimeZoneTable.tsx', 'utf8').includes('window.location.hash === `#${anchorId}`'));
+  if (hasCreds()) {
+    const sb = await db();
+    const CS = await import('../src/hubs/training/lib/liveCourse/courseSettings');
+    const EL = await import('../src/hubs/training/lib/liveCourse/eligibility');
+    const { data: all } = await sb.from('live_sessions').select('id, is_published').eq('course_code', 'REFM');
+    const hidden = (all ?? []).filter((r) => !r.is_published).map((r) => r.id);
+    const listed = await CS.listCourseSessions(sb, 'REFM');
+    const e = await EL.loadStudentEligibility(sb, 'not-enrolled-verify@example.com', 'REFM');
+    check('U28.3a live: an unpublished session is not listed for students (course page, dashboard, Live Sessions read the published list)', listed.length === 8 && !listed.some((x) => hidden.includes(x.id)), `${listed.length} listed, ${hidden.length} unpublished`);
+    check('U28.3b live: completion and progress count the 8 published sessions only', !!e && e.sessions.length === 8);
+  }
+}
+
 (async () => {
   await unit0();
   await unit1();
@@ -2057,6 +2084,7 @@ async function unit27(): Promise<void> {
   await unit25();
   await unit26();
   await unit27();
+  await unit28();
   console.log(`\n${passed} passed, ${failed} failed`);
   if (failed) { console.log('Failed:'); for (const f of fails) console.log(`  - ${f}`); process.exit(1); }
 })().catch((e) => { console.error(e); process.exit(1); });

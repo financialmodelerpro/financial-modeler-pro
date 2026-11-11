@@ -16,9 +16,15 @@ export const NAME_TOKEN = '{{name}}';
 
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
-/** A stored template for one recipient (the name escaped once). Pure. */
+/** "Ahmad Din" -> "Ahmad": announcements greet by first name. */
+export function firstName(name: string | null | undefined): string {
+  return String(name ?? '').trim().split(/\s+/)[0] ?? '';
+}
+
+/** A stored template for one recipient, greeting by first name (escaped once). Pure. */
 export function personalise(template: string, name: string): string {
-  return template.split(NAME_TOKEN).join(esc(name && name.trim() ? name.trim() : 'there'));
+  const first = firstName(name);
+  return template.split(NAME_TOKEN).join(esc(first || 'there'));
 }
 
 export interface QueueSendItem { to: string; subject: string; html: string; from?: string }

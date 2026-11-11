@@ -1965,6 +1965,8 @@ export function LiveSessionsManager({ courseCode = null, embedded = false }: { c
                   sessionId={editSession.id}
                   scheduledIso={((editSession as unknown as Record<string, unknown>).scheduled_datetime as string | null) ?? null}
                   onChanged={() => { void fetchSessions(); setEditorOpen(false); }}
+                  published={!!(editSession as unknown as { is_published?: boolean }).is_published}
+                  hasTeamsMeeting={!!(editSession as unknown as { teams_meeting_id?: string | null }).teams_meeting_id}
                 />
               )}
               <div style={{ display: 'grid', gridTemplateColumns: form.type === 'RECORDED' ? '1fr 1fr 1fr' : '1fr 1fr 1fr 1fr', gap: 14 }}>

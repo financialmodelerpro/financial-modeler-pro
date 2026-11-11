@@ -2,7 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerClient } from '@/src/core/db/supabase';
 import { adminEmail } from '@/src/hubs/training/lib/liveCourse/adminGuard';
 import { getLiveCourseSettings, isLiveCourseRow, isPubliclyVisible, listCourseSessions } from '@/src/hubs/training/lib/liveCourse/courseSettings';
-import { coursePagePath } from '@/src/hubs/training/lib/liveCourse/paths';
+import { courseEmailUrl, COURSE_TIME_ZONES_ANCHOR } from '@/src/hubs/training/lib/liveCourse/paths';
+import { scheduleFacts } from '@/src/hubs/training/lib/liveCourse/pageSections';
+import { loadCourseInstructors } from '@/src/hubs/training/lib/liveCourse/courseInstructors';
 import { courseTimeLabel, KSA_TZ } from '@/src/hubs/training/lib/liveCourse/time';
 import { audienceFrom, resolveAudience } from '@/src/hubs/training/lib/announcements/audience';
 import { dispatchAnnouncement, NAME_TOKEN, personalise } from '@/src/hubs/training/lib/announcements/queue';
@@ -36,6 +38,18 @@ async function load(code: string) {
   return { sb, course, sessions: await listCourseSessions(sb, course.courseCode) };
 }
 
+/**
+ * "Free live course with certificate. 8 sessions, 2.5 hours each, Tuesdays
+ * 7:00 to 9:30 PM KSA, with Ahmad Din (ACCA, FMVA, AFM)." From the live
+ * schedule (pageSections.scheduleFacts) and the course's instructor records.
+ */
+async function courseIntro(sb: ReturnType<typeof getServerClient>, course: { instructorIds: string[] }, sessions: { scheduled_datetime: string | null; duration_minutes?: number | null }[]): Promise<string> {
+  const facts = scheduleFacts(sessions).filter((f) => f !== 'Free' && f !== 'Certificate').map((f) => f.replace(/ live sessions?$/, (m) => m.replace(' live', '')));
+  const inst = (await loadCourseInstructors(sb, course.instructorIds))[0];
+  const who = inst ? `, with ${inst.name}${inst.credentials ? ` (${inst.credentials})` : ''}` : '';
+  return `Free live course with certificate. ${facts.join(', ')}${who}.`;
+}
+
 export async function GET(req: NextRequest, { params }: { params: Promise<{ code: string }> }) {
   if (!await adminEmail()) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   const d = await load((await params).code);
@@ -64,8 +78,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ cod
     tagline: d.course.tagline,
     startDate: first ? new Date(first).toLocaleDateString('en-GB', { timeZone: KSA_TZ, weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' }).replace(',', '') : '',
     sessions: d.sessions.map((s, i) => ({ label: `Session ${s.course_session_no ?? i + 1}`, title: s.title, when: courseTimeLabel(s.scheduled_datetime, { year: true }) })),
-    courseUrl: `${LEARN_URL}${coursePagePath(d.course.courseCode)}`,
+    courseUrl: courseEmailUrl(LEARN_URL, d.course.courseCode),
     cta: 'Enrol in the course',
+    intro: await courseIntro(d.sb, d.course, d.sessions),
+    timesUrl: courseEmailUrl(LEARN_URL, d.course.courseCode, { anchor: COURSE_TIME_ZONES_ANCHOR, enrol: false }),
   });
   if (!html.includes(NAME_TOKEN)) return NextResponse.json({ error: 'Template error: no name token.' }, { status: 500 });
 

@@ -18,7 +18,16 @@ const btnPrimary: React.CSSProperties = { ...btn, background: NAVY, color: '#fff
 
 interface Material { id: string; file_name: string; size_bytes: number | null; version: number; updated_at: string }
 
-export function CourseSessionTools({ sessionId, scheduledIso, onChanged }: { sessionId: string; scheduledIso: string | null; onChanged: () => void }) {
+export function CourseSessionTools({ sessionId, scheduledIso, onChanged, published, hasTeamsMeeting }: { sessionId: string; scheduledIso: string | null; onChanged: () => void; published?: boolean; hasTeamsMeeting?: boolean }) {
+  // Remove the Teams meeting of an UNPUBLISHED session (e.g. a test session): the host calendar event goes, the session stays.
+  async function removeTeamsMeeting() {
+    const r = await fetch(`/api/admin/live-sessions/${sessionId}/teams-meeting`, { method: 'DELETE' });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) { alertMsg(j.error ?? 'Removing the Teams meeting failed.'); return; }
+    alertMsg('Teams meeting removed from the host calendar.');
+    onChanged();
+  }
+  const [teamsMsg, alertMsg] = useState('');
   const [materials, setMaterials] = useState<Material[] | null>(null);
   const [busy, setBusy] = useState('');
   const [msg, setMsg] = useState('');
@@ -69,6 +78,13 @@ export function CourseSessionTools({ sessionId, scheduledIso, onChanged }: { ses
 
   return (
     <div data-testid="course-session-tools" style={{ display: 'grid', gap: 16, margin: '8px 0 20px' }}>
+      {published === false && hasTeamsMeeting && (
+        <div data-testid="remove-teams-meeting" style={{ border: '1px solid #FED7AA', borderRadius: 8, padding: 12, background: '#FFF7ED', display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 12.5, color: '#9A5B00', flex: 1 }}>This unpublished session still has a Teams meeting on the host calendar.</span>
+          <button type="button" onClick={removeTeamsMeeting} style={{ padding: '6px 12px', borderRadius: 6, border: '1px solid #B45309', background: '#fff', color: '#B45309', fontWeight: 700, fontSize: 12.5, cursor: 'pointer' }}>Remove Teams meeting</button>
+          {teamsMsg && <span style={{ width: '100%', fontSize: 12, color: '#9A5B00' }}>{teamsMsg}</span>}
+        </div>
+      )}
       <div style={{ border: `1px solid ${PALE}`, borderRadius: 8, padding: 14, background: '#FAFBFD' }}>
         <h3 style={{ fontSize: 13, fontWeight: 800, color: NAVY, margin: '0 0 4px' }}>Materials</h3>
         <p style={{ fontSize: 11.5, color: SLATE, margin: '0 0 8px' }}>Released to enrolled students after the session ends (its current end time, so a reschedule moves it). Replace keeps the same student link.</p>

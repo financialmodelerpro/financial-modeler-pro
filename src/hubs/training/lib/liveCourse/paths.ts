@@ -9,6 +9,21 @@ export function coursePagePath(courseCode: string): string {
   return `/training/${encodeURIComponent(courseCode)}`;
 }
 
+/** The id of the course page's time zone table (the side card), linked from emails. */
+export const COURSE_TIME_ZONES_ANCHOR = 'time-zones';
+
+/**
+ * THE course link in every course email (2026-11-10, founder): the course page
+ * with ?enrol=1. A signed-in student is enrolled in one click (or simply lands,
+ * if enrolled already); a signed-out one signs in, or registers with the
+ * course, and lands back on the course page.
+ */
+export function courseEmailUrl(learnUrl: string, courseCode: string, opts: { anchor?: string; enrol?: boolean } = {}): string {
+  // A link only to READ the page (the time zone table) carries no ?enrol=1, so a reader is not sent to sign in.
+  const enrol = opts.enrol !== false;
+  return `${learnUrl.replace(/\/$/, '')}${coursePagePath(courseCode)}${enrol ? '?enrol=1' : ''}${opts.anchor ? `#${opts.anchor}` : ''}`;
+}
+
 export function courseSessionPath(courseCode: string, sessionId: string): string {
   return `${coursePagePath(courseCode)}/sessions/${encodeURIComponent(sessionId)}`;
 }

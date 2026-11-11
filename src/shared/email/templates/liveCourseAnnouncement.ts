@@ -18,6 +18,10 @@ export interface LiveCourseAnnouncementData {
   courseUrl: string;
   /** "Enrol in the course" or "Register free" (the page decides for a visitor). */
   cta: string;
+  /** "Free live course with certificate. 8 sessions, 2.5 hours each, ..., with Ahmad Din (ACCA, FMVA, AFM)." */
+  intro?: string;
+  /** The course page's time zone table. */
+  timesUrl?: string;
 }
 
 export async function liveCourseAnnouncementTemplate(d: LiveCourseAnnouncementData) {
@@ -32,12 +36,14 @@ export async function liveCourseAnnouncementTemplate(d: LiveCourseAnnouncementDa
   const html = await baseLayoutBranded(`
     ${h1(escapeHtml(d.courseTitle))}
     ${p('Hi <strong>{{name}}</strong>,')}
+    ${d.intro ? p(`<strong>${escapeHtml(d.intro)}</strong>`) : ''}
     ${d.tagline ? p(escapeHtml(d.tagline)) : ''}
     ${d.startDate ? p(`The course starts on <strong>${escapeHtml(d.startDate)}</strong>. Enrol once and you are registered for every session.`) : ''}
     <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;font-size:14px;margin:12px 0 20px;">
       <tr><th align="left" style="padding:6px 10px;color:#5A6675;font-size:12px;">Session</th><th align="left" style="padding:6px 10px;color:#5A6675;font-size:12px;">Topic</th><th align="left" style="padding:6px 10px;color:#5A6675;font-size:12px;">When (KSA)</th></tr>
       ${rows}
     </table>
+    ${d.timesUrl ? `<p style="margin:-8px 0 18px;font-size:13px;"><a href="${escapeHtml(d.timesUrl)}" style="color:#2E75B6;">See the time in your region</a></p>` : ''}
     <div style="text-align:center;margin:28px 0;">${button(escapeHtml(d.cta), d.courseUrl)}</div>
     ${divider()}
     ${p('Every session is recorded, and the recordings count towards the certificate.', 'font-size:13px;color:#64748B;')}

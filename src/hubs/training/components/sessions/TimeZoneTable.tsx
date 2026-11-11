@@ -15,16 +15,25 @@ const SLATE = '#5A6675';
 const PALE = '#E8EEF7';
 
 export function TimeZoneTable({
-  iso, zones, baseTz = KSA_TZ, collapsible = false, title = 'Times in your region',
+  iso, zones, baseTz = KSA_TZ, collapsible = false, title = 'Times in your region', anchorId,
 }: {
   iso: string | null | undefined;
   /** The course's IANA zones; null = the default list. */
   zones?: string[] | null;
   baseTz?: string;
   collapsible?: boolean;
+  /** An id to link to (emails link #time-zones); the table opens when the page arrives on it. */
+  anchorId?: string;
   title?: string;
 }) {
   const [local, setLocal] = useState<ZoneTime | null>(null);
+  // Arriving on #<anchorId> (the course emails' "See the time in your region") opens the table.
+  const [openFromHash, setOpenFromHash] = useState(false);
+  useEffect(() => {
+    if (!anchorId) return;
+    const t = setTimeout(() => { if (typeof window !== 'undefined' && window.location.hash === `#${anchorId}`) setOpenFromHash(true); }, 0);
+    return () => clearTimeout(t);
+  }, [anchorId]);
   useEffect(() => {
     if (!iso) return;
     try {
@@ -60,7 +69,7 @@ export function TimeZoneTable({
 
   if (collapsible) {
     return (
-      <details style={{ marginTop: 10 }}>
+      <details id={anchorId} open={openFromHash || undefined} style={{ marginTop: 10, scrollMarginTop: 90 }}>
         <summary style={{ cursor: 'pointer', color: NAVY, fontWeight: 700, fontSize: 13 }}>See times in your region</summary>
         <div style={{ marginTop: 8 }}>{table}</div>
       </details>

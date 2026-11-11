@@ -19,7 +19,7 @@ export type EnrolSource = 'public_page' | 'dashboard' | 'admin';
 
 /** The student's course page (progress, sessions, recordings, submission). */
 export { coursePagePath } from './paths';
-import { coursePagePath } from './paths';
+import { coursePagePath, courseEmailUrl } from './paths';
 
 /** Sign-in that lands on the course page and enrols on arrival. */
 export function courseSigninUrl(courseCode: string): string {
@@ -105,7 +105,7 @@ export async function enrolInLiveCourse(
         name: p.name ?? '',
         courseTitle: settings.title,
         sessions: sessions.map((s) => ({ no: s.course_session_no, title: s.title, when: formatSessionTime(s.scheduled_datetime) })),
-        courseUrl: `${LEARN_URL}${coursePagePath(settings.courseCode)}`,
+        courseUrl: courseEmailUrl(LEARN_URL, settings.courseCode),
         joinOpensMinutesBefore: settings.joinOpensMinutesBefore,
       });
       // Every course session as a calendar file (stable event IDs: a later

@@ -16,7 +16,7 @@ import {
 import type { PageConfig, SectionKey, IconItem, IconName } from '@/src/hubs/training/lib/liveCourse/pageSections';
 import { countdownText, showEnrolledCount, visibleSections, nextSessionLine } from '@/src/hubs/training/lib/liveCourse/pageSections';
 import { formatSessionTime } from '@/src/hubs/training/lib/liveCourse/time';
-import { courseEyebrow } from '@/src/hubs/training/lib/liveCourse/paths';
+import { courseEyebrow, COURSE_TIME_ZONES_ANCHOR } from '@/src/hubs/training/lib/liveCourse/paths';
 import { TimeZoneTable } from '@/src/hubs/training/components/sessions/TimeZoneTable';
 
 const NAVY = '#1B4F8A';
@@ -91,7 +91,7 @@ export function CourseLanding({
       <div className="lc-side-action" style={{ marginTop: 14 }}>{actions.light}</div>
       {calendarHref && <a data-testid="landing-side-calendar" href={calendarHref} style={{ display: 'block', marginTop: 12, color: NAVY, fontWeight: 700, fontSize: 13.5 }}>📅 Add to calendar</a>}
       {showCount && <div data-testid="landing-enrolled-count" style={{ marginTop: 12, fontSize: 13, color: SLATE }}>👥 {d.enrolledCount} enrolled</div>}
-      {d.next && <TimeZoneTable iso={d.next.startIso} zones={d.timeZones} collapsible />}
+      {d.next && <TimeZoneTable iso={d.next.startIso} zones={d.timeZones} collapsible anchorId={COURSE_TIME_ZONES_ANCHOR} />}
     </div>
   );
 
