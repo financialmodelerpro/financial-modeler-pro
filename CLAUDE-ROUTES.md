@@ -98,7 +98,7 @@ app/admin/
 │   + share-templates/page.tsx (5-line redirect -> /admin/communications-hub?tab=share-templates)
 │   + daily-roundup/            # Daily certifications roundup: date picker + per-student checklist + live preview + Share Roundup via ShareModal (migration 117 template)
 │   + model-submissions/        # Model-submission review queue (migration 148): admin-only list with status / course / search filters, pagination, "View File" iframe modal in the review dialog (admin proxy at /api/admin/model-submissions/[id]/file streams from the private bucket), Approve / Reject actions with reviewer note. Sidebar entry "Model Submissions" 📥 in CmsAdminNav.
-│   + marketing-studio/         # Training Hub Marketing Studio (rebuild 2026-04-24, migration 142; multi-instructor + drag-resize follow-up commit b0823b9): page.tsx tab shell + LinkedInBannerStudio.tsx (3 variants) + LiveSessionBannerStudio.tsx (auto-fills from live_sessions incl. instructor_id) + YouTubeThumbnailStudio.tsx + ArticleBannerStudio.tsx (auto-fills from articles) + AssetLibrary.tsx (uploads) + studio-shared.tsx (shared primitives incl. useAutoRender 350ms-debounce hook) + InstructorPicker.tsx (multi-select checklist with photo thumbs, name, title, default badge, selection-rank chips) + LayoutEditor.tsx (drag-and-resize zone overlay on the server PNG; move = drag box, resize = drag right edge / bottom edge / SE corner)
+│   + marketing-studio/[[...rest]]/ # REMOVED 2026-11-11: Marketing Studio deleted; this page only redirects its old addresses to /admin (next.config.ts is do-not-touch)
 ├── training-settings/page.tsx
 ├── transcript-editor/page.tsx     # 5-line redirect -> /admin/certificate-designer?tab=transcript (consolidated 2026-04-24)
 ├── newsletter/page.tsx           # 5-line redirect -> /admin/communications-hub?tab=newsletter (consolidated 2026-04-27)
@@ -426,13 +426,7 @@ app/api/admin/
 ├── newsletter/enhance/          # POST: AI rewrite via Anthropic API
 ├── newsletter/auto-settings/    # GET/PATCH: auto-notification toggles
 # app/api/admin/marketing-studio/* DELETED 2026-04-24, Phase 1.5 canvas API routes (render, generate-caption(s), data-sources, designs/[id], brand-kit) all removed. Replaced by:
-├── training-hub/marketing-studio/render/         # POST { type, content }: dispatcher returns next/og ImageResponse PNG at the template's fixed dimensions. Loads brand pack + selected instructors (loadInstructorsByIds preserves admin pick order) + their photos in parallel; passes instructors[] + Record<id, base64> to every template. Admin-only.
-├── training-hub/marketing-studio/brand/          # GET: resolved BrandPack (logo, primaryColor, default trainer) for client-side preview rendering
-├── training-hub/marketing-studio/live-sessions/  # GET: 60 most recent live_sessions for the session picker (Live Session Banner + YouTube Thumbnail editors). Returns instructor_id so the editor can auto-fill the picker with the session's instructor.
-├── training-hub/marketing-studio/articles/       # GET: 80 most recent published articles for the Article Banner editor's picker
-├── training-hub/marketing-studio/instructors/    # GET: every active instructor row (active=true ordered by display_order). Powers the multi-select InstructorPicker (added 2026-04-24, commit b0823b9).
-├── training-hub/marketing-studio/uploads/        # GET (list) + POST (upload PNG/JPEG/WebP, max 10 MB), writes to marketing-assets bucket + marketing_uploaded_assets table
-├── training-hub/marketing-studio/uploads/[id]/   # PATCH (rename) + DELETE (storage + DB cleanup in lockstep)
+# training-hub/marketing-studio/* (render, brand, live-sessions, articles, instructors, uploads, uploads/[id]) DELETED 2026-11-11 with Marketing Studio
 # DELETED 2026-04-29: watch-enforcement-stats/, admin Watch Enforcement card retired
 ├── sessions/[tabKey]/reset-watch-progress/ # POST: admin-only nuclear reset, deletes every watch-history row for the session. Routes by prefix: LIVE_<uuid> → session_watch_history; else → certification_watch_history (tab_key match). Paired with red buttons in both session editors. (2026-04-21)
 ├── sessions/[tabKey]/force-complete-for-student/ # POST { email, reason }: admin-only per-student force-unlock. Mirrors reset-watch-progress's prefix routing (LIVE_ vs cert). Flips status='completed' + completed_via='admin_override' + completed_at=now (cert) / watched_at=now (live), clamps watch_percentage to the row's actual coverage, awards +50 points on live-session rows that hadn't received them. Idempotent: returns alreadyCompleted=true on already-done rows without overwriting honest 'threshold'/'manual' provenance. Writes to admin_audit_log with action='watch_force_complete' + previous state + reason. Phase 4 / migration 147. Surfaced via Force Unlock buttons in the Progress modal on /admin/training-hub/students.
@@ -527,7 +521,7 @@ src/components/admin/
 ├── LocalDateTime.tsx                 # Renders a UTC timestamp in the VIEWER'S zone. The admin articles list is a server component (renders UTC on Vercel), so a 09:00 Karachi schedule would print "04:00"; formats after mount, starting from '' so server/client markup match (no hydration mismatch).
 ├── AuditLogViewer.tsx
 ├── CmsAdminNav.tsx
-├── InstructorPicker.tsx              # Multi-select roster picker (Marketing Studio + article writer field)
+├── InstructorPicker.tsx              # Multi-select roster picker (article writer field + live course instructors)
 ├── LaunchStatusCard.tsx              # Hub Coming-Soon admin card (toggle + launch date)
 ├── LiveSessionAssessmentEditor.tsx
 ├── MediaPicker.tsx
@@ -866,7 +860,7 @@ src/hubs/modeling/
 
 ```
 src/features/
-└── marketing-studio/                 # Training Hub Marketing Studio (rebuild 2026-04-24, mig 142)
+└── (marketing-studio/ DELETED 2026-11-11; src/features/ is now empty, its alias and lint rule kept)
     ├── brand.ts                      # loadBrandPack + loadInstructorsByIds
     ├── image-utils.ts                # SERVER-ONLY. fetchAsBase64 + sharp SVG→PNG. Imports `sharp`.
     ├── style-utils.ts                # CLIENT-SAFE pure helpers (lighten/darken/formatSessionDateTime)

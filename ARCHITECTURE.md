@@ -33,7 +33,7 @@ Everything that ships from `D:\FMP\financial-modeler-pro` runs in front of all t
 core    ← pure business primitives (no I/O, no framework)
 shared  ← cross-hub utilities (auth, email, CMS reader, share helpers, components)
 hubs/   ← per-property code: main, training, modeling
-features/  ← cross-cutting features that don't fit a hub (Marketing Studio)
+features/  ← cross-cutting features that don't fit a hub (empty since Marketing Studio was removed 2026-11-11)
 integrations/  ← third-party SDK adapters (Teams, Resend, Anthropic, YouTube)
 app/    ← Next.js routes, the only place cross-hub composition is allowed
 ```
@@ -114,10 +114,10 @@ Cross-cutting features that don't naturally belong to a single hub OR are large 
 
 ```
 src/features/
-└── marketing-studio/       # Training Hub Marketing Studio (mig 142). Cross-cutting candidate (Modeling Hub may use it later) so it lives here, not under @training/
+└── (marketing-studio/ REMOVED 2026-11-11)
 ```
 
-Today this is single-hub (admin-Training-only) but the long-term plan is to share Marketing Studio between hubs. Putting it in `features/` from the start is cheaper than moving it later.
+(Removed 2026-11-11: Marketing Studio was deleted, so this paragraph is history.) Today this is single-hub (admin-Training-only) but the long-term plan is to share Marketing Studio between hubs. Putting it in `features/` from the start is cheaper than moving it later.
 
 ### `src/integrations/`, third-party SDK adapters
 
@@ -151,7 +151,7 @@ Use the alias for any new import. The legacy `@/*` resolves to repo-root and is 
 | `@modeling/*` | `./src/hubs/modeling/*` | Modeling Hub code |
 | `@platforms/*` | `./src/hubs/modeling/platforms/*` | Individual modeling platforms (REFM, BVM, etc) |
 | `@main/*` | `./src/hubs/main/*` | Main-site (financialmodelerpro.com) components |
-| `@features/*` | `./src/features/*` | Cross-cutting features (Marketing Studio) |
+| `@features/*` | `./src/features/*` | Cross-cutting features (none today; Marketing Studio removed 2026-11-11) |
 | `@integrations/*` | `./src/integrations/*` | Third-party SDK adapters |
 | `@/*` | `./*` | Legacy escape hatch (`@/src/...` still works) |
 

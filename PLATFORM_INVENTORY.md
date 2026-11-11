@@ -49,7 +49,7 @@ Hybrid:
 - **Supabase** is the primary data layer. 141 migrations on disk in `supabase/migrations/` (numbered up to 145 with gaps at 069, 073, 127). Supabase covers students, certificates, watch progress, assessment results, content, newsletter, marketing studio, instructors, live sessions.
 - **Google Apps Script** is still the source of truth for the Training Hub student roster and Registration ID allocation. `src/lib/training/appsScript.ts` and `src/lib/training/sheets.ts` mediate. Only four call sites remain: `app/training/assessment/[tabKey]/page.tsx`, `app/api/admin/reset-attempts/route.ts`, `app/api/training/questions/route.ts`, `app/api/training/course-details/route.ts`.
 
-Storage buckets (Supabase Storage): `certificates`, `badges`, `course-materials`, `live-session-banners`, `cms-assets`, `marketing-assets`.
+Storage buckets (Supabase Storage): `certificates`, `badges`, `course-materials`, `live-session-banners`, `cms-assets` (`marketing-assets` is removed with Marketing Studio, 2026-11-11).
 
 ### Tech stack snapshot (`package.json`)
 
@@ -333,8 +333,8 @@ Auto-notify is consumed by both Training Hub events (article publish, live-sessi
 | PDF generation (certs, transcripts) | `src/lib/training/certificateEngine.ts`, `src/lib/training/certificateLayout.ts` | pdf-lib |
 | Badge rendering | `src/lib/training/certificateEngine.ts` | satori SVG -> sharp PNG composite onto base badge PNG |
 | OG images | `app/api/og/route.tsx` (learn), `app/api/og/main/route.tsx`, `app/api/og/modeling/route.tsx`, `app/api/og/certificate/[id]/route.tsx`, `app/api/training/achievement-image/route.tsx` | satori `ImageResponse` + sharp |
-| Marketing Studio render | `app/api/admin/training-hub/marketing-studio/render/route.ts` | Single dispatcher; satori `ImageResponse` per template (LinkedIn 3 variants, Live Session, YouTube, Article) |
-| Image utils | `src/lib/marketing-studio/image-utils.ts` (server only, imports sharp) and `style-utils.ts` (client safe). Split by commit `0e2129a` to keep sharp out of the client bundle |
+| Marketing Studio render | `app/api/admin/training-hub/marketing-studio/render/route.ts` | Single dispatcher; satori `ImageResponse` per template (LinkedIn 3 variants, Live Session, YouTube, Article) | REMOVED 2026-11-11.
+| Image utils | `src/lib/marketing-studio/image-utils.ts` (server only, imports sharp) and `style-utils.ts` (client safe). Split by commit `0e2129a` to keep sharp out of the client bundle | REMOVED 2026-11-11.
 
 ---
 
@@ -379,7 +379,6 @@ Sidebar source: `src/components/admin/CmsAdminNav.tsx` (consumed by 30 admin pag
 | `/admin/training-hub/instructors` | Instructor roster (migration 106) |
 | `/admin/training-hub/live-sessions` + `/email-settings` | Live session CRUD; email-settings is now a 5-line redirect |
 | `/admin/training-hub/course-details` | Per-course detail editor |
-| `/admin/training-hub/marketing-studio` | 4 banner template editors + asset library (migration 142) |
 | `/admin/training-hub/daily-roundup` | Daily certs roll-up post (migration 117) |
 | `/admin/training-hub/analytics` | Redirect to `/admin/analytics` |
 | `/admin/training-hub/communications` | 5-line redirect to `/admin/communications-hub?tab=campaigns` |
@@ -515,7 +514,7 @@ All under `app/api/admin/*` (45+ routes). Notable groups:
 - `email-templates/` (and `[key]/`, `[key]/test/`, `branding/`)
 - `live-playlists/`, `live-sessions/` (and `[id]/`, `[id]/announce/`, `[id]/notify/`, `[id]/registrations/`, `[id]/assessment/`, `[id]/attempts/`)
 - `newsletter/subscribers/`, `export/`, `send/`, `test-send/`, `templates/` (and `[key]/`), `segments/`, `campaigns/` (and `[id]/`, `[id]/retry/`), `content-items/`, `enhance/`, `auto-settings/`
-- `training-hub/marketing-studio/render/`, `brand/`, `live-sessions/`, `articles/`, `instructors/`, `uploads/` (and `[id]/`)
+- (`training-hub/marketing-studio/*` routes REMOVED 2026-11-11)
 - `training-hub/communications/`, `assessments/`, `student-journey/`, `student-progress/`, `students/`, `analytics/`, `cohorts/`, `cohorts/[id]/`, `certificates/`
 - `instructors/`, `modules/`, `modeling-coming-soon/`, `modeling-signin-coming-soon/`, `modeling-register-coming-soon/`, `modeling-access/`, `modeling-access/[id]/`
 - `pricing/features/`, `pricing/platform/` (the dead `pricing/coupons/` route was removed 2026-07-07)
@@ -799,7 +798,7 @@ The central `URLS` constant has zero importers. Either adopt it everywhere `proc
 
 `/admin/communications-hub` Newsletter tab nests its own 5-tab strip (Subscribers / Compose / Templates / Campaigns / Auto Notifications) inside the parent's 4-tab strip (campaigns / email-settings / share-templates / newsletter). CLAUDE.md acknowledges this and says it was kept verbatim per "load existing functionality unchanged". Cosmetic, not blocking.
 
-### Marketing Studio in Training Hub admin
+### Marketing Studio in Training Hub admin (REMOVED 2026-11-11; kept as history)
 
 `app/admin/training-hub/marketing-studio/` is intentionally Training-Hub-only; CLAUDE.md notes Modeling Hub will get its own at a different path later. The `src/lib/marketing-studio/` library is shared infrastructure and lives outside any hub folder, but the API (`app/api/admin/training-hub/marketing-studio/`) is hub-scoped. When Modeling Hub gets its own, the lib will need to be either parameterized by hub or duplicated.
 

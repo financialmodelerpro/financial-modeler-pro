@@ -46,7 +46,6 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Model Submissions', href: '/admin/training-hub/model-submissions', icon: '📥' },
   { label: 'Communications Hub', href: '/admin/communications-hub',             icon: '📬',
     matchPaths: ['/admin/training-hub/communications', '/admin/training-hub/live-sessions/email-settings', '/admin/training-hub/share-templates', '/admin/newsletter'] },
-  { label: 'Marketing Studio',  href: '/admin/training-hub/marketing-studio',  icon: '🎨' },
   { label: 'Daily Roundup',     href: '/admin/training-hub/daily-roundup',     icon: '🎓' },
   { label: 'Cohorts',           href: '/admin/training-hub/cohorts',           icon: '👥' },
   { label: 'Training Settings', href: '/admin/training-settings',              icon: '⚙️' },

@@ -52,7 +52,6 @@ The sidebar lives in `src/components/admin/CmsAdminNav.tsx` and is rendered as t
 | | Assessments | `/admin/training-hub/assessments` | 📋 |, | Per-course assessment config |
 | | Model Submissions | `/admin/training-hub/model-submissions` | 📥 |, | Student model uploads |
 | | Communications Hub | `/admin/communications-hub` | 📬 | `/admin/training-hub/communications`, `/admin/training-hub/live-sessions/email-settings`, `/admin/training-hub/share-templates`, `/admin/newsletter` | Email templates, share copy, newsletter |
-| | Marketing Studio | `/admin/training-hub/marketing-studio` | 🎨 |, | Marketing assets |
 | | Daily Roundup | `/admin/training-hub/daily-roundup` | 🎓 |, | Daily roundup composer |
 | | Cohorts | `/admin/training-hub/cohorts` | 👥 |, | Cohort management |
 | | Training Settings | `/admin/training-settings` | ⚙️ |, | `training_settings` table (Apps Script URL, timer bypass) |
@@ -205,7 +204,6 @@ Edits the `styles` JSONB on the active section: background color, background ima
 | `/admin/training-hub/certificates` | Issued cert browser + revoke |
 | `/admin/certificate-designer` | Visual editor (drag fields on a 1240×877 canvas) → writes `cms_content.cert_layout` JSON |
 | `/admin/communications-hub` | Email template editor + Resend test send |
-| `/admin/training-hub/marketing-studio` | Asset library, social-card composer |
 | `/admin/training-hub/daily-roundup` | Composer for daily summary email |
 | `/admin/training-hub/cohorts` | Cohort grouping |
 | `/admin/settings` | Misc flags (`site_settings` rows) |
