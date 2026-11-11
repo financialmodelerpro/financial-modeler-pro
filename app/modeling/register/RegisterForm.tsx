@@ -36,6 +36,7 @@ interface RegisterFormProps {
 
 const NAVY = '#0D2E5A';
 const BLUE = '#1B4F8A';
+// Every link to it renders under data-pwa-hide: the installed Modeling Hub app shows no Training Hub link.
 const LEARN_URL = process.env.NEXT_PUBLIC_LEARN_URL ?? 'https://learn.financialmodelerpro.com';
 
 const inputStyle: React.CSSProperties = {
@@ -227,7 +228,8 @@ function RegisterInner({ preLaunch, launchDate, invitedEmail, inviteToken, invit
   }
 
   // ROUTING QUESTION (2026-11-07). The first thing on this page, before any
-  // form, however the person arrived (a link or the URL typed directly). A
+  // form, however the person arrived (a link or the URL typed directly). The
+  // student option carries data-pwa-hide, so the installed app never offers it. A
   // student is sent to Training Hub signup and nothing is created here; a
   // professional continues to the existing form, whose qualification and
   // approval are unchanged. A team invite skips it: the inviting client has
@@ -253,11 +255,12 @@ function RegisterInner({ preLaunch, launchDate, invitedEmail, inviteToken, invit
           <div style={{ display: 'grid', gap: 12 }}>
             <button
               type="button" data-testid="register-route-learning" style={cardStyle}
+              data-pwa-hide
               onClick={() => { window.location.assign(`${LEARN_URL}/register`); }}
             >
               <div style={{ fontSize: 22, marginBottom: 6 }}>🎓</div>
               <div style={{ fontSize: 15, fontWeight: 800, color: NAVY }}>I&apos;m learning financial modelling</div>
-              <div style={{ fontSize: 12.5, color: '#6B7280', marginTop: 4 }}>Join the Training Hub free: courses and certification.</div>
+              <div data-pwa-hide style={{ fontSize: 12.5, color: '#6B7280', marginTop: 4 }}>Join the Training Hub free: courses and certification.</div>
             </button>
             <button
               type="button" data-testid="register-route-professional" style={cardStyle}

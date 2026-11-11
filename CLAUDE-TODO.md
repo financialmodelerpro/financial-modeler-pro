@@ -2,6 +2,13 @@
 
 > Forward-looking only: active follow-ups, in-progress work, backlog, legacy reference. Completed phase narratives live in **CLAUDE-FEATURES.md** (archive) and `git log` (authoritative). Do not re-add "Recently Completed" sections here when closing a phase, write the closure into CLAUDE-FEATURES.md instead.
 
+## OPEN 2026-11-11: THE MODELING HUB HOME FAILS HYDRATION ON LIVE (React #418), NOT FIXED (founder: note only)
+
+- **What:** https://app.financialmodelerpro.com/ throws Minified React error #418 (server HTML did not match the client) on every load, measured headless 2026-11-11 against live before any intro code ran there. React recovers by re-rendering the whole document on the client, which costs a full client render each visit and resets <html> attributes.
+- **Seen through:** the logo intro, whose pre-paint marker on <html> was wiped. Worked around in the intro (decision kept on `window.__fmpIntro`, restored before paint; `verify-site-intro` U5.5), NOT by fixing the page.
+- **Not yet located.** Suspect first: the launch countdown the root layout shows on the hub home (`LaunchCountdownBanner` / `LaunchCountdownPopup`, a time-dependent render). `app/modeling/ComingSoon.tsx` formats with `toLocaleString(undefined, ...)`, a classic mismatch, but the hub home does not render it. Find it with a dev build of the app host (`next dev` and a host-resolver rule for app.financialmodelerpro.com), where the unminified message names the element.
+- **Done when:** the app home loads with no #418, and a check asserts it.
+
 ## START HERE 2026-11-08: THE REFM LIVE COURSE IS LIVE (5f2700c0); FOUNDER TESTING ON LIVE
 
 **2026-11-10 (later): migration 255 APPLIED** (founder): emails are counted per day and announcement overflow is queued. **2026-11-10 additions:** (a) DONE: migration 254 applied by the founder. (b) DONE: images compressed (upload routes + the 13 existing). (c) Founder decision: only the website says Zakat/Tax; slides, PDFs, prompts and the workbook keep "Zakat".
