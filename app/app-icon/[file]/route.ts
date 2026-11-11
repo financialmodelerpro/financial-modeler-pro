@@ -32,9 +32,10 @@ export async function GET(req: Request, ctx: { params: Promise<{ file: string }>
     return new Response(new Uint8Array(png), {
       headers: {
         'Content-Type': 'image/png',
-        // The manifest versions every icon URL by its favicon, so a long edge
-        // cache is safe: a new favicon is a new URL.
-        'Cache-Control': 'public, max-age=86400, s-maxage=604800',
+        // Every icon URL is versioned (favicon + APP_ICON_REVISION), but an
+        // unversioned or old URL must still pick up a redrawn icon, so the cache
+        // is short and revalidated rather than a week long (2026-11-11).
+        'Cache-Control': 'public, max-age=3600, s-maxage=3600, must-revalidate',
       },
     });
   } catch {

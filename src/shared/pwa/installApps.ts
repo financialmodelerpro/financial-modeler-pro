@@ -24,6 +24,15 @@
  * No em dashes in this file.
  */
 
+/**
+ * The icon DESIGN revision (2026-11-11). Every installed-app icon URL carries
+ * it (the manifest icons through iconVersion, the apple-touch-icon links here),
+ * so a browser that cached an icon by its URL fetches the new one. Bump it
+ * whenever the icon artwork or the way it is drawn changes; a favicon change
+ * already moves the version by itself. 2 = the Training Hub's green tile removed.
+ */
+export const APP_ICON_REVISION = '2';
+
 export type InstallAppKey = 'modeling' | 'training';
 
 export interface InstallApp {
@@ -54,7 +63,7 @@ export const INSTALL_APPS: Record<InstallAppKey, InstallApp> = {
     swPath: '/sw.js',
     offlinePath: '/offline.html',
     dashboardPath: '/dashboard',
-    appleTouchIcon: '/app-icon/apple-touch-icon.png',
+    appleTouchIcon: `/app-icon/apple-touch-icon.png?r=${APP_ICON_REVISION}`,
     // The dashboard (served at /dashboard, from app/modeling/dashboard), the
     // platforms and account settings. Not the hub home, platform marketing
     // pages, pricing, choose-plan, sign-in or register.
@@ -69,7 +78,7 @@ export const INSTALL_APPS: Record<InstallAppKey, InstallApp> = {
     swPath: '/sw-training.js',
     offlinePath: '/offline-training.html',
     dashboardPath: '/training/dashboard',
-    appleTouchIcon: '/app-icon/training-apple-touch-icon.png',
+    appleTouchIcon: `/app-icon/training-apple-touch-icon.png?r=${APP_ICON_REVISION}`,
     // The student dashboard area. Not the Training Hub home, course landing
     // pages, Training Sessions, sign-in or register.
     installPages: ['/training/dashboard', '/training/watch', '/training/assessment', '/training/material', '/training/certificate', '/training/transcript'],

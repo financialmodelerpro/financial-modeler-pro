@@ -373,7 +373,7 @@ const src = (p: string): string => { try { return readFileSync(p, 'utf8'); } cat
     !existsSync('public/training.webmanifest') && /buildTrainingAppManifest\(trainingManifestIcons\(favicon\)\)/.test(tRoute) && /application\/manifest\+json/.test(tRoute));
   const tsw = src('public/sw-training.js');
   check('K6 its own worker: its own cache name, its own offline page, the same shell-only rules',
-    /const VERSION = 'fmp-training-shell-v1';/.test(tsw) && !/'fmp-shell-v1'/.test(tsw) && /caches\.match\('\/offline-training\.html'/.test(tsw)
+    /const VERSION = 'fmp-training-shell-v\d+';/.test(tsw) && !/'fmp-shell-v1'/.test(tsw) && /caches\.match\('\/offline-training\.html'/.test(tsw)
     && /if \(url\.pathname\.startsWith\('\/api\/'\)\) return;/.test(tsw) && /if \(req\.mode !== 'navigate'\) return;/.test(tsw)
     && SA.swHostAllowed(T, 'learn.financialmodelerpro.com') && !SA.swHostAllowed(T, 'app.financialmodelerpro.com'));
   const toff = src('public/offline-training.html');
@@ -453,6 +453,21 @@ const src = (p: string): string => { try { return readFileSync(p, 'utf8'); } cat
   check('K23 the icon route draws training-<file> with the same renderer and no tile, and 404s anything else',
     /file\.startsWith\(TRAINING_ICON_PREFIX\)/.test(iconRoute) && /renderAppIcon\(Buffer\.from\(await res\.arrayBuffer\(\)\), base\)/.test(iconRoute)
     && !/TILE/.test(iconRoute) && /isAppIconFile\(base\)/.test(iconRoute));
+  // Icon URL versioning (2026-11-11): a redrawn icon must reach a browser that
+  // cached the old one by URL, so the design revision is part of every icon URL.
+  {
+    const favOnly = (u: string): string => { let h = 5381; for (let i = 0; i < u.length; i++) h = ((h * 33) ^ u.charCodeAt(i)) >>> 0; return h.toString(36); };
+    const allIcons = [...icons, ...tIcons].map((i) => i.src);
+    check('K24 every manifest icon URL, on both hubs, is versioned by the favicon AND the icon design revision (not the favicon alone)',
+      allIcons.length === 6 && iconVersion(FAV) !== favOnly(FAV) && allIcons.every((s) => s.endsWith(`?v=${iconVersion(FAV)}`))
+      && /APP_ICON_REVISION/.test(src('src/hubs/modeling/lib/pwa/appManifest.ts')), allIcons.join(' '));
+    check('K25 both apple-touch-icon links carry the icon design revision',
+      [M, T].every((a) => a.appleTouchIcon.endsWith(`?r=${SA.APP_ICON_REVISION}`)), `${M.appleTouchIcon} ${T.appleTouchIcon}`);
+    const cc = iconRoute.match(/'Cache-Control': '([^']+)'/)?.[1] ?? '';
+    const maxAges = [...cc.matchAll(/max-age=(\d+)/g)].map((m) => Number(m[1]));
+    check('K26 the icon route caches briefly and revalidates (no week-long or immutable icon cache)',
+      maxAges.length > 0 && maxAges.every((n) => n <= 3600) && /must-revalidate/.test(cc) && !/immutable/.test(cc), cc);
+  }
 
   console.log('\n=== J. The Modeling Hub confirmation email says the app exists ===');
   const { confirmEmailTemplate, MODELING_APP_SIGNIN_URL } = await import('../src/shared/email/templates/confirmEmail');

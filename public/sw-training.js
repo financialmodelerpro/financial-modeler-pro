@@ -17,7 +17,8 @@
  * Bump VERSION when the shell list changes; activate deletes every other cache.
  * No em dashes in this file.
  */
-const VERSION = 'fmp-training-shell-v1';
+// v2 (2026-11-11): drops the cached green-tile icons.
+const VERSION = 'fmp-training-shell-v2';
 const SHELL = [
   '/offline-training.html',
   '/pwa/training-icon-192.png',

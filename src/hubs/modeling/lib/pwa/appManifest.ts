@@ -26,6 +26,7 @@
  *
  * No em dashes in this file.
  */
+import { APP_ICON_REVISION } from '@/src/shared/pwa/installApps';
 
 /** Every icon file the installed app uses, and how it is drawn. */
 export const APP_ICON_FILES = {
@@ -58,8 +59,10 @@ export {
 /** A short stable version for an icon source, so the icon URLs change exactly
  * when the favicon does. */
 export function iconVersion(faviconUrl: string): string {
+  // The favicon AND the icon design revision: either changing gives new URLs.
+  const key = `${APP_ICON_REVISION}|${faviconUrl}`;
   let h = 5381;
-  for (let i = 0; i < faviconUrl.length; i++) h = ((h * 33) ^ faviconUrl.charCodeAt(i)) >>> 0;
+  for (let i = 0; i < key.length; i++) h = ((h * 33) ^ key.charCodeAt(i)) >>> 0;
   return h.toString(36);
 }
 
