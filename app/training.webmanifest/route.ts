@@ -3,7 +3,7 @@
  * manifest. Linked only by InstallAppHead, and only for a signed-in student on
  * a dashboard page (installApps.offersInstall). Everything it says is stated in
  * `buildTrainingAppManifest`; its icons are the Modeling Hub app's icon files
- * drawn on the Training Hub's green tile (/app-icon/training-<file>), versioned
+ * drawn like the Modeling Hub's, at its own URLs (/app-icon/training-<file>), versioned
  * by the favicon the same way.
  *
  * No em dashes in this file.

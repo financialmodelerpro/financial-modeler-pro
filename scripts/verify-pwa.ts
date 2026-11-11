@@ -426,19 +426,33 @@ const src = (p: string): string => { try { return readFileSync(p, 'utf8'); } cat
   const tSignin = src('app/training/signin/SignInForm.tsx');
   const tBad = ((): string[] => { const L = tSignin.split('\n'); const bad: string[] = []; L.forEach((l, i) => { if (!/modeling|separate from platform/i.test(l) || /^\s*(\/\/|\{\/\*|\*)/.test(l)) return; if (!/data-pwa-hide/.test(L.slice(Math.max(0, i - 3), i + 1).join('\n'))) bad.push(`SignInForm:${i + 1}`); }); return bad; })();
   check('K20 Training Hub app shows no Modeling Hub link or signup: every one on its sign-in page sits under data-pwa-hide', tBad.length === 0, tBad.join(', '));
-  // Icons: the green tile, drawn by the real renderer, with static fallbacks.
+  // Icons (2026-11-11, later the same day): the Modeling Hub's icon exactly, no green tile,
+  // at the Training Hub's own URLs, with static fallbacks drawn the same way.
   const tProbe = await sharp({ create: { width: 64, height: 64, channels: 4, background: { r: 200, g: 30, b: 30, alpha: 1 } } }).png().toBuffer();
-  const tPng = await sharp(await AI.renderAppIcon(tProbe, 'icon-512.png', AI.TRAINING_ICON_TILE)).raw().toBuffer({ resolveWithObject: true });
-  const corner = [tPng.data[0], tPng.data[1], tPng.data[2]];
-  check('K21 the Training Hub icon is the same mark on its green tile (corner pixel is the tile colour)',
-    corner[0] === AI.TRAINING_ICON_TILE.r && corner[1] === AI.TRAINING_ICON_TILE.g && corner[2] === AI.TRAINING_ICON_TILE.b, corner.join(','));
+  const tAny = await sharp(await AI.renderAppIcon(tProbe, 'icon-512.png')).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+  check('K21 the Training Hub icon has no tile: the 512 "any" icon is the mark on a transparent background (corner alpha 0)',
+    tAny.data[3] === 0 && !('TRAINING_ICON_TILE' in AI), `corner alpha ${tAny.data[3]}`);
   for (const f of Object.keys(APP_ICON_FILES) as AppIconFile[]) {
     const file = `public/pwa/training-${f}`;
     const meta = existsSync(file) ? await sharp(file).metadata() : null;
     check(`K22 static fallback ${file} exists at ${APP_ICON_FILES[f].size}px`, !!meta && meta.width === APP_ICON_FILES[f].size, meta ? `${meta.width}` : 'missing');
+    const same = existsSync(file) && existsSync(`public/pwa/${f}`)
+      && Buffer.compare((await sharp(file).ensureAlpha().raw().toBuffer()), (await sharp(`public/pwa/${f}`).ensureAlpha().raw().toBuffer())) === 0;
+    check(`K22b ${file} is pixel for pixel the Modeling Hub's ${f}`, same);
   }
-  check('K23 the icon route draws training-<file> on the green tile and 404s anything else',
-    /file\.startsWith\(TRAINING_ICON_PREFIX\)/.test(iconRoute) && /training \? TRAINING_ICON_TILE : undefined/.test(iconRoute));
+  {
+    const out = await sharp(await AI.renderAppIcon(tProbe, 'icon-maskable-512.png')).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+    const { width } = out.info; const r = width * 0.4; let outside = 0; let inside = 0;
+    for (let y = 0; y < width; y += 4) for (let x = 0; x < width; x += 4) {
+      const o = (y * width + x) * 4;
+      if (out.data[o + 1] < 200) { if (Math.hypot(x - width / 2, y - width / 2) > r) outside++; else inside++; }
+    }
+    check('K22c the Training Hub maskable icon keeps the whole mark inside the 80% safe zone (and the mark is there)',
+      outside === 0 && inside > 0, `${outside} outside, ${inside} inside`);
+  }
+  check('K23 the icon route draws training-<file> with the same renderer and no tile, and 404s anything else',
+    /file\.startsWith\(TRAINING_ICON_PREFIX\)/.test(iconRoute) && /renderAppIcon\(Buffer\.from\(await res\.arrayBuffer\(\)\), base\)/.test(iconRoute)
+    && !/TILE/.test(iconRoute) && /isAppIconFile\(base\)/.test(iconRoute));
 
   console.log('\n=== J. The Modeling Hub confirmation email says the app exists ===');
   const { confirmEmailTemplate, MODELING_APP_SIGNIN_URL } = await import('../src/shared/email/templates/confirmEmail');

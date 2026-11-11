@@ -9,7 +9,7 @@
  *     OTHER origins, so they are outside it by construction, and its app is a
  *     different app with a different id: installing one never touches the
  *     other.
- *   ICONS: the site favicon on the Training Hub's green tile, rendered by
+ *   ICONS: the site favicon, drawn like the Modeling Hub's, rendered by
  *     /app-icon/training-<file> (the caller passes them in, built from the
  *     same icon list and version rule the Modeling Hub app uses).
  *

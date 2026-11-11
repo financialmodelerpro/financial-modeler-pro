@@ -1,6 +1,6 @@
 /**
  * The Training Hub app's manifest icons (2026-11-11): the Modeling Hub app's
- * icon files drawn on the Training Hub's green tile (/app-icon/training-<file>),
+ * icon files under the Training Hub's own URLs (/app-icon/training-<file>),
  * versioned by the favicon the same way. Its own file because a route file may
  * export only its handlers.
  *

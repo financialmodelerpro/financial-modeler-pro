@@ -19,7 +19,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { createClient } from '@supabase/supabase-js';
 import { readSiteFaviconUrl } from '../src/shared/cms/siteFavicon';
 import { APP_ICON_FILES, type AppIconFile } from '../src/hubs/modeling/lib/pwa/appManifest';
-import { renderAppIcon, TRAINING_ICON_TILE, TRAINING_ICON_PREFIX } from '../src/hubs/modeling/lib/pwa/appIcon';
+import { renderAppIcon, TRAINING_ICON_PREFIX } from '../src/hubs/modeling/lib/pwa/appIcon';
 
 (async () => {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL ?? process.env.SUPABASE_URL;
@@ -34,8 +34,8 @@ import { renderAppIcon, TRAINING_ICON_TILE, TRAINING_ICON_PREFIX } from '../src/
   for (const file of Object.keys(APP_ICON_FILES) as AppIconFile[]) {
     writeFileSync(`public/pwa/${file}`, await renderAppIcon(source, file));
     console.log(`  wrote public/pwa/${file} (${APP_ICON_FILES[file].size}px, ${APP_ICON_FILES[file].purpose})`);
-    // The Training Hub app's fallback: the same mark on its green tile (2026-11-11).
-    writeFileSync(`public/pwa/${TRAINING_ICON_PREFIX}${file}`, await renderAppIcon(source, file, TRAINING_ICON_TILE));
+    // The Training Hub app's fallback: drawn exactly like the Modeling Hub's (2026-11-11).
+    writeFileSync(`public/pwa/${TRAINING_ICON_PREFIX}${file}`, await renderAppIcon(source, file));
     console.log(`  wrote public/pwa/${TRAINING_ICON_PREFIX}${file}`);
   }
   console.log(`From ${favicon}`);
