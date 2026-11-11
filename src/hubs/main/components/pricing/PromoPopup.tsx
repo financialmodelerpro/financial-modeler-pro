@@ -15,6 +15,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { isSamePageTarget } from '@/src/shared/promo/samePageTarget';
+import { isMarketingPath } from '../marketingScope';
 
 const GOLD = '#C9A84C';
 const GOLD_DARK = '#92400E';
@@ -34,11 +35,7 @@ const NAVY = '#0D2E5A';
 // destination, so pointing the promo somewhere else would have re-opened the
 // collision silently. The destination check below is the rule; this list stays
 // what it says it is, a list of surfaces a marketing promo does not belong on.
-const HIDE_ON_PREFIXES = [
-  '/pricing', '/admin', '/dashboard', '/refm', '/modeling', '/modeling-hub',
-  '/training', '/settings', '/account', '/choose-plan',
-  '/signin', '/register', '/login', '/forgot', '/set-password', '/confirm-email', '/verify',
-];
+// The list lives in marketingScope.ts (NON_MARKETING_PREFIXES), shared with the logo intro.
 
 export default function PromoPopup({
   code, label, offText, href, dismissKey,
@@ -66,7 +63,7 @@ export default function PromoPopup({
       href,
       origin: typeof window === 'undefined' ? null : window.location.origin,
     })) { setVisible(false); return; }
-    const hidden = HIDE_ON_PREFIXES.some((p) => path === p || path.startsWith(`${p}/`));
+    const hidden = !isMarketingPath(path);
     if (hidden) { setVisible(false); return; }
     try {
       if (localStorage.getItem(storageKey) !== '1') setVisible(true);

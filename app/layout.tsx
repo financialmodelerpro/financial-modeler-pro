@@ -11,6 +11,7 @@ import { readSiteFaviconUrl } from '@/src/shared/cms/siteFavicon';
 import { OrganizationJsonLd, WebSiteJsonLd } from '@/src/shared/seo/components/StructuredData';
 import PromoBanner from '@/src/hubs/main/components/pricing/PromoBanner';
 import LaunchCountdownBanner from '@/src/hubs/main/components/launch/LaunchCountdownBanner';
+import { SiteIntro } from '@/src/hubs/main/components/intro/SiteIntro';
 
 const inter = Inter({ subsets: ['latin'] });
 
@@ -113,6 +114,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en">
       <body className={inter.className} suppressHydrationWarning>
+        {/* Main-site logo intro: decided before first paint, drawn over the page; nothing when the admin switch is Off. */}
+        <SiteIntro />
         <OrganizationJsonLd />
         <WebSiteJsonLd />
         <SessionProviderWrapper>

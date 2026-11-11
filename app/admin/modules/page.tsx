@@ -4,6 +4,7 @@ import { CmsAdminNav } from '@/src/components/admin/CmsAdminNav';
 import { LaunchStatusCard } from '@/src/components/admin/LaunchStatusCard';
 import { LaunchBannerCard } from '@/src/components/admin/LaunchBannerCard';
 import { DeviceVerificationCard } from '@/src/components/admin/DeviceVerificationCard';
+import { IntroAnimationCard } from '@/src/components/admin/IntroAnimationCard';
 import { useRequireAdmin } from '@/src/shared/hooks/useRequireAdmin';
 
 export default function AdminModulesPage() {
@@ -82,6 +83,10 @@ export default function AdminModulesPage() {
             Manage Whitelist →
           </a>
         </div>
+
+        {/* ── Main website ─────────────────────────────────────────────── */}
+        <h2 style={{ fontSize: 16, fontWeight: 800, color: '#1B3A6B', margin: '8px 0 6px' }}>Main website</h2>
+        <IntroAnimationCard onMessage={showToast} />
 
         {/* ── Security ─────────────────────────────────────────────────── */}
         <h2 style={{ fontSize: 16, fontWeight: 800, color: '#1B3A6B', margin: '8px 0 6px' }}>Security</h2>
