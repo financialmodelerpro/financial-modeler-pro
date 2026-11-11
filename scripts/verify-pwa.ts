@@ -207,9 +207,13 @@ const src = (p: string): string => { try { return readFileSync(p, 'utf8'); } cat
     /Modeling Hub/.test(String(manifest.name)) && manifest.short_name === 'Modeling Hub');
   check('E2 it opens on the dashboard, and keeps the id of the first release (an update, not a second app)',
     new URL(String(manifest.start_url), 'https://app.example').pathname === '/dashboard' && manifest.id === '/dashboard');
-  check('E3 signed out, the dashboard sends the window to /signin, which offers Sign In AND Create Account',
+  // Re-aimed 2026-11-11: since 64b83876 (2026-11-07) signup is ONE door, /register ("Request a
+  // trial"), linked from sign-in; the old Sign In / Create Account toggle is gone. The rule is
+  // unchanged: the window can both sign in and reach signup.
+  check('E3 signed out, the dashboard sends the window to /signin, which offers Sign In AND a way to sign up',
     /router\.replace\('\/signin\?bypass=true'\)/.test(src('app/modeling/dashboard/page.tsx'))
-    && /'Sign In' : 'Create Account'/.test(src('app/modeling/signin/SignInForm.tsx')));
+    && /data-testid="signin-request-trial"/.test(src('app/modeling/signin/SignInForm.tsx'))
+    && /\/register`\}/.test(src('app/modeling/signin/SignInForm.tsx')));
   const ORIGIN = 'https://app.financialmodelerpro.com';
   const at = (u: string): 'app' | 'browser' => linkTarget(new URL(u, ORIGIN), ORIGIN);
   const inApp = ['/signin', '/register', '/dashboard', '/dashboard?source=pwa', '/refm?project=1', '/settings', '/pricing',

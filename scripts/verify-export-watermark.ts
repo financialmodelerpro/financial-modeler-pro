@@ -312,8 +312,10 @@ section('C. The stamp is drawn, on every page, and a paid export is untouched');
       !/allows\('(pdf_export|excel_formula|excel_snapshot)'\)/.test(modalG));
     const routed = (modalG.match(/allows\(FEATURE_FOR_KIND\./g) ?? []).length;
     check('G: every format gate reads the map', routed >= 9, String(routed));
+    // Re-aimed 2026-11-11: 50232d68 (2026-11-07) renamed the generate path's variable
+    // (reportKind -> kind). The rule is that the gate reads the map, whatever it is called.
     check('G: and the generate path reads it too',
-      modalG.includes('FEATURE_FOR_KIND[reportKind]'));
+      /allows\(FEATURE_FOR_KIND\[(kind|reportKind)\]\)/.test(modalG));
 
     // The corrected key.
     check('G: Excel gates on excel_snapshot', /excel: 'excel_snapshot'/.test(modalG));

@@ -2,29 +2,31 @@
 
 import { useEffect, useState } from 'react';
 
-/** Admin On/Off for the main-site logo intro. Reads / writes /api/admin/intro-animation. */
-export function IntroAnimationCard({ onMessage }: { onMessage?: (msg: string, type: 'success' | 'error') => void }) {
-  const [enabled, setEnabled] = useState(true);
+/** Admin On/Off for the logo intro, per site (main website, or the Modeling Hub with site="app"). Reads / writes /api/admin/intro-animation. */
+export function IntroAnimationCard({ onMessage, site = 'main' }: { onMessage?: (msg: string, type: 'success' | 'error') => void; site?: 'main' | 'app' }) {
+  const api = site === 'app' ? '/api/admin/intro-animation?site=app' : '/api/admin/intro-animation';
+  const isApp = site === 'app';
+  const [enabled, setEnabled] = useState(!isApp);
   const [loaded, setLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    fetch('/api/admin/intro-animation')
+    fetch(api)
       .then((r) => r.json())
-      .then((j: { enabled?: boolean }) => setEnabled(j.enabled ?? true))
+      .then((j: { enabled?: boolean }) => setEnabled(j.enabled ?? !isApp))
       .catch(() => {})
       .finally(() => setLoaded(true));
-  }, []);
+  }, [api, isApp]);
 
   async function toggle() {
     setSaving(true);
     try {
-      const res = await fetch('/api/admin/intro-animation', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled: !enabled }) });
+      const res = await fetch(api, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled: !enabled }) });
       if (!res.ok) { onMessage?.('Update failed', 'error'); return; }
       const j = (await res.json()) as { enabled?: boolean };
       const next = j.enabled ?? !enabled;
       setEnabled(next);
-      onMessage?.(next ? 'Logo intro is ON' : 'Logo intro is OFF', 'success');
+      onMessage?.(`${isApp ? 'Modeling Hub' : 'Main website'} logo intro is ${next ? 'ON' : 'OFF'}`, 'success');
     } catch {
       onMessage?.('Update failed', 'error');
     } finally {
@@ -34,14 +36,18 @@ export function IntroAnimationCard({ onMessage }: { onMessage?: (msg: string, ty
 
   if (!loaded) return null;
   return (
-    <div data-testid="intro-animation-card" style={{ background: enabled ? '#F0FFF4' : '#F8FAFC', border: `1px solid ${enabled ? '#BBF7D0' : '#E2E8F0'}`, borderRadius: 12, padding: '20px 24px', marginBottom: 24 }}>
+    <div data-testid={isApp ? 'intro-animation-card-app' : 'intro-animation-card'} style={{ background: enabled ? '#F0FFF4' : '#F8FAFC', border: `1px solid ${enabled ? '#BBF7D0' : '#E2E8F0'}`, borderRadius: 12, padding: '20px 24px', marginBottom: 24 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 20, flexWrap: 'wrap' }}>
         <div style={{ flex: 1, minWidth: 220 }}>
-          <div style={{ fontSize: 14, fontWeight: 800, color: '#1B3A6B', marginBottom: 4 }}>🎬 Logo intro on the main website</div>
+          <div style={{ fontSize: 14, fontWeight: 800, color: '#1B3A6B', marginBottom: 4 }}>{isApp ? '🎬 Logo intro on the Modeling Hub' : '🎬 Logo intro on the main website'}</div>
           <div style={{ fontSize: 12, color: '#6B7280' }}>
-            {enabled
-              ? 'ON. The logo animation plays once per browser session when a visitor opens a public page of financialmodelerpro.com, then fades into the page. Never on the Training or Modeling hubs, admin, sign-in or pricing pages, and skipped for visitors who prefer reduced motion.'
-              : 'OFF. No intro plays; the website opens directly.'}
+            {isApp
+              ? (enabled
+                ? 'ON. The logo animation plays once per browser session when someone opens app.financialmodelerpro.com (the hub home or a public platform page), then fades into the page. Never on sign-in, register, dashboard, pricing, the platforms themselves or admin, and skipped for visitors who prefer reduced motion.'
+                : 'OFF. No intro plays; the Modeling Hub opens directly.')
+              : (enabled
+                ? 'ON. The logo animation plays once per browser session when a visitor opens a public page of financialmodelerpro.com, then fades into the page. Never on the Training or Modeling hubs, admin, sign-in or pricing pages, and skipped for visitors who prefer reduced motion.'
+                : 'OFF. No intro plays; the website opens directly.')}
           </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
