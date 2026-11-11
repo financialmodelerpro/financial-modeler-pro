@@ -34,7 +34,7 @@ export async function POST(req: NextRequest) {
     const original = Buffer.from(await file.arrayBuffer());
     // Compressed (optimizeImage.ts); the original is kept at originals/<name>, best effort.
     const img = await optimizeImage(original, file.type, { maxWidth: IMAGE_WIDTH.avatar });
-    if (img.optimized) await sb.storage.from('avatars').upload(`originals/${baseName}`, original, { contentType: file.type, upsert: true }).catch(() => undefined);
+    if (img.optimized) await sb.storage.from('avatars').upload(`originals/${baseName}`, original, { contentType: file.type, upsert: true, cacheControl: STORAGE_CACHE_IMMUTABLE }).catch(() => undefined);
     const filename = img.optimized ? withExt(baseName, img.ext) : baseName;
     const buffer = img.buffer;
     const uploadType = img.contentType;

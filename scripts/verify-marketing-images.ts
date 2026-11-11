@@ -110,12 +110,18 @@ async function main() {
     const p = join(ROOT, rel);
     if (!existsSync(p)) { skip(`${rel} cacheControl`, 'file not found'); continue; }
     const src = readFileSync(p, 'utf8');
-    const uploads = src.split('.upload(').slice(1);
+    // An upload is a direct .upload( or the shared storeImage( (2026-11-10, image
+    // optimisation), which forwards its cacheControl to both of its uploads.
+    const uploads = src.split(/\.upload\(|\bstoreImage\(sb,/).slice(1);
     ok(`${rel}: has an upload call`, uploads.length > 0);
     uploads.forEach((chunk, i) => {
       const args = chunk.slice(0, 400);
       ok(`${rel}: upload #${i + 1} passes a cacheControl`, /cacheControl/.test(args));
     });
+  }
+  {
+    const helper = readFileSync(join(ROOT, 'src/shared/storage/optimizeImage.ts'), 'utf8');
+    ok('storeImage forwards cacheControl to both of its uploads (original and served)', helper.split('cacheControl: p.cacheControl').length - 1 === 2);
   }
   // The constants must stay distinct and correctly ordered, since the whole
   // decision rests on "can these bytes change".
