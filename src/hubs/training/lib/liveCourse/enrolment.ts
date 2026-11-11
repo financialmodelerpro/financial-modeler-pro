@@ -129,3 +129,40 @@ export async function enrolInLiveCourse(
 
   return { ok: true, enrolled: true, alreadyEnrolled: !!existing, emailSent };
 }
+
+export interface RegistrantBackfillResult { registrants: number; newlyEnrolled: number; emailed: number; failed: number }
+
+/**
+ * A student registered for a course SESSION before enrolment became the
+ * registration (2026-11-10) is enrolled in the COURSE, so reminders and
+ * reschedule emails reach them (they go to enrolled students only). Idempotent:
+ * enrolInLiveCourse sends the confirmation once, so a run that could not send
+ * (e.g. from a machine with no email key) is completed by the next one. Run
+ * daily by the session-reminders cron, before the day reminders.
+ */
+export async function enrolCourseSessionRegistrants(
+  sb: SupabaseClient,
+  deps: Parameters<typeof enrolInLiveCourse>[2] = {},
+): Promise<RegistrantBackfillResult> {
+  const res: RegistrantBackfillResult = { registrants: 0, newlyEnrolled: 0, emailed: 0, failed: 0 };
+  const { data: sessions } = await sb.from('live_sessions').select('id, course_code').not('course_code', 'is', null).eq('is_published', true);
+  const courseOf = new Map((sessions ?? []).map((s) => [s.id as string, s.course_code as string]));
+  if (courseOf.size === 0) return res;
+  const { data: regs } = await sb.from('session_registrations').select('session_id, student_reg_id, student_name, student_email').in('session_id', [...courseOf.keys()]);
+  const seen = new Set<string>();
+  for (const r of regs ?? []) {
+    const courseCode = courseOf.get(r.session_id as string);
+    const registrationId = String(r.student_reg_id ?? '').trim();
+    const email = String(r.student_email ?? '').trim().toLowerCase();
+    if (!courseCode || !registrationId || !email) continue;
+    const key = `${courseCode}|${registrationId}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    res.registrants++;
+    const out = await enrolInLiveCourse(sb, { registrationId, email, name: (r.student_name as string | null) ?? null, courseCode, source: 'admin' }, deps);
+    if (!out.ok) { res.failed++; continue; }
+    if (!out.alreadyEnrolled) res.newlyEnrolled++;
+    if (out.emailSent) res.emailed++;
+  }
+  return res;
+}

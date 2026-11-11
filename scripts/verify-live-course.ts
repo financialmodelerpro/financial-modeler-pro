@@ -2081,6 +2081,25 @@ async function unit29(): Promise<void> {
   check('U29.5b sign-in honours a same-site redirect to the dashboard view (not an auth page)', SI.includes("const redirectTo   = safeRedirect(searchParams.get('redirect'));") && SI.includes('router.push(redirectTo);'));
 }
 
+async function unit30(): Promise<void> {
+  console.log('\n=== A course SESSION registrant is enrolled in the COURSE ===\n');
+  const cron = readFileSync('app/api/cron/session-reminders/route.ts', 'utf8');
+  const iB = cron.indexOf('await enrolCourseSessionRegistrants(sb)'), iD = cron.indexOf('await sendSessionDayReminders(');
+  check('U30.1 the daily cron enrols course-session registrants, before the day reminders go to enrolled students', iB > 0 && iD > iB);
+  const en = readFileSync('src/hubs/training/lib/liveCourse/enrolment.ts', 'utf8');
+  check('U30.2 the backfill goes through enrolInLiveCourse (one enrolment rule, confirmation sent once) and reads published course sessions only', /export async function enrolCourseSessionRegistrants[^]*?await enrolInLiveCourse\(/.test(en) && en.includes(".not('course_code', 'is', null).eq('is_published', true)"));
+  if (hasCreds()) {
+    const sb = await db();
+    const { data: ss } = await sb.from('live_sessions').select('id, course_code').not('course_code', 'is', null).eq('is_published', true);
+    const courseOf = new Map((ss ?? []).map((x) => [x.id as string, x.course_code as string]));
+    const { data: regs } = courseOf.size ? await sb.from('session_registrations').select('session_id, student_reg_id').in('session_id', [...courseOf.keys()]) : { data: [] };
+    const { data: ens } = await sb.from('training_enrollments').select('registration_id, course_code');
+    const enrolled = new Set((ens ?? []).map((e) => `${e.course_code}|${e.registration_id}`));
+    const missing = [...new Set((regs ?? []).map((r) => `${courseOf.get(r.session_id as string)}|${r.student_reg_id}`))].filter((k) => !enrolled.has(k));
+    check('U30.3 live: every course-session registrant is enrolled in the course', missing.length === 0, missing.join(', '));
+  }
+}
+
 (async () => {
   await unit0();
   await unit1();
@@ -2113,6 +2132,7 @@ async function unit29(): Promise<void> {
   await unit27();
   await unit28();
   await unit29();
+  await unit30();
   console.log(`\n${passed} passed, ${failed} failed`);
   if (failed) { console.log('Failed:'); for (const f of fails) console.log(`  - ${f}`); process.exit(1); }
 })().catch((e) => { console.error(e); process.exit(1); });

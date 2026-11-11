@@ -25,6 +25,7 @@ import { getServerClient } from '@/src/core/db/supabase';
 import { sendTemplatedEmail, buildSessionPlaceholders } from '@/src/shared/email/sendTemplatedEmail';
 import { sendEmailPerRecipient, FROM } from '@/src/shared/email/sendEmail';
 import { sendSessionDayReminders } from '@/src/hubs/training/lib/liveCourse/dayReminder';
+import { enrolCourseSessionRegistrants } from '@/src/hubs/training/lib/liveCourse/enrolment';
 import { autoSyncEndedSessions, realGraph } from '@/src/hubs/training/lib/liveCourse/attendanceSync';
 import { isTeamsConfigured } from '@/src/integrations/teams/teamsMeetings';
 
@@ -105,6 +106,12 @@ export async function GET(req: NextRequest) {
       failed += fail;
     }
 
+    // ── Live courses: a session registrant from before enrolment-is-registration is enrolled
+    // in the course (confirmation sent once), before today's reminders go to enrolled students.
+    let backfill = { registrants: 0, newlyEnrolled: 0, emailed: 0, failed: 0 };
+    try { backfill = await enrolCourseSessionRegistrants(sb); }
+    catch (e) { console.error('[cron/session-reminders] registrant enrolment failed', e); }
+
     // ── Live courses: same-day reminder (this cron runs 06:00 UTC = 9:00 AM KSA)
     let day = { sessions: 0, sent: 0, failed: 0 };
     try {
@@ -123,7 +130,7 @@ export async function GET(req: NextRequest) {
 
     const processed = (sessions24?.length ?? 0) + (sessions1h?.length ?? 0);
     console.log(`[cron/session-reminders] processed=${processed} 24h=${sent24h} 1h=${sent1h} day=${day.sent}/${day.sessions} attendance=${attendance.ok}/${attendance.tried} failed=${failed + day.failed}`);
-    return Response.json({ processed, reminders_24h: sent24h, reminders_1h: sent1h, day_reminders: day, attendance, failed });
+    return Response.json({ processed, reminders_24h: sent24h, reminders_1h: sent1h, day_reminders: day, attendance, registrant_enrolment: backfill, failed });
   } catch (e) {
     console.error('[cron/session-reminders]', e);
     return Response.json({ error: String(e) }, { status: 500 });
