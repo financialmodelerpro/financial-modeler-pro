@@ -22,7 +22,7 @@ import ExcelJS from 'exceljs';
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, writeFileSync, rmSync, existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { generateModelWorkbookBuffer } from '../src/hubs/modeling/platforms/refm/lib/excel/buildModelWorkbook';
+import { generateValuesWorkbookBuffer as generateModelWorkbookBuffer } from '../src/hubs/modeling/platforms/refm/lib/excel/valuesWorkbook';
 import { generateLiveWorkbook } from '../src/hubs/modeling/platforms/refm/lib/excel/formulaWorkbook';
 import { loadLiveExportInputs } from './fixtures/liveExportInputs';
 import type { DisplayScale } from '../src/hubs/modeling/platforms/refm/lib/excel/styles';

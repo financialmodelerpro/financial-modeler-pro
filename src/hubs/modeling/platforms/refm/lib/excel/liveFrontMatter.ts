@@ -71,17 +71,29 @@ export function buildLiveCover(ws: ExcelJS.Worksheet, d: { name: string; date: s
 }
 
 /** The Guide: the colour legend, then one paragraph per tab. The loop links follow (formulaWorkbook). */
-export function buildLiveGuide(ws: ExcelJS.Worksheet, markInput: (c: ExcelJS.Cell) => void): void {
+export function buildLiveGuide(ws: ExcelJS.Worksheet, markInput: (c: ExcelJS.Cell) => void, valuesFile = false): void {
   ws.getColumn(1).width = 3; ws.getColumn(2).width = 18; ws.getColumn(3).width = 100;
   const t = ws.getCell('B2'); t.value = 'Guide'; t.font = { name: 'Calibri', size: 16, bold: true, color: { argb: ARGB.navy } };
   let r = 4;
   const head = (text: string): void => { setLabel(ws.getCell(r, 2), text, { bold: true }); fillRange(ws, r, 2, r, 3, ARGB.subtotal); r += 1; };
   head('Colours');
-  { const c = ws.getCell(r, 2); c.value = 'Input'; markInput(c); ws.getCell(r, 3).value = 'A shaded cell is an input: type over it.'; r += 1; }
-  { const c = ws.getCell(r, 2); c.value = 'Formula'; c.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } }; ws.getCell(r, 3).value = 'Everything else is a formula over the inputs.'; r += 1; }
+  if (valuesFile) {
+    // THE VALUES FILE (2026-11-12): the same layout as the live workbook, the platform's numbers, no formulas.
+    { const c = ws.getCell(r, 2); c.value = 'Input'; markInput(c); ws.getCell(r, 3).value = 'A shaded cell is a value typed on the platform.'; r += 1; }
+    { const c = ws.getCell(r, 2); c.value = 'Figure'; c.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } }; ws.getCell(r, 3).value = 'Every other number is the platform\'s own result as of export. This file holds values, not formulas: change an input on the platform and export again.'; r += 1; }
+  } else {
+    { const c = ws.getCell(r, 2); c.value = 'Input'; markInput(c); ws.getCell(r, 3).value = 'A shaded cell is an input: type over it.'; r += 1; }
+    { const c = ws.getCell(r, 2); c.value = 'Formula'; c.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } }; ws.getCell(r, 3).value = 'Everything else is a formula over the inputs.'; r += 1; }
+  }
   r += 1;
   head('The tabs');
-  for (const [tab, text] of LIVE_TAB_GUIDE) {
+  // The values file says what IT is: the tabs that talk of typing over an input or of Excel iterating.
+  const VALUES_TEXT: Record<string, string> = {
+    Inputs: 'Every number the model takes. Shaded cells are what was typed on the platform; change them on the platform and export again.',
+    Financing: 'The funding need, each facility\'s draws, interest, repayments and the cash sweep, the dividends and the exit, as the platform solved them.',
+  };
+  for (const [tab, liveText] of LIVE_TAB_GUIDE) {
+    const text = valuesFile ? VALUES_TEXT[tab] ?? liveText : liveText;
     const a = ws.getCell(r, 2); a.value = { text: tab, hyperlink: `#'${tab}'!A1` } as ExcelJS.CellValue;
     a.font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.navy }, underline: true }; a.alignment = { vertical: 'top' };
     const b = ws.getCell(r, 3); b.value = text; b.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } }; b.alignment = { wrapText: true, vertical: 'top' };
@@ -136,7 +148,7 @@ export function dropNoteRows(ws: ExcelJS.Worksheet, from: number): number {
   return dropped;
 }
 
-function deleteRowAt(ws: ExcelJS.Worksheet, at: number): void {
+export function deleteRowAt(ws: ExcelJS.Worksheet, at: number): void {
   const model = ws as unknown as { model?: { merges?: string[] } };
   const merges = [...(model.model?.merges ?? [])];
   for (const m of merges) { try { ws.unMergeCells(m); } catch { /* not merged after all */ } }

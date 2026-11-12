@@ -114,7 +114,6 @@ export function bsPlan(state: FinancialsResolverState, snap: Snap = computeFinan
   row(BS('Retained Earnings'), 'Retained earnings', sl(bs.retainedEarningsPerPeriod), { kind: 'link', key: E2('Closing') }, { indent: 1 });
   row(BS('Total Equity'), 'Total equity', sl(bs.totalEquityPerPeriod), null, { style: 'subtotal', sum: [BS('Share Capital'), BS('Statutory Reserve'), BS('Retained Earnings')] });
   row(BS('TOTAL LIABILITIES + EQUITY'), 'Total liabilities and equity', sl(bs.totalLiabilitiesAndEquityPerPeriod), null, { style: 'total', sum: [BS('TOTAL LIABILITIES'), BS('Total Equity')] });
-  row(BS_CHECK, 'Balance check (assets less liabilities and equity)', sl(bs.bsDifferencePerPeriod), { kind: 'diff', a: BS('TOTAL ASSETS'), b: BS('TOTAL LIABILITIES + EQUITY') }, { total: 'maxabs' });
 
   // ── Share capital ────────────────────────────────────────────────────────
   const shareOpen0 = p.shareCapital != null && p.shareCapital > 0 ? p.shareCapital : 0;
@@ -145,5 +144,8 @@ export function bsPlan(state: FinancialsResolverState, snap: Snap = computeFinan
   row(E2('Transfer'), 'Transfer to the statutory reserve', neg(sl(bs.statutoryReserveTransferPerPeriod)), { kind: 'neg', key: SR('Transfer') }, { indent: 1, total: 'sum' });
   row(E2('Dividends'), 'Dividends declared', neg(sl(bs.dividendsDeclaredPerPeriod)), { kind: 'div' }, { indent: 1, total: 'sum' });
   row(E2('Closing'), 'Closing', re, null, { style: 'subtotal', sum: [E2('Opening'), E2('PAT'), E2('Transfer'), E2('Dividends')] });
+  // THE BALANCE CHECK, ONE ROW PER YEAR AT THE FOOT (2026-11-12, founder): assets less liabilities and equity, zero every year.
+  rows.push({ key: 'bs|gap|chk', label: '', kind: 'gap' });
+  row(BS_CHECK, 'Balance check (assets less liabilities and equity)', sl(bs.bsDifferencePerPeriod), { kind: 'diff', a: BS('TOTAL ASSETS'), b: BS('TOTAL LIABILITIES + EQUITY') }, { total: 'maxabs' });
   return rows;
 }

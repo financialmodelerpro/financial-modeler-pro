@@ -679,7 +679,8 @@ export function returnsPlan(state: FinancialsResolverState, snap: Snap, rs: RS, 
       const lk = (E: REnv): string[] => [...new Set(lines.map((x) => x.key))].filter((k) => E.has(`rvc:${k}:gla`) && E.has(`rvc:${k}:occupied`) && E.has(`rvc:${k}:rev`));
       one('rm|k:gla', 'Total lettable area (sqm)', l.gla, (E) => lk(E).map((k) => E.xo(`rvc:${k}:gla`)).join('+') || '0', RF.int);
       const let_ = (E: REnv): string => lk(E).map((k) => `SUM(${E.xr(`rvc:${k}:occupied`)})`).join('+') || '0';
-      const avail = (E: REnv): string => lk(E).map((k) => `${E.xo(`rvc:${k}:gla`)}*COUNTIF(${E.xr(`rvc:${k}:occupied`)},">0")`).join('+') || '0';
+      // A one-cell formula needs no anchors; without them four lines stay under the 200-character rule (2026-11-12).
+      const avail = (E: REnv): string => (lk(E).map((k) => `${E.xo(`rvc:${k}:gla`)}*COUNTIF(${E.xr(`rvc:${k}:occupied`)},">0")`).join('+') || '0').replace(/\$/g, '');
       // The platform's figures behind its averages: area let = revenue over rent per sqm, available = let over occupancy.
       const letV = l.rentPerSqm && l.rentPerSqm > 0 ? l.totalRevenue / l.rentPerSqm : 0;
       const availV = l.avgOccupancy && l.avgOccupancy > 0 ? letV / l.avgOccupancy : 0;

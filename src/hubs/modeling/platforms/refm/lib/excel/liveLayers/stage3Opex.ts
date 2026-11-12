@@ -195,6 +195,14 @@ export const stage3Opex: LiveLayer = {
       // Revenue, from the Revenue tab.
       const revRows: Record<string, string> = {};
       if (isOp) {
+        // The operating statistics (2026-11-12): links to the line's own rows on Revenue; RevPAR their ratio.
+        const revKey = (prefix: string): string | undefined => reg.keys().find((k) => k.startsWith(`rev|${l.key}|${prefix}`));
+        const kKeys = revKey('d|Keys'), kSold = revKey('o|Occupied room nights'), kOcc = revKey('o|Occupancy'), kAdr = revKey('o|ADR'), kAvail = revKey('o|Available room nights');
+        if (has(K('st:keys')) && kKeys) w.fA({ sheet: OPEX, row: w.addr(K('st:keys')).row, col: TOTAL_COL }, A(kKeys, TOTAL_COL));
+        if (kSold) row(K('st:sold'), (t) => P(kSold, t));
+        if (kOcc) row(K('st:occ'), (t) => P(kOcc, t), 'none');
+        if (kAdr) row(K('st:adr'), (t) => P(kAdr, t), 'none');
+        if (kAvail && has(RV('rooms'))) row(K('st:revpar'), (t) => `IF(${P(kAvail, t)}>0,${P(RV('rooms'), t)}/${P(kAvail, t)},0)`, 'none');
         row(K('rev:rooms'), (t) => rvP('rooms', t));
         row(K('rev:fb'), (t) => rvP('fb', t));
         row(K('rev:other'), (t) => rvP('other', t));

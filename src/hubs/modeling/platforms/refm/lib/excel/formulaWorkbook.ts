@@ -279,6 +279,9 @@ export const LOOP_LINKS: ReadonlyArray<{ from: string; to: string; fromRow?: Reg
   { from: 'Schedules', to: 'Financing' },
   { from: 'Capex', to: 'Financing' },
   { from: 'Financing', to: 'P&L', fromRow: /: EBITDA \(the phase P&L\)$/ },
+  // AND ONE MORE (2026-11-12, founder): Revenue's selling costs by sell line link the cells Capex charges
+  // them in, so a selling cost is worked out once. Only those rows and their total may read Capex.
+  { from: 'Revenue', to: 'Capex', fromRow: /: selling costs$|^Total selling costs$/ },
 ];
 const rowLabel = (wb: ExcelJS.Workbook, sheet: string, row: number): string => String(wb.getWorksheet(sheet)?.getCell(row, 1).value ?? '').trim();
 const isLoopLink = (wb: ExcelJS.Workbook, b: { from: string; to: string; row: number }): boolean =>

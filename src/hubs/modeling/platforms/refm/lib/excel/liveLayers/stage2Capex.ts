@@ -39,8 +39,11 @@
 import type ExcelJS from 'exceljs';
 import type { LayerContext, LiveLayer } from '../formulaWorkbook';
 import { LiveWriter } from './writer';
-import { capexCols } from '../buildModelWorkbook';
-import { ARGB } from '../styles';
+import { capexCols, sellingCostRowLabel, PERIOD_COLS } from '../buildModelWorkbook';
+import { buildSellingCostReport } from '../../reports/sellingCostReports';
+import { capexCostType, CAPEX_COST_TYPES } from '../capexCostType';
+import { planRevenueLines, lineForAsset } from '../../revenueLines';
+import { ARGB, colLetter as colLetterOf } from '../styles';
 import { withResolvedAssetNames } from '@/src/core/calculations/assetName';
 import { resolveCostCategory, isLandValueLine, deriveCostStage } from '@/src/core/calculations';
 import { assetVisibleLines, allowedSelectedIds } from '@/src/core/calculations/selectedBase';
@@ -491,6 +494,61 @@ export const stage2Capex: LiveLayer = {
     }
     if (w.has('cx5:total:cash')) { sumKeys('cx5:total:cash', cashK); sumKeys('cx5:total:inkind', inkK); sumKeys('cx5:total:land', ['cx5:total:cash', 'cx5:total:inkind']); }
     void K;
+
+    // ── Capex by cost type (2026-11-12, founder): Table 1's rows of each type, the one rule (capexCostType) ──
+    {
+      const typeKeys: string[] = [];
+      for (const ct of CAPEX_COST_TYPES) {
+        const key = `cxty:${ct.id}`;
+        if (!w.has(key)) continue;
+        const parts = hosts.flatMap((h) => landKeys(h, (l) => capexCostType(l) === ct.id && !isExpensedAsIncurred(l)));
+        sumKeys(key, parts);
+        typeKeys.push(key);
+      }
+      if (w.has('cxty:total') && typeKeys.length) sumKeys('cxty:total', typeKeys);
+    }
+
+    // ── Revenue's selling costs, by sell line (2026-11-12, founder) ─────────────
+    // Each row adds its line's selling-cost cells here (the expensed block, else Table 1): charged once, on Capex.
+    {
+      const REV = 'Revenue';
+      const sellRows = reg.keys().filter((k) => /^rev\|__sell__\|\|.+: selling costs$/.test(k));
+      if (sellRows.length) {
+        const sc = buildSellingCostReport({
+          revenue: snap.revenue, assets: state.assets, phases: state.phases, costLines: state.costLines,
+          costOverrides: state.costOverrides, parcels: state.parcels, landAllocationMode: state.landAllocationMode,
+          project: state.project, subUnits: state.subUnits, yearLabels: snap.yearLabels, projectStartYear: snap.projectStartYear,
+        });
+        const revLines = planRevenueLines(state.assets, state.subUnits, state.phases, state.project);
+        const labelOfLine = new Map<string, string>();
+        for (const row of sc?.schedule?.rows ?? []) labelOfLine.set(row.key.split('::')[0], row.assetName);
+        const cellsOf = new Map<string, string[]>();
+        for (const r of sc?.result.rows ?? []) {
+          const lk = lineForAsset(revLines, r.assetId)?.key ?? r.assetId;
+          const k = w.has(`cxe:${r.assetId}:${r.lineId}`) ? `cxe:${r.assetId}:${r.lineId}` : w.has(`cx1:${r.assetId}:${r.lineId}`) ? `cx1:${r.assetId}:${r.lineId}` : null;
+          if (k) cellsOf.set(lk, [...(cellsOf.get(lk) ?? []), k]);
+        }
+        const lineRowKeys: string[] = [];
+        for (const [lk, label] of labelOfLine) {
+          const key = `rev|__sell__||${sellingCostRowLabel(label)}`;
+          if (!w.has(key)) continue;
+          const r = w.addr(key).row;
+          const parts = cellsOf.get(lk) ?? [];
+          for (let t = 0; t < N; t++) w.fA({ sheet: REV, row: r, col: cP(t) }, parts.length ? parts.map((k) => w.refP({ sheet: CAPEX, row: w.addr(k).row, col: cP(t) }, REV)).join('+') : '0');
+          w.fA({ sheet: REV, row: r, col: PERIOD_COLS.TOTAL_COL }, `SUM(${w.rangeA(REV, r, cP(0), cP(N - 1))})`);
+          lineRowKeys.push(key);
+        }
+        const tk = 'rev|__sell__||Total selling costs';
+        if (w.has(tk) && lineRowKeys.length) {
+          const r = w.addr(tk).row;
+          const rows = lineRowKeys.map((k) => w.addr(k).row).sort((a, b) => a - b);
+          for (const c of [...Array.from({ length: N }, (_, t) => cP(t)), PERIOD_COLS.TOTAL_COL]) {
+            const L = colLetterOf(c);
+            w.fA({ sheet: REV, row: r, col: c }, `SUM(${L}$${rows[0]}:${L}$${rows[rows.length - 1]})`);
+          }
+        }
+      }
+    }
 
     const pending = [...w.pending].filter((a) => a.startsWith(`${CAPEX}!`));
     return [{

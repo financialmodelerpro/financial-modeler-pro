@@ -290,9 +290,11 @@ export function financingPlan(state: FinancialsResolverState, snap: Snap = compu
   per('fl:intExp', '(-) Interest expensed', neg(sl(c.totalInterestExpensed)), 'Interest charged less what is capitalised');
   {
     const tbl = buildIdcAllocationTables(snap, state, String)[0];
+    // THE IDC ALLOCATION BY LINE (2026-11-12, founder: kept, compact): one row per line under one heading.
+    if (idcLines.some((_l, i) => tbl?.rows[i])) title('fl:t:idc', 'Capitalised interest (IDC) allocated by line');
     idcLines.forEach((l, i) => {
       const row = tbl?.rows[i];
-      if (row) per(`fl:idc:${i}`, `${l.title}: capitalised interest`, sl(row.values), FEEDS_SCHEDULES, { indent: 1 });
+      if (row) per(`fl:idc:${i}`, l.title, sl(row.values), FEEDS_SCHEDULES, { indent: 1 });
     });
     if (snap.idc.capitalize) {
       const heldIdc = idcLines.some((l) => l.assetIds.some((id) => { const a = state.assets.find((x) => x.id === id); return a?.strategy === 'Operate' || a?.strategy === 'Lease'; }));

@@ -31,6 +31,8 @@ Inputs 506->250, Land & Area 90->45, Revenue 191->140, Capex 222->120, Opex 178-
 ## Status
 - Step 1 DONE 2026-11-12: house style (lib/excel/houseStyle.ts) and builder rules (lib/excel/exportScope.ts) on both workbooks; verify-export-house-style. The values workbook still has its own (longer) row layout: matching it row for row to the live one is the open structural decision for step 2.
 
+- Step 2 PART DONE 2026-11-12: values workbook = the one layout in values mode (lib/excel/valuesWorkbook.ts, verify-values-mode); the six bring-backs (IDC by line, selling costs, hotel statistics, balance check row, Summary tiles, capex by cost type); Table 7 to Summary. OPEN from step 2: the Inputs, Land & Area and Capex row restructure (capex method table once for all assets, one spend curve per asset, the lease table, inflation once, spend shares to about 10, collections rows to Revenue, Tables 2/4/5 merged).
+
 ## Build order (one prompt each, quick checks, full verifier at the end)
 1. Global rules and formatting in the shared builder.
 2. Inputs, Land & Area, Capex.

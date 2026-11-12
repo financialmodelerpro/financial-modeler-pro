@@ -477,7 +477,9 @@ export default function ExportModal({
       }
 
       if (kind === 'excel') {
-        const { generateModelWorkbookBuffer } = await import('../../lib/excel/buildModelWorkbook');
+        // THE VALUES FILE IS THE ONE LAYOUT IN VALUES MODE (2026-11-12, founder): the live workbook's rows
+        // with the platform engine's numbers, exported for every project and set-up (valuesWorkbook.ts).
+        const { generateValuesWorkbookBuffer: generateModelWorkbookBuffer } = await import('../../lib/excel/valuesWorkbook');
         // Same Inputs / Schedules / Outputs filter as the PDF: unticked categories
         // are hidden in the workbook (the model is formula-linked, so hiding keeps
         // every formula intact while showing only the selected categories).

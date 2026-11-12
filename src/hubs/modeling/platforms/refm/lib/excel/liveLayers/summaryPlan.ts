@@ -49,7 +49,11 @@ export interface SumRow {
   cols?: Array<[number, string]>;
   style?: 'total' | 'subtotal';
   indent?: number;
+  /** A headline tile row (2026-11-12): its caption, its figure, or the tile's foot. */
+  tile?: 'cap' | 'val' | 'pad';
 }
+/** The headline tiles' columns: each tile two columns wide with a gap after it. */
+export const TILE_COLS = [2, 5, 8, 11] as const;
 
 const B = 2;
 /** The model years sit in the period columns F onwards. */
@@ -70,6 +74,31 @@ export function summaryPlan(state: FinancialsResolverState, snap: Snap, rs: RS):
   const ratio = (num: Fx, den: Fx): Fx => (E) => `IF(${den(E)}>0,${num(E)}/${den(E)},"n/a")`;
   const cur = p.currency || 'SAR';
   const M = `${cur} m`, PER = `${cur} per sqm`;
+
+  // ── The headline (2026-11-12, founder): the Dashboard's tiles, each the Summary row it repeats ─────
+  {
+    const de0 = rs.developmentEconomics;
+    const m0 = rs.result.realEstate;
+    const tiles: Array<Array<{ cap: string; v: number | string; fmt: string; f: Fx }>> = [
+      [
+        { cap: 'GROSS DEVELOPMENT VALUE', v: de0.gdv, fmt: RF.money, f: (E) => E.cell('sum|gdv', B) },
+        { cap: 'TOTAL DEVELOPMENT COST', v: de0.totalDevelopmentCost, fmt: RF.money, f: (E) => E.cell('sum|tdc', B) },
+        { cap: 'DEVELOPMENT MARGIN', v: nz(de0.developmentMargin), fmt: RF.pct, f: (E) => E.cell('sum|margin', B) },
+        { cap: 'PEAK EQUITY', v: m0.peakEquity, fmt: RF.money, f: (E) => E.cell('sum|peakeq', B) },
+      ],
+      [
+        { cap: 'PROJECT IRR (FCFF)', v: nz(rs.result.fcff.irr), fmt: RF.pct, f: (E) => E.cell('sum|r|fcff', B) },
+        { cap: 'EQUITY IRR (FCFE)', v: nz(rs.result.fcfe.irr), fmt: RF.pct, f: (E) => E.cell('sum|r|fcfe', B) },
+        { cap: 'EQUITY MOIC', v: nz(rs.result.fcfe.moic), fmt: RF.mult, f: (E) => E.cell('sum|r|fcfe', B + 1) },
+      ],
+    ];
+    tiles.forEach((set, i) => {
+      rows.push({ key: `sum|tile|cap${i}`, label: '', kind: 'cells', tile: 'cap', cells: set.map((t, j) => ({ col: TILE_COLS[j], v: t.cap, fmt: RF.text })) });
+      rows.push({ key: `sum|tile|val${i}`, label: '', kind: 'cells', tile: 'val', cells: set.map((t, j) => ({ col: TILE_COLS[j], v: t.v, fmt: t.fmt, f: t.f })) });
+      rows.push({ key: `sum|tile|pad${i}`, label: '', kind: 'cells', tile: 'pad', cells: set.map((_t, j) => ({ col: TILE_COLS[j], v: null })) });
+      gap(`sum|tile|gap${i}`);
+    });
+  }
 
   // ── Key facts ─────────────────────────────────────────────────────────────
   section('sum|#facts', 'Key facts');

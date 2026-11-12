@@ -34,7 +34,9 @@ import { computeFinancialsSnapshot } from '../../financials-resolvers';
 import { buildCostPerSqmReport, COST_BASES } from '../../reports/costPerSqmReport';
 import type { CostLine, SubUnit } from '../../state/module1-types';
 
-const CAPEX = 'Capex';
+// THE COST PER SQM MOVED TO SUMMARY (2026-11-12, founder: export simplification step 2). The rows keep
+// their keys and columns; the layer writes wherever the registry put them.
+const CAPEX = 'Summary';
 
 export const stage8Capex7: LiveLayer = {
   name: 'stage 8: capex table 7',
@@ -128,7 +130,7 @@ export const stage8Capex7: LiveLayer = {
 
     // ── Writing: 7a, then 7b, cell by cell as costPerSqmTables lays them out ──
     const C_TOT = 5;
-    const at = (key: string, col: number) => ({ sheet: CAPEX, row: w.addr(key).row, col });
+    const at = (key: string, col: number) => ({ sheet: w.addr(key).sheet, row: w.addr(key).row, col });
     const perSqm = (num: string, den: string): string => `IF(${den}>0,(${num})/(${den}),"n/a")`;
     const diff = (a: string, b: string): string => `IF(AND(ISNUMBER(${a}),ISNUMBER(${b})),${a}-${b},"n/a")`;
     for (const l of report.lines) {

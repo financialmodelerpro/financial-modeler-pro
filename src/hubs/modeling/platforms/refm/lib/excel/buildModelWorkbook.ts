@@ -121,6 +121,8 @@ import type { Party } from '../parties';
 import { projectLocationLabel } from '@/src/core/countries';
 import { buildLiveCover, buildLiveGuide, liveUnitsLine, dropNoteRows, collapseSpaces, shortenTexts } from './liveFrontMatter';
 import { applyHouseStyle, phaseLabelsFor, type HouseContext } from './houseStyle';
+import { capexCostType, CAPEX_COST_TYPES, type CapexCostType } from './capexCostType';
+import { isExpensedAsIncurred } from '@/src/core/calculations/sellingExpense';
 import { notUsedLine } from './exportScope';
 
 export interface BuildModelOptions {
@@ -159,6 +161,13 @@ export interface BuildModelOptions {
    *  live formula reads is built on a visible tab, zero lines included. Set only
    *  by `buildFormulaWorkbook`; the hardcoded export never sets it. */
   liveLayout?: boolean;
+  /**
+   * THE VALUES MODE OF THE ONE LAYOUT (founder, 2026-11-12, export simplification step 2): the
+   * live layout's rows carrying the platform engine's numbers, no formulas, and no row the engine
+   * has no figure for (valuesWorkbook.ts drops the workings only a formula needs). Implies
+   * `liveLayout`. Set only by `buildValuesWorkbook`.
+   */
+  valuesMode?: boolean;
 }
 
 export interface ExcelPartSelection { inputs?: boolean; outputs?: boolean; schedules?: boolean }
@@ -216,7 +225,7 @@ export function buildModelWorkbook(opts: BuildModelOptions): ExcelJS.Workbook {
   // read all results and run their own scenarios manually; editing a cell does
   // NOT recalculate, the user re-exports from the platform after changing inputs.
   setStaticMode(true);
-  setLiveLayout(opts.liveLayout === true);
+  setLiveLayout(opts.liveLayout === true || opts.valuesMode === true);
   resetRegisteredRows();
   try { return buildModelWorkbookInner(opts); } finally { setLiveLayout(false); }
 }
@@ -338,7 +347,7 @@ function buildModelWorkbookInner(opts: BuildModelOptions): ExcelJS.Workbook {
       location: projectLocationLabel(opts.state.project.location, opts.state.project.country) || '',
       horizon: `${snap.axisLength}-year horizon (${snap.projectStartYear} to ${snap.projectStartYear + snap.axisLength - 1})`,
     });
-    buildLiveGuide(guideWs, markInput);
+    buildLiveGuide(guideWs, markInput, opts.valuesMode === true);
     for (const ws of wb.worksheets) collapseSpaces(ws);
   } else {
     const guideRows = applyTabGuides(wb, sectionReg, guides);
@@ -2334,6 +2343,30 @@ function addCapex(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancial
       return totalRow;
     };
     summaryTable('Table 2 - Capex including land', (m) => m.incl, 'cx2');
+    // ── CAPEX BY COST TYPE (2026-11-12, founder): Table 1's lines added by type, inside the capex summary ──
+    {
+      const byType = new Map<CapexCostType, number[]>();
+      for (const m of lines) for (const ln of m.ref.lines) {
+        const cl = state.costLines.find((c) => c.id === ln.id);
+        if (!cl || isExpensedAsIncurred(cl)) continue;
+        const per = inputLine(m.hostId, ln.id)?.perPeriod;
+        if (!per) continue;
+        const t = capexCostType(cl);
+        const acc = byType.get(t) ?? zeros(); addInto(acc, per); byType.set(t, acc);
+      }
+      if (byType.size) {
+        setLabel(ws.getCell(r, C_LBL), 'Capex by cost type', { bold: true }); r += 1;
+        const all = zeros();
+        for (const ct of CAPEX_COST_TYPES) {
+          const s = byType.get(ct.id);
+          if (!s || Math.abs(sumN(s)) <= 0.5) continue;
+          registerCell(`cxty:${ct.id}`, ws, ws.getCell(r, C_LBL));
+          moneyRow(r, ct.label, s, { indent: 1 }); addInto(all, s); r += 1;
+        }
+        registerCell('cxty:total', ws, ws.getCell(r, C_LBL));
+        moneyRow(r, 'Total capex by cost type', all, { style: 'subtotal' }); r += 2;
+      }
+    }
     const exclAllTotalRow = summaryTable('Table 4 - Capex excluding land (development cost)', (m) => m.exclAll, 'cx4');
 
     // ── Table 5: land cash and in-kind by phase (what Financing funds) ───
@@ -2380,21 +2413,30 @@ function addCapex(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancial
     const preOpen = state.costLines.some((c) => deriveCostStage(c) === 'operating');
     const fix7 = (s: string): string => (preOpen ? s : s.replace(/\(hard, soft, pre-opening\)/, '(hard and soft)'));
     const cols = [C_LBL, C_OPEN, C_OPEN + 1, C_OPEN + 2, C_OPEN + 3];
+    // THE COST PER SQM IS ANALYSIS, SO IT SITS ON SUMMARY (2026-11-12, founder: export simplification
+    // step 2): the same tables, keys and columns, at the foot of the Summary tab; the live layer
+    // (stage8Capex7) writes its formulas wherever the registry put the rows.
+    const sws = wb.getWorksheet(SHEETS.summary) ?? ws;
+    let sr = sws.rowCount + 2;
     for (const t of tables7) {
-      r += 1;
-      setSectionHeader(ws.getRow(r), t.title, cLast); r += 1;
-      subHeader(r, t.columns.map((c, i): [number, string, 'left' | 'right' | 'center'] => [cols[i], c, i === 0 ? 'left' : 'right']));
-      r += 1;
+      sr += 1;
+      setSectionHeader(sws.getRow(sr), t.title, cols[cols.length - 1]); sr += 1;
+      t.columns.forEach((c, i) => setColHeader(sws.getCell(sr, cols[i]), c, i === 0 ? 'left' : 'right'));
+      sr += 1;
       for (const row7 of t.rows) {
-        if (row7.kind === 'heading') band(r, '');
-        if (row7.key) registerCell(row7.key, ws, ws.getCell(r, C_LBL));
+        if (row7.kind === 'heading') {
+          fillRange(sws, sr, 1, sr, cols[cols.length - 1], ARGB.subtotal);
+          for (let c = 1; c <= cols[cols.length - 1]; c++) sws.getCell(sr, c).font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.navyDark } };
+        }
+        if (row7.key) registerCell(row7.key, sws, sws.getCell(sr, C_LBL));
         row7.cells.forEach((c, i) => {
           const col = cols[i];
-          if (typeof c === 'string') { if (c) setLabel(ws.getCell(r, col), fix7(c), { indent: i === 0 && row7.kind !== 'heading' ? 1 : undefined, bold: row7.kind !== 'data' }); return; }
-          if (c.n === null) { setLabel(ws.getCell(r, col), 'n/a'); return; }
-          put(r, col, c.n, c.as === 'amount' ? NUMFMT.money : c.as === 'area' ? NUMFMT.int : NUMFMT.rate);
+          if (typeof c === 'string') { if (c) setLabel(sws.getCell(sr, col), fix7(c), { indent: i === 0 && row7.kind !== 'heading' ? 1 : undefined, bold: row7.kind !== 'data' }); return; }
+          if (c.n === null) { setLabel(sws.getCell(sr, col), 'n/a'); return; }
+          const cell = sws.getCell(sr, col); cell.value = c.n; cell.numFmt = c.as === 'amount' ? NUMFMT.money : c.as === 'area' ? NUMFMT.int : NUMFMT.rate;
+          cell.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } };
         });
-        r += 1;
+        sr += 1;
       }
     }
     void subRows; void landAddrs; void TOL;
@@ -2927,6 +2969,8 @@ function defaultRepayStartYearOf(state: FinancialsResolverState, projectStartYea
 const lastActiveCol = (N: number): number => OPEN_COL + N;   // last active column
 /** The period sheets' column geometry (period t sits at OPEN_COL + 1 + t), for the live layers. */
 export const PERIOD_COLS = { LBL_COL, META_B, TOTAL_COL, OPEN_COL } as const;
+/** A sell line's selling-cost row on Revenue (2026-11-12): the one label the builder writes and the layers find. */
+export const sellingCostRowLabel = (line: string): string => `${line}: selling costs`;
 const activeRange = (N: number, r: number): string => `${colLetter(pcol(0))}${r}:${colLetter(lastActiveCol(N))}${r}`;
 // Display year / period index for a 1-based column (E = startYear-1 / index 0).
 const colYear = (snap: ReturnType<typeof computeFinancialsSnapshot>, c: number): number => snap.projectStartYear + (c - 6);
@@ -3840,7 +3884,32 @@ function addRevenue(ctx: EmitCtx): { revLinks: RevLinks; cosLinks: CosLinks } {
       em.gap();
     }
   };
-  if (toSchedules) toSchedules.push(['Selling Costs (the selling and marketing lines on Capex, by line)', emitSellingCosts]); else emitSellingCosts(em, ws);
+  // THE LIVE LAYOUT: ONE ROW PER SELL LINE AND A TOTAL, ON REVENUE (2026-11-12, founder: kept, compact).
+  // The engine's own year-by-year selling costs (`buildSellingCostReport`'s schedule) added by line; the
+  // live workbook links each row to the line's selling-cost cells on Capex (stage2Capex), the one place
+  // they are charged, the only rows of Revenue that read a later tab (formulaWorkbook LOOP_LINKS).
+  if (isLiveLayout()) {
+    const sc = buildSellingCostReport({
+      revenue: snap.revenue, assets: state.assets, phases: state.phases, costLines: state.costLines,
+      costOverrides: state.costOverrides, parcels: state.parcels, landAllocationMode: state.landAllocationMode,
+      project: state.project, subUnits: state.subUnits, yearLabels: yl, projectStartYear: psy,
+    });
+    if (sc?.schedule && sc.schedule.rows.length) {
+      const byLine = new Map<string, { label: string; values: number[] }>();
+      for (const row of sc.schedule.rows) {
+        const lk = row.key.split('::')[0];
+        const cur = byLine.get(lk) ?? { label: row.assetName, values: new Array<number>(N).fill(0) };
+        row.values.forEach((v, t) => { if (t < N) cur.values[t] += v ?? 0; });
+        byLine.set(lk, cur);
+      }
+      em.setRegScope('rev'); em.setRegLine('__sell__');
+      em.subTitle('Selling costs, by sell line (charged on Capex)');
+      for (const [, g] of byLine) em.moneyRow(sellingCostRowLabel(g.label), g.values, { indent: 1 });
+      em.moneyRow('Total selling costs', sc.schedule.totals.slice(0, N), { style: 'subtotal' });
+      em.gap();
+    }
+  } else emitSellingCosts(em, ws);
+  void toSchedules;
   em.setRegScope('rev');
   const lineResults = new Map(lines.map((l) => [l.key, lineRevenueResults(l.members.map((m) => m.id), snap.revenue, l.key)] as const));
   let totalRow = em.cursor();
@@ -4473,6 +4542,21 @@ function addOpexLive(ctx: EmitCtx, ws: ExcelJS.Worksheet, em: ReturnType<typeof 
       if (byLabel.has('Inflation factor while operating')) money(K('fac'), 'Inflation factor while operating', vals('Inflation factor while operating').map((v, t) => v * held(t)), { indent: 1, numFmt: FACTOR_FMT, noTotal: true });
       let rev: number[];
       if (isHotel) {
+        // THE HOTEL'S OPERATING STATISTICS (2026-11-12, founder: kept, compact): keys, room nights sold,
+        // occupancy, ADR and RevPAR, the engine's own figures (RevPAR = rooms revenue over available nights).
+        const hs = line.members.map((m) => snap.revenue.byHospitalityAsset.get(m.id)).filter((x): x is NonNullable<typeof x> => !!x);
+        if (hs.length) {
+          const h = hs[0];
+          const keysN = Math.max(0, ...hs.map((x) => Math.max(0, ...(x.effectiveKeysPerPeriod ?? [0]))));
+          const avail = padded(h.availableRoomNightsPerPeriod), rooms = padded(h.roomsRevenuePerPeriod);
+          em.subTitle('Operating statistics');
+          money(K('st:keys'), 'Keys', padded([]), { indent: 1, noPeriods: true, totalValue: keysN, numFmt: NUMFMT.int });
+          money(K('st:sold'), 'Room nights sold', padded(h.occupiedRoomNightsPerPeriod), { indent: 1, numFmt: NUMFMT.int });
+          money(K('st:occ'), 'Occupancy', padded(h.occupancyPerPeriod), { indent: 1, noTotal: true, numFmt: NUMFMT.pct });
+          money(K('st:adr'), 'ADR (per occupied room night)', padded(h.adrPerPeriod), { indent: 1, noTotal: true, numFmt: NUMFMT.rate });
+          money(K('st:revpar'), 'RevPAR (per available room night)', rooms.map((v, t) => (avail[t] > 0 ? v / avail[t] : 0)), { indent: 1, noTotal: true, numFmt: NUMFMT.rate });
+          em.subTitle('Operating statement');
+        }
         money(K('rev:rooms'), 'Rooms revenue', vals('Rooms revenue'), { indent: 1 });
         money(K('rev:fb'), 'F&B revenue', vals('F&B revenue'), { indent: 1 });
         money(K('rev:other'), 'Other revenue', vals('Other revenue'), { indent: 1 });
@@ -6949,6 +7033,18 @@ function addSummaryLive(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFin
     for (const c of row.cells ?? []) {
       registerCell(`${row.key}|${c.col}`, ws, ws.getCell(r, c.col));
       put(r, c.col, c.v, c.fmt, !!row.style || !!c.bold);
+    }
+    // THE HEADLINE TILES (2026-11-12), the Dashboard's look: navy blocks two columns wide, a light caption
+    // over the figure in white 18pt.
+    if (row.tile) {
+      for (const c of row.cells ?? []) {
+        for (const col of [c.col, c.col + 1]) fillCell(ws.getCell(r, col), ARGB.navy);
+        const cell = ws.getCell(r, c.col);
+        cell.alignment = { horizontal: 'left', vertical: 'middle' };
+        if (row.tile === 'cap') cell.font = { name: 'Calibri', size: 9, bold: true, color: { argb: ARGB.paleBand } };
+        if (row.tile === 'val') cell.font = { name: 'Calibri', size: 18, bold: true, color: { argb: ARGB.white } };
+      }
+      if (row.tile === 'val') ws.getRow(r).height = 24;
     }
     r += 1;
   }
