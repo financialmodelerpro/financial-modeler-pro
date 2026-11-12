@@ -2,6 +2,13 @@
 
 > Forward-looking only: active follow-ups, in-progress work, backlog, legacy reference. Completed phase narratives live in **CLAUDE-FEATURES.md** (archive) and `git log` (authoritative). Do not re-add "Recently Completed" sections here when closing a phase, write the closure into CLAUDE-FEATURES.md instead.
 
+## START HERE 2026-11-12 (session close): EXPORT SIMPLIFICATION STEP 2 IS PART DONE (a305eb9b, live)
+
+- **Done:** step 1 (one house style, `4e1a1175`); step 2 part: the values file is the live layout in values mode (`valuesWorkbook.ts`, engine numbers only, builds for every refused set-up) and the six blocks the founder brought back (IDC by line, selling costs by line, hotel statistics, BS check row, Summary tiles, capex by cost type; Table 7 on Summary). Device trust (`82202e8d`) is live.
+- **Next, on the founder's word:** the step 2 row restructure of Inputs, Land & Area and Capex (one method table, one spend curve per asset, lease table, inflation once, spend shares to about 10, collections to Revenue, Tables 2/4/5 merged). It moves rows the live formulas read, so it needs the real-Excel proof. Then plan steps 3 to 7 (`docs/EXPORT_SIMPLIFICATION_PLAN.md`).
+- **Not run since the last edits (founder: verifiers only when he asks):** verify-export-house-style, verify-report-readability, verify-excel-export, the real-Excel `verify-formula-workbook`, and the session-end suite. Last measured: verify-values-mode 91/0, LibreOffice recalc 0 errors.
+- **Open from device trust:** already-open sessions on other devices cannot be ended by Sign out everywhere without a new column (offered, not built).
+
 ## DONE 2026-11-11: MARKETING STUDIO STORAGE CLEANUP (256 applied, file and bucket deleted, drift accepted)
 
 - The code is removed and migration 256 (drop `marketing_uploaded_assets` + its storage policy) is PENDING. **Once the founder says 256 is applied:** (1) delete `marketing-assets/bg/1777290982038-vmez7mz.png` and then the empty `marketing-assets` bucket through the Storage API (founder confirmed both, conditional on 256); (2) add `MISSING TABLE: marketing_uploaded_assets (declared in 142_marketing_studio_rebuild.sql)` to `scripts/schema-drift-accepted.txt`, with a comment line, since the drift audit does not fold DROP TABLE; (3) mark 256 APPLIED in CLAUDE-DB.md; (4) run `verify-schema-drift`.
