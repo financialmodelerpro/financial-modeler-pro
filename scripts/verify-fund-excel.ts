@@ -86,10 +86,14 @@ const build = (state: any): ExcelJS.Workbook =>
 // ── Sheet readers (shared period geometry: A label, D total, E opening, F..) ──
 const LBL = 1, META_B = 2, META_C = 3, TOTAL = 4, OPEN = 5;
 const pcol = (t: number): number => OPEN + 1 + t;
-const labelOf = (ws: ExcelJS.Worksheet, R: number): string => {
+// THE HOUSE STYLE (2026-11-12, founder): a section bar may carry a house number ("3.1 Fund terms") and a
+// key total is in CAPS, so a label is read without its number and found in either case. A builder's own
+// sub-tab number ("2. RE Metrics") is part of the words: `rowOf` tries the label as written first.
+const rawLabelOf = (ws: ExcelJS.Worksheet, R: number): string => {
   const a = ws.getCell(R, LBL).value;
   return typeof a === 'string' ? a : (a && typeof a === 'object' && 'text' in (a as any) ? (a as any).text : '');
 };
+const labelOf = (ws: ExcelJS.Worksheet, R: number): string => rawLabelOf(ws, R).replace(/^\d+\.(\d+)?\s+/, '');
 const allLabels = (ws: ExcelJS.Worksheet): Array<{ row: number; label: string }> => {
   const out: Array<{ row: number; label: string }> = [];
   ws.eachRow((_r, R) => { const l = labelOf(ws, R); if (l) out.push({ row: R, label: l }); });
@@ -100,8 +104,14 @@ const allLabels = (ws: ExcelJS.Worksheet): Array<{ row: number; label: string }>
  *  "Performance Fee" row) comes BEFORE the waterfall, so a waterfall row is
  *  looked up below the waterfall's own heading. */
 const rowOf = (ws: ExcelJS.Worksheet, label: string, after = 0): number => {
-  const hit = allLabels(ws).find((x) => x.row > after && x.label === label);
-  return hit ? hit.row : -1;
+  const tries: Array<(R: number) => boolean> = [
+    (R) => rawLabelOf(ws, R) === label,
+    (R) => rawLabelOf(ws, R).toLowerCase() === label.toLowerCase(),
+    (R) => labelOf(ws, R) === label,
+    (R) => labelOf(ws, R).toLowerCase() === label.toLowerCase(),
+  ];
+  for (const t of tries) { const hit = allLabels(ws).find((x) => x.row > after && t(x.row)); if (hit) return hit.row; }
+  return -1;
 };
 const WF_TITLE = 'Performance Fee (hurdle waterfall) and DDM after fee';
 const wfStart = (ws: ExcelJS.Worksheet): number => rowOf(ws, WF_TITLE);
@@ -460,7 +470,7 @@ async function main(): Promise<void> {
     if (rStart < 0) return false;
     // The screen's caption sits under the title; the rows follow it.
     const after = allLabels(ret).filter((x) => x.row > rStart && !/^The five management fees/.test(x.label)).slice(0, FEE_INCOME_ROWS.length).map((x) => x.label);
-    return after.join('|') === FEE_INCOME_ROWS.join('|');
+    return after.join('|').toLowerCase() === FEE_INCOME_ROWS.join('|').toLowerCase(); // totals print in CAPS (2026-11-12)
   })());
   check('Returns: Total Management Fees ties to the fee earners snapshot',
     near(totalAt(ret, '= Total Management Fees'), fe.totalManagementFee));

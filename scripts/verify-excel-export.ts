@@ -43,13 +43,35 @@ const num = (v: any): number => {
   return NaN;
 };
 const isFormula = (v: any): boolean => !!(v && typeof v === 'object' && 'formula' in v);
-const labelOf = (ws: ExcelJS.Worksheet, R: number): string => { const a = ws.getCell(R, 1).value; return typeof a === 'string' ? a : (a && typeof a === 'object' && 'text' in (a as any) ? (a as any).text : ''); };
-const rowByLabel = (ws: ExcelJS.Worksheet, re: RegExp): number => { let row = -1; ws.eachRow((_r, R) => { if (row < 0 && re.test(labelOf(ws, R))) row = R; }); return row; };
+// THE HOUSE STYLE (2026-11-12, founder): a section bar carries its number ("3. Capex") and a key
+// total is in CAPS. A label is found by its words, so the number is set aside and a pattern matches
+// either case; the rows the checks reach are the same rows.
+const rawLabelOf = (ws: ExcelJS.Worksheet, R: number): string => { const a = ws.getCell(R, 1).value; return typeof a === 'string' ? a : (a && typeof a === 'object' && 'text' in (a as any) ? (a as any).text : ''); };
+const labelOf = (ws: ExcelJS.Worksheet, R: number): string => rawLabelOf(ws, R).replace(/^\d+\.(\d+)?\s+/, '');
+const anyCase = (re: RegExp): RegExp => (re.flags.includes('i') ? re : new RegExp(re.source, `${re.flags}i`));
+/** A label matches by its words or as numbered; a pattern that names the builder's own number ("2. Revenue Output") still finds it. */
+const labelMatches = (ws: ExcelJS.Worksheet, R: number, rx: RegExp): boolean => rx.test(labelOf(ws, R)) || rx.test(rawLabelOf(ws, R));
+/**
+ * The row a pattern names, the closest reading first: the label exactly as written, then in either
+ * case, then without its house number. A loose reading only answers when no closer one does, so a
+ * section bar "9. Total Equity Required" never shadows the "TOTAL EQUITY REQUIRED" total below it,
+ * and "Development economics" never lands on an earlier "Development Economics".
+ */
+const rowByLabel = (ws: ExcelJS.Worksheet, re: RegExp): number => {
+  const tries: Array<(R: number) => boolean> = [
+    (R) => re.test(rawLabelOf(ws, R)),
+    (R) => anyCase(re).test(rawLabelOf(ws, R)),
+    (R) => re.test(labelOf(ws, R)),
+    (R) => anyCase(re).test(labelOf(ws, R)),
+  ];
+  for (const t of tries) { let row = -1; ws.eachRow((_r, R) => { if (row < 0 && t(R)) row = R; }); if (row > 0) return row; }
+  return -1;
+};
 /** The first row matching `re` BELOW the first row matching `after`. The
  *  Revenue tab mirrors the platform's project total tables, whose grand row is
  *  "Total Project" in three tables (sales value, recognised, cash), so the
  *  recognised figure is found under its own table title. */
-const rowByLabelAfter = (ws: ExcelJS.Worksheet, after: RegExp, re: RegExp): number => { const from = rowByLabel(ws, after); let row = -1; if (from < 0) return -1; ws.eachRow((_r, R) => { if (row < 0 && R > from && re.test(labelOf(ws, R))) row = R; }); return row; };
+const rowByLabelAfter = (ws: ExcelJS.Worksheet, after: RegExp, re: RegExp): number => { const from = rowByLabel(ws, after); let row = -1; if (from < 0) return -1; const rx = anyCase(re); ws.eachRow((_r, R) => { if (row < 0 && R > from && labelMatches(ws, R, rx)) row = R; }); return row; };
 const sumA = (a: number[], n: number): number => a.slice(0, n).reduce((s, v) => s + (v ?? 0), 0);
 const close = (a: number, b: number, tol = 1e-4): boolean => Math.abs(a - b) <= Math.max(1000, Math.abs(b) * tol);
 
@@ -90,7 +112,7 @@ async function main(): Promise<void> {
   // BELOW its own title, never the first match on the sheet.
   const totAfter = (title: RegExp, re: RegExp): number => {
     const T = rowByLabel(cap, title); if (T < 0) return NaN;
-    let row = -1; cap.eachRow((_r, R) => { if (row < 0 && R > T && re.test(labelOf(cap, R))) row = R; });
+    let row = -1; const rx = anyCase(re); cap.eachRow((_r, R) => { if (row < 0 && R > T && labelMatches(cap, R, rx)) row = R; });
     return row > 0 ? num(cap.getCell(row, 5).value) : NaN;
   };
   const snapGrand = snap.financing.capex.totals.inclAllLand;
@@ -122,7 +144,7 @@ async function main(): Promise<void> {
   // (the last 'Total Cost of Sales' ABOVE the Schedules section, whose income
   // statement feed repeats the label) to the snapshot.
   const revSchedulesRow = rowByLabel(wb.getWorksheet('Revenue')!, /^4\. Schedules/);
-  const rowByLabelLast = (ws: ExcelJS.Worksheet, re: RegExp): number => { let row = -1; ws.eachRow((_r, R) => { if (re.test(labelOf(ws, R)) && (revSchedulesRow < 0 || R < revSchedulesRow)) row = R; }); return row; };
+  const rowByLabelLast = (ws: ExcelJS.Worksheet, re: RegExp): number => { let row = -1; const rx = anyCase(re); ws.eachRow((_r, R) => { if (labelMatches(ws, R, rx) && (revSchedulesRow < 0 || R < revSchedulesRow)) row = R; }); return row; };
   const cosTotRow = rowByLabelLast(wb.getWorksheet('Revenue')!, /^Total Cost of Sales$/);
   const cosProjTable = buildCostOfSalesReport(snap, state, (v: number) => String(v)).find((t) => t.title === 'Project Total Cost of Sales');
   const cosProjRow = (cosProjTable?.rows.find((r) => r.isTotal)?.values ?? []) as number[];
@@ -367,6 +389,8 @@ async function main(): Promise<void> {
   const TEXT_OK = new Set<string>([
     ARGB.navy, ARGB.navyDark, ARGB.sectionDark, ARGB.formula, ARGB.white, ARGB.bad,
     ARGB.slate, ARGB.ink, ARGB.greyMid, ARGB.inputBorder, ARGB.good, ARGB.linked, ARGB.input,
+    // The house style (2026-11-12): the band navy for titles and totals, input blue on yellow.
+    ARGB.band, ARGB.inputText,
   ]);
   const strayFill = new Map<string, string>();
   const strayText = new Map<string, string>();
@@ -399,17 +423,18 @@ async function main(): Promise<void> {
       const a = row.getCell(1);
       const fl = (a.fill as any)?.fgColor?.argb;
       const isBand = typeof fl === 'string' && (a.font as any)?.color?.argb === ARGB.white && typeof a.value === 'string';
-      if (isBand && fl !== ARGB.navy && fl !== ARGB.sectionDark) badBand.set(`${fl}@${ws.name}!A${R}`, ws.name);
+      // RE-AIMED 2026-11-12 (founder's house style): the column-head band over the years is #153D64 (ARGB.band).
+      if (isBand && fl !== ARGB.navy && fl !== ARGB.sectionDark && fl !== ARGB.band) badBand.set(`${fl}@${ws.name}!A${R}`, ws.name);
     });
   }
   check('every section header band is navy or sectionDark', badBand.size === 0, [...badBand.keys()].join(' '));
 
   // ── Per-tab sub-TOC: top-of-tab navigation with working internal links ───────
   const DATA_TABS = ALL_SHEETS.filter((n) => n !== 'Cover' && n !== 'Guide');
+  // A section bar's house number ("2. Inputs", "1.3 Phases") is set aside, as labelOf does (2026-11-12).
   const cellText = (v: any): string => {
-    if (typeof v === 'string') return v;
-    if (v && typeof v === 'object') { if ('text' in v) return String(v.text); if ('result' in v) return String(v.result); }
-    return v == null ? '' : String(v);
+    const raw = typeof v === 'string' ? v : v && typeof v === 'object' ? ('text' in v ? String(v.text) : 'result' in v ? String(v.result) : '') : v == null ? '' : String(v);
+    return raw.replace(/^\d+\.(\d+)?\s+/, '');
   };
   for (const name of DATA_TABS) {
     const ws = wb.getWorksheet(name)!;
@@ -429,7 +454,7 @@ async function main(): Promise<void> {
     check(`${name}: sub-TOC has a Back to Cover link`, back);
     check(`${name}: sub-TOC carries internal jump links`, internal.length > 0, `${internal.length}`);
     // Every jump link must land on the row whose column A actually holds that label.
-    const norm = (t: string): string => t.replace(/^\d+\.\s*/, '').trim();
+    const norm = (t: string): string => t.replace(/^\d+\.(\d+)?\s*/, '').trim().toLowerCase();
     const misses = internal.filter((e) => norm(cellText(ws.getCell(e.row, 1).value)) !== norm(e.label));
     check(`${name}: every sub-TOC link lands on its own section row`, misses.length === 0,
       misses.slice(0, 2).map((e) => `"${e.label}"->A${e.row}`).join(' '));
@@ -489,9 +514,16 @@ async function main(): Promise<void> {
   // ── Accounting formatting: dash for zero + percentages 2dp ──────────────────
   const moneyCell = bsWs.getCell(rowByLabel(bsWs, /^TOTAL ASSETS$/), 6);
   check('money format uses dash for zero', typeof moneyCell.numFmt === 'string' && moneyCell.numFmt.includes('"-"'));
-  let pct2Ok = false;
-  revWs.eachRow((row) => row.eachCell((c) => { if (typeof c.numFmt === 'string' && /0\.00%/.test(c.numFmt)) pct2Ok = true; }));
-  check('percentages are 2 decimals', pct2Ok);
+  // RE-AIMED 2026-11-12 (founder's house style): a computed percentage shows one decimal; only a typed input
+  // keeps the second decimal it was typed with. Both halves asserted: the 1dp format is used, and no
+  // computed (unshaded) cell carries 2dp.
+  let pct1Used = false, pct2Computed = 0;
+  revWs.eachRow((row) => row.eachCell((c) => {
+    if (typeof c.numFmt !== 'string' || !c.numFmt.includes('%')) return;
+    if (c.numFmt.startsWith('0.0%')) pct1Used = true;
+    if (/0\.00%/.test(c.numFmt) && (c.fill as any)?.fgColor?.argb !== ARGB.inputFill) pct2Computed++;
+  }));
+  check('computed percentages show one decimal (typed inputs keep two)', pct1Used && pct2Computed === 0, `2dp computed cells: ${pct2Computed}`);
 
   // ── Valid .xlsx reloads cleanly ─────────────────────────────────────────────
   const buf = await generateModelWorkbookBuffer({ state, projectName: 'X', dateLabel: 'd' });
@@ -599,10 +631,9 @@ async function main(): Promise<void> {
   // ── Print setup: every sheet is print-ready (fit-to-width, oriented) ─────────
   const allPrintReady = wb.worksheets.every((ws) => { const ps: any = ws.pageSetup ?? {}; return ps.fitToPage === true && ps.fitToWidth === 1 && (ps.orientation === 'portrait' || ps.orientation === 'landscape'); });
   check('every sheet has a print-ready page layout (fit to width + orientation)', allPrintReady);
-  check('Cover prints centred portrait on one page', ['Cover'].every((n) => { const ps: any = wb.getWorksheet(n)!.pageSetup ?? {}; return ps.orientation === 'portrait' && ps.fitToHeight === 1 && ps.horizontalCentered === true; }));
-  // The Summary mirrors the whole Project Overview, which is longer than one
-  // page, so it prints portrait at full width and flows to a second page.
-  check('Summary prints portrait, fit to width', (() => { const ps: any = wb.getWorksheet('Summary')!.pageSetup ?? {}; return ps.orientation === 'portrait' && ps.fitToWidth === 1; })());
+  // RE-AIMED 2026-11-12 (founder's house style): EVERY tab prints landscape, fit to width, the Cover and
+  // the Summary included (they printed portrait until then).
+  check('every tab, Cover and Summary included, prints landscape fit to width', wb.worksheets.every((ws) => { const ps: any = ws.pageSetup ?? {}; return ps.orientation === 'landscape' && ps.fitToWidth === 1; }));
   check('wide period tabs repeat the header rows when printed', ['P&L', 'Cash Flow', 'Balance Sheet', 'Returns', 'Scenarios'].every((n) => { const ps: any = wb.getWorksheet(n)!.pageSetup ?? {}; return ps.orientation === 'landscape' && ps.printTitlesRow === '1:4'; }));
 
   // ── Table of Contents: second-level clickable section sub-entries (2026-07-26) ─
@@ -615,7 +646,7 @@ async function main(): Promise<void> {
   check('Cover ToC links every tab to its A1', ALL_SHEETS.slice(1).every((n) => coverLinks.some((l) => l.target === `#'${n}'!A1`)), `links=${coverLinks.length}`);
   const sectionLinks = coverLinks.filter((l) => { const m = l.target.match(/^#'(.+)'!A(\d+)$/); return !!m && Number(m[2]) > 1; });
   check('Cover ToC carries second-level section sub-entries (jump INTO a tab)', sectionLinks.length > 0, `sectionLinks=${sectionLinks.length}`);
-  check('every section sub-entry points at the row whose label is its title (a real anchor)', sectionLinks.every((l) => { const m = l.target.match(/^#'(.+)'!A(\d+)$/)!; const ws = wb.getWorksheet(m[1]); return !!ws && labelOf(ws, Number(m[2])) === l.text; }), `n=${sectionLinks.length}`);
+  check('every section sub-entry points at the row whose label is its title (a real anchor)', sectionLinks.every((l) => { const m = l.target.match(/^#'(.+)'!A(\d+)$/)!; const ws = wb.getWorksheet(m[1]); return !!ws && labelOf(ws, Number(m[2])).toLowerCase() === l.text.replace(/^\d+\.(\d+)?\s+/, '').toLowerCase(); }), `n=${sectionLinks.length}`);
 
   // ── Per-tab guideline block ("How this tab is calculated") + Covers line ─────
   const GUIDE_TABS = ['Summary', 'Inputs', 'Timeline', 'Land & Area', 'Capex', 'Financing', 'Revenue', 'Opex', 'Schedules', 'P&L', 'Cash Flow', 'Balance Sheet', 'Returns', 'Scenarios', 'Checks'];
@@ -701,7 +732,7 @@ async function main(): Promise<void> {
     for (const label of ['Cumulative Funding Gap (A)', 'Closing cash (after funding, before finance cost, sweep and dividends)']) {
       let printed: number | null = null; const series: number[] = [];
       fin?.eachRow((row) => {
-        if (String(row.getCell(1).value ?? '').trim() !== label) return;
+        if (String(row.getCell(1).value ?? '').trim().toLowerCase() !== label.toLowerCase()) return; // a key total is in CAPS (2026-11-12)
         const cell = row.getCell(4).value;
         printed = typeof cell === 'number' ? cell : null;
         for (let c = 6; c <= 80; c++) { const v = row.getCell(c).value; if (typeof v === 'number') series.push(v); else break; }

@@ -104,9 +104,8 @@ export function liveUnitsLine(sheet: string, currency: string, scale: DisplaySca
   switch (sheet) {
     case 'Inputs': return `${currency}; areas in sqm`;
     case 'Timeline': return 'Years';
-    // Land values are full currency units, whatever the money scale elsewhere (2026-10-26).
-    case 'Land & Area': return `Areas in sqm; land values in ${currency}`;
-    case 'Summary': return `${currency} millions`;
+    // Land values follow the download's units like every money cell (2026-11-12, founder); areas stay in sqm.
+    case 'Land & Area': return `Areas in sqm; land values in ${money}`;
     default: return money;
   }
 }

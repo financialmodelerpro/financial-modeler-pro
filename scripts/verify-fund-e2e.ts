@@ -480,7 +480,8 @@ async function main(): Promise<void> {
     // waterfall row is read below the waterfall's own heading (2026-09-17).
     const wf0 = rowOf(ret, 'Performance Fee (hurdle waterfall) and DDM after fee');
     const rowAfterWf = (label: string): number => {
-      let hit = -1; ret.eachRow((_r, R) => { if (hit < 0 && R > wf0 && labelOf(ret, R) === label) hit = R; }); return wf0 > 0 ? hit : -1;
+      // A total prints in CAPS (house style, 2026-11-12): the words are the identity, not the case.
+      let hit = -1; ret.eachRow((_r, R) => { if (hit < 0 && R > wf0 && labelOf(ret, R).toLowerCase() === label.toLowerCase()) hit = R; }); return wf0 > 0 ? hit : -1;
     };
 
     // Row ORDER identical on all four surfaces.

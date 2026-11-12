@@ -30,7 +30,8 @@
  * No em dashes in this file.
  */
 import type ExcelJS from 'exceljs';
-import { buildModelWorkbook, enableIterativeCalc, type BuildModelOptions } from './buildModelWorkbook';
+import { buildModelWorkbook, enableIterativeCalc, houseContextOf, type BuildModelOptions } from './buildModelWorkbook';
+import { applyHouseStyle, timelinePhaseFormula } from './houseStyle';
 import { CellRegistry, setCellSink } from './cellRegistry';
 import { settlePending } from './liveLayers/writer';
 import { stage1LandArea } from './liveLayers/stage1LandArea';
@@ -199,6 +200,19 @@ export function buildFormulaWorkbook(opts: BuildModelOptions): FormulaWorkbookRe
   const sched = status.get('Schedules')?.status;
   const ar = receivableDaysProblems(wb, arDays, sched === 'live' || sched === 'partial');
   if (ar.length) throw new Error(`The live workbook failed its receivable days check: ${ar.join('; ')}.`);
+  // THE HOUSE STYLE, LAST (2026-11-12, founder): the same pass the values workbook ends with, run
+  // after every layer and check, so the two files wear one look. The phase row over each period
+  // band reads Timeline, whose own row is worked out from its flag rows.
+  const house = houseContextOf(wb);
+  if (house) {
+    const rowOf = (k: string): number | null => registry.get(k)?.row ?? null;
+    const ids = opts.state.phases.map((p) => p.id);
+    const con = ids.map((id) => rowOf(`tl:flag:${id}:con`)).filter((x): x is number => x !== null);
+    const ops = ids.map((id) => rowOf(`tl:flag:${id}:ops`)).filter((x): x is number => x !== null);
+    const exit = house.phaseLabels.includes('Exit year') ? rowOf('tl:flag:exit') : null;
+    const ok = con.length === ids.length && ops.length === ids.length;
+    applyHouseStyle(wb, { ...house, timelinePhaseFormula: ok ? (col) => timelinePhaseFormula(col, { con, ops, exit }) : undefined });
+  }
   return { wb, registry, status, pending };
 }
 

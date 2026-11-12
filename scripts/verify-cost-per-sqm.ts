@@ -171,7 +171,8 @@ const PROJECT = 'c417fc6a-4514-4438-857c-a72dc7472f65'; // FMP - MARINA GATE
     const ws = wb.worksheets.find((w) => /capex/i.test(w.name));
     let t7Row = 0, checkRow = 0;
     ws?.eachRow((rw, n) => {
-      const a = String(rw.getCell(1).value ?? '');
+      // A section bar carries its house number (2026-11-12): read the words.
+      const a = String(rw.getCell(1).value ?? '').replace(/^\d+\.(\d+)?\s+/, '');
       if (a === 'Table 7a - Cost per sqm, by line') t7Row = n;
       if (a.startsWith('Check: every cost line total summed')) checkRow = n;
     });
@@ -186,7 +187,10 @@ const PROJECT = 'c417fc6a-4514-4438-857c-a72dc7472f65'; // FMP - MARINA GATE
         const cells = [5, 6, 7, 8].map((cI) => rw.getCell(cI));
         found = near(Number(cells[0].value), first.cost.construction) && near(Number(cells[1].value), first.perSqm.construction.nsa ?? NaN, 1e-6);
         amountFmtScaled = cells[0].numFmt !== NUMFMT.rate && /,,/.test(String(cells[0].numFmt));
-        rateFmtFull = cells[1].numFmt === NUMFMT.rate;
+        // RE-AIMED 2026-11-12 (house style): the rule is "a rate is never scaled", not one format string:
+        // two decimals and no scaling comma, whatever the money cells beside it are in.
+        const rf = String(cells[1].numFmt ?? '');
+        rateFmtFull = /0\.00/.test(rf) && !/0,/.test(rf) && rf !== String(cells[0].numFmt);
       }
     });
     check('E3 its first line reads the report\'s own numbers (cost and cost per sqm of NSA)', found);

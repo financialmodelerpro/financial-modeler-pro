@@ -607,7 +607,8 @@ console.log('\n[SWEEP] Repayment method wired: engine schedule is the single sou
       wb.eachSheet((ws) => {
         if (ws.name === 'Financing') return;
         ws.eachRow((r, i) => {
-          if (String(r.getCell(1).value ?? '') !== 'Land Funding (per phase, from the Capex results)') return;
+          // A section bar carries its house number ("7.2 Land Funding ...", 2026-11-12): read the words.
+          if (String(r.getCell(1).value ?? '').replace(/^\d+\.(\d+)?\s+/, '') !== 'Land Funding (per phase, from the Capex results)') return;
           for (let k = i + 2; k < i + 8; k++) { const row = ws.getRow(k); if (!row.getCell(1).value || row.getCell(4).value == null) break; out.push({ where: `${ws.name} ${row.getCell(1).value}`, d: row.getCell(4).value, e: row.getCell(5).value }); }
         });
       });

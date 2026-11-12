@@ -120,6 +120,8 @@ import { buildPartiesTable, PARTIES_TITLE, PARTIES_EMPTY_TEXT } from '../reports
 import type { Party } from '../parties';
 import { projectLocationLabel } from '@/src/core/countries';
 import { buildLiveCover, buildLiveGuide, liveUnitsLine, dropNoteRows, collapseSpaces, shortenTexts } from './liveFrontMatter';
+import { applyHouseStyle, phaseLabelsFor, type HouseContext } from './houseStyle';
+import { notUsedLine } from './exportScope';
 
 export interface BuildModelOptions {
   state: FinancialsResolverState;
@@ -362,9 +364,32 @@ function buildModelWorkbookInner(opts: BuildModelOptions): ExcelJS.Workbook {
   // Print setup: a professional, print-ready page layout on every sheet (fit to
   // width, repeated header rows, centred cover / summary, page-numbered footer).
   applyPrintSetup(wb);
+  // THE HOUSE STYLE (2026-11-12, founder): the last step of the values workbook; the live
+  // workbook runs it after its layers (formulaWorkbook.ts), from the context kept here.
+  const house = houseContextFor(opts, snap);
+  HOUSE_CONTEXT.set(wb, house);
+  if (!isLiveLayout()) applyHouseStyle(wb, house);
   // Apply the Inputs / Schedules / Outputs filter LAST (hide unticked categories).
   applyPartVisibility(wb, opts.parts);
   return wb;
+}
+
+/** The house style's context per built workbook, for the live build to apply it after its layers. */
+const HOUSE_CONTEXT = new WeakMap<ExcelJS.Workbook, HouseContext>();
+export function houseContextOf(wb: ExcelJS.Workbook): HouseContext | undefined { return HOUSE_CONTEXT.get(wb); }
+
+/** What the house style needs: the units chosen, the Inputs line, each model year's phase. */
+function houseContextFor(opts: BuildModelOptions, snap: ReturnType<typeof computeFinancialsSnapshot>): HouseContext {
+  const scale = opts.displayScale ?? 'full';
+  const N = snap.axisLength;
+  const cfg = resolveReturnsConfig(opts.state.project, N);
+  const phases = opts.state.phases.map((p) => ({ start: utcYear(p.startDate, snap.projectStartYear), cp: p.constructionPeriods ?? 0, op: p.operationsPeriods ?? 0 }));
+  return {
+    scale, decimals: opts.displayDecimals ?? defaultDecimals(scale),
+    currency: opts.state.project.currency ?? 'SAR',
+    notUsedLine: notUsedLine(opts.state as never),
+    phaseLabels: phaseLabelsFor(phases, snap.projectStartYear, N, cfg.terminalMethod !== 'none' ? cfg.exitYearOffset : null),
+  };
 }
 
 // Sheets that carry the shared 4-row frozen header (writeSheetHeader): repeat

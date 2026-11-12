@@ -41,10 +41,11 @@ export const ARGB = {
   // the on-screen FAST_INPUT cells and the PDF input shading, so an assumption
   // reads at a glance without a coloured font. Deliberately distinct from the
   // paleBand / subtotal shades so an input never reads as a sub-header.
-  inputFill: 'FFE2EAF4',   // navy-pale fill (PDF FAST_FILL)
+  // THE FOUNDER'S MODEL (2026-11-12, export simplification step 1): inputs blue on yellow.
+  inputFill: 'FFFFF2CC',
   inputBorder: 'FFBDCCE3', // light navy border (PDF FAST_BORDER)
   formula: 'FF000000',   // black, calculations
-  linked: 'FF00B050',    // green, cross-sheet references
+  linked: 'FF2E8B3A',    // green, cross-sheet references (the founder's model, 2026-11-12)
   external: 'FFFF0000',  // red, external links (unused for now)
   navy: 'FF1B4F8A',
   // TEXT ONLY. Historically also used as a fill; every fill call site now uses
@@ -68,6 +69,9 @@ export const ARGB = {
   good: 'FF2E7D52',
   bad: 'FFC00000',
   warnBg: 'FFFFF3CD',
+  // The house style (houseStyle.ts, 2026-11-12): the header band and the subtotal grey.
+  band: 'FF153D64',
+  subtotalGrey: 'FFD9D9D9',
 };
 
 /** Every fill colour the workbook is allowed to emit. The verifier asserts that
@@ -75,6 +79,7 @@ export const ARGB = {
 export const ALLOWED_FILLS: ReadonlySet<string> = new Set([
   ARGB.navy, ARGB.sectionDark, ARGB.paleBand, ARGB.subtotal, ARGB.grey,
   ARGB.greyMid, ARGB.inputFill, ARGB.white, ARGB.good, ARGB.bad, ARGB.warnBg,
+  ARGB.band, ARGB.subtotalGrey,
 ]);
 
 /**
@@ -217,10 +222,9 @@ export const BODY_SIZE = 9.5;
 /** Apply the FAST input look (navy-pale fill, navy text, light border) to a cell.
  *  Use on cells whose value / formula is written elsewhere but which are inputs. */
 export function markInput(cell: Cell): void {
-  cell.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.navyDark } };
+  cell.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.inputText } };
   cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: ARGB.inputFill } };
-  const b = { style: 'thin' as const, color: { argb: ARGB.inputBorder } };
-  cell.border = { top: b, bottom: b, left: b, right: b };
+  cell.border = { top: { style: 'dotted' }, bottom: { style: 'dotted' } };
 }
 export function setInput(cell: Cell, value: number | string, numFmt = NUMFMT.money): void {
   cell.value = value;

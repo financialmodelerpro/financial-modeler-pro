@@ -91,3 +91,7 @@ exports/
 # REFM live course materials (slides, prompts, trainee inputs): synced to storage by
 # npm run sync:refm-materials, never committed.
 docs/REFM_Live_Course_Materials/
+
+# The founder's hand-built reference model for the export simplification (2026-11-12):
+# a benchmark for the look, never committed.
+docs/FMP_Marina_Gate_Model.xlsx

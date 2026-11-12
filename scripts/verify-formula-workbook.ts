@@ -38,6 +38,7 @@ import JSZip from 'jszip';
 import { planRevenueLines } from '../src/hubs/modeling/platforms/refm/lib/revenueLines';
 import { resolveUsefulLifeYears, resolveAssetAreaMetrics } from '../src/core/calculations';
 import { CellRegistry } from '../src/hubs/modeling/platforms/refm/lib/excel/cellRegistry';
+import { ARGB } from '../src/hubs/modeling/platforms/refm/lib/excel/styles';
 import { platformAfterEdit } from './fixtures/platformAfterEdit';
 import { computeFinancialsSnapshot } from '../src/hubs/modeling/platforms/refm/lib/financials-resolvers';
 import { buildOperatingKpis } from '../src/hubs/modeling/platforms/refm/lib/reports/operatingKpis';
@@ -1152,6 +1153,8 @@ function formulaCells(wb: ExcelJS.Workbook): Map<string, { formula: string; resu
     const shadedFixed = shadedCells(wb).filter((s) => { const t = (wb.getWorksheet(s.sheet)!.getCell(s.row, s.col).note as unknown as { texts?: Array<{ text: string }> } | undefined)?.texts?.map((x) => x.text).join('') ?? ''; return t.startsWith('Fixed at export'); });
     check(`A11b every fixed-at-export cell (${fixedNotes}) is unshaded`, fixedNotes > 0 && shadedFixed.length === 0, shadedFixed.slice(0, 4).map((s) => `${s.sheet}!R${s.row}C${s.col}`).join(', '));
     // THE GUARD FIRES: shade one unshaded number no formula reads, in a copy, and it must be caught there.
+    // The shading is the input fill the build uses (ARGB.inputFill), never a copied colour: the house style
+    // moved it to the founder's yellow on 2026-11-12, and a literal left here planted a fill nothing reads.
     const { wb: copy } = buildFormulaWorkbook(opts);
     const rd = readCells(copy);
     let planted = '';
@@ -1159,12 +1162,12 @@ function formulaCells(wb: ExcelJS.Workbook): Map<string, { formula: string; resu
       if (planted || ws.state === 'hidden' || ws.name !== 'Inputs') continue;
       ws.eachRow((row, r) => row.eachCell((c, col) => {
         if (planted || typeof c.value !== 'number' || rd.has(cellId(ws.name, r, col)) || isShaded(c)) return;
-        c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE2EAF4' } } as ExcelJS.Fill;
+        c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: ARGB.inputFill } } as ExcelJS.Fill;
         planted = `${ws.name}!${colLetterOf(col)}${r}`;
       }));
     }
     // No unread number left on Inputs (2026-11-03, the fee matrix's unused columns went): plant one in an empty cell.
-    if (!planted) { const ws = copy.getWorksheet('Inputs')!; const r = ws.rowCount + 2; const c = ws.getCell(r, 2); c.value = 123; c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE2EAF4' } } as ExcelJS.Fill; planted = `Inputs!B${r}`; }
+    if (!planted) { const ws = copy.getWorksheet('Inputs')!; const r = ws.rowCount + 2; const c = ws.getCell(r, 2); c.value = 123; c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: ARGB.inputFill } } as ExcelJS.Fill; planted = `Inputs!B${r}`; }
     const caught = deadOf(copy);
     check('A11c the guard fires: a number no formula reads, shaded in a copy, is caught at exactly that cell', !!planted && caught.length === 1 && caught[0] === planted, `planted ${planted}, caught ${caught.join(', ')}`);
   }
