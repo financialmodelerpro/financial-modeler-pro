@@ -21,6 +21,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createHash } from 'crypto';
 import { getServerClient } from '@/src/core/db/supabase';
 import { hashPassword } from '@/src/shared/auth/password';
+import { revokeTrustedDevices } from '@/src/shared/auth/deviceTrust';
 
 const UNAVAILABLE = 'Password reset is temporarily unavailable. Please try again later or contact support.';
 
@@ -79,6 +80,15 @@ export async function POST(req: NextRequest) {
 
   // Any other outstanding links for this user are now dead.
   await db.from('password_reset_tokens').delete().eq('user_id', row.user_id).is('used_at', null);
+
+  // A password reset revokes EVERY trusted device for this email
+  // (deviceTrust.ts rule 5).
+  try {
+    const { data: u } = await db.from('users').select('email').eq('id', row.user_id).maybeSingle();
+    if (u?.email) await revokeTrustedDevices(u.email);
+  } catch (e) {
+    console.error('[reset-password] trusted device revoke failed:', e);
+  }
 
   return NextResponse.json({ ok: true });
 }

@@ -67,7 +67,7 @@ function ModelingSignInInner() {
   const [deviceStep,   setDeviceStep]   = useState<'credentials' | 'otp'>('credentials');
   const [deviceEmail,  setDeviceEmail]  = useState('');
   const [deviceOtp,    setDeviceOtp]    = useState('');
-  const [trustChecked, setTrustChecked] = useState(false);
+  const [trustChecked, setTrustChecked] = useState(true);
   const [deviceError,  setDeviceError]  = useState('');
   const [sendingOtp,   setSendingOtp]   = useState(false);
   const [verifyingOtp, setVerifyingOtp] = useState(false);

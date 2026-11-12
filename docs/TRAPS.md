@@ -3735,6 +3735,14 @@ is 16:00 UTC, the same typed time in Karachi is 14:00 UTC), U5.2a (the payload k
 
 ---
 
+### 9.13 Trust was kept on the server and lost in the browser (2026-11-12)
+
+**Symptom.** "Verified devices keep asking for a code", on admin, the Modeling Hub, the installed app and the phone; a phone sign-in seemed to un-trust the laptop.
+**Mechanism.** Nothing revoked anything: the founder's account had 6 live 30-day rows. The trust cookie was HOST-ONLY, so www (admin), app. and learn. were three separate verifications per device, and an installed phone app can have its own cookie jar. Two smaller causes: the "trust this device" box defaulted to unticked (2-hour trust), and one verify route stored the email as typed while the check compared the lowercase email on file. Looking only at the database said "working".
+**Fix.** `deviceTrust.ts`: Domain=.financialmodelerpro.com on FMP hosts; trust keyed on token plus lowercased email, not hub (a shared cookie holds ONE token, so a hub filter would make each hub's verification break the other's); every value of a duplicated cookie name is read from the raw header (Next's cookie map keeps one); revocation only by explicit action.
+**Proof.** `verify-device-trust` C1 to C10 against the live table: two devices trusted at once, a trust on one hub passing on the other, a typed capital matching, revoke removing all of an email's rows and no one else's.
+**Lesson.** When a client says "it forgets", compare what the server stored with what the client sends back; a cookie's Domain decides which sites share it.
+
 ### 9.12 Every read crossed the Pacific: functions in Virginia, database in Tokyo (2026-11-10)
 
 **Symptom.** Training Sessions took 3 to 8 s and the course pages 2 to 2.5 s, with small payloads (largest

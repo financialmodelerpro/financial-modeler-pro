@@ -14,7 +14,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerClient } from '@/src/core/db/supabase';
-import { isDeviceTrusted, isTrainingDeviceVerificationRequired } from '@/src/shared/auth/deviceTrust';
+import { isDeviceTrusted, isTrainingDeviceVerificationRequired, readTrustTokens } from '@/src/shared/auth/deviceTrust';
 import { getTrainingComingSoonState } from '@/src/hubs/training/lib/comingSoon';
 import { isTrainingIdentifierBypassed } from '@/src/shared/comingSoon/bypassList';
 import bcrypt from 'bcryptjs';
@@ -222,8 +222,9 @@ export async function POST(req: NextRequest) {
     // Device trust check - use email as identifier (matches how trustDevice stores it).
     // Gated by the admin "device verification required" switch: when an admin
     // turns it off, an untrusted device skips the OTP step (default: ON).
-    const deviceCookie = req.cookies.get('fmp-trusted-device')?.value;
-    const trusted = await isDeviceTrusted(deviceCookie, email, 'training');
+    // Every trust cookie value counts (old host-only and shared-domain), and a
+    // trust made on any FMP site counts here (deviceTrust.ts rules 2 to 4).
+    const trusted = await isDeviceTrusted(readTrustTokens(req.headers.get('cookie')), email);
 
     // The Training Hub's own switch (admin > Launch Settings), then the shared rule.
     if (!trusted && await isTrainingDeviceVerificationRequired()) {

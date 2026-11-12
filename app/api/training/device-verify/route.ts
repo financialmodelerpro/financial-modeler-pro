@@ -91,12 +91,14 @@ export async function POST(req: NextRequest) {
       setTrainingSessionCookie(response, pending.email, pending.registrationId);
       clearDevicePendingCookie(response);
 
-      // Trust device if requested - always use email as identifier (consistent with isDeviceTrusted)
-      if (body.trustDevice && email) {
-        const token = await trustDevice(email.toLowerCase(), 'training');
+      // Trust the device for 30 days unless the student unticked the box (the
+      // box defaults to ticked). The identifier is the lowercased email and the
+      // cookie is shared across every FMP site (deviceTrust.ts rules 2 and 3).
+      if (body.trustDevice !== false && email) {
+        const token = await trustDevice(email, 'training');
         response.headers.append(
           'Set-Cookie',
-          buildTrustCookieHeader(token, process.env.NODE_ENV === 'production'),
+          buildTrustCookieHeader(token, { host: req.headers.get('host'), secure: process.env.NODE_ENV === 'production' }),
         );
       }
 

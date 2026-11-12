@@ -112,6 +112,7 @@ export default function SettingsPage() {
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [deleting,       setDeleting]       = useState(false);
   const [signingOut,     setSigningOut]     = useState(false);
+  const [signingOutAll,  setSigningOutAll]  = useState(false);
   const avatarInputRef = React.useRef<HTMLInputElement>(null);
 
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
@@ -241,6 +242,17 @@ export default function SettingsPage() {
       setCurPassword(''); setNewPassword(''); setConfirmPassword('');
       showToast('Password updated', 'success');
     } finally { setSavingPassword(false); }
+  }
+
+  async function signOutEverywhere() {
+    if (!window.confirm('Sign out everywhere? Every device, including this one, will need a new emailed code at its next sign-in.')) return;
+    setSigningOutAll(true);
+    try {
+      const res = await fetch('/api/user/sign-out-everywhere', { method: 'POST' });
+      const j = await res.json().catch(() => ({})) as { error?: string; removed?: number };
+      if (!res.ok) { showToast(j.error ?? 'Could not sign out your devices', 'error'); return; }
+      showToast(`Signed out of ${j.removed ?? 0} trusted device${j.removed === 1 ? '' : 's'}`, 'success');
+    } finally { setSigningOutAll(false); }
   }
 
   async function deleteAccount(e: React.FormEvent) {
@@ -477,6 +489,20 @@ export default function SettingsPage() {
               className="btn-danger"
             >
               {signingOut ? 'Signing out…' : 'Sign Out'}
+            </button>
+          </div>
+
+          {/* Sign out everywhere (deviceTrust.ts rule 5) */}
+          <div data-testid="sign-out-everywhere" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, marginBottom: 24, paddingBottom: 24, borderBottom: '1px solid #fecaca' }}>
+            <div style={{ flex: 1, minWidth: 240 }}>
+              <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--color-heading)' }}>Sign out everywhere</div>
+              <div style={{ fontSize: 12, color: 'var(--color-meta)', lineHeight: 1.6 }}>
+                Removes every trusted device on all FMP sites, this one included, so each needs a new emailed code at its next sign-in.
+                A session already open on another device stays open until it signs out or stops being used for an hour.
+              </div>
+            </div>
+            <button type="button" data-view-mutates="true" onClick={signOutEverywhere} disabled={signingOutAll} className="btn-danger">
+              {signingOutAll ? 'Signing out…' : 'Sign out everywhere'}
             </button>
           </div>
 

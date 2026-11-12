@@ -1,9 +1,9 @@
 import type { AuthOptions } from 'next-auth';
 import CredentialsProvider from 'next-auth/providers/credentials';
-import { cookies } from 'next/headers';
+import { headers } from 'next/headers';
 import { serverClient } from '@/src/core/db/supabase';
 import { verifyPassword } from '@/src/shared/auth/password';
-import { isDeviceTrusted, DEVICE_COOKIE_NAME, isDeviceVerificationRequired } from '@/src/shared/auth/deviceTrust';
+import { isDeviceTrusted, readTrustTokens, isDeviceVerificationRequired } from '@/src/shared/auth/deviceTrust';
 // TODO post-restructure-2.7: dependency-invert NextAuth `authorize()` so
 // the modeling-hub-specific gating (Coming Soon + whitelist) is injected
 // as a per-hub callback rather than imported here. Today these two lines
@@ -81,12 +81,11 @@ export const authOptions: AuthOptions = {
         // 30-day-trust flow as students; the trust cookie is keyed on
         // the user's email so it works across all hubs the
         // device-verify route writes to.
-        const cookieStore = await cookies();
-        const deviceToken = cookieStore.get(DEVICE_COOKIE_NAME)?.value ?? null;
-
-        const trusted = deviceToken
-          ? await isDeviceTrusted(deviceToken, user.email, 'modeling')
-          : false;
+        // Every value of the trust cookie counts (an old host-only cookie and
+        // the shared-domain one can both be present), and a trust made on any
+        // FMP site counts here (deviceTrust.ts rules 2 to 4).
+        const headerStore = await headers();
+        const trusted = await isDeviceTrusted(readTrustTokens(headerStore.get('cookie')), user.email);
 
         // The device-trust gate is itself gated by the admin "device
         // verification required" switch. When an admin turns it off, an

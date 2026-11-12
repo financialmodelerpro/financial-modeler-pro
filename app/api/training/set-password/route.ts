@@ -23,6 +23,7 @@ import { getServerClient } from '@/src/core/db/supabase';
 import { rateLimited } from '@/src/shared/api/rateLimit';
 import { lookupStudent, LOOKUP_MESSAGES } from '@/src/hubs/training/lib/auth/studentLookup';
 import bcrypt from 'bcryptjs';
+import { revokeTrustedDevices } from '@/src/shared/auth/deviceTrust';
 
 const MAX_WRONG_CODES = 5;
 
@@ -87,6 +88,10 @@ export async function POST(req: NextRequest) {
     const { error: pwErr } = await sb.from('training_passwords')
       .upsert({ registration_id: regId, password_hash: hash }, { onConflict: 'registration_id' });
     if (pwErr) throw new Error(pwErr.message);
+
+    // A password change or reset revokes EVERY trusted device for this email
+    // (deviceTrust.ts rule 5).
+    try { await revokeTrustedDevices(email); } catch (e) { console.error('[set-password] trusted device revoke failed:', e); }
 
     console.info(`[set-password] password set (student ${regId})`);
     return NextResponse.json({ success: true, registrationId: regId });

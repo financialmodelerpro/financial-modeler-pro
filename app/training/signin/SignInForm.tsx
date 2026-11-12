@@ -80,7 +80,7 @@ function TrainingSignInInner() {
   const [deviceEmail,   setDeviceEmail]   = useState('');  // ALWAYS the resolved email from validate API
   const [deviceRegId,   setDeviceRegId]   = useState('');
   const [deviceOtp,     setDeviceOtp]     = useState('');
-  const [trustChecked,  setTrustChecked]  = useState(false);
+  const [trustChecked,  setTrustChecked]  = useState(true);
   const [sendingDevOtp, setSendingDevOtp] = useState(false);
   const [verifyingDev,  setVerifyingDev]  = useState(false);
   const [deviceError,   setDeviceError]   = useState('');
