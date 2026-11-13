@@ -208,7 +208,7 @@ export function fakeDb(seed: Record<string, Row[]> = {}) {
     let payload: Row | Row[] | null = null;
     let conflict: string[] = [];
     let ignoreDup = false;
-    let orderBy: { col: string; asc: boolean }[] = [];
+    const orderBy: { col: string; asc: boolean }[] = [];
     let lim: number | null = null;
     let headOnly = false;
     const run = (): { data: Row[]; error: null | { message: string }; count?: number } => {

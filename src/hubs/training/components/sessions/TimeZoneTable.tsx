@@ -36,10 +36,14 @@ export function TimeZoneTable({
   }, [anchorId]);
   useEffect(() => {
     if (!iso) return;
-    try {
-      const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-      if (tz) setLocal(zoneTimes(iso, [{ tz, label: `Your local time (${regionLabel(tz)})` }], baseTz)[0] ?? null);
-    } catch { /* no zone: the line is simply omitted */ }
+    // Deferred one tick (like the hash read above) so the state is set from a callback, not the effect body.
+    const t = setTimeout(() => {
+      try {
+        const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+        if (tz) setLocal(zoneTimes(iso, [{ tz, label: `Your local time (${regionLabel(tz)})` }], baseTz)[0] ?? null);
+      } catch { /* no zone: the line is simply omitted */ }
+    }, 0);
+    return () => clearTimeout(t);
   }, [iso, baseTz]);
 
   if (!iso) return null;
