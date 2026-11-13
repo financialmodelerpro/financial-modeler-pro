@@ -95,6 +95,17 @@ try {
   const latestMig = numberedMigs.length ? parseInt(numberedMigs[numberedMigs.length - 1], 10) : 0;
   const recentMigs = numberedMigs.slice(-8);
 
+  // ── Key rules (mirrored in CLAUDE.md "Key rules"; the migration number is LIVE) ──
+  const keyRules = [
+    'Always read CLAUDE.md first.',
+    'Always diagnose before fixing.',
+    `Last migration: ${latestMig} (check the migrations folder, supabase/migrations, before adding one).`,
+    'Code never applies migrations; Ahmad applies them manually.',
+    '`revalidate = 0` on all CMS pages.',
+    "Never add `.eq('visible', true)` to home page queries.",
+    'Push to main deploys automatically; confirm via /api/health on the main and learn domains showing the new commit.',
+  ];
+
   // ── Email templates ─────────────────────────────────────────────────────────
   const templates = ls('src/shared/email/templates').filter((f) => f.endsWith('.ts')).map((f) => f.replace(/\.ts$/, '')).sort();
   const subTemplates = templates.filter((t) => /subscription|invoice|plan|trial|grace|renewal|welcome|cancel/i.test(t));
@@ -135,6 +146,10 @@ try {
 
 **Repository state:** branch \`${branch}\`, commit \`${headShort}\` (${headDate}).
 **Deployed revision:** compare the above to \`GET /api/health\` on the live site (its \`commit\` field is \`VERCEL_GIT_COMMIT_SHA\`), so you can tell whether production matches this tree.
+
+## Key Rules
+
+${keyRules.map((r) => `- ${r}`).join('\n')}
 
 ## Stack
 

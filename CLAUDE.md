@@ -122,6 +122,15 @@ Verifier reality + outstanding ops (migrations pending on prod) live in [CLAUDE-
 
 ## STRICT SESSION RULES, READ FIRST
 
+### Key rules (mirrored in HANDOFF.md "Key Rules" by `scripts/generate-handoff.ts`; change both together)
+- Always read CLAUDE.md first.
+- Always diagnose before fixing.
+- Check `supabase/migrations` for the last migration number before adding one (HANDOFF.md states it live; never hardcode it here).
+- Code never applies migrations; Ahmad applies them manually. Write the file with the next number, mark it PENDING in CLAUDE-DB.md, and stop.
+- `revalidate = 0` on all CMS pages.
+- Never add `.eq('visible', true)` to home page queries (the home page reads sections with `getAllPageSections` and hides them per section).
+- Push to main deploys automatically; confirm via /api/health on the main and learn domains showing the new commit.
+
 **Before debugging anything that "should work", read [docs/TRAPS.md](docs/TRAPS.md).** Traps recorded in the module narrative above are indexed there with symptom, mechanism, fix and proof: the ExcelJS width-9 column that silently does not apply (TRAPS 3.1) and `spliceRows` not moving merges (3.2); pdf-lib CID glyph ids defeating a naive PDF grep (4.1); the PostgREST 1000-row silent truncation (2.1); `Number(null)` being `0` and finite, which made an unlimited discount read as fully redeemed (see 2.4 for the family, an absent value collapsed into a real one); `admin_audit_log.admin_id` being NOT NULL (2.5); `requireAdmin` needing to try/catch `getServerSession`, which throws without a request scope (9.4); `src/middleware.ts` being dead code that must not be activated by moving it (9.2); and `Project.fundTerms` only reaching the store when its tab mounted, which is why `attachToProject` loads it before hydrate and before the autosave subscriber. The copies above stay in place.
 
 ### Writing rule: NEVER use the reference client's name
