@@ -10,7 +10,7 @@ import { BODY_SECTIONS } from '../pageSections';
 export const REFM_PAGE: PageConfig = {
   order: [...BODY_SECTIONS],
   sections: {
-    hero: { enabled: true, facts: ['8 live sessions', 'Tuesdays 7:00 PM KSA', 'Starts 1 Dec 2026', 'Free', 'Certificate'], countdown: true },
+    hero: { enabled: true, facts: ['8 instructor-led sessions · 20 hours of structured learning', 'Tuesdays 7:00 PM KSA', 'Starts 1 Dec 2026', 'Free', 'Certificate'], countdown: true },
     sideCard: { enabled: true, enrolledThreshold: 25 },
     about: { enabled: true },
     curriculum: { enabled: true, heading: 'Sessions' },

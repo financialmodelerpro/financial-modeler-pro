@@ -7,6 +7,7 @@ import { getTrainingSession } from '@/src/hubs/training/lib/session/training-ses
 import { FilePreviewModal } from '@/src/hubs/training/components/dashboard/FilePreviewModal';
 import { TrainingShell } from '@/src/hubs/training/components/TrainingShell';
 import { CoursePlayerLayout, type SidebarSession } from '@/src/hubs/training/components/player/CoursePlayerLayout';
+import { YouTubeSubscribeCta } from '@/src/hubs/training/components/sessions/YouTubeSubscribeCta';
 import { CalendarDropdown } from '@/src/hubs/training/components/CalendarDropdown';
 import { extractYouTubeId } from '@/src/shared/cms';
 import type { WatchProgressPayload } from '@/src/hubs/training/components/YouTubePlayer';
@@ -583,6 +584,9 @@ export default function LiveSessionDetailPage() {
           </div>
         ) : registerCard}
       >
+        {/* Under the video: the YouTube subscribe call to action (liveCourse/youtube.ts; never a condition of progress). */}
+        {hasVideo && !session.recording_locked && <YouTubeSubscribeCta testid="watch-youtube-subscribe" />}
+
         {/* Attachments */}
         {session.attachments.length > 0 && (
           <div style={{ background: '#fff', borderRadius: 10, border: '1px solid #E5E7EB', padding: 24, marginTop: 24 }}>

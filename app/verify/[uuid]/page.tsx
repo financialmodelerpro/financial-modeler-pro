@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { getServerClient } from '@/src/core/db/supabase';
 import { NavbarServer } from '@/src/shared/components/layout/NavbarServer';
 import { VerifyActions } from './VerifyActions';
+import { loadLiveCourseVerifyRecord, CPD_LINE } from '@/src/hubs/training/lib/liveCourse/verifyRecord';
 
 export const dynamic = 'force-dynamic';
 
@@ -297,6 +298,15 @@ export default async function VerifyPage({ params }: PageProps) {
   const verifyUrl   = `${learnUrl}/verify/${certId}`;
   const qrSrc       = `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(verifyUrl)}`;
   const issueDate   = cert.issued_at ?? cert.issued_date ?? '';
+  // A live course certificate also states how each session was completed, the
+  // model submission and the learning outcomes (liveCourse/verifyRecord.ts).
+  const live        = await loadLiveCourseVerifyRecord(sb, cert.email, cert.course_code);
+  const sectionHead = (label: string) => (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '20px 0 12px' }}>
+      <div style={{ fontSize: 10, fontWeight: 800, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.1em' }}>{label}</div>
+      <div style={{ flex: 1, height: 1, background: '#F3F4F6' }} />
+    </div>
+  );
 
   return (
     <div style={{ minHeight: '100vh', background: 'linear-gradient(135deg, #071530 0%, #0D2E5A 50%, #0F3D6E 100%)', fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif' }}>
@@ -379,6 +389,37 @@ export default async function VerifyPage({ params }: PageProps) {
             ))}
           </div>
         </div>
+
+        {live && (
+          <div data-testid="verify-live-course" style={{ padding: '4px clamp(18px, 5vw, 36px) 20px', background: '#fff', borderTop: '1px solid #F3F4F6' }}>
+            {live.sessions.length > 0 && (
+              <>
+                {sectionHead('Sessions completed')}
+                <div data-testid="verify-sessions" style={{ display: 'grid', gap: 6 }}>
+                  {live.sessions.map((s, i) => (
+                    <div key={i} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', fontSize: 13, borderBottom: '1px solid #F3F4F6', paddingBottom: 6 }}>
+                      <span style={{ color: '#1F2937', minWidth: 0 }}><strong style={{ color: '#0D2E5A' }}>Session {s.no ?? i + 1}</strong>{s.title ? `: ${s.title}` : ''}</span>
+                      <span style={{ fontWeight: 700, color: s.route === 'Not completed' ? '#9CA3AF' : '#2E7D52', whiteSpace: 'nowrap' }}>{s.route}</span>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+            {sectionHead('Model submission')}
+            <div data-testid="verify-model-status" style={{ fontSize: 13, fontWeight: 600, color: '#1F2937' }}>{live.model}</div>
+            {live.outcomes.length > 0 && (
+              <>
+                {sectionHead('Learning outcomes')}
+                <ul data-testid="verify-outcomes" style={{ margin: 0, paddingLeft: 18, display: 'grid', gap: 4 }}>
+                  {live.outcomes.map((o, i) => (
+                    <li key={i} style={{ fontSize: 13, color: '#374151', lineHeight: 1.5 }}><strong style={{ color: '#0D2E5A' }}>{o.title}</strong>{o.text ? `: ${o.text}` : ''}</li>
+                  ))}
+                </ul>
+              </>
+            )}
+            <p data-testid="verify-cpd-line" style={{ margin: '16px 0 0', fontSize: 12.5, color: '#6B7280', fontStyle: 'italic' }}>{CPD_LINE}</p>
+          </div>
+        )}
 
         {/* Document Previews, inline previews for Certificate + Badge + Transcript.
             Left column stacks the two landscape/square credential artifacts;

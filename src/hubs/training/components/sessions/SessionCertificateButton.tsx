@@ -11,12 +11,24 @@ import { ShareModal } from '@/src/shared/share/components/ShareModal';
 import { useShareTemplate } from '@/src/shared/share/useShareTemplate';
 import { renderShareTemplate, formatShareDate } from '@/src/shared/share/shareTemplates';
 import { achievementCardUrl } from '@/src/hubs/training/lib/liveSessions/achievementCard';
+import { structuredLearningText } from '@/src/hubs/training/lib/liveCourse/pageSections';
+import { coursePagePath } from '@/src/hubs/training/lib/liveCourse/paths';
 
-export function SessionCertificateButton({ session, studentName, registrationId, courseTitle }: {
+const LEARN_URL = process.env.NEXT_PUBLIC_LEARN_URL ?? 'https://learn.financialmodelerpro.com';
+
+export function SessionCertificateButton({ session, studentName, registrationId, courseTitle, courseCode, sessionCount, via }: {
   session: { title: string; scheduled_datetime: string | null; duration_minutes: number | null; course_session_no?: number | null };
   studentName: string;
   registrationId: string;
   courseTitle: string;
+  /**
+   * The live-course card's facts (founder, 2026-11-13): with them the card
+   * reads "Session N of M", the session's structured learning, how it was
+   * completed (live or by recording) and a QR code to the course page.
+   */
+  courseCode?: string;
+  sessionCount?: number;
+  via?: 'live' | 'recording' | null;
 }) {
   const [open, setOpen] = useState(false);
   // "Session 3: Financing, ..." on the card; the card says Completed, never a percentage.
@@ -43,7 +55,14 @@ export function SessionCertificateButton({ session, studentName, registrationId,
           title="🎉 Your Achievement Card"
           text={rendered.text}
           hashtags={rendered.hashtags}
-          cardImageUrl={achievementCardUrl({ title: cardTitle, has_assessment: false, duration_minutes: session.duration_minutes }, studentName, registrationId, undefined, session.scheduled_datetime, courseTitle, { completed: true })}
+          cardImageUrl={achievementCardUrl({ title: sessionCount ? session.title : cardTitle, has_assessment: false, duration_minutes: session.duration_minutes }, studentName, registrationId, undefined, session.scheduled_datetime, courseTitle, {
+            completed: true,
+            sessionNo: session.course_session_no ?? null,
+            sessionCount: sessionCount ?? null,
+            learning: structuredLearningText(session.duration_minutes),
+            via: via ?? null,
+            qrUrl: courseCode ? `${LEARN_URL}${coursePagePath(courseCode)}` : null,
+          })}
           cardDownloadName={`FMP-${session.title.replace(/[^a-zA-Z0-9]/g, '_').slice(0, 40)}.png`}
         />
       )}

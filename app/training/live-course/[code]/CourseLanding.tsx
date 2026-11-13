@@ -52,6 +52,8 @@ export interface LandingData {
   enrolledCount: number;
   samples: { certificateUrl: string | null; badgeUrl: string | null };
   counts: { testimonials: number; sessions: number; instructors: number };
+  /** Beside every Register button when recordings count toward the certificate (pageSections.RECORDINGS_COUNT_LINE), else null. */
+  recordingsNote?: string | null;
 }
 
 export function CourseLanding({
@@ -66,6 +68,9 @@ export function CourseLanding({
 }) {
   const S = d.page.sections;
   const body = visibleSections(d.page, d.counts);
+  const recordingsNote = (light: boolean) => d.recordingsNote ? (
+    <div data-testid="landing-recordings-note" style={{ marginTop: 8, fontSize: 13, fontWeight: 600, color: light ? SLATE : 'rgba(255,255,255,0.9)' }}>{d.recordingsNote}</div>
+  ) : null;
   const [now, setNow] = useState<number | null>(null);
   useEffect(() => { setNow(Date.now()); const t = setInterval(() => setNow(Date.now()), 60_000); return () => clearInterval(t); }, []);
   const countdown = now != null && d.next && S.hero.countdown ? countdownText(d.next.startIso, now) : null;
@@ -89,6 +94,7 @@ export function CourseLanding({
       )}
       {d.prerequisites && <div data-testid="landing-side-prereq" style={{ fontSize: 13, color: SLATE, marginTop: 12, lineHeight: 1.45 }}><strong style={{ color: DARK }}>Prerequisites:</strong> {d.prerequisites}</div>}
       <div className="lc-side-action" style={{ marginTop: 14 }}>{actions.light}</div>
+      {recordingsNote(true)}
       {calendarHref && <a data-testid="landing-side-calendar" href={calendarHref} style={{ display: 'block', marginTop: 12, color: NAVY, fontWeight: 700, fontSize: 13.5 }}>📅 Add to calendar</a>}
       {showCount && <div data-testid="landing-enrolled-count" style={{ marginTop: 12, fontSize: 13, color: SLATE }}>👥 {d.enrolledCount} enrolled</div>}
       {d.next && <TimeZoneTable iso={d.next.startIso} zones={d.timeZones} collapsible anchorId={COURSE_TIME_ZONES_ANCHOR} />}
@@ -158,6 +164,7 @@ export function CourseLanding({
         <section key={k} data-testid="landing-section-cta" style={{ margin: '30px 0 10px', background: `linear-gradient(135deg, ${DARK}, ${NAVY})`, color: '#fff', borderRadius: 14, padding: 'clamp(22px,4vw,36px)', textAlign: 'center' }}>
           <p style={{ fontSize: 'clamp(18px,2.4vw,24px)', fontWeight: 800, margin: '0 0 16px', lineHeight: 1.35 }}>{S.cta.text || `${d.title}. Free, live, with a certificate.`}</p>
           <div style={{ display: 'inline-block' }}>{actions.dark}</div>
+          {recordingsNote(false)}
         </section>
       );
       default: return null;
@@ -192,6 +199,7 @@ export function CourseLanding({
             </div>
           )}
           <div style={{ marginTop: 20 }}>{actions.dark}</div>
+          {recordingsNote(false)}
           {countdown && d.next && (
             <div data-testid="landing-countdown" style={{ marginTop: 14, fontSize: 14.5, fontWeight: 700, color: '#FDE68A' }}>
               ⏳ {d.next.no != null ? `Session ${d.next.no}` : 'The next session'} starts in {countdown}

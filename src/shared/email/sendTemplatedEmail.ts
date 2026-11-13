@@ -37,8 +37,10 @@ export async function sendTemplatedEmail(params: {
   recipients: Array<{ email: string; name: string }>;
   placeholders: Record<string, string>;
   fromAddress?: string;
+  /** Appended after the stored template body for every recipient (e.g. a call to action built by the caller). */
+  appendHtml?: string;
 }): Promise<{ sent: number; failed: number }> {
-  const { templateKey, recipients, placeholders, fromAddress } = params;
+  const { templateKey, recipients, placeholders, fromAddress, appendHtml } = params;
 
   if (recipients.length === 0) return { sent: 0, failed: 0 };
 
@@ -78,7 +80,7 @@ export async function sendTemplatedEmail(params: {
         };
 
         const subject = replacePlaceholders(template.subject, mergedPlaceholders);
-        const bodyHtml = replacePlaceholders(template.body_html, mergedPlaceholders);
+        const bodyHtml = replacePlaceholders(template.body_html, mergedPlaceholders) + (appendHtml ?? '');
         const fullHtml = await baseLayoutBranded(bodyHtml);
 
         await sendEmail({ to: recipient.email, subject, html: fullHtml, from });

@@ -28,6 +28,7 @@ import { CourseSessionAction } from '@/src/hubs/training/components/sessions/Cou
 import { CourseTime } from '@/src/hubs/training/components/sessions/CourseTime';
 import { SessionContentSections } from '@/src/hubs/training/components/sessions/SessionContentSections';
 import { SessionCertificateButton } from '@/src/hubs/training/components/sessions/SessionCertificateButton';
+import { YouTubeSubscribeCta } from '@/src/hubs/training/components/sessions/YouTubeSubscribeCta';
 import { sessionCertificateAvailable } from '@/src/hubs/training/lib/liveCourse/sessionCertificate';
 
 const NAVY = '#0D2E5A';
@@ -142,13 +143,17 @@ export function LiveCourseDashboardView({ courseCode, onEnrolled }: { courseCode
                 {button}
                 {/* The session certificate on every completed session (the one rule, sessionCertificate.ts). */}
                 {enrolled && sessionCertificateAvailable(course, eligibility.sessions.find((x) => x.sessionId === s.id)) && (
-                  <SessionCertificateButton session={s} studentName={view.student.name} registrationId={view.student.registrationId} courseTitle={course.title} />
+                  <SessionCertificateButton session={s} studentName={view.student.name} registrationId={view.student.registrationId} courseTitle={course.title}
+                    courseCode={course.courseCode} sessionCount={eligibility.sessions.length} via={eligibility.sessions.find((x) => x.sessionId === s.id)?.via ?? null} />
                 )}
                 <button type="button" data-testid="dashboard-session-toggle" onClick={() => setOpen((o) => { const n = new Set(o); if (n.has(s.id)) n.delete(s.id); else n.add(s.id); return n; })}
                   style={{ background: 'none', border: 'none', color: BLUE, fontWeight: 700, fontSize: 13, cursor: 'pointer', padding: 0 }}>
                   {isOpen ? '▾' : '▸'} What&apos;s in this session
                 </button>
               </div>
+              {enrolled && status === 'completed' && (
+                <div style={{ paddingLeft: 44 }}><YouTubeSubscribeCta compact /></div>
+              )}
               {isOpen && (
                 <div data-testid="dashboard-session-details" style={{ paddingLeft: 44, marginTop: 4 }}>
                   <SessionContentSections sections={preview} />

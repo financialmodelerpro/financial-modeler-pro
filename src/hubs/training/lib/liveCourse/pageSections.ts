@@ -140,11 +140,41 @@ export function nextSession<T extends { scheduled_datetime: string | null }>(ses
     .sort((a, b) => new Date(a.scheduled_datetime!).getTime() - new Date(b.scheduled_datetime!).getTime())[0] ?? null;
 }
 
+/**
+ * THE course-length line (founder, 2026-11-13): "8 instructor-led sessions ·
+ * 20 hours of structured learning", the hours summed from the live schedule.
+ * When any session has no length the hours are left out rather than guessed.
+ * The hero, the side card and the announcement all read this. Pure.
+ */
+export function courseLengthFact(sessions: { duration_minutes?: number | null; scheduled_datetime?: string | null }[]): string | null {
+  if (!sessions.length) return null;
+  const count = `${sessions.length} instructor-led session${sessions.length === 1 ? '' : 's'}`;
+  const mins = sessions.map((s) => s.duration_minutes ?? 0);
+  if (mins.some((m) => !(m > 0))) return count;
+  return `${count} · ${hoursText(mins.reduce((a, b) => a + b, 0))} of structured learning`;
+}
+
+/** One session's length as the session card states it: "2.5 hours of structured learning". */
+export function structuredLearningText(minutes: number | null | undefined): string | null {
+  return minutes && minutes > 0 ? `${hoursText(minutes)} of structured learning` : null;
+}
+
+/** "20 hours", "2.5 hours", "1 hour", "45 minutes". */
+function hoursText(min: number): string {
+  if (min < 60) return `${min} minutes`;
+  const h = Math.round((min / 60) * 100) / 100;
+  return `${h} hour${h === 1 ? '' : 's'}`;
+}
+
+/** Shown beside every Register button on the course page. */
+export const RECORDINGS_COUNT_LINE = "Can't attend live? Recordings count toward the certificate.";
+
 /** Hero key facts from the live schedule (used when the admin sets none). */
-export function autoFacts(sessions: { scheduled_datetime: string | null }[]): string[] {
+export function autoFacts(sessions: { scheduled_datetime: string | null; duration_minutes?: number | null }[]): string[] {
   const dated = sessions.filter((s) => s.scheduled_datetime).map((s) => new Date(s.scheduled_datetime!)).sort((a, b) => a.getTime() - b.getTime());
   const facts: string[] = [];
-  if (sessions.length) facts.push(`${sessions.length} live session${sessions.length === 1 ? '' : 's'}`);
+  const length = courseLengthFact(sessions);
+  if (length) facts.push(length);
   if (dated.length) {
     const days = new Set(dated.map((d) => d.toLocaleDateString('en-GB', { weekday: 'long', timeZone: 'Asia/Riyadh' })));
     const time = dated[0].toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'Asia/Riyadh' });
@@ -174,13 +204,15 @@ function durationText(min: number): string {
 }
 
 /**
- * The side card's key facts from the live schedule, e.g. "8 live sessions",
+ * The side card's key facts from the live schedule, e.g. "8 instructor-led
+ * sessions · 20 hours of structured learning",
  * "2.5 hours each", "Tuesdays 7:00 to 9:30 PM KSA", "Free", "Certificate". A
  * fact the schedule does not support (mixed lengths, days or times) is left out.
  */
 export function scheduleFacts(sessions: { scheduled_datetime: string | null; duration_minutes?: number | null }[]): string[] {
   const facts: string[] = [];
-  if (sessions.length) facts.push(`${sessions.length} live session${sessions.length === 1 ? '' : 's'}`);
+  const length = courseLengthFact(sessions);
+  if (length) facts.push(length);
   const mins = [...new Set(sessions.map((s) => s.duration_minutes ?? 0))];
   const dur = mins.length === 1 && mins[0] > 0 ? mins[0] : null;
   if (dur) facts.push(`${durationText(dur)} each`);

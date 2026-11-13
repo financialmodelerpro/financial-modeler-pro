@@ -19,6 +19,8 @@ import { CourseShell } from '@/src/hubs/training/components/sessions/CourseShell
 import { CourseSessionAction } from '@/src/hubs/training/components/sessions/CourseSessionAction';
 import { TimeZoneTable } from '@/src/hubs/training/components/sessions/TimeZoneTable';
 import { SessionCertificateButton } from '@/src/hubs/training/components/sessions/SessionCertificateButton';
+import { YouTubeSubscribeCta } from '@/src/hubs/training/components/sessions/YouTubeSubscribeCta';
+import { RECORDINGS_COUNT_LINE } from '@/src/hubs/training/lib/liveCourse/pageSections';
 import { SessionProgress } from '../../../live-course/[code]/LiveCourseClient';
 import { SessionContentSections } from '@/src/hubs/training/components/sessions/SessionContentSections';
 import { sessionSections } from '@/src/hubs/training/lib/liveCourse/sessionContent';
@@ -104,11 +106,16 @@ export function CourseSessionClient({ course, sessions, sessionId, signedIn, can
             )}
             {enrolled && e && <SessionProgress e={e} course={view!.course} />}
           </div>
+          {!enrolled && canRegister && course.certRoutes.includes('recording') && (
+            <div data-testid="session-recordings-note" style={{ fontSize: 13, fontWeight: 600, color: SLATE, marginTop: 6 }}>{RECORDINGS_COUNT_LINE}</div>
+          )}
 
           {view && enrolled && e && sessionCertificateAvailable(view.course, e) && (
             <div data-testid="course-session-certificate" style={{ marginTop: 16, background: '#E7F4EC', border: '1px solid #B7DFC5', borderRadius: 12, padding: '14px 16px', display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
               <strong style={{ color: GREEN }}>🏅 You earned this session&apos;s certificate</strong>
-              <SessionCertificateButton session={s} studentName={view.student.name} registrationId={view.student.registrationId} courseTitle={view.course.title} />
+              <SessionCertificateButton session={s} studentName={view.student.name} registrationId={view.student.registrationId} courseTitle={view.course.title}
+                courseCode={course.courseCode} sessionCount={sessions.length} via={e.via} />
+              <div style={{ flexBasis: '100%' }}><YouTubeSubscribeCta compact /></div>
             </div>
           )}
 

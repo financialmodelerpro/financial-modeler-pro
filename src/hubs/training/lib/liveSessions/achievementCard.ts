@@ -24,7 +24,21 @@ export function achievementCardUrl(
   dateIso?: string | null,
   course = 'FMP Real-World Financial Modeling',
   /** A live-course session card (2026-11-10): "Completed", no duration, no percentage, no ID. */
-  opts: { completed?: boolean } = {},
+  opts: {
+    completed?: boolean;
+    /**
+     * The live-course card's own facts (founder, 2026-11-13), all optional so
+     * a card without them is unchanged: "Session N of M", the session's
+     * structured learning ("2.5 hours of structured learning"), the route the
+     * session was completed by, and the page its QR code opens. Never a
+     * percentage.
+     */
+    sessionNo?: number | null;
+    sessionCount?: number | null;
+    learning?: string | null;
+    via?: 'live' | 'recording' | null;
+    qrUrl?: string | null;
+  } = {},
 ): string {
   const hasAssessment = !!session.has_assessment;
   const params = new URLSearchParams({
@@ -41,6 +55,10 @@ export function achievementCardUrl(
   if (opts.completed) {
     params.set('completed', '1');
     params.delete('regId');
+    if (opts.sessionNo != null && opts.sessionCount) { params.set('no', String(opts.sessionNo)); params.set('of', String(opts.sessionCount)); }
+    if (opts.learning) params.set('learning', opts.learning);
+    if (opts.via === 'live' || opts.via === 'recording') params.set('via', opts.via);
+    if (opts.qrUrl) params.set('qr', opts.qrUrl);
   } else if (session.duration_minutes != null && session.duration_minutes > 0) {
     params.set('duration', String(session.duration_minutes));
   }

@@ -3,6 +3,7 @@ import { NextRequest } from 'next/server';
 import { getServerClient } from '@/src/core/db/supabase';
 import { loadOgFonts } from '@/src/shared/ogFonts';
 import sharp from 'sharp';
+import QRCode from 'qrcode';
 
 export const runtime = 'nodejs';
 
@@ -30,7 +31,22 @@ export async function GET(req: NextRequest) {
   };
   const durationLabel = formatDuration(durationMin);
 
-  const eyebrowLabel = hasAssessment ? 'Assessment Passed' : 'Session Completed';
+  // The live-course session card's own facts (founder, 2026-11-13; achievementCard.ts):
+  // "Session N of M", the structured learning, the completion route and a QR code.
+  // Never a percentage. Each is optional, so a card without them draws as before.
+  const sessionNo = completedCard ? parseInt(searchParams.get('no') || '', 10) : NaN;
+  const sessionOf = completedCard ? parseInt(searchParams.get('of') || '', 10) : NaN;
+  const sessionOfLabel = Number.isFinite(sessionNo) && Number.isFinite(sessionOf) && sessionOf > 0 ? `Session ${sessionNo} of ${sessionOf}` : '';
+  const learning = completedCard ? (searchParams.get('learning') || '').slice(0, 80) : '';
+  const via = completedCard ? searchParams.get('via') : null;
+  const routeLabel = via === 'live' ? '✓ Attended live' : via === 'recording' ? '✓ Completed via recording' : '✓ Completed';
+  const qrTarget = completedCard ? (searchParams.get('qr') || '') : '';
+  let qrDataUri = '';
+  if (/^https?:\/\/\S{1,300}$/.test(qrTarget)) {
+    qrDataUri = await QRCode.toDataURL(qrTarget, { margin: 1, width: 360, color: { dark: '#0D2E5A', light: '#FFFFFF' } }).catch(() => '');
+  }
+
+  const eyebrowLabel = sessionOfLabel || (hasAssessment ? 'Assessment Passed' : 'Session Completed');
   const eyebrowIcon  = hasAssessment ? '🏆' : '🎓';
 
   const fonts = await loadOgFonts().catch(() => []);
@@ -234,6 +250,11 @@ export async function GET(req: NextRequest) {
                   <span>⏱</span> <span>{durationLabel}</span>
                 </div>
               )}
+              {learning && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 15, color: 'rgba(255,255,255,0.7)', fontWeight: 600 }}>
+                  <span>⏱</span> <span>{learning}</span>
+                </div>
+              )}
             </div>
           </div>
 
@@ -263,6 +284,12 @@ export async function GET(req: NextRequest) {
               </div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                {qrDataUri ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', background: '#FFFFFF', borderRadius: 14, padding: 10 }}>
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={qrDataUri} alt="" width={180} height={180} />
+                  </div>
+                ) : (
                 <div style={{
                   width: 200, height: 200, borderRadius: '50%',
                   border: '10px solid #14B8A6',
@@ -287,13 +314,14 @@ export async function GET(req: NextRequest) {
                     </div>
                   )}
                 </div>
+                )}
                 <div style={{
                   marginTop: 16, padding: '6px 20px', borderRadius: 20,
                   background: '#14B8A6', color: '#fff',
                   fontSize: 13, fontWeight: 800, letterSpacing: '1.5px',
                   textTransform: 'uppercase' as const,
                 }}>
-                  {completedCard ? '✓ Completed' : '✓ Attended'}
+                  {completedCard ? routeLabel : '✓ Attended'}
                 </div>
               </div>
             )}

@@ -11,6 +11,7 @@ import { publicSessionUrl, sessionPlatformLabel } from '@/src/hubs/training/lib/
 import { syncCoursePlaylist } from '@/src/hubs/training/lib/liveCourse/coursePlaylist';
 import { normaliseSections } from '@/src/hubs/training/lib/liveCourse/sessionContent';
 import { invalidateLiveCourseCache } from '@/src/hubs/training/lib/liveCourse/cachedReads';
+import { subscribeEmailHtml } from '@/src/hubs/training/lib/liveCourse/youtube';
 
 const LEARN_URL = process.env.NEXT_PUBLIC_LEARN_URL ?? 'https://learn.financialmodelerpro.com';
 const AUTO_DELETE_TEAMS_MEETING_ON_SESSION_DELETE = true;
@@ -163,6 +164,8 @@ export async function PATCH(
           templateKey: 'session_recording_available',
           recipients: regs.map(r => ({ email: r.student_email, name: r.student_name ?? '' })),
           placeholders,
+          // The YouTube subscribe call to action (liveCourse/youtube.ts), after the admin's template.
+          appendHtml: subscribeEmailHtml(),
         });
       }
       await sb.from('live_sessions').update({ recording_email_sent: true }).eq('id', id);

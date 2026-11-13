@@ -4,6 +4,7 @@ import { authOptions } from '@/src/shared/auth/nextauth';
 import { getServerClient } from '@/src/core/db/supabase';
 import { sendEmail, FROM } from '@/src/shared/email/sendEmail';
 import { certificateIssuedTemplate } from '@/src/shared/email/templates/certificateIssued';
+import { subscribeEmailHtml } from '@/src/hubs/training/lib/liveCourse/youtube';
 
 export const dynamic = 'force-dynamic';
 
@@ -46,6 +47,7 @@ export async function POST(req: NextRequest) {
       verificationUrl: (cert.verification_url as string) ?? '',
       certificateId:   cert.certificate_id as string,
       grade:           (cert.grade as string) ?? '',
+      subscribeHtml:   subscribeEmailHtml(),
     });
     await sendEmail({ to: cert.email as string, subject, html, from: FROM.training });
 

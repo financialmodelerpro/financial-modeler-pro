@@ -16,12 +16,13 @@ import type { CourseView } from '@/src/hubs/training/lib/liveCourse/courseView';
 import type { LiveCourseSettings, CourseSession } from '@/src/hubs/training/lib/liveCourse/courseSettings';
 import type { CourseInstructor } from '@/src/hubs/training/lib/liveCourse/courseInstructors';
 import type { PageConfig } from '@/src/hubs/training/lib/liveCourse/pageSections';
-import { autoFacts, nextSession, scheduleFacts } from '@/src/hubs/training/lib/liveCourse/pageSections';
+import { autoFacts, nextSession, scheduleFacts, RECORDINGS_COUNT_LINE } from '@/src/hubs/training/lib/liveCourse/pageSections';
 import { CourseLanding } from './CourseLanding';
 import { CourseShell, CourseSessionsTable } from '@/src/hubs/training/components/sessions/CourseShell';
 import { coursePagePath } from '@/src/hubs/training/lib/liveCourse/paths';
 import { LiveCourseSubmission } from '@/src/hubs/training/components/sessions/LiveCourseSubmission';
 import { SessionCertificateButton } from '@/src/hubs/training/components/sessions/SessionCertificateButton';
+import { YouTubeSubscribeCta } from '@/src/hubs/training/components/sessions/YouTubeSubscribeCta';
 import { sessionCertificateAvailable } from '@/src/hubs/training/lib/liveCourse/sessionCertificate';
 
 const NAVY = '#1B4F8A';
@@ -183,6 +184,7 @@ export function LiveCourseClient({ courseCode, autoEnrol, signedIn, publicData, 
           <strong style={{ color: GREEN, fontSize: 15 }}>🏆 Certificate issued: {view.certificate.certificateId}</strong>
           {view.certificate.certPdfUrl && <a href={view.certificate.certPdfUrl} target="_blank" rel="noopener noreferrer" style={{ color: NAVY, fontWeight: 700 }}>Download certificate</a>}
           {view.certificate.verificationUrl && <a href={view.certificate.verificationUrl} target="_blank" rel="noopener noreferrer" style={{ color: NAVY, fontWeight: 700 }}>Verification page</a>}
+          <div style={{ flexBasis: '100%' }}><YouTubeSubscribeCta compact testid="completion-youtube-subscribe" /></div>
         </div>
       )}
       {enrolled && view && <ProgressSummary view={view} />}
@@ -216,6 +218,7 @@ export function LiveCourseClient({ courseCode, autoEnrol, signedIn, publicData, 
           bannerAlt: course.bannerAlt,
           facts: landing.page.sections.hero.facts.length ? landing.page.sections.hero.facts : autoFacts(sessions),
           sideFacts: scheduleFacts(sessions),
+          recordingsNote: course.certRoutes.includes('recording') ? RECORDINGS_COUNT_LINE : null,
           prerequisites: prereq.replace(/s+/g, ' '),
           next: next?.scheduled_datetime ? { no: next.course_session_no, startIso: next.scheduled_datetime } : null,
           timeZones: course.timeZones,
@@ -272,13 +275,16 @@ function ProgressSummary({ view }: { view: CourseView }) {
         {e.submissionUnlocked ? 'Model submission is unlocked.' : 'Model submission unlocks once every session is complete.'}
       </div>
       {/* The session certificate on every completed session (sessionCertificate.ts). */}
+      {/* The completion screen's call to action: shown once a route is complete (never a condition of anything). */}
+      {routeText && <YouTubeSubscribeCta compact testid="route-complete-youtube-subscribe" />}
       {view.enrolled && view.course.sessionCertificates && e.sessions.some((x) => x.met) && (
         <div data-testid="course-session-certificates" style={{ marginTop: 12, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
           <span style={{ fontSize: 13, fontWeight: 700, color: NAVY }}>Session certificates:</span>
           {view.sessions.filter((sv) => sessionCertificateAvailable(view.course, e.sessions.find((x) => x.sessionId === sv.id))).map((sv) => (
             <span key={sv.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
               <span style={{ fontSize: 12, color: SLATE }}>Session {sv.course_session_no ?? ''}</span>
-              <SessionCertificateButton session={sv} studentName={view.student.name} registrationId={view.student.registrationId} courseTitle={view.course.title} />
+              <SessionCertificateButton session={sv} studentName={view.student.name} registrationId={view.student.registrationId} courseTitle={view.course.title}
+                courseCode={view.course.courseCode} sessionCount={view.sessions.length} via={e.sessions.find((x) => x.sessionId === sv.id)?.via ?? null} />
             </span>
           ))}
         </div>

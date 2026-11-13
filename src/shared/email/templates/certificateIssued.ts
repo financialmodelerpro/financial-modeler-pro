@@ -8,6 +8,9 @@ interface CertificateIssuedData {
   verificationUrl?: string;
   certificateId?:  string;
   grade?:          string;
+  /** An optional block after the links (the YouTube subscribe call to action, rendered by the caller). Never a condition of anything.
+   *  html-safe: data.subscribeHtml markup the caller builds from constants (liveCourse/youtube.ts subscribeEmailHtml), never user input. */
+  subscribeHtml?:  string;
   // Legacy fields (kept for compatibility)
   name?:           string;
   certificateUrl?: string;
@@ -68,6 +71,8 @@ export async function certificateIssuedTemplate(data: CertificateIssuedData) {
       </p>
     </div>
     ` : ''}
+
+    ${data.subscribeHtml ?? ''}
 
     ${p(`View your certificate and download all assets from your <a href="${learnUrl}/training/dashboard" style="color:#1B4F8A;">Training Dashboard</a>.`, 'font-size:13px;color:#64748B;')}
     ${p('We are proud of your dedication and achievement. Well done!', 'font-size:13px;color:#64748B;')}

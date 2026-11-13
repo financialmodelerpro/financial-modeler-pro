@@ -326,6 +326,7 @@ export async function loadBadgeLayout(): Promise<BadgeLayout> {
 // then sharp to convert SVG to PNG and composite onto badge.
 
 import satori from 'satori';
+import { subscribeEmailHtml } from '@/src/hubs/training/lib/liveCourse/youtube';
 
 // Cache font data in memory after first fetch
 let _fontData: ArrayBuffer | null = null;
@@ -591,6 +592,7 @@ export async function issueCertificateForPending(
       const { subject, html } = await certificateIssuedTemplate({
         studentName: cert.studentName, courseName: cert.courseName,
         certPdfUrl, badgeUrl, verificationUrl, certificateId, grade,
+        subscribeHtml: subscribeEmailHtml(),
       });
       await sendEmail({ to: cert.email, subject, html, from: FROM.training });
       emailSentAt = new Date().toISOString();
