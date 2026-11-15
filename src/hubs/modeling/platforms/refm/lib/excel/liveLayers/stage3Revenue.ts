@@ -231,7 +231,9 @@ export const stage3Revenue: LiveLayer = {
       const first = w.addr(`rxgrid|${grid}@${ks[0]}`), last = w.addr(`rxgrid|${grid}@${ks[ks.length - 1]}`);
       for (const k of ks) w.refA(w.addr(`rxgrid|${grid}@${k}`), REV);
       // The grid's width is fixed at export, so a read names it rather than COLUMNS() of the range (2026-11-07: shorter).
-      return { k0: ks[0], n: ks.length, width: last.col - first.col + 1, range: `${w.refA(first, REV)}:$${colLetter(last.col)}$${last.row}` };
+      // A grid typed down a column (the lease table, 2026-11-15) runs by row.
+      const width = first.col === last.col && first.row !== last.row ? last.row - first.row + 1 : last.col - first.col + 1;
+      return { k0: ks[0], n: ks.length, width, range: `${w.refA(first, REV)}:$${colLetter(last.col)}$${last.row}` };
     };
     /** A grid read by a year counter `y` (1, 2, 3 ..., 0 outside its years); its length is read from Inputs. */
     const atYear = (g: { k0: number; n: number; width: number; range: string } | undefined, y: string, clamp01 = false): string => {
@@ -255,7 +257,7 @@ export const stage3Revenue: LiveLayer = {
     const factorF = (l: RevenueLine, idx: Idx, t: number): string => {
       const m = idx?.method ?? 'none';
       if (m === 'none') return '1';
-      const rate = w.ref(`rxin|${l.key}|rate`, 2), from = `MAX(${w.ref('project:axisYear')},${w.ref(`rxin|${l.key}|from`, 2)})`;
+      const rate = w.ref(`rxin|${l.key}|rate`), from = `MAX(${w.ref('project:axisYear')},${w.ref(`rxin|${l.key}|from`)})`;
       return m === 'yoy_compound' ? `(1+${rate})^MAX(0,${yr(t)}-${from})` : `IF(${yr(t)}>=${from},1+${rate},1)`;
     };
     /** A block of rows on this tab, this year's column, as one SUM (or a single cell). */
@@ -395,7 +397,7 @@ export const stage3Revenue: LiveLayer = {
       const startKey = D('Operations start year');
       const ovKey = `oxin|opsStart|${l.key}`;
       if (has(ovKey) && has(startKey)) {
-        const ov = w.ref(ovKey, 2), sy = `MAX(${w.ref('project:axisYear')},YEAR(${TL(p, 'cs')}))`;
+        const ov = w.ref(ovKey), sy = `MAX(${w.ref('project:axisYear')},YEAR(${TL(p, 'cs')}))`;
         w.fA(at(startKey, TOTAL_COL), `IF(ISNUMBER(${ov}),MAX(${sy},${ov}),${TL(p, 'hy')}+1)`);
       }
       const ioK = R('In operations (1 = yes)');
@@ -413,7 +415,7 @@ export const stage3Revenue: LiveLayer = {
       // Sheet and the Cash Flow read these rows (2026-10-27).
       const daysK = D('Receivable days');
       if (has(daysK) && has(`rxin|${l.key}|arDays`)) {
-        const own = w.ref(`rxin|${l.key}|arDays`, 2);
+        const own = w.ref(`rxin|${l.key}|arDays`);
         w.fA(at(daysK, TOTAL_COL), `IF(N(${own})>0,N(${own}),N(${w.ref('project:dso')}))`);
       }
       const opCash = (rev: string): void => {

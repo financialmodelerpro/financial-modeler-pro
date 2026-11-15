@@ -58,7 +58,7 @@ export interface ScopeState {
 const pos = (n: unknown): boolean => typeof n === 'number' && Number.isFinite(n) && n > 0;
 
 /** An opex line with nothing typed: switched off, or every value it could charge is zero. */
-function opexLineIsZero(l: { value?: number; disabled?: boolean; rateMode?: string; yoyRates?: number[]; yoyRatesByPhase?: number[] }): boolean {
+export function opexLineIsZero(l: { value?: number; disabled?: boolean; rateMode?: string; yoyRates?: number[]; yoyRatesByPhase?: number[] }): boolean {
   if (l.disabled) return true;
   if (l.rateMode === 'yoy') return ![...(l.yoyRates ?? []), ...(l.yoyRatesByPhase ?? [])].some((v) => v !== 0 && Number.isFinite(v));
   return !(typeof l.value === 'number' && l.value !== 0);

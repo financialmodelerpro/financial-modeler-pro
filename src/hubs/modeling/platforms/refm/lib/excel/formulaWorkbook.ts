@@ -33,6 +33,7 @@ import type ExcelJS from 'exceljs';
 import { buildModelWorkbook, enableIterativeCalc, houseContextOf, type BuildModelOptions } from './buildModelWorkbook';
 import { applyHouseStyle, timelinePhaseFormula } from './houseStyle';
 import { CellRegistry, setCellSink } from './cellRegistry';
+import { applyTabFrame, tilesInMillions } from './tabFrame';
 import { settlePending } from './liveLayers/writer';
 import { stage1LandArea } from './liveLayers/stage1LandArea';
 import { stage2Capex } from './liveLayers/stage2Capex';
@@ -212,6 +213,8 @@ export function buildFormulaWorkbook(opts: BuildModelOptions): FormulaWorkbookRe
     const exit = house.phaseLabels.includes('Exit year') ? rowOf('tl:flag:exit') : null;
     const ok = con.length === ids.length && ops.length === ids.length;
     applyHouseStyle(wb, { ...house, timelinePhaseFormula: ok ? (col) => timelinePhaseFormula(col, { con, ops, exit }) : undefined });
+    if (house.frame) applyTabFrame(wb, house.frame);
+    tilesInMillions(wb);
   }
   return { wb, registry, status, pending };
 }

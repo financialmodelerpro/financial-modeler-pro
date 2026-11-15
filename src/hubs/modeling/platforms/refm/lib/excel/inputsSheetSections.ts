@@ -34,6 +34,7 @@ import { INERT_INPUTS, inertKey } from './liveLayers/inputAudit';
 import { normaliseAssetTypeId, resolveRetailSlotTypeId } from '../state/assetTypeStandards';
 import { phaseHasModelCapex } from '@/src/core/calculations/modelCapex';
 import { hqOpexLinesInForce, normalizeOpexIndexation } from '@/src/core/calculations/opex';
+import { featureUsed, opexLineIsZero } from './exportScope';
 import { planRevenueLines, groupRevenueLines, lineForAsset, type RevenueLine } from '../revenueLines';
 import { revenueLineName } from '../reports/revenueOutputReports';
 import { planReportLines, lineTitle } from '../reports/lineRows';
@@ -77,6 +78,8 @@ function headers(c: SheetCursor, heads: string[], startCol = 1): void {
 }
 
 function note(c: SheetCursor, text: string): void {
+  // THE LIVE INPUTS TAB CARRIES NO EXPLANATION ROWS (2026-11-15, founder): the Guide explains.
+  if (isLiveLayout()) return;
   const cell = c.ws.getCell(c.r, 1);
   cell.value = text;
   cell.font = { name: 'Calibri', size: 8.5, italic: true, color: { argb: ARGB.navyDark } };
@@ -336,33 +339,37 @@ export function emitAssetEntrySection(c: SheetCursor, tables: AssetAreaTables, s
   };
   // MAX FLOORS IS NOT IN THE LIVE WORKBOOK (2026-10-25): a planning note nothing reads, on the platform either.
   const floors = !isLiveLayout(), sh = floors ? 0 : 1;
-  setSectionHeader(c.ws.getRow(c.r), 'Assets by plot, what you enter', 11 - sh); c.r += 1;
-  headers(c, ['Type', 'Strategy', 'Plot Area (sqm)', 'Land Utilisation %', 'Ground Coverage %', 'FAR', ...(floors ? ['Max Floors'] : []), 'Retail % (ground floor)', 'Service %', 'Stated NSA (sqm)', isLiveLayout() ? 'NSA used: Land & Area' : 'NSA used (sqm)']);
+  // THE LIVE LAYOUT (2026-11-15, founder): one row per asset with its plot in the first column, no
+  // heading row above each plot.
+  const o = isLiveLayout() ? 1 : 0;
+  setSectionHeader(c.ws.getRow(c.r), 'Assets by plot, what you enter', 11 - sh + o); c.r += 1;
+  headers(c, [...(o ? ['Plot'] : []), 'Type', 'Strategy', 'Plot Area (sqm)', 'Land Utilisation %', 'Ground Coverage %', 'FAR', ...(floors ? ['Max Floors'] : []), 'Retail % (ground floor)', 'Service %', 'Stated NSA (sqm)', ...(isLiveLayout() ? [] : ['NSA used (sqm)'])]);
   let inherited = false, whole = false;
   for (const g of tables.plots) {
-    band(c, `${g.plotLabel}${g.phaseName ? `, ${g.phaseName}` : ''}. ${g.check}`, 11 - sh);
-    if (g.entries.length === 0) { note(c, 'No assets drawing from this plot yet.'); continue; }
+    if (!o) band(c, `${g.plotLabel}${g.phaseName ? `, ${g.phaseName}` : ''}. ${g.check}`, 11 - sh);
+    if (g.entries.length === 0) { if (!o) note(c, 'No assets drawing from this plot yet.'); continue; }
     for (const e of g.entries) {
-      setLabel(c.ws.getCell(c.r, 1), e.typeLabel, { indent: 1 });
-      setInput(c.ws.getCell(c.r, 2), e.strategy, '@');
-      viewCell(c.ws.getCell(c.r, 3), e.plotAreaSqm, NUMFMT.int);
-      viewCell(c.ws.getCell(c.r, 4), e.utilisationPct, NUMFMT.pct2, 100);
-      viewCell(c.ws.getCell(c.r, 5), e.coveragePct, NUMFMT.pct2, 100);
-      viewCell(c.ws.getCell(c.r, 6), e.far, NUMFMT.rate);
+      if (o) setLabel(c.ws.getCell(c.r, 1), g.plotLabel);
+      setLabel(c.ws.getCell(c.r, 1 + o), e.typeLabel, { indent: o ? 0 : 1 });
+      setInput(c.ws.getCell(c.r, 2 + o), e.strategy, '@');
+      viewCell(c.ws.getCell(c.r, 3 + o), e.plotAreaSqm, NUMFMT.int);
+      viewCell(c.ws.getCell(c.r, 4 + o), e.utilisationPct, NUMFMT.pct2, 100);
+      viewCell(c.ws.getCell(c.r, 5 + o), e.coveragePct, NUMFMT.pct2, 100);
+      viewCell(c.ws.getCell(c.r, 6 + o), e.far, NUMFMT.rate);
       if (floors) {
         viewCell(c.ws.getCell(c.r, 7), e.maxFloors, NUMFMT.int);
         fixedHere(c, c.r, 7, 'Max floors is a planning note: nothing in the model reads it, on the platform either.');
       }
-      viewCell(c.ws.getCell(c.r, 8 - sh), e.retailPct, NUMFMT.pct2, 100);
-      viewCell(c.ws.getCell(c.r, 9 - sh), e.servicePct, NUMFMT.pct2, 100);
+      viewCell(c.ws.getCell(c.r, 8 - sh + o), e.retailPct, NUMFMT.pct2, 100);
+      viewCell(c.ws.getCell(c.r, 9 - sh + o), e.servicePct, NUMFMT.pct2, 100);
       (['plot', 'util', 'cov', 'far', 'floors', 'retail', 'svc'] as const).forEach((k, i) => {
         if (k === 'floors' && !floors) return;
-        registerCell(`entry:${e.assetId}:${k}`, c.ws, c.ws.getCell(c.r, 3 + i - (i > 4 ? sh : 0)));
+        registerCell(`entry:${e.assetId}:${k}`, c.ws, c.ws.getCell(c.r, 3 + o + i - (i > 4 ? sh : 0)));
       });
       const nsa = nsaOf(e.assetId);
       if (nsa) {
         // A blank states none (the platform stores 0 and the rule reads it as nothing).
-        const sc = c.ws.getCell(c.r, 10 - sh);
+        const sc = c.ws.getCell(c.r, 10 - sh + o);
         if (nsa.stated > 0) setInput(sc, nsa.stated, NUMFMT.int); else { markInput(sc); sc.numFmt = NUMFMT.int; }
         registerCell(`entry:${e.assetId}:nsa`, c.ws, sc);
         // The live workbook works it out on Land & Area (it reads the sub-units' areas there).
@@ -394,30 +401,34 @@ export function emitSubUnitSection(c: SheetCursor, state: FinancialsResolverStat
   const live = isLiveLayout();
   // THE OTHER BASIS IS NOT IN THE LIVE WORKBOOK (2026-10-25): a row sells, lets or operates on its
   // own basis, and the price it would carry on the other one is read by nothing.
-  setSectionHeader(c.ws.getRow(c.r), 'Sub-units, under the merged line', live ? 8 : 10); c.r += 1;
-  headers(c, ['Sub-unit', 'Category', 'NSA Share %', 'Area (sqm)', 'Average Unit Size (sqm)', 'Units or Keys', `Rate (${cur})`, 'Rate Basis', ...(live ? [] : ['Rate, other basis', 'Other basis'])]);
+  // THE LIVE LAYOUT (2026-11-15, founder): one row per sub-unit with its line in the first column,
+  // no heading row above each line.
+  const o = live ? 1 : 0;
+  setSectionHeader(c.ws.getRow(c.r), 'Sub-units, under the merged line', live ? 9 : 10); c.r += 1;
+  headers(c, [...(live ? ['Line'] : []), 'Sub-unit', 'Category', 'NSA Share %', 'Area (sqm)', 'Average Unit Size (sqm)', 'Units or Keys', `Rate (${cur})`, 'Rate Basis', ...(live ? [] : ['Rate, other basis', 'Other basis'])]);
   for (const line of lines) {
-    band(c, live ? line.title : `${line.title}. ${line.check}`, live ? 8 : 10);
+    if (!live) band(c, `${line.title}. ${line.check}`, 10);
     for (const u of line.rows) {
+      if (live) setLabel(c.ws.getCell(c.r, 1), line.title);
       // Live layout: a share is of the whole line's NSA, so the row is named without a plot.
-      setLabel(c.ws.getCell(c.r, 1), u.plot && (!live || u.plot === 'no asset' || line.rows.filter((x) => x.name === u.name).length > 1) ? `${u.name} (${u.plot})` : u.name, { indent: 1 });
-      setInput(c.ws.getCell(c.r, 2), u.category, '@');
+      setLabel(c.ws.getCell(c.r, 1 + o), u.plot && (!live || u.plot === 'no asset' || line.rows.filter((x) => x.name === u.name).length > 1) ? `${u.name} (${u.plot})` : u.name, { indent: live ? 0 : 1 });
+      setInput(c.ws.getCell(c.r, 2 + o), u.category, '@');
       if (live) {
         // THE LIVE WORKBOOK: only the stated half of each pair is here; the rest follows the line's
         // NSA on Land & Area (Sub-unit areas), which comes after this tab.
-        if (u.sharePct.typed) { viewCell(c.ws.getCell(c.r, 3), u.sharePct, NUMFMT.pct2, 100); registerCell(`suin:${u.id}:share`, c.ws, c.ws.getCell(c.r, 3)); }
+        if (u.sharePct.typed) { viewCell(c.ws.getCell(c.r, 3 + o), u.sharePct, NUMFMT.pct2, 100); registerCell(`suin:${u.id}:share`, c.ws, c.ws.getCell(c.r, 3 + o)); }
         const stripDerived = line.key.startsWith('retail__') && line.rows.length === 1;
-        if (u.areaSqm.typed && !stripDerived) { viewCell(c.ws.getCell(c.r, 4), u.areaSqm, NUMFMT.int); registerCell(`suin:${u.id}:area`, c.ws, c.ws.getCell(c.r, 4)); }
-        if (u.units.typed) { viewCell(c.ws.getCell(c.r, 6), u.units, NUMFMT.int); registerCell(`suin:${u.id}:units`, c.ws, c.ws.getCell(c.r, 6)); }
+        if (u.areaSqm.typed && !stripDerived) { viewCell(c.ws.getCell(c.r, 4 + o), u.areaSqm, NUMFMT.int); registerCell(`suin:${u.id}:area`, c.ws, c.ws.getCell(c.r, 4 + o)); }
+        if (u.units.typed) { viewCell(c.ws.getCell(c.r, 6 + o), u.units, NUMFMT.int); registerCell(`suin:${u.id}:units`, c.ws, c.ws.getCell(c.r, 6 + o)); }
       } else {
         viewCell(c.ws.getCell(c.r, 3), u.sharePct, NUMFMT.pct2, 100);
         viewCell(c.ws.getCell(c.r, 4), u.areaSqm, NUMFMT.int);
         viewCell(c.ws.getCell(c.r, 6), u.units, NUMFMT.int);
       }
-      if (u.unitSizeSqm !== undefined) setInput(c.ws.getCell(c.r, 5), u.unitSizeSqm, NUMFMT.rate);
-      (live ? (['unit', 'rate'] as const) : (['share', 'area', 'unit', 'units', 'rate'] as const)).forEach((k) => registerCell(`su:${u.id}:${k}`, c.ws, c.ws.getCell(c.r, 3 + ['share', 'area', 'unit', 'units', 'rate'].indexOf(k))));
-      setInput(c.ws.getCell(c.r, 7), u.rate, NUMFMT.rate);
-      setLabel(c.ws.getCell(c.r, 8), u.rateBasis);
+      if (u.unitSizeSqm !== undefined) setInput(c.ws.getCell(c.r, 5 + o), u.unitSizeSqm, NUMFMT.rate);
+      (live ? (['unit', 'rate'] as const) : (['share', 'area', 'unit', 'units', 'rate'] as const)).forEach((k) => registerCell(`su:${u.id}:${k}`, c.ws, c.ws.getCell(c.r, 3 + o + ['share', 'area', 'unit', 'units', 'rate'].indexOf(k))));
+      setInput(c.ws.getCell(c.r, 7 + o), u.rate, NUMFMT.rate);
+      setLabel(c.ws.getCell(c.r, 8 + o), u.rateBasis);
       if (live) { /* no other basis */ } else if (u.otherRate) {
         if (u.otherRate.value !== undefined) { setInput(c.ws.getCell(c.r, 9), u.otherRate.value, NUMFMT.rate); fixedHere(c, c.r, 9, 'The row sells on the other basis; this price is kept for a switch, not used.'); }
         setLabel(c.ws.getCell(c.r, 10), u.otherRate.basis);
@@ -452,6 +463,7 @@ export function nsaUsedLines(state: FinancialsResolverState, tables: AssetAreaTa
 
 /** Each sub-unit's share of its line's NSA, its area and units, and each line's NSA used. */
 export function emitSubUnitAreas(c: SheetCursor, state: FinancialsResolverState, tables: AssetAreaTables): void {
+  if (isLiveLayout()) { emitSubUnitAreasOneTable(c, state, tables); return; }
   const lines = buildSubUnitLines(state);
   if (lines.length) {
     setSectionHeader(c.ws.getRow(c.r), 'Sub-unit areas', 4); c.r += 1;
@@ -812,10 +824,15 @@ export function emitRevenueInputs(c: SheetCursor, state: FinancialsResolverState
     return rl ? lineTitle(rl, { assets: visible, phases: state.phases, parcels: state.parcels }) : `${line.label}${line.phaseName ? `, ${line.phaseName}` : ''}`;
   };
   if (lines.length === 0) { note(c, 'No revenue lines yet.'); c.r += 1; return; }
+  // THE LEASE LINES IN ONE TABLE, A COLUMN EACH (live layout, 2026-11-15, founder), unless a line
+  // indexes its rent by steps (a list of its own, kept per line).
+  const live = isLiveLayout();
+  const leaseLines = lines.filter((l) => l.form === 'lease');
+  const leaseTable = live && leaseLines.length > 0 && leaseLines.every((l) => (l.host.revenue?.lease?.rentIndexation?.method ?? 'none') !== 'step');
   for (const group of groupRevenueLines(lines)) {
-    band(c, group.section, 12);
-    c.r += 1;
+    if (!live) { band(c, group.section, 12); c.r += 1; }
     for (const line of group.lines) {
+      if (leaseTable && line.form === 'lease') continue;
       const host = line.host;
       const phase = state.phases.find((p) => p.id === line.phaseId);
       const w = lineWindow(host, phase, snap);
@@ -826,6 +843,56 @@ export function emitRevenueInputs(c: SheetCursor, state: FinancialsResolverState
       c.r += 1;
     }
   }
+  if (leaseTable) emitLeaseTable(c, leaseLines, state, snap, titleOf);
+}
+
+/** The lease lines' inputs as one table, a column per line, each cell keyed as the per-line rows were. */
+function emitLeaseTable(c: SheetCursor, leaseLines: RevenueLine[], state: FinancialsResolverState, snap: Snap, titleOf: (l: RevenueLine) => string): void {
+  const n = leaseLines.length;
+  setSectionHeader(c.ws.getRow(c.r), 'Revenue inputs, lease lines (a column per line)', 1 + n); c.r += 1;
+  headers(c, ['Input', ...leaseLines.map(titleOf)]);
+  c.ws.getRow(c.r - 1).height = 30;
+  for (let i = 0; i < n; i++) c.ws.getCell(c.r - 1, 2 + i).alignment = { horizontal: 'right', wrapText: true, vertical: 'middle' };
+  const per = leaseLines.map((line) => {
+    const lease = line.host.revenue?.lease;
+    const phase = state.phases.find((p) => p.id === line.phaseId);
+    const w = lineWindow(line.host, phase, snap);
+    const occ = lease ? occupancyAxis({ ...lease, occupancyShiftPts: undefined }, w.opsIdx - w.cStart, w.phaseOffset, Math.max(1, snap.axisLength)) : [];
+    const ix = lease?.rentIndexation;
+    return { line, lease, w, occ, method: ix?.method ?? 'none', ix };
+  });
+  const rowOf = (label: string, write: (i: number, cell: ExcelJS.Cell) => void): void => {
+    setLabel(c.ws.getCell(c.r, 1), label);
+    per.forEach((_, i) => write(i, c.ws.getCell(c.r, 2 + i)));
+    c.r += 1;
+  };
+  rowOf('Rent indexation: method', (i, cell) => setInput(cell, INDEX_METHOD_LABELS[per[i].method] ?? per[i].method, '@'));
+  const indexed = (i: number): boolean => per[i].method === 'yoy_compound' || per[i].method === 'single_rate';
+  if (per.some((_, i) => indexed(i))) {
+    rowOf('Rent indexation: rate %', (i, cell) => { if (!indexed(i)) return; setInput(cell, per[i].ix?.rate ?? 0, NUMFMT.pct2); registerCell(`rxin|${per[i].line.key}|rate`, c.ws, cell); });
+    rowOf('Rent indexation: start year', (i, cell) => { if (!indexed(i)) return; setInput(cell, snap.projectStartYear + (per[i].ix?.startYear ?? 0), NUMFMT.year); registerCell(`rxin|${per[i].line.key}|from`, c.ws, cell); });
+  }
+  rowOf('Operations start year (blank = the year after handover)', (i, cell) => {
+    const ov = per[i].lease?.operationsStartYearOverride;
+    if (ov != null) setInput(cell, ov, NUMFMT.year); else { markInput(cell); cell.numFmt = NUMFMT.year; }
+    registerCell(`oxin|opsStart|${per[i].line.key}`, c.ws, cell);
+  });
+  const years = Math.max(0, ...per.map((x) => x.w.operations.length));
+  for (let k = 1; k <= years; k++) {
+    rowOf(`Occupancy, ops year ${k}`, (i, cell) => {
+      const idx = per[i].w.operations.find((x) => x - per[i].w.opsIdx + 1 === k);
+      if (idx === undefined) return;
+      setInput(cell, per[i].occ[idx] ?? 0, NUMFMT.pct);
+      registerCell(`rxgrid|${per[i].line.key}|occ@${k}`, c.ws, cell);
+    });
+  }
+  rowOf('Accounts Receivable Days (blank = the project DSO)', (i, cell) => {
+    const own = per[i].lease?.arDays;
+    const stated = typeof own === 'number' && Number.isFinite(own) && own > 0 ? own : undefined;
+    if (stated !== undefined) setInput(cell, stated, NUMFMT.int); else { markInput(cell); cell.numFmt = NUMFMT.int; }
+    registerCell(`rxin|${per[i].line.key}|arDays`, c.ws, cell);
+  });
+  c.r += 1;
 }
 
 function emitSellLine(c: SheetCursor, line: RevenueLine, w: LineWindow, snap: Snap, phase: Phase | undefined): void {
@@ -998,7 +1065,11 @@ export function emitEscrowInputs(c: SheetCursor, state: FinancialsResolverState,
   yearDoor('Default Release Year (optional)', p.escrow?.defaultReleaseYear, 'auto: handover year + 1', 'escin|release');
   const revLines = planRevenueLines(state.assets, state.subUnits, state.phases, state.project);
   const lines = planReportLines({ assets, phases: state.phases, parcels: state.parcels }, (a) => snap.escrow.byAsset.has(a.id));
-  if (lines.length > 0) {
+  // ESCROW NOT USED (held at 0%, no line overriding it): no per-line override rows (2026-11-15; the
+  // Inputs line "Not used in this project" says how to turn it on).
+  const anyEscOverride = lines.some((line) => { const e = assets.find((x) => x.id === line.assetIds[0])?.revenue?.sell?.escrow; return e?.heldPctOverride !== undefined || e?.heldUntilYearOverride !== undefined || e?.releaseYearOverride !== undefined; });
+  const escUsed = !liveEsc || (p.escrow?.heldPct ?? 0) > 0 || anyEscOverride;
+  if (lines.length > 0 && escUsed) {
     // THE LIVE WORKBOOK HOLDS THE OVERRIDES ONLY (2026-10-25): the effective figures are worked out on
     // Revenue's escrow table, the tab that uses them, so no derived value sits among the inputs.
     headers(c, liveEsc ? ['Asset', 'Held % Override', 'Held Until Override', 'Release Year Override']
@@ -1058,17 +1129,82 @@ export function emitOpexInputs(c: SheetCursor, state: FinancialsResolverState, a
   const ordered = [...hosts.filter((x) => x.host.strategy === 'Operate'), ...hosts.filter((x) => x.host.strategy === 'Lease')];
   const p = state.project;
   const projectDpo = Math.max(0, p.opexAp?.defaultApDays ?? 0);
+  // INFLATION SET ONCE (live layout, 2026-11-15, founder): the inflation most lines state, then a row
+  // of its own only for a line whose inflation differs. Each line's keys point at the cells it reads.
+  const liveInf = isLiveLayout() && ordered.length > 0;
+  if (liveInf) {
+    const sigOf = (cfg: Parameters<typeof summarizeOpexIndexation>[0]): string => {
+      const ix = normalizeOpexIndexation(cfg) as { method?: string; rate?: number; startYear?: number };
+      return JSON.stringify([summarizeOpexIndexation(cfg), ix.method, ix.rate ?? 0, ix.startYear ?? 0]);
+    };
+    const groups = new Map<string, typeof ordered>();
+    for (const x of ordered) { const k = sigOf(x.host.opex?.defaultIndexation); groups.set(k, [...(groups.get(k) ?? []), x]); }
+    const sorted = [...groups.values()].sort((a, b) => b.length - a.length);
+    setSectionHeader(c.ws.getRow(c.r), 'Opex inflation (the default for fixed-cost lines)', 3); c.r += 1;
+    headers(c, ['Applies to', 'Inflation', 'Rate %', 'Counted from (or the operations start, if later)']);
+    for (const [gi, g] of sorted.entries()) {
+      const cfg = g[0].host.opex?.defaultIndexation;
+      const ix = normalizeOpexIndexation(cfg) as { method?: string; rate?: number; startYear?: number };
+      setLabel(c.ws.getCell(c.r, 1), gi === 0 && sorted.length === 1 ? 'All operating lines' : g.map((x) => lineTitle(x.line, ctx)).join('; '));
+      setInput(c.ws.getCell(c.r, 2), summarizeOpexIndexation(cfg), '@');
+      if (ix.method === 'yoy_compound' || ix.method === 'single_rate') {
+        setInput(c.ws.getCell(c.r, 3), ix.rate ?? 0, NUMFMT.pct2);
+        setInput(c.ws.getCell(c.r, 4), axisYear + (ix.startYear ?? 0), NUMFMT.year);
+        for (const x of g) { registerCell(`oxin|${x.host.id}|rate`, c.ws, c.ws.getCell(c.r, 3)); registerCell(`oxin|${x.host.id}|from`, c.ws, c.ws.getCell(c.r, 4)); }
+      }
+      c.r += 1;
+    }
+    c.r += 1;
+  }
+  // THE LEASE LINES' OPEX IN ONE TABLE, A VALUE COLUMN EACH (live layout, 2026-11-15, founder), where
+  // their lines are the same list (name, category, mode, rate, inflation and On / Off agree).
+  const leaseHosts = liveInf ? ordered.filter((x) => x.host.strategy === 'Lease') : [];
+  const shape = (h: Asset): string => JSON.stringify((h.opex?.lines ?? []).map((l) => [l.name, l.category, l.mode, l.rateMode, isFixedCostOpexMode(l.mode) ? (l.rateMode === 'yoy' ? 'yoy' : l.useAssetDefault !== false ? `inh:${summarizeOpexIndexation(h.opex?.defaultIndexation)}` : summarizeOpexIndexation(l.indexation)) : 'rev', l.disabled ? 'Off' : 'On']));
+  const leaseTable = leaseHosts.length > 1 && (leaseHosts[0].host.opex?.lines ?? []).length > 0 && leaseHosts.every((x) => shape(x.host) === shape(leaseHosts[0].host));
+  if (leaseTable) {
+    const h0 = leaseHosts[0].host;
+    setSectionHeader(c.ws.getRow(c.r), 'Opex lines, lease lines (a value column per line)', 6 + leaseHosts.length); c.r += 1;
+    headers(c, ['Line item', 'Category', 'Mode', 'Rate', 'Inflation', 'On', ...leaseHosts.map((x) => lineTitle(x.line, ctx))]);
+    c.ws.getRow(c.r - 1).height = 30;
+    for (let k = 0; k < leaseHosts.length; k++) c.ws.getCell(c.r - 1, 7 + k).alignment = { horizontal: 'right', wrapText: true, vertical: 'middle' };
+    (h0.opex?.lines ?? []).forEach((l, i) => {
+      // A line zero on every lease line is not built (the Inputs line counts it as not used).
+      if (leaseHosts.every((x) => opexLineIsZero((x.host.opex?.lines ?? [])[i] ?? {}))) return;
+      const fixed = isFixedCostOpexMode(l.mode);
+      setLabel(c.ws.getCell(c.r, 1), l.name);
+      setInput(c.ws.getCell(c.r, 2), OPEX_CATEGORY_LABELS[l.category] ?? String(l.category), '@');
+      setInput(c.ws.getCell(c.r, 3), OPEX_MODE_LABELS[l.mode] ?? String(l.mode), '@');
+      setInput(c.ws.getCell(c.r, 4), l.rateMode === 'yoy' ? 'YoY' : 'Single', '@');
+      if (!fixed) derived(c.ws.getCell(c.r, 5), 'auto via revenue', '@');
+      else if (l.rateMode === 'yoy') derived(c.ws.getCell(c.r, 5), 'supplied by YoY rates', '@');
+      else if (l.useAssetDefault !== false) derived(c.ws.getCell(c.r, 5), `Inherits: ${summarizeOpexIndexation(h0.opex?.defaultIndexation)}`, '@');
+      else setInput(c.ws.getCell(c.r, 5), summarizeOpexIndexation(l.indexation), '@');
+      setInput(c.ws.getCell(c.r, 6), l.disabled ? 'Off' : 'On', '@');
+      leaseHosts.forEach((x, k) => {
+        const own = (x.host.opex?.lines ?? [])[i];
+        setInput(c.ws.getCell(c.r, 7 + k), own?.value ?? 0, opexValFmt(String(l.mode)));
+        registerCell(`oxv|${x.host.id}|${i}`, c.ws, c.ws.getCell(c.r, 7 + k));
+        registerCell(`oxon|${x.host.id}|${i}`, c.ws, c.ws.getCell(c.r, 6));
+      });
+      c.r += 1;
+    });
+    c.r += 1;
+  }
   for (const { line, host } of ordered) {
+    if (leaseTable && host.strategy === 'Lease') continue;
     const title = lineTitle(line, ctx);
     setSectionHeader(c.ws.getRow(c.r), `Opex lines, ${title}`, 7); c.r += 1;
-    kv(c, 'Asset Inflation (default for fixed-cost lines)', summarizeOpexIndexation(host.opex?.defaultIndexation), '@', true);
-    opexInflationInputs(c, 'Asset', host.id, host.opex?.defaultIndexation, axisYear);
+    if (!liveInf) {
+      kv(c, 'Asset Inflation (default for fixed-cost lines)', summarizeOpexIndexation(host.opex?.defaultIndexation), '@', true);
+      opexInflationInputs(c, 'Asset', host.id, host.opex?.defaultIndexation, axisYear);
+    }
     const all = host.opex?.lines ?? [];
     if (all.length === 0) { note(c, 'No opex lines on this line.'); c.r += 1; continue; }
     headers(c, ['Line item', 'Category', 'Mode', 'Rate', 'Value', 'Inflation', 'On']);
     // The live workbook reads each line's value and On / Off here (2026-10-28): the Opex cards are gone.
     const live = isLiveLayout();
     all.forEach((l, i) => {
+      if (isLiveLayout() && opexLineIsZero(l)) return;
       const fixed = isFixedCostOpexMode(l.mode);
       const yoy = l.rateMode === 'yoy';
       setLabel(c.ws.getCell(c.r, 1), l.name, { indent: 1 });
@@ -1087,7 +1223,9 @@ export function emitOpexInputs(c: SheetCursor, state: FinancialsResolverState, a
     });
     c.r += 1;
   }
-  const hq = hqOpexLinesInForce(p.hqOpex?.lines);
+  // HQ NOT USED (every line off or zero) is not built in the live layout (2026-11-15, founder): the
+  // Inputs line "Not used in this project" says so.
+  const hq = isLiveLayout() && !featureUsed(state as never, 'hq') ? [] : hqOpexLinesInForce(p.hqOpex?.lines);
   if (hq.length > 0) {
     setSectionHeader(c.ws.getRow(c.r), 'HQ / Corporate opex lines', 6); c.r += 1;
     if (isLiveLayout()) {
@@ -1113,7 +1251,9 @@ export function emitOpexInputs(c: SheetCursor, state: FinancialsResolverState, a
   setSectionHeader(c.ws.getRow(c.r), 'Accounts Payable (DPO)', 3); c.r += 1;
   kv(c, 'Project Default DPO (days)', p.opexAp?.defaultApDays ?? 0, NUMFMT.int, true, 'DpoDays', 'Blank or 0 = pay on incurrence (no AP).', isLiveLayout() ? 'oxin|dpo|default' : 'inp=opexin|__ap__||Project Default DPO (days)@4#dpo');
   kv(c, 'Days basis', p.opexAp?.daysPerYear ?? 365, NUMFMT.int, p.opexAp?.daysPerYear !== undefined || isLiveLayout(), undefined, undefined, isLiveLayout() ? 'oxin|dpo|days' : undefined);
-  if (ordered.length > 0) {
+  // PAYABLES NOT USED (0 days, no line overriding it): no per-line override rows (2026-11-15).
+  const dpoUsed = !isLiveLayout() || projectDpo > 0 || ordered.some((x) => x.host.opex?.apDaysOverride !== undefined);
+  if (ordered.length > 0 && dpoUsed) {
     const liveDpo = isLiveLayout();
     // Live layout: the override only (blank = the project default); the days in force are worked out on Opex.
     headers(c, liveDpo ? ['Asset', 'DPO override (blank = default)'] : ['Asset', 'Effective DPO (days)', 'DPO Override']);
@@ -1188,6 +1328,51 @@ function withoutRetail(g: Pooled): Pooled {
   };
 }
 
+/**
+ * SUB-UNIT AREAS AND THE NSA USED, ONE TABLE (live layout, 2026-11-15, founder): a row per sub-unit
+ * with its line in the first column; a line's NSA used sits on its first row (a line with no sub-unit
+ * row gets a row of its own). Every cell keeps the key it had.
+ */
+function emitSubUnitAreasOneTable(c: SheetCursor, state: FinancialsResolverState, tables: AssetAreaTables): void {
+  const lines = buildSubUnitLines(state);
+  const visible = state.assets.filter((a) => a.visible !== false);
+  const nsaLines = nsaUsedLines(state, tables);
+  if (!lines.length && !nsaLines.length) return;
+  const nsaOf = (l: { assetIds: string[] }): number => l.assetIds.reduce((s, id) => {
+    const a = visible.find((x) => x.id === id);
+    return s + (a ? resolveAssetAreaMetrics(a, state.project, state.parcels, visible, state.subUnits, state.landAllocationMode).nsa : 0);
+  }, 0);
+  setSectionHeader(c.ws.getRow(c.r), 'Sub-unit areas and the NSA used by line', 6); c.r += 1;
+  headers(c, ['Line', 'Sub-unit', 'NSA Share %', 'Area (sqm)', 'Units or Keys', 'NSA used by line (sqm)']);
+  const placed = new Set<string>();
+  const nsaCell = (title: string): void => {
+    const l = nsaLines.find((x) => x.title === title && !placed.has(x.key));
+    if (!l) return;
+    placed.add(l.key);
+    derived(c.ws.getCell(c.r, 6), nsaOf(l), NUMFMT.int);
+    registerCell(`nsaline:${l.key}`, c.ws, c.ws.getCell(c.r, 6));
+  };
+  for (const line of lines) {
+    line.rows.forEach((u, i) => {
+      setLabel(c.ws.getCell(c.r, 1), line.title);
+      setLabel(c.ws.getCell(c.r, 2), u.plot && (u.plot === 'no asset' || line.rows.filter((x) => x.name === u.name).length > 1) ? `${u.name} (${u.plot})` : u.name);
+      if (u.sharePct.value !== undefined) derived(c.ws.getCell(c.r, 3), u.sharePct.value / 100, NUMFMT.pct2);
+      derived(c.ws.getCell(c.r, 4), u.areaSqm.value ?? 0, NUMFMT.int);
+      if (u.units.value !== undefined) derived(c.ws.getCell(c.r, 5), u.units.value, NUMFMT.int);
+      (['share', 'area', 'units'] as const).forEach((k, j) => registerCell(`su:${u.id}:${k}`, c.ws, c.ws.getCell(c.r, 3 + j)));
+      if (i === 0) nsaCell(line.title);
+      c.r += 1;
+    });
+  }
+  for (const l of nsaLines) {
+    if (placed.has(l.key)) continue;
+    setLabel(c.ws.getCell(c.r, 1), l.title);
+    nsaCell(l.title);
+    c.r += 1;
+  }
+  c.r += 1;
+}
+
 export function emitLandTables(c: SheetCursor, tables: AssetAreaTables): void {
   const ws = c.ws;
   const live = isLiveLayout();
@@ -1199,14 +1384,16 @@ export function emitLandTables(c: SheetCursor, tables: AssetAreaTables): void {
   const stripOf = (name: string): { strategy: string } | undefined => tables.companions.find((s) => s.name === name);
   // TABLE 3, per plot: the chain run on each plot, never pooled.
   setSectionHeader(ws.getRow(c.r), 'Derived areas by plot (land x utilisation x coverage / FAR)', cols); c.r += 1;
-  headers(c, ['Asset', ...(live ? lineHeads : []), ...CHAIN_HEADS]);
+  headers(c, ['Asset', ...(live ? ['Phase', 'Strategy', 'Plot'] : []), ...CHAIN_HEADS]);
   for (const g of tables.plots) {
-    band(c, `${g.plotLabel}${g.phaseName ? `, ${g.phaseName}` : ''}`, cols);
+    // THE PLOT IN ITS OWN COLUMN (live layout, 2026-11-15, founder): no heading row above each plot.
+    if (!live) band(c, `${g.plotLabel}${g.phaseName ? `, ${g.phaseName}` : ''}`, cols);
     for (const row of g.chains) {
-      setLabel(ws.getCell(c.r, 1), row.label, { indent: 1 });
+      setLabel(ws.getCell(c.r, 1), row.label, { indent: live ? 0 : 1 });
       if (live) {
         setLabel(ws.getCell(c.r, 2), g.phaseName ?? '');
         setLabel(ws.getCell(c.r, 3), g.entries.find((e) => e.assetId === row.assetId)?.strategy ?? '');
+        setLabel(ws.getCell(c.r, 4), g.plotLabel);
       }
       const ch = row.chain as unknown as Pooled;
       chainCells(ws, c.r, at, row.landSqm, ch, {
@@ -1225,6 +1412,7 @@ export function emitLandTables(c: SheetCursor, tables: AssetAreaTables): void {
       if (live) {
         setLabel(ws.getCell(c.r, 2), g.phaseName ?? '');
         setLabel(ws.getCell(c.r, 3), stripOf(piece.name)?.strategy ?? '');
+        setLabel(ws.getCell(c.r, 4), g.plotLabel);
       }
       chainCells(ws, c.r, at, piece.sqm, { netSaleableSqm: piece.nsaSqm } as Pooled, {}, false, live ? 'blank' : 'dash');
       registerCell(`piece:${g.key}:${piece.name}`, ws, ws.getCell(c.r, at));

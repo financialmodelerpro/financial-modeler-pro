@@ -39,11 +39,9 @@
 import type ExcelJS from 'exceljs';
 import type { LayerContext, LiveLayer } from '../formulaWorkbook';
 import { LiveWriter } from './writer';
-import { capexCols, sellingCostRowLabel, PERIOD_COLS } from '../buildModelWorkbook';
-import { buildSellingCostReport } from '../../reports/sellingCostReports';
+import { capexCols } from '../buildModelWorkbook';
 import { capexCostType, CAPEX_COST_TYPES } from '../capexCostType';
-import { planRevenueLines, lineForAsset } from '../../revenueLines';
-import { ARGB, colLetter as colLetterOf } from '../styles';
+
 import { withResolvedAssetNames } from '@/src/core/calculations/assetName';
 import { resolveCostCategory, isLandValueLine, deriveCostStage } from '@/src/core/calculations';
 import { assetVisibleLines, allowedSelectedIds } from '@/src/core/calculations/selectedBase';
@@ -276,6 +274,40 @@ export const stage2Capex: LiveLayer = {
       const r = w.addr(`cxw:${sp.key}`).row;
       const ph = phases.find((p) => p.id === sp.phaseId)!;
       const cp = (): string => w.ref(`tl:phase:${ph.id}:cp`);
+      const S = w.addr(`cxw:${sp.key}`).sheet;
+      if (S !== CAPEX) {
+        // ON REVENUE (2026-11-15, founder): the line's collections inside the phase's years over their
+        // total there, even over the window where they say nothing; the window and the phase period of
+        // each year are worked out in the formula, so the row carries no working columns.
+        if (sp.kind !== 'collections') return values(`the spend share "${sp.label}" is on ${S}`);
+        const rule = followedRule(sp.baseId);
+        let B: string, C: string;
+        if (sp.win === 'follows') {
+          B = rule === 'land' ? '0' : rule === 'half' ? `MAX(1,INT(${cp()}/2))` : rule === 'preop' ? `MAX(1,${cp()}-6)` : '1';
+          C = rule === 'land' ? '0' : `MAX(${B},${cp()})`;
+        } else {
+          const ir = sp.win === 'plot' ? inpRow(sp.assetId!, sp.lineId) : firstWindowRow.get(sp.lineId);
+          if (ir === undefined) return values(`the window of ${sp.label} has no input row`);
+          B = inp(ir, 6); C = inp(ir, 7);
+        }
+        const first = `MAX(${axis()},YEAR(${w.ref(`tl:phase:${ph.id}:cs`)}))`;
+        const yr = (c: number): string => w.refP({ sheet: S, row: 3, col: c }, S);
+        const i1 = (c: number): string => `(${yr(c)}-${first}+1)`;
+        const p0 = sp.win !== 'follows' || rule === 'land';
+        const even = (c: number): string => `(${p0 ? `(${yr(c)}=MAX(${axis()},${first}-1))*(${B}<=0)+` : ''}(${i1(c)}>=MAX(1,${B}))*(${i1(c)}<=MAX(${B},${C})))/(MAX(${B},${C})-${B}+1)`;
+        const cash = w.addr(`rvc:${sp.assetId}:cash`);
+        const slots = `${cp()}+${w.ref(`tl:phase:${ph.id}:op`)}+1`;
+        const yrs = w.rangeA(S, 3, cP(0), cP(N - 1)).replace(/^'?[^!]+'?!/, '');
+        const ppr = `(${yrs}-${first}+1)`;
+        w.fA({ sheet: S, row: r, col: C_OPEN }, `SUMPRODUCT((${ppr}>=1)*(${ppr}<=${slots}),${w.rangeA(cash.sheet, cash.row, cP(0), cP(N - 1))})`);
+        const W = w.refA({ sheet: S, row: r, col: C_OPEN }, S);
+        for (let t = 0; t < N; t++) {
+          const c = cP(t);
+          w.fA({ sheet: S, row: r, col: c }, `IF(${W}>0,(${i1(c)}>=1)*(${i1(c)}<=${slots})*${w.refP({ sheet: cash.sheet, row: cash.row, col: c }, S)}/${W},${even(c)})`);
+        }
+        w.fA({ sheet: S, row: r, col: C_TOT }, `SUM(${w.rangeA(S, r, cP(0), cP(N - 1)).replace(/^'?[^!]+'?!/, '')})`);
+        continue;
+      }
       if (sp.win === 'follows') {
         // The platform's rule (deriveCostWindow), from the construction years on Timeline.
         const rule = followedRule(sp.baseId);
@@ -289,12 +321,10 @@ export const stage2Capex: LiveLayer = {
         w.fA({ sheet: CAPEX, row: r, col: C_TO }, inp(ir, 7));
       }
       // The phase period of a year: its year less the phase's first year, plus 1; period 0 is the
-      // year before (never before the first model year).
-      if (!w.has(`cxpp:${ph.id}`)) return values(`the phase periods of ${ph.name} are not on the sheet`);
-      const ppr = w.addr(`cxpp:${ph.id}`).row;
-      const first = A(ppr, C_TOT);
+      // year before (never before the first model year). Worked out here (2026-11-15: no helper row).
+      const first = `MAX(${axis()},YEAR(${w.ref(`tl:phase:${ph.id}:cs`)}))`;
       const B = A(r, C_FROM), C = A(r, C_TO);
-      const i1 = (c: number): string => P(ppr, c);
+      const i1 = (c: number): string => `(${P(3, c)}-${first}+1)`;
       const z0 = (c: number): string => `(${P(3, c)}=MAX(${axis()},${first}-1))`;
       const inWin = (c: number): string => `(${i1(c)}>=MAX(1,${B}))*(${i1(c)}<=MAX(${B},${C}))`;
       // A window that follows the construction years never holds period 0 unless it is the land rule.
@@ -319,8 +349,7 @@ export const stage2Capex: LiveLayer = {
         const yrs = w.rangeA(CAPEX, 3, cP(0), cP(N - 1)).replace(/^'?Capex'?!/, '');
         const cashRng = w.rangeA(cash.sheet, cash.row, cP(0), cP(N - 1));
         const slots = `${cp()}+${w.ref(`tl:phase:${ph.id}:op`)}+1`;
-        const pps = w.rangeA(CAPEX, ppr, cP(0), cP(N - 1)).replace(/^'?Capex'?!/, '');
-        void yrs;
+        const pps = `(${yrs}-${first}+1)`;
         w.fA({ sheet: CAPEX, row: r, col: C_WIN }, `SUMPRODUCT((${pps}>=1)*(${pps}<=${slots}),${cashRng})`);
         const W = A(r, C_WIN);
         for (let t = 0; t < N; t++) {
@@ -427,6 +456,27 @@ export const stage2Capex: LiveLayer = {
       const rep = plotLines.get(pk)!;
       const host = hostOfRep.get(pk)!;
       const pls = plsOf(host, rep.line.id);
+      const ek = `cx1e:${host}:${rep.line.id}`;
+      const S = rep.key.startsWith('cxe:') && w.has(ek) ? w.addr(ek).sheet : CAPEX;
+      if (S !== CAPEX) {
+        // ON REVENUE (2026-11-15, founder): rate x the line's sale value x its collections share.
+        w.claim(rep.key, S, row, 1);
+        const rateCell = rep.rate.kind === 'std' ? w.addr(rep.rate.key) : { sheet: INPUTS, row: rep.rate.kind === 'line' ? (firstRow.get(rep.line.id) ?? inpRow(rep.asset.id, rep.line.id)) : inpRow(rep.asset.id, rep.line.id), col: 3 };
+        w.claim(rep.key.replace(/^cx[ce]:/, 'cxrate:'), rateCell.sheet, rateCell.row, rateCell.col);
+        w.fA({ sheet: S, row, col: 2 }, rateRef(rep));
+        w.fA({ sheet: S, row, col: C_QTY }, assetQty(host, pls));
+        const use = blends.use.get(`${host}|${rep.line.id}`);
+        const sp = use && w.has(use) ? w.addr(use) : undefined;
+        const off = pls.every((x) => x.disabled);
+        const RA = (col: number): string => w.refA({ sheet: S, row, col }, S);
+        for (let t = 0; t < N; t++) {
+          const c = cP(t);
+          if (off || !sp) { w.valueA({ sheet: S, row, col: c }, 0); continue; }
+          w.fA({ sheet: S, row, col: c }, `${RA(2)}*${RA(C_QTY)}*${w.refP({ sheet: sp.sheet, row: sp.row, col: c }, S)}`);
+        }
+        w.fA({ sheet: S, row, col: C_TOT }, `SUM(${w.rangeA(S, row, cP(0), cP(N - 1)).replace(/^'?[^!]+'?!/, '')})`);
+        continue;
+      }
       w.claim(rep.key, CAPEX, row, 1);
       const rateCell = rep.rate.kind === 'std' ? w.addr(rep.rate.key)
         : { sheet: INPUTS, row: rep.rate.kind === 'line' ? (firstRow.get(rep.line.id) ?? inpRow(rep.asset.id, rep.line.id)) : inpRow(rep.asset.id, rep.line.id), col: 3 };
@@ -460,7 +510,15 @@ export const stage2Capex: LiveLayer = {
     const t1Keys = (host: string): string[] => (hostLines.get(host) ?? []).map((lid) => `cx1:${host}:${lid}`).filter((k) => w.has(k));
     for (const host of hostLines.keys()) sumKeys(`cx1sub:${host}`, t1Keys(host));
     const hosts = [...hostLines.keys()].filter((h) => w.has(`cx1sub:${h}`));
-    if (w.has('cx1e:total')) sumKeys('cx1e:total', reg.keys().filter((k) => k.startsWith('cx1e:') && k !== 'cx1e:total'));
+    if (w.has('cx1e:total')) {
+      const tk = w.addr('cx1e:total');
+      const rows = reg.keys().filter((k) => k.startsWith('cx1e:') && k !== 'cx1e:total').map((k) => w.addr(k)).filter((a) => a.sheet === tk.sheet).map((a) => a.row).sort((x, y) => x - y);
+      for (const c of [...Array.from({ length: N }, (_, t) => cP(t)), C_TOT]) {
+        for (const rr of rows) w.refP({ sheet: tk.sheet, row: rr, col: c }, tk.sheet);
+        const L = colOf(c);
+        w.fA({ sheet: tk.sheet, row: tk.row, col: c }, rows.length ? 'SUM(' + L + '$' + rows[0] + ':' + L + '$' + rows[rows.length - 1] + ')' : '0');
+      }
+    }
     sumKeys('cx1:total', hosts.map((h) => `cx1sub:${h}`));
 
     // ── Tables 2 and 4: an asset's capex incl. and excl. its land value ──────
@@ -492,7 +550,12 @@ export const stage2Capex: LiveLayer = {
       sumKeys(`cx5:${ph.id}:sub`, [`cx5:${ph.id}:cash`, `cx5:${ph.id}:inkind`]);
       if (w.has(`cx5memo:${ph.id}`)) sumKeys(`cx5memo:${ph.id}`, byPhase(ph.id, isMemo));
     }
-    if (w.has('cx5:total:cash')) { sumKeys('cx5:total:cash', cashK); sumKeys('cx5:total:inkind', inkK); sumKeys('cx5:total:land', ['cx5:total:cash', 'cx5:total:inkind']); }
+    if (w.has('cx5:total:cash')) {
+      // The capex summary (2026-11-15) has no per-phase land rows: its totals add Table 1's land value rows.
+      sumKeys('cx5:total:cash', cashK.length ? cashK : hosts.flatMap((h) => landKeys(h, isCashLand)));
+      sumKeys('cx5:total:inkind', inkK.length ? inkK : hosts.flatMap((h) => landKeys(h, isInKindLand)));
+      sumKeys('cx5:total:land', ['cx5:total:cash', 'cx5:total:inkind']);
+    }
     void K;
 
     // ── Capex by cost type (2026-11-12, founder): Table 1's rows of each type, the one rule (capexCostType) ──
@@ -505,50 +568,12 @@ export const stage2Capex: LiveLayer = {
         sumKeys(key, parts);
         typeKeys.push(key);
       }
-      if (w.has('cxty:total') && typeKeys.length) sumKeys('cxty:total', typeKeys);
+      // The land rows of the capex summary are the land value totals (cash, in-kind), RETT its own type.
+      const landRows = ['cx5:total:cash', 'cx5:total:inkind'].filter((k) => w.has(k) && w.addr(k).row > (w.has('cx2:total') ? w.addr('cx2:total').row : 0));
+      if (w.has('cxty:total') && (typeKeys.length || landRows.length)) sumKeys('cxty:total', [...landRows, ...typeKeys]);
     }
 
-    // ── Revenue's selling costs, by sell line (2026-11-12, founder) ─────────────
-    // Each row adds its line's selling-cost cells here (the expensed block, else Table 1): charged once, on Capex.
-    {
-      const REV = 'Revenue';
-      const sellRows = reg.keys().filter((k) => /^rev\|__sell__\|\|.+: selling costs$/.test(k));
-      if (sellRows.length) {
-        const sc = buildSellingCostReport({
-          revenue: snap.revenue, assets: state.assets, phases: state.phases, costLines: state.costLines,
-          costOverrides: state.costOverrides, parcels: state.parcels, landAllocationMode: state.landAllocationMode,
-          project: state.project, subUnits: state.subUnits, yearLabels: snap.yearLabels, projectStartYear: snap.projectStartYear,
-        });
-        const revLines = planRevenueLines(state.assets, state.subUnits, state.phases, state.project);
-        const labelOfLine = new Map<string, string>();
-        for (const row of sc?.schedule?.rows ?? []) labelOfLine.set(row.key.split('::')[0], row.assetName);
-        const cellsOf = new Map<string, string[]>();
-        for (const r of sc?.result.rows ?? []) {
-          const lk = lineForAsset(revLines, r.assetId)?.key ?? r.assetId;
-          const k = w.has(`cxe:${r.assetId}:${r.lineId}`) ? `cxe:${r.assetId}:${r.lineId}` : w.has(`cx1:${r.assetId}:${r.lineId}`) ? `cx1:${r.assetId}:${r.lineId}` : null;
-          if (k) cellsOf.set(lk, [...(cellsOf.get(lk) ?? []), k]);
-        }
-        const lineRowKeys: string[] = [];
-        for (const [lk, label] of labelOfLine) {
-          const key = `rev|__sell__||${sellingCostRowLabel(label)}`;
-          if (!w.has(key)) continue;
-          const r = w.addr(key).row;
-          const parts = cellsOf.get(lk) ?? [];
-          for (let t = 0; t < N; t++) w.fA({ sheet: REV, row: r, col: cP(t) }, parts.length ? parts.map((k) => w.refP({ sheet: CAPEX, row: w.addr(k).row, col: cP(t) }, REV)).join('+') : '0');
-          w.fA({ sheet: REV, row: r, col: PERIOD_COLS.TOTAL_COL }, `SUM(${w.rangeA(REV, r, cP(0), cP(N - 1))})`);
-          lineRowKeys.push(key);
-        }
-        const tk = 'rev|__sell__||Total selling costs';
-        if (w.has(tk) && lineRowKeys.length) {
-          const r = w.addr(tk).row;
-          const rows = lineRowKeys.map((k) => w.addr(k).row).sort((a, b) => a - b);
-          for (const c of [...Array.from({ length: N }, (_, t) => cP(t)), PERIOD_COLS.TOTAL_COL]) {
-            const L = colLetterOf(c);
-            w.fA({ sheet: REV, row: r, col: c }, `SUM(${L}$${rows[0]}:${L}$${rows[rows.length - 1]})`);
-          }
-        }
-      }
-    }
+    // Revenue's selling costs are worked out on Revenue itself since 2026-11-15 (its last section, above).
 
     const pending = [...w.pending].filter((a) => a.startsWith(`${CAPEX}!`));
     return [{

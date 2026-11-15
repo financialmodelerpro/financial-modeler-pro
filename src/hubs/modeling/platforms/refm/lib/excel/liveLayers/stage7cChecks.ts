@@ -117,7 +117,7 @@ export const stage7cChecks: LiveLayer = {
       const cells: string[] = [];
       for (const as of ctx.opts.state.assets) {
         if (as.visible === false || (as.strategy !== 'Operate' && as.strategy !== 'Lease')) continue;
-        (as.opex?.lines ?? []).forEach((ln, i) => { if (ln.name === a.item && isEmptyCheckEligible(ln) && has(`oxv|${as.id}|${i}`)) cells.push(w.ref(`oxv|${as.id}|${i}`, 5)); });
+        (as.opex?.lines ?? []).forEach((ln, i) => { if (ln.name === a.item && isEmptyCheckEligible(ln) && has(`oxv|${as.id}|${i}`)) cells.push(w.ref(`oxv|${as.id}|${i}`)); });
       }
       (ctx.opts.state.project.hqOpex?.lines ?? []).forEach((ln, i) => { if (ln.name === a.item && isEmptyCheckEligible(ln) && has(`oxv|hq|${i}`)) cells.push(w.ref(`oxv|hq|${i}`, 4)); });
       if (!cells.length) continue;

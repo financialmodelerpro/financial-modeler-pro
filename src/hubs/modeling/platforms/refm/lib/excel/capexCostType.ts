@@ -9,14 +9,16 @@
  *
  * No em dashes in this file.
  */
-import { deriveCostStage } from '@/src/core/calculations';
+import { deriveCostStage, isLandValueLine } from '@/src/core/calculations';
 import { resolveCatalogId } from '../state/costCatalog';
 import type { CostLine } from '../state/module1-types';
 
-export type CapexCostType = 'land' | 'hard' | 'soft' | 'contingency' | 'developerFee' | 'selling';
+export type CapexCostType = 'land' | 'rett' | 'hard' | 'soft' | 'contingency' | 'developerFee' | 'selling';
 
 export const CAPEX_COST_TYPES: ReadonlyArray<{ id: CapexCostType; label: string }> = [
   { id: 'land', label: 'Land' },
+  // RETT AND ANY OTHER LAND-STAGE COST ON ITS OWN ROW (2026-11-15, founder), so Land is the land value.
+  { id: 'rett', label: 'RETT' },
   { id: 'hard', label: 'Hard costs' },
   { id: 'soft', label: 'Soft costs' },
   { id: 'contingency', label: 'Contingency' },
@@ -26,7 +28,7 @@ export const CAPEX_COST_TYPES: ReadonlyArray<{ id: CapexCostType; label: string 
 
 export function capexCostType(line: CostLine): CapexCostType {
   const stage = deriveCostStage(line);
-  if (stage === 'land') return 'land';
+  if (stage === 'land') return isLandValueLine(line) ? 'land' : 'rett';
   if (stage === 'hard') return 'hard';
   if (stage === 'marketing') return 'selling';
   const cat = resolveCatalogId(line);

@@ -50,6 +50,7 @@ import { LiveWriter } from './writer';
 import { PERIOD_COLS } from '../buildModelWorkbook';
 import { withResolvedAssetNames } from '@/src/core/calculations/assetName';
 import { normalizeOpexIndexation, hqOpexLinesInForce, type OpexLine } from '@/src/core/calculations/opex';
+import { opexLineIsZero } from '../exportScope';
 import { isRevenueSubUnit } from '@/src/core/calculations';
 import { computeFinancialsSnapshot } from '../../financials-resolvers';
 import { planRevenueLines, lineForAsset, type RevenueLine } from '../../revenueLines';
@@ -113,7 +114,9 @@ export const stage3Opex: LiveLayer = {
     const hqStored = hqOpexLinesInForce(project.hqOpex?.lines as OpexLine[] | undefined);
     const hqDefault = idxOf(project.hqOpex?.defaultIndexation);
     if (!IDX_METHODS.has(hqDefault.method ?? 'none')) refuse.push(`HQ: inflation ${hqDefault.method}`);
-    if ((hqDefault.method ?? 'none') !== 'none' && (!has('oxin|hq|rate') || !has('oxin|hq|from'))) refuse.push('HQ: its inflation has no rate on Inputs');
+    // HQ NOT USED (every line off or zero) is not on Inputs (2026-11-15): its rows charge nothing.
+    const hqOnInputs = hqStored.length > 0 && has('oxv|hq|0');
+    if (hqOnInputs && (hqDefault.method ?? 'none') !== 'none' && (!has('oxin|hq|rate') || !has('oxin|hq|from'))) refuse.push('HQ: its inflation has no rate on Inputs');
     for (const ln of hqStored) {
       if (ln.rateMode === 'yoy') refuse.push(`HQ: ${ln.name} has year-by-year rates`);
       if (ln.useAssetDefault === false && ln.mode === 'fixed_baseline' && (ln.indexation?.method ?? 'none') !== 'none') refuse.push(`HQ: ${ln.name} has its own inflation`);
@@ -125,11 +128,11 @@ export const stage3Opex: LiveLayer = {
     if (refuse.length) return values(`Opex could not be made live for this model: ${[...new Set(refuse)].join('; ')}.`);
 
     // ── Writing helpers ──────────────────────────────────────────────────────
-    const at = (key: string, col: number): CellAddr => ({ sheet: w.addr(key).sheet, row: w.addr(key).row, col });
+    const at = (key: string, col?: number): CellAddr => ({ sheet: w.addr(key).sheet, row: w.addr(key).row, col: col ?? w.addr(key).col });
     /** This year's cell of a registered row, column relative (same sheet: no sheet name). */
     const P = (key: string, t: number): string => w.refP(at(key, pc(t)), OPEX);
     /** A fixed cell (a rate, a count, an Inputs value) of a registered row. */
-    const A = (key: string, col: number): string => w.refA(at(key, col), OPEX);
+    const A = (key: string, col?: number): string => w.refA(at(key, col), OPEX);
     const colOf = (c: number): string => { let s = ''; for (let n = c; n > 0; n = Math.floor((n - 1) / 26)) s = String.fromCharCode(65 + ((n - 1) % 26)) + s; return s; };
     const row = (key: string, f: (t: number) => string, total: 'sum' | 'last' | 'first' | 'none' | ((t0: string, t1: string) => string) = 'sum'): void => {
       if (!has(key)) return;
@@ -157,7 +160,7 @@ export const stage3Opex: LiveLayer = {
     };
     const yearHere = (t: number): string => w.refP({ sheet: OPEX, row: 3, col: pc(t) }, OPEX);
     /** An Inputs cell, read where it is typed. */
-    const IN = (key: string, col: number): string => A(key, col);
+    const IN = (key: string, col?: number): string => A(key, col);
 
     // ── The statements ───────────────────────────────────────────────────────
     interface LineOut { asset: Asset; line: RevenueLine; total: string }
@@ -185,7 +188,7 @@ export const stage3Opex: LiveLayer = {
       // the operations start on Revenue, never before the handover year.
       const ix = idxOf(a.opex?.defaultIndexation);
       if (has(K('fac'))) {
-        const rate = IN(`oxin|${a.id}|rate`, 2), from = IN(`oxin|${a.id}|from`, 2);
+        const rate = IN(`oxin|${a.id}|rate`), from = IN(`oxin|${a.id}|from`);
         const hy = has(`tl:phase:${p.id}:hy`) ? `,${w.ref(`tl:phase:${p.id}:hy`)}` : '';
         const base = has(startKey) ? `MAX(${from},${A(startKey, TOTAL_COL)}${hy})` : from;
         row(K('fac'), (t) => (ix.method === 'yoy_compound' ? `${IO(t)}*(1+${rate})^MAX(0,${yearHere(t)}-${base})` : `${IO(t)}*IF(${yearHere(t)}>=${base},1+${rate},1)`), 'none');
@@ -220,9 +223,11 @@ export const stage3Opex: LiveLayer = {
       const lineF = (i: number) => (t: number): string => {
         const ln = stored[i];
         const vK = `oxv|${a.id}|${i}`, onK = `oxon|${a.id}|${i}`;
+        // A zero line is not on Inputs (2026-11-15, founder): it charges nothing.
+        if (!has(vK) && opexLineIsZero(ln)) return '0';
         if (!has(vK) || !has(onK)) throw new Error(`opex Inputs cell missing: ${vK}`);
         // A revenue row is zero outside operations, and so is GOP: neither needs the flag.
-        const rate = IN(vK, 5);
+        const rate = IN(vK);
         let v: string;
         if (ln.mode === 'fixed_baseline') v = `${rate}*${FAC(t)}`;
         else if (ln.mode === 'per_room_year') v = keys === '0' ? '0' : `${rate}*${keys}*${FAC(t)}`;
@@ -230,7 +235,7 @@ export const stage3Opex: LiveLayer = {
         else if (ln.mode === 'pct_of_gop') v = `${rate}*MAX(0,${P(K('gop'), t)})`;
         else if (revRows[ln.mode]) v = `${rate}*${P(revRows[ln.mode], t)}`;
         else return '0';
-        return v === '0' ? '0' : `IF(${IN(onK, 7)}="Off",0,${v})`;
+        return v === '0' ? '0' : `IF(${IN(onK)}="Off",0,${v})`;
       };
       for (const g of plan.groups) {
         for (const r of g.rows) row(r.key, (t) => { const parts = r.idxs.map((i) => lineF(i)(t)).filter((x) => x !== '0'); return parts.length ? parts.join('+') : '0'; });
@@ -255,7 +260,8 @@ export const stage3Opex: LiveLayer = {
     }
 
     // ── HQ, project-wide ─────────────────────────────────────────────────────
-    if (has('ox|hq|fac')) {
+    if (has('ox|hq|fac') && !hqOnInputs) { /* HQ not used: the factor keeps the platform's figures (nothing charges on it) */ }
+    else if (has('ox|hq|fac')) {
       const rate = IN('oxin|hq|rate', 2), from = IN('oxin|hq|from', 2), axis = A('project:axisYear', 2);
       row('ox|hq|fac', (t) => (hqDefault.method === 'yoy_compound' ? `(1+${rate})^MAX(0,${yearHere(t)}-MAX(${from},${axis}))` : `IF(${yearHere(t)}>=MAX(${from},${axis}),1+${rate},1)`), 'none');
     }
@@ -264,6 +270,7 @@ export const stage3Opex: LiveLayer = {
     hqStored.forEach((ln, i) => {
       const k = `ox|hq|c${i}`;
       if (!has(k)) return;
+      if (!hqOnInputs) { row(k, () => '0'); hqKeys.push(k); return; }
       if (!has(`oxv|hq|${i}`) || !has(`oxon|hq|${i}`)) throw new Error(`HQ Inputs cell missing: ${i}`);
       const rate = IN(`oxv|hq|${i}`, 4);
       row(k, (t) => {

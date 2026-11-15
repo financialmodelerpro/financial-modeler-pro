@@ -174,7 +174,9 @@ export function cfPlan(state: FinancialsResolverState, snap: Snap = computeFinan
     rows.push({ key: K('Total capex paid in cash'), label: 'Total capex paid in cash', kind: 'row', style: 'subtotal', values: totCash, sum: cxGroups });
     const inKindV = neg(add(vl.flatMap((l) => ids(l)).map((id) => sl(snap.perAssetCF.get(id)?.landInKindPerPeriod))));
     rows.push({ key: K('Land in kind (investing)'), label: 'Land contributed in kind (non-cash, matched by the in-kind equity in financing)', kind: 'row', values: inKindV,
-      src: { kind: 'cost', keys: [phaseId ? `cx5:${phaseId}:inkind` : 'cx5:total:inkind'] } });
+      // A phase's in-kind land is its lines' in-kind land value rows on Capex Table 1 (2026-11-15: the capex
+      // summary has no per-phase land rows); the project's, the summary's in-kind total.
+      src: { kind: 'cost', keys: phaseId ? vl.flatMap((l) => ids(l).slice(0, 1).flatMap((h) => inKindLines.filter((c) => c.phaseId === phaseId).map((c) => `cx1:${h}:${c.id}`))) : ['cx5:total:inkind'] } });
     const totCx = add([totCash, inKindV]);
     rows.push({ key: K('Total capex'), label: 'Total capex', kind: 'row', style: 'subtotal', values: totCx, sum: [K('Total capex paid in cash'), K('Land in kind (investing)')] });
     const proceeds = sl(dcf.proceedsFromDisposalPerPeriod);

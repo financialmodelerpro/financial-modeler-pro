@@ -26,11 +26,21 @@ import { buildModelWorkbook, houseContextOf, enableIterativeCalc, type BuildMode
 import { CellRegistry, setCellSink } from './cellRegistry';
 import { deleteRowAt } from './liveFrontMatter';
 import { applyHouseStyle } from './houseStyle';
+import { applyTabFrame, tilesInMillions } from './tabFrame';
+import { TAB_ORDER } from './formulaWorkbook';
+
+/** THE VALUES FILE'S TABS IN THE LIVE FILE'S ORDER (founder, 2026-11-15): Revenue before Capex and Financing. */
+function orderTabs(wb: ExcelJS.Workbook): void {
+  let n = 0;
+  const at = (ws: ExcelJS.Worksheet): { orderNo: number } => ws as unknown as { orderNo: number };
+  for (const name of TAB_ORDER) { const ws = wb.getWorksheet(name); if (ws) at(ws).orderNo = n++; }
+  for (const ws of wb.worksheets) if (!TAB_ORDER.includes(ws.name)) at(ws).orderNo = n++;
+}
 
 /** The working rows the engine has no figure for, by registry key (the row's label cell). */
 export const WORKING_ROWS: ReadonlyArray<RegExp> = [
   /^tl:flag:/, /^tl:ctr:/,                                   // Timeline: year flags and counters
-  /^cxpp:/, /^cxw:/, /^cxbw:/, /^cxhw:/, /^cxbs:/, /^cx:escf$/, // Capex: phase periods, spend shares, plot weights, escalation factor
+  /^cxpp:/, /^cxw:/, /^cxwhead$/, /^cxbband:/, /^cxbw:/, /^cxhw:/, /^cxbs:/, /^cx:escf$/, // Capex: phase periods, spend shares (and their heads), plot weights, escalation factor
   /^rev\|.+\|s\|.*: (velocity|sqm sold|sqm unsold at year end)$/, // Revenue: the sales path's workings
   /^rev\|.+\|s\|Price indexation factor$/,
   /^rev\|.+\|o\|In operations \(1 = yes\)$/,
@@ -94,7 +104,12 @@ export function buildValuesWorkbook(opts: BuildModelOptions): ValuesWorkbookResu
     if (v && typeof v === 'object' && typeof v.formula === 'string') c.value = (v.result ?? null) as ExcelJS.CellValue;
   }));
   const house = houseContextOf(wb);
-  if (house) applyHouseStyle(wb, house);
+  if (house) {
+    applyHouseStyle(wb, house);
+    if (house.frame) applyTabFrame(wb, house.frame, { values: true });
+    tilesInMillions(wb);
+  }
+  orderTabs(wb);
   return { wb, dropped };
 }
 

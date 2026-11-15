@@ -72,6 +72,8 @@ export interface HouseContext {
    * (plain labels), or a live build that keeps the labels as typed text.
    */
   timelinePhaseFormula?: (col: string) => string | null;
+  /** The title line's parts (tabFrame.ts). */
+  frame?: { projectName: string; modelType: string };
 }
 
 type Cell = ExcelJS.Cell;
@@ -133,6 +135,28 @@ export function applyHouseStyle(wb: ExcelJS.Workbook, ctx: HouseContext): void {
       if (fillOf(a) && BAR_FILLS.has(fillOf(a)!) && /^\d+\.(\d+)?\s/.test(textOf(a))) preNumbered = true;
     });
     const firstBody = timed ? 5 : 3;
+    // ONE BAR PER SECTION ON INPUTS (2026-11-15, founder): a sub-section is a heading, not a second
+    // bar, and a lone sub-section straight under its section bar ("2. PARTIES" then "2.1 Parties") goes.
+    const oneBar = ws.name === 'Inputs' && hasDark;
+    if (oneBar) {
+      const bars: Array<{ r: number; major: boolean }> = [];
+      ws.eachRow({ includeEmpty: false }, (row, r) => {
+        const a = row.getCell(1); const f = fillOf(a);
+        if (r < firstBody || !f || !BAR_FILLS.has(f) || !textOf(a).trim()) return;
+        let figs = 0; row.eachCell({ includeEmpty: false }, (c, col) => { if (col >= 2 && isFigure(c)) figs++; });
+        if (figs === 0) bars.push({ r, major: f === ARGB.sectionDark });
+      });
+      bars.forEach((b, i) => {
+        if (!b.major) return;
+        const kids: number[] = [];
+        for (let j = i + 1; j < bars.length && !bars[j].major; j++) kids.push(bars[j].r);
+        if (kids.length !== 1) return;
+        let between = false;
+        for (let rr = b.r + 1; rr < kids[0]; rr++) { ws.getRow(rr).eachCell({ includeEmpty: false }, (c) => { if (c.value !== null && c.value !== undefined && c.value !== '') between = true; }); }
+        if (between) return;
+        ws.getRow(kids[0]).eachCell({ includeEmpty: true }, (c) => { c.value = null; clearFill(c); });
+      });
+    }
     ws.eachRow({ includeEmpty: false }, (row, r) => {
       const a = row.getCell(1);
       const aFill = fillOf(a);
@@ -152,6 +176,13 @@ export function applyHouseStyle(wb: ExcelJS.Workbook, ctx: HouseContext): void {
             const level2 = aFill === ARGB.navy && major > 0 && hasDark;
             if (level2) minor += 1; else { major += 1; minor = 0; }
             a.value = level2 ? `${major}.${minor} ${t}` : `${major}. ${t}`;
+            if (level2 && oneBar) {
+              // A sub-section on Inputs: a bold navy heading, no bar.
+              row.eachCell({ includeEmpty: true }, (c) => { if (fillOf(c) && BAR_FILLS.has(fillOf(c)!)) clearFill(c); });
+              font(a, { size: 9, bold: true, italic: false, color: { argb: HOUSE.bar } });
+              row.height = undefined as never;
+              return;
+            }
           }
           row.eachCell({ includeEmpty: true }, (c) => {
             if (!fillOf(c) || !BAR_FILLS.has(fillOf(c)!)) return;
@@ -284,6 +315,8 @@ function restyleFormats(row: ExcelJS.Row, fmts: ReturnType<typeof houseFormats>,
     }
     if (nf === '#,##0.0,,_);(#,##0.0,,);"-"_)') { c.numFmt = fmts.money(ctx.decimals); return; }
     if (/^0\.0+%/.test(nf) || nf === '0%') { c.numFmt = needs2(c) ? fmts.pct2 : fmts.pct1; return; }
+    // An index or factor (price index, escalation, inflation) reads 1.000 (founder, 2026-11-15); a multiple keeps 0.00x.
+    if (/^0\.000+"x"/.test(nf)) { c.numFmt = '0.000'; return; }
     if (/^0\.00"x"/.test(nf)) { c.numFmt = fmts.mult; return; }
   });
 }
