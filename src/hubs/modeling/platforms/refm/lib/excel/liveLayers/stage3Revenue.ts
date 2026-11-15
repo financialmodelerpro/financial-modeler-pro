@@ -463,8 +463,9 @@ export const stage3Revenue: LiveLayer = {
         const glaK = D('Lettable area (sqm)');
         if (has(glaK)) w.fA(at(glaK, TOTAL_COL), units.map((u) => w.ref(`su:${u.id}:area`)).join('+') || '0');
         const occRows: number[] = [], revRowsL: number[] = [];
+        const one = units.length === 1;
         for (const u of units) {
-          const rk = R(`${nm(u)}: rent per sqm`), ok = R(`${nm(u)}: area let (sqm)`), vk = R(`${nm(u)}: rent`);
+          const rk = R(one ? 'Rent per sqm' : `${nm(u)}: rent per sqm`), ok = R(one ? 'Area let (sqm)' : `${nm(u)}: area let (sqm)`), vk = R(one ? 'Lease revenue' : `${nm(u)}: rent`);
           row(rk, (t) => `${IO(t)}*${w.ref(`su:${u.id}:rate`)}*${factorF(l, idx, t)}`, 'none');
           row(ok, (t) => `${w.ref(`su:${u.id}:area`)}*${P(occR, t)}`);
           row(vk, (t) => `${P(ok, t)}*${P(rk, t)}`);
@@ -472,8 +473,8 @@ export const stage3Revenue: LiveLayer = {
           if (has(vk)) revRowsL.push(rowOf(vk));
         }
         // One sub-unit: its rows are the line's. Several: a total of each.
-        const occTot = units.length === 1 ? R(`${nm(units[0])}: area let (sqm)`) : R('Area let (sqm)');
-        const revTot = units.length === 1 ? R(`${nm(units[0])}: rent`) : R('Lease revenue');
+        const occTot = R('Area let (sqm)');
+        const revTot = R('Lease revenue');
         if (units.length !== 1) { row(occTot, (t) => sumRows(occRows, t)); row(revTot, (t) => sumRows(revRowsL, t)); }
         opCash(revTot);
         lineTotals.set(l.key, { value: (t) => P(revTot, t), rec: (t) => P(revTot, t), cash: (t) => P(has(R('Cash collected')) ? R('Cash collected') : revTot, t) });

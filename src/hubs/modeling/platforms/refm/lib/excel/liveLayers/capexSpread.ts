@@ -173,14 +173,9 @@ export function planCapexSpread(
   const curveOf = curveCanon(state);
   const landOf = landWindowCanon(state);
   const lid = (line: CostLine): string => landOf.get(line.id) ?? line.id;
-  // A followed window equal to the construction years' (a landscape window that starts in year 1) is
-  // the construction years' row: its own row only where it differs (2026-11-15, founder).
-  const sameAsStd = (line: CostLine, p: Phase): boolean => {
-    const r = followedRule(deriveLineBaseId(line.id));
-    if (r === 'std' || r === 'land') return false;
-    const a = followedWindow(deriveLineBaseId(line.id), p.constructionPeriods ?? 0), b = followedWindow('__std__', p.constructionPeriods ?? 0);
-    return a.start === b.start && a.end === b.end;
-  };
+  // A ROW IS SHARED ONLY WHERE THE RULE IS THE SAME (2026-11-15, founder): a landscape window follows its
+  // own rule (from half the construction years) even where its years happen to match, so it keeps its row.
+  const sameAsStd = (_line: CostLine, _p: Phase): boolean => false;
   const winTag = (line: CostLine, w: { win: SpreadRow['win'] }, a?: Asset, p?: Phase): string => (w.win === 'follows' ? `f:${p && sameAsStd(line, p) ? 'std' : followedRule(deriveLineBaseId(line.id))}` : w.win === 'plot' ? `p:${a!.id}:${lid(line)}` : lid(line));
   const baseOf = (line: CostLine, p: Phase, w: { win: SpreadRow['win'] }): string => (w.win === 'follows' && sameAsStd(line, p) ? '__std__' : deriveLineBaseId(line.id));
   const evenRow = (line: CostLine, p: Phase, a?: Asset): string => {

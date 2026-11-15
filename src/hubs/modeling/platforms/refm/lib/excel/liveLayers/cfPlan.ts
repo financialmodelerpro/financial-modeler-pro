@@ -232,7 +232,7 @@ export function cfPlan(state: FinancialsResolverState, snap: Snap = computeFinan
   ];
   // Payables at 0 days: no change in payables row (2026-11-15).
   if (featureUsed(state as never, 'payables')) indRows.splice(indRows.length - 1, 0, ['ap', 'Change in payables', sl(ic.changeInApPerPeriod), { kind: 'rise', key: 'ox|ap|close', sign: 1 }]);
-  indRows.push(['taxpay', `Change in ${TAX.toLowerCase()} payable`, sl(ic.changeInTaxPayablePerPeriod), { kind: 'rise', key: 'fl:taxPay', sign: 1 }]);
+  if (featureUsed(state as never, 'taxPayable')) indRows.push(['taxpay', `Change in ${TAX.toLowerCase()} payable`, sl(ic.changeInTaxPayablePerPeriod), { kind: 'rise', key: 'fl:taxPay', sign: 1 }]);
   if (hasEscrow) indRows.push(['esc', 'Change in the escrow balance', sl(ic.changeInEscrowPerPeriod), { kind: 'rise', key: 'esc||B. Escrow Balance Roll-Forward|Closing Balance', sign: -1 }]);
   for (const [k, label, v, src] of indRows) rows.push({ key: I(k), label, kind: 'row', indent: k === 'pat' ? 0 : 1, values: v, src });
   const indCfo = add(indRows.map((x) => x[2]));

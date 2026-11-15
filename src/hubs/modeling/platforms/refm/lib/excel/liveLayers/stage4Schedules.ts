@@ -164,18 +164,21 @@ export const stage4Schedules: LiveLayer = {
       const host = state.assets.find((a) => a.id === l.hostId)!;
       const K = (id: string): string => `fa|${l.hostId}|${id}`;
       // The helper: the life in force (B), the first depreciation year (C), each year's start year.
-      const hk = K('help');
+      const hk = K('help'), lk = K('life');
       const ov = w.ref(`falife:${host.id}`), dflt = w.ref(`fadefault:${usefulLifeCategory(host)}`);
-      w.fA({ sheet: SCH, row: w.addr(hk).row, col: META_B }, `IF(N(${ov})>0,N(${ov}),${dflt})`);
+      w.fA({ sheet: SCH, row: w.addr(lk).row, col: META_B }, `IF(N(${ov})>0,N(${ov}),${dflt})`);
       const hand = w.addr(`tl:flag:${host.phaseId}:hand`);
-      w.fA({ sheet: SCH, row: w.addr(hk).row, col: META_C }, `SUMPRODUCT(${w.rangeA('Timeline', hand.row, pc(0), pc(N - 1))},${w.rangeA('Timeline', 4, pc(0), pc(N - 1))})+1`);
-      const life = fx(hk, META_B), first = fx(hk, META_C);
-      row(hk, (t) => `MAX(${idxNow(t)},${first})`, 'none');
+      const idxR = w.rangeA('Timeline', 4, pc(0), pc(N - 1));
+      w.fA({ sheet: SCH, row: w.addr(hk).row, col: META_B }, `SUMPRODUCT(${w.rangeA('Timeline', hand.row, pc(0), pc(N - 1))},${idxR})+1`);
+      const life = fx(lk, META_B), first = fx(hk, META_B);
+      // Each year's additions start depreciating in the later of that year and the first year (2026-11-15:
+      // worked out in the formula, so no row repeats the start year).
+      const startR = `(${idxR}+(${first}-${idxR})*(${idxR}<${first}))`;
       // Each year's additions depreciate from their start year, over the life.
       const dep = (addKeys: string[]) => (t: number): string => {
         const adds = addKeys.filter(has).map((k) => rng(k));
         const sum = adds.length > 1 ? `(${adds.join('+')})` : adds[0];
-        return `${upto(t)}IF(${life}>0,SUMPRODUCT((${sum}>0)*${sum}*(${rng(hk)}<=${idxNow(t)})*(${rng(hk)}+MAX(1,INT(${life}))>${idxNow(t)}))/MAX(1,${life}),0)`;
+        return `${upto(t)}IF(${life}>0,SUMPRODUCT((${sum}>0)*${sum}*(${startR}<=${idxNow(t)})*(${startR}+MAX(1,INT(${life}))>${idxNow(t)}))/MAX(1,${life}),0)`;
       };
       // The asset's rows on Capex: Table 4 (excluding all land) is what depreciates, Table 2 less it is its land.
       const keys = l.memberIds.flatMap((id) => w.reg.keys().filter((k) => k.startsWith(`cxc:${id}:`) && k.split(':').length === 3));
@@ -208,9 +211,16 @@ export const stage4Schedules: LiveLayer = {
     {
       const K = (id: string): string => `fa|__project__|${id}`;
       for (const id of ROWS) {
+        if (id.startsWith('land')) continue;
         const parts = faLines.map((l) => `fa|${l.hostId}|${id}`).filter(has);
-        row(K(id), (t) => sumOf(parts, t), id === 'landOpen' || id === 'landClose' || id === 'open' || id === 'close' || id === 'idcNbv' ? 'none' : 'sum');
+        row(K(id), (t) => sumOf(parts, t), id === 'open' || id === 'close' || id === 'idcNbv' ? 'none' : 'sum');
       }
+      // Land, once for the project: every held line's land value rows on Capex.
+      const landAll = faLines.flatMap((l) => l.memberIds.flatMap((id) => w.reg.keys().filter((k) => k.startsWith(`cxc:${id}:`) && k.split(':').length === 3 && isLandValueLine(costLineOf(k.split(':')[2])))));
+      row(K('landOpen'), (t) => p(K('landClose'), t, -1), 'none');
+      row(K('landAdd'), (t) => landAll.map((k) => p(k, t)).join('+') || '0', 'sum');
+      row(K('landDisp'), (t) => `-${exit(t)}*(${p(K('landOpen'), t)}+${p(K('landAdd'), t)})`, 'sum');
+      row(K('landClose'), (t) => `${p(K('landOpen'), t)}+${p(K('landAdd'), t)}${has(K('landDisp')) ? `+${p(K('landDisp'), t)}` : ''}`, 'none');
       for (const name of CLAIMED) claim(`schv:__project__:${name}`, K(name));
     }
 

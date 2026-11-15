@@ -14,6 +14,7 @@
  *
  * No em dashes in this file.
  */
+import { isFixedCostOpexMode } from '../../reports/opexInputLabels';
 import { opexLineIsZero } from '../exportScope';
 import type { OpexLine } from '@/src/core/calculations/opex';
 import { hospitalityCostGroup, HOSPITALITY_COST_GROUPS, HOSPITALITY_COST_GROUP_LABEL } from '../../reports/hospitalityStatement';
@@ -59,3 +60,9 @@ export function planOpexStatement(lineKey: string, lines: readonly OpexLine[], i
 
 /** The row that carries a group's total: its total row, or its one row, or none. */
 export const groupTotalKey = (g: OpexGroupPlan): string | undefined => g.totalKey ?? g.rows[0]?.key;
+
+/** A statement reads the inflation factor (and the in-operations flag under it) only through a fixed-cost
+ *  line that charges something (2026-11-15): otherwise neither row is built. */
+export function opexNeedsFactor(lines: readonly OpexLine[]): boolean {
+  return lines.some((l) => !opexLineIsZero(l) && isFixedCostOpexMode(l.mode));
+}

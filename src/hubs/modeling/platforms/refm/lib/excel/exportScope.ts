@@ -20,7 +20,7 @@
  */
 import { hqOpexLinesInForce, type OpexLine } from '@/src/core/calculations/opex';
 
-export type ExportFeature = 'escrow' | 'hq' | 'payables' | 'receivables' | 'existing' | 'statutoryReserve' | 'opexLines';
+export type ExportFeature = 'escrow' | 'hq' | 'payables' | 'receivables' | 'taxPayable' | 'existing' | 'statutoryReserve' | 'opexLines';
 
 /** The words Inputs uses for each feature, in the order the line lists them. */
 export const FEATURE_WORDS: Record<ExportFeature, string> = {
@@ -28,6 +28,7 @@ export const FEATURE_WORDS: Record<ExportFeature, string> = {
   hq: 'HQ overheads',
   payables: 'payables (0 days)',
   receivables: 'receivable days on hotel and lease lines (0 days)',
+  taxPayable: 'zakat or tax payable (paid in the year, 0 days)',
   existing: 'an existing position (debt, equity or operations at the start)',
   statutoryReserve: 'statutory reserve (0%)',
   opexLines: 'zero opex lines',
@@ -39,6 +40,7 @@ export interface ScopeState {
     escrow?: { heldPct?: number };
     opexAp?: { defaultApDays?: number };
     operatingAr?: { dsoDays?: number };
+    tax?: { paymentDays?: number };
     statutoryReserve?: { transferRate?: number };
     hqOpex?: { lines?: unknown[] };
     existingRetainedEarnings?: number;
@@ -89,6 +91,8 @@ export function featureUsed(state: ScopeState, f: ExportFeature): boolean {
       return (hqOpexLinesInForce(p.hqOpex?.lines as OpexLine[] | undefined) as Array<{ value?: number; disabled?: boolean }>).some((l) => !opexLineIsZero(l));
     case 'payables':
       return pos(p.opexAp?.defaultApDays) || assets.some((a) => pos(a.opex?.apDaysOverride));
+    case 'taxPayable':
+      return pos(p.tax?.paymentDays);
     case 'receivables':
       // A hotel or lease line collects on its own days, else the project DSO (receivableDays.ts).
       return pos(p.operatingAr?.dsoDays) || assets.some((a) => (a.strategy === 'Operate' && pos(a.revenue?.operate?.dso)) || (a.strategy === 'Lease' && pos(a.revenue?.lease?.arDays)));

@@ -55,7 +55,7 @@ import { isRevenueSubUnit } from '@/src/core/calculations';
 import { computeFinancialsSnapshot } from '../../financials-resolvers';
 import { planRevenueLines, lineForAsset, type RevenueLine } from '../../revenueLines';
 import { HOSPITALITY_COST_GROUPS } from '../../reports/hospitalityStatement';
-import { planOpexStatement, groupTotalKey, oxKey } from './opexPlan';
+import { planOpexStatement, opexNeedsFactor, groupTotalKey, oxKey } from './opexPlan';
 import { planReportLines } from '../../reports/lineRows';
 import type { Asset, Phase } from '../../state/module1-types';
 
@@ -103,7 +103,7 @@ export const stage3Opex: LiveLayer = {
       if (!has(`tl:flag:${a.phaseId}:ops`) || !has(`tl:flag:${a.phaseId}:hand`)) refuse.push(`${name}: the Timeline's operating years are not live`);
       const dflt = idxOf(a.opex?.defaultIndexation);
       if (!IDX_METHODS.has(dflt.method ?? 'none')) refuse.push(`${name}: inflation ${dflt.method}`);
-      if ((dflt.method ?? 'none') !== 'none' && (!has(`oxin|${a.id}|rate`) || !has(`oxin|${a.id}|from`))) refuse.push(`${name}: its inflation has no rate on Inputs`);
+      if ((dflt.method ?? 'none') !== 'none' && opexNeedsFactor((a.opex?.lines ?? []) as OpexLine[]) && (!has(`oxin|${a.id}|rate`) || !has(`oxin|${a.id}|from`))) refuse.push(`${name}: its inflation has no rate on Inputs`);
       for (const ln of stored) {
         if (ln.rateMode === 'yoy') refuse.push(`${name}: ${ln.name} has year-by-year rates`);
         const own = ln.useAssetDefault === false && FIXED_MODES.has(ln.mode) && (ln.indexation?.method ?? 'none') !== 'none';

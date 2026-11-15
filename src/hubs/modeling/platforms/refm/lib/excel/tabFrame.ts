@@ -19,7 +19,7 @@
  * No em dashes in this file.
  */
 import type ExcelJS from 'exceljs';
-import { Relayout, type SheetPlan } from './relayout';
+import { Relayout, referencedCells, type SheetPlan } from './relayout';
 import { HOUSE } from './houseStyle';
 
 export interface FrameContext {
@@ -111,11 +111,23 @@ export function applyTabFrame(wb: ExcelJS.Workbook, ctx: FrameContext, mode: { v
     const colMap = (c: number): number | null => (!dropB ? c : c === 2 ? null : c > 2 ? c - 1 : c);
     info.set(ws.name, { period, unit, titleCol, dropB, inputCol, xSplit: v0?.xSplit ?? 0, ySplit: v0?.ySplit ?? 0, print: ws.pageSetup?.printTitlesRow });
 
+    // A RUN OF EMPTY ROWS KEEPS ONE (2026-11-15): a block taken out leaves no gap behind. emptyBefore[r]
+    // counts the empty rows above r (from row 6) that go; an empty row maps to the next row kept.
+    const lastRow = ws.rowCount;
+    const gone = new Array<number>(lastRow + 2).fill(0);
+    const drops = new Set<number>();
+    for (let r = 6, prevEmpty = false; r <= lastRow; r++) {
+      const e = rowEmpty(ws, r);
+      if (e && prevEmpty) drops.add(r);
+      prevEmpty = e;
+      gone[r + 1] = gone[r] + (drops.has(r) ? 1 : 0);
+    }
+    const sq = (r: number): number => { let x = r; while (drops.has(x)) x++; return x - gone[Math.min(x, lastRow + 1)]; };
     if (period) {
       const isTl = ws.name === 'Timeline';
       // The empty row under the old header (a dark bar on some tabs, blank on others) goes.
       const darkBar = (!isTl || !!mode.values) && rowEmpty(ws, 5);
-      const bodyShift = (r: number): number => (isTl && !mode.values ? r + 2 : r + 1 - (darkBar && r > 5 ? 1 : 0));
+      const bodyShift = (r: number): number => (r >= 6 ? sq(r) : r) + (isTl && !mode.values ? 2 : 1 - (darkBar && r > 5 ? 1 : 0));
       const rowOf = (r: number): number | null => {
         if (r === 1 || r === 2) return null;
         if (r === 3) return 4;
@@ -141,9 +153,9 @@ export function applyTabFrame(wb: ExcelJS.Workbook, ctx: FrameContext, mode: { v
       });
     } else {
       plans.set(ws.name, {
-        rowOf: (r) => (r <= 2 ? null : r + 1),
+        rowOf: (r) => (r <= 2 || drops.has(r) ? null : (r >= 6 ? sq(r) : r) + 1),
         colOf: (c) => c,
-        map: (r, c) => (r <= 2 ? null : { r: r + 1, c }),
+        map: (r, c) => (r <= 2 ? null : { r: (r >= 6 ? sq(r) : r) + 1, c }),
       });
     }
   }
@@ -223,4 +235,53 @@ export function tilesInMillions(wb: ExcelJS.Workbook): void {
       v.numFmt = '#,##0.0,,"m"';
     });
   });
+}
+
+/**
+ * A TOTAL ONLY FOR A FLOW (2026-11-15, founder, workbook-wide): the Total column is left blank for a flag,
+ * a factor, a rate, a percentage, an area, a price and a balance (opening, closing, outstanding); money,
+ * room nights and sqm sold keep their total. A row is a balance where its Total is its last (or first)
+ * year rather than the sum of the years. A Total any formula reads is kept. The Balance Sheet (every row a
+ * balance, its column headed Closing) is left as it is.
+ */
+export function blankNonFlowTotals(wb: ExcelJS.Workbook): void {
+  const read = referencedCells(wb);
+  const val = (c: ExcelJS.Cell): number | null => { const v = c.value as unknown; const n = isFormula(v) ? v.result : v; return typeof n === 'number' ? n : null; };
+  const FLOW = /sqm sold|room nights/i;
+  const NOT_FLOW = /\(1 = yes\)|factor|opening|closing|balance|outstanding|year end|unsold|payable|receivable|unearned|velocity|occupancy|margin|rate\b|rent per sqm|per occupied|per available|\bADR\b|RevPAR|price|area let|lettable|\(sqm\)|year no|share of/i;
+  for (const ws of wb.worksheets) {
+    if (ws.name === 'Balance Sheet' || !isPeriodFramed(ws)) continue;
+    let totalCol = 0, firstYear = 0;
+    ws.getRow(4).eachCell({ includeEmpty: false }, (c, col) => {
+      const t = typeof c.value === 'string' ? c.value : '';
+      if (!totalCol && /^Total/.test(t)) totalCol = col;
+      if (!firstYear && col > 2 && yearOf(c) !== null) firstYear = col;
+    });
+    if (!totalCol || !firstYear) continue;
+    const yearCols: number[] = [];
+    ws.getRow(4).eachCell({ includeEmpty: false }, (c, col) => { if (col > firstYear && yearOf(c) !== null) yearCols.push(col); });
+    if (!yearCols.length) continue;
+    ws.eachRow({ includeEmpty: false }, (row, r) => {
+      if (r < 6) return;
+      const tc = row.getCell(totalCol);
+      if (tc.value === null || tc.value === undefined) return;
+      if (read.has(`${ws.name}!${r}:${totalCol}`)) return;
+      const label = String(row.getCell(1).value ?? '');
+      const years = yearCols.map((c) => val(row.getCell(c)));
+      if (years.every((v) => v === null)) return; // a scalar: its value lives in the Total column
+      if (FLOW.test(label)) return;
+      const fmt = String(row.getCell(yearCols[0]).numFmt ?? '');
+      const pctOrFactor = fmt.includes('%') || fmt === '0.000' || /0\.00(?!0)[^,]*$/.test(fmt.replace(/_\).*$/, '')) && !/,,|,"/.test(fmt);
+      const f = tc.value as { formula?: string } | null;
+      const lastOrFirst = !!f && typeof f === 'object' && typeof f.formula === 'string' && /^\$?[A-Z]{1,3}\$?\d+$/.test(f.formula.trim());
+      const t = val(tc) ?? 0, sum = years.reduce((a: number, v) => a + (v ?? 0), 0), last = years[years.length - 1] ?? 0;
+      const balanceByValue = !f && Math.abs(t - last) < 1e-6 * Math.max(1, Math.abs(t)) && Math.abs(t - sum) > 1e-6 * Math.max(1, Math.abs(t));
+      if (NOT_FLOW.test(label) || pctOrFactor || lastOrFirst || balanceByValue) tc.value = null;
+    });
+  }
+}
+function isPeriodFramed(ws: ExcelJS.Worksheet): boolean {
+  let years = 0;
+  ws.getRow(4).eachCell({ includeEmpty: false }, (c, col) => { if (col > 2 && yearOf(c) !== null) years++; });
+  return years >= 2 && ws.getCell(5, 1).value === 'Phase';
 }

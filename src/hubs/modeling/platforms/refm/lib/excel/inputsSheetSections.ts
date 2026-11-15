@@ -37,6 +37,7 @@ import { hqOpexLinesInForce, normalizeOpexIndexation } from '@/src/core/calculat
 import { featureUsed, opexLineIsZero, escrowInForce, operatingReceivablesInForce } from './exportScope';
 import { hotelGuestsRead } from './buildModelWorkbook';
 import { capexCostType } from './capexCostType';
+import { opexNeedsFactor } from './liveLayers/opexPlan';
 import { planRevenueLines, groupRevenueLines, lineForAsset, type RevenueLine } from '../revenueLines';
 import { revenueLineName } from '../reports/revenueOutputReports';
 import { planReportLines, lineTitle } from '../reports/lineRows';
@@ -602,7 +603,7 @@ export function emitStatementInputsSection(c: SheetCursor, state: FinancialsReso
   kv(c, `${zakat ? 'Zakat' : 'Tax'} Rate (%)`, p.tax?.rate ?? 0, NUMFMT.pct2, true, 'TaxRate', undefined, 'project:taxRate');
   kv(c, `${zakat ? 'Zakat' : 'Tax'} on the disposal gain`, p.tax?.applyToDisposalGain === true ? 'Charge it on the gain at exit' : 'Not charged on the gain at exit', '@', true);
   // Read by the payable on Financing (2026-11-03): 0 pays it in the year it is charged.
-  kv(c, `${zakat ? 'Zakat' : 'Tax'} payment (days)`, p.tax?.paymentDays ?? 0, NUMFMT.int, true, undefined, undefined, 'project:taxDays');
+  if (!isLiveLayout() || featureUsed(state as never, 'taxPayable')) kv(c, `${zakat ? 'Zakat' : 'Tax'} payment (days)`, p.tax?.paymentDays ?? 0, NUMFMT.int, true, undefined, undefined, 'project:taxDays');
   kv(c, 'Basis', (p.tax?.basis ?? 'zakat') === 'cit' ? 'Corporate income tax (losses carried forward, 25% cap)' : 'Zakat (net worth; no loss carry-forward)', '@', true);
   kv(c, 'Statutory reserve transfer (% of PAT)', p.statutoryReserve?.transferRate ?? 0, NUMFMT.pct, true, undefined, undefined, 'project:reserveRate');
   // Read by the reserve transfer on the Balance Sheet (2026-11-03): 0 applies no cap.
@@ -1149,21 +1150,23 @@ export function emitOpexInputs(c: SheetCursor, state: FinancialsResolverState, a
   const projectDpo = Math.max(0, p.opexAp?.defaultApDays ?? 0);
   // INFLATION SET ONCE (live layout, 2026-11-15, founder): the inflation most lines state, then a row
   // of its own only for a line whose inflation differs. Each line's keys point at the cells it reads.
+  // Only a line whose fixed-cost lines charge something reads its inflation (2026-11-15).
   const liveInf = isLiveLayout() && ordered.length > 0;
-  if (liveInf) {
+  const infHosts = ordered.filter((x) => opexNeedsFactor((x.host.opex?.lines ?? []) as never));
+  if (liveInf && infHosts.length) {
     const sigOf = (cfg: Parameters<typeof summarizeOpexIndexation>[0]): string => {
       const ix = normalizeOpexIndexation(cfg) as { method?: string; rate?: number; startYear?: number };
       return JSON.stringify([summarizeOpexIndexation(cfg), ix.method, ix.rate ?? 0, ix.startYear ?? 0]);
     };
     const groups = new Map<string, typeof ordered>();
-    for (const x of ordered) { const k = sigOf(x.host.opex?.defaultIndexation); groups.set(k, [...(groups.get(k) ?? []), x]); }
+    for (const x of infHosts) { const k = sigOf(x.host.opex?.defaultIndexation); groups.set(k, [...(groups.get(k) ?? []), x]); }
     const sorted = [...groups.values()].sort((a, b) => b.length - a.length);
     setSectionHeader(c.ws.getRow(c.r), 'Opex inflation (the default for fixed-cost lines)', 3); c.r += 1;
     headers(c, ['Applies to', 'Inflation', 'Rate %', 'Counted from (or the operations start, if later)']);
     for (const [gi, g] of sorted.entries()) {
       const cfg = g[0].host.opex?.defaultIndexation;
       const ix = normalizeOpexIndexation(cfg) as { method?: string; rate?: number; startYear?: number };
-      setLabel(c.ws.getCell(c.r, 1), gi === 0 && sorted.length === 1 ? 'All operating lines' : g.map((x) => lineTitle(x.line, ctx)).join('; '));
+      setLabel(c.ws.getCell(c.r, 1), gi === 0 && sorted.length === 1 && infHosts.length === ordered.length ? 'All operating lines' : g.map((x) => lineTitle(x.line, ctx)).join('; '));
       setInput(c.ws.getCell(c.r, 2), summarizeOpexIndexation(cfg), '@');
       if (ix.method === 'yoy_compound' || ix.method === 'single_rate') {
         setInput(c.ws.getCell(c.r, 3), ix.rate ?? 0, NUMFMT.pct2);

@@ -33,7 +33,8 @@ import type ExcelJS from 'exceljs';
 import { buildModelWorkbook, enableIterativeCalc, houseContextOf, type BuildModelOptions } from './buildModelWorkbook';
 import { applyHouseStyle, timelinePhaseFormula } from './houseStyle';
 import { CellRegistry, setCellSink } from './cellRegistry';
-import { applyTabFrame, tilesInMillions } from './tabFrame';
+import { applyTabFrame, tilesInMillions, blankNonFlowTotals } from './tabFrame';
+import { inlineCells } from './relayout';
 import { settlePending } from './liveLayers/writer';
 import { stage1LandArea } from './liveLayers/stage1LandArea';
 import { stage2Capex } from './liveLayers/stage2Capex';
@@ -190,6 +191,7 @@ export function buildFormulaWorkbook(opts: BuildModelOptions): FormulaWorkbookRe
   const inputsWs = wb.getWorksheet('Inputs');
   if (inputsWs) for (const { row, col } of typedInputsCells(wb)) { const cell = inputsWs.getCell(row, col); cell.font = { ...(cell.font ?? {}), color: { argb: INPUT_ARGB.inputText } }; }
   if (inputsWs) applyInputValidation(wb, inputsWs, registry);
+  inlineFinancingSettings(wb, registry);
   orderTabs(wb);
   writeLoopLinks(wb);
   const problems = exportShapeProblems(wb);
@@ -215,6 +217,7 @@ export function buildFormulaWorkbook(opts: BuildModelOptions): FormulaWorkbookRe
     applyHouseStyle(wb, { ...house, timelinePhaseFormula: ok ? (col) => timelinePhaseFormula(col, { con, ops, exit }) : undefined });
     if (house.frame) applyTabFrame(wb, house.frame);
     tilesInMillions(wb);
+    blankNonFlowTotals(wb);
   }
   return { wb, registry, status, pending };
 }
@@ -488,4 +491,34 @@ export function deadSwitchCells(reg: CellRegistry): Set<string> {
   const out = new Set<string>();
   for (const k of reg.keys()) if (k.startsWith('deadswitch:') || k.startsWith('inert:')) { const a = reg.get(k)!; out.add(cellId(a.sheet, a.row, a.col)); }
   return out;
+}
+
+/** The Financing settings block (scalars worked out from Inputs, Timeline and Land & Area). */
+export const FINANCING_SETTINGS: ReadonlyArray<RegExp> = [
+  /^fl:(lastCon|dF|eF|landDebt|sweepStart|divStart|firstDraw|sqmTot)$/, /^fl:sqmLine:/, /^fl:tr:[^:]+:(rate|td|start|n|fin|pmt)$/,
+];
+/**
+ * NO SETTINGS BLOCK ON FINANCING (2026-11-15, founder): each setting's formula is written into the cells
+ * that read it (inlineCells), so Financing links Inputs and Land & Area directly, and the rows go.
+ */
+function inlineFinancingSettings(wb: ExcelJS.Workbook, registry: CellRegistry): void {
+  const keys = registry.keys().filter((k) => FINANCING_SETTINGS.some((re) => re.test(k)));
+  if (!keys.length) return;
+  const targets: Array<{ sheet: string; row: number; col: number }> = [];
+  for (const k of keys) {
+    const a = registry.get(k)!;
+    const ws = wb.getWorksheet(a.sheet);
+    if (!ws) continue;
+    let col = 0;
+    for (let c = 2; c <= 5 && !col; c++) { const v = ws.getCell(a.row, c).value as unknown; if (v !== null && v !== undefined && (typeof v === 'number' || typeof v === 'object')) col = c; }
+    if (col) targets.push({ sheet: a.sheet, row: a.row, col });
+  }
+  inlineCells(wb, targets);
+  const clear = new Set(targets.map((t) => `${t.sheet}!${t.row}`));
+  const title = registry.get('fl:t:set');
+  if (title) clear.add(`${title.sheet}!${title.row}`);
+  for (const k of clear) {
+    const [sheet, r] = k.split('!');
+    wb.getWorksheet(sheet)!.getRow(Number(r)).eachCell({ includeEmpty: true }, (c) => { c.value = null; c.style = {}; });
+  }
 }

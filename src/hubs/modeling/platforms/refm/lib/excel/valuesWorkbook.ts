@@ -26,7 +26,7 @@ import { buildModelWorkbook, houseContextOf, enableIterativeCalc, type BuildMode
 import { CellRegistry, setCellSink } from './cellRegistry';
 import { deleteRowAt } from './liveFrontMatter';
 import { applyHouseStyle } from './houseStyle';
-import { applyTabFrame, tilesInMillions } from './tabFrame';
+import { applyTabFrame, tilesInMillions, blankNonFlowTotals } from './tabFrame';
 import { TAB_ORDER } from './formulaWorkbook';
 
 /** THE VALUES FILE'S TABS IN THE LIVE FILE'S ORDER (founder, 2026-11-15): Revenue before Capex and Financing. */
@@ -45,9 +45,11 @@ export const WORKING_ROWS: ReadonlyArray<RegExp> = [
   /^rev\|.+\|s\|Price indexation factor$/,
   /^rev\|.+\|o\|In operations \(1 = yes\)$/,
   /^ox\|.+\|(io|fac)$/,                                       // Opex: in operations, inflation factors (a line, a strip, HQ)
-  /^fain:/, /^fafirst:/,                                      // Schedules: depreciation start helper
+  // (2026-11-15) The life and the first depreciation year are now single values in the Input column: shown.
   /^rs\|/,                                                    // Returns: the stream workings and sensitivity streams
   /^fl:sqmActive$/,                                           // Financing: land under construction (a working of the land split)
+  // Financing: the settings block (2026-11-15, founder: the live file links Inputs and Land & Area directly).
+  /^fl:t:set$/, /^fl:(lastCon|dF|eF|landDebt|sweepStart|divStart|firstDraw|sqmTot)$/, /^fl:sqmLine:/, /^fl:tr:[^:]+:(rate|td|start|n|fin|pmt)$/,
   /^fl:ph:/, /^fl:(open|avail|after|idcDisp|ebit0)$/,         // Financing: the loop's own workings (per-phase income and proceeds, cash before / after funding)
   /^cx5memo:/,                                                // Capex: the land-stage memo, a sum the builder forms
   /^fa\|.+\|idcNbv$/,                                         // Schedules: the capitalised interest NBV memo the loop reads
@@ -108,6 +110,7 @@ export function buildValuesWorkbook(opts: BuildModelOptions): ValuesWorkbookResu
     applyHouseStyle(wb, house);
     if (house.frame) applyTabFrame(wb, house.frame, { values: true });
     tilesInMillions(wb);
+    blankNonFlowTotals(wb);
   }
   orderTabs(wb);
   return { wb, dropped };

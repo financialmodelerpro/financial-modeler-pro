@@ -123,6 +123,7 @@ import { buildLiveCover, buildLiveGuide, liveUnitsLine, dropNoteRows, collapseSp
 import { applyHouseStyle, phaseLabelsFor, type HouseContext } from './houseStyle';
 import { modelTypeOf } from './tabFrame';
 import { curveGroups, landWindowCanon } from './liveLayers/capexSpread';
+import { opexNeedsFactor } from './liveLayers/opexPlan';
 import { escrowInForce, operatingReceivablesInForce, featureUsed } from './exportScope';
 import { capexCostType, CAPEX_COST_TYPES, type CapexCostType } from './capexCostType';
 import { isExpensedAsIncurred } from '@/src/core/calculations/sellingExpense';
@@ -3752,11 +3753,13 @@ function addRevenue(ctx: EmitCtx): { revLinks: RevLinks; cosLinks: CosLinks } {
           drivers();
           em.periodRow('Occupancy', padded(r.occupancyPerPeriod), range(0, N - 1), NUMFMT.pct, { total: sumAll(r.occupancyPerPeriod) / opsYears });
           const zones = units.filter((u) => r.perSubUnit?.[u.id]);
+          // One sub-unit: the line's own words, as on Opex (2026-11-15, founder).
+          const one = zones.length === 1;
           for (const u of zones) {
             const z = r.perSubUnit[u.id];
-            em.periodRow(`${nm(u)}: rent per sqm`, padded(z.indexedRatePerPeriod), range(0, N - 1), NUMFMT.rate);
-            em.moneyRow(`${nm(u)}: area let (sqm)`, padded(z.occupiedAreaPerPeriod), { indent: 1, numFmt: NUMFMT.int });
-            em.moneyRow(`${nm(u)}: rent`, padded(z.revenuePerPeriod), { indent: 1, style: zones.length === 1 ? 'subtotal' : 'plain' });
+            em.periodRow(one ? 'Rent per sqm' : `${nm(u)}: rent per sqm`, padded(z.indexedRatePerPeriod), range(0, N - 1), NUMFMT.rate);
+            em.moneyRow(one ? 'Area let (sqm)' : `${nm(u)}: area let (sqm)`, padded(z.occupiedAreaPerPeriod), { indent: 1, numFmt: NUMFMT.int });
+            em.moneyRow(one ? 'Lease revenue' : `${nm(u)}: rent`, padded(z.revenuePerPeriod), { indent: 1, style: one ? 'subtotal' : 'plain' });
           }
           if (zones.length !== 1) {
             em.moneyRow('Area let (sqm)', padded(r.occupiedAreaPerPeriod), { indent: 1, numFmt: NUMFMT.int });
@@ -4717,8 +4720,10 @@ function addOpexLive(ctx: EmitCtx, ws: ExcelJS.Worksheet, em: ReturnType<typeof 
       const single = !isHotel && allRows.length === 1 ? allRows[0] : null;
       em.subTitle(revenueLineName(line));
       const held = upToExit(state, N);
-      money(K('io'), 'In operations (1 = yes)', vals('In operations (1 = yes)').map((v, t) => v * held(t)), { indent: 1, numFmt: NUMFMT.int });
-      if (byLabel.has('Inflation factor while operating')) money(K('fac'), 'Inflation factor while operating', vals('Inflation factor while operating').map((v, t) => v * held(t)), { indent: 1, numFmt: FACTOR_FMT, noTotal: true });
+      // The factor and the flag only where a fixed-cost line reads them (2026-11-15, founder).
+      const needsFac = opexNeedsFactor(stored);
+      if (needsFac) money(K('io'), 'In operations (1 = yes)', vals('In operations (1 = yes)').map((v, t) => v * held(t)), { indent: 1, numFmt: NUMFMT.int });
+      if (needsFac && byLabel.has('Inflation factor while operating')) money(K('fac'), 'Inflation factor while operating', vals('Inflation factor while operating').map((v, t) => v * held(t)), { indent: 1, numFmt: FACTOR_FMT, noTotal: true });
       let rev: number[];
       if (isHotel) {
         // THE HOTEL'S OPERATING STATISTICS (2026-11-12, founder: kept, compact): keys, room nights sold,
@@ -5626,10 +5631,6 @@ function addSchedulesLive(ctx: EmitCtx, ws: ExcelJS.Worksheet, E: ReturnType<typ
   const lines = report.groups.flatMap((g) => g.lines);
   if (lines.length) {
     E.section('1. Fixed assets (per held asset)');
-    const hr = E.cursor();
-    setColHeader(ws.getCell(hr, META_B), 'Useful life (yrs)', 'right');
-    setColHeader(ws.getCell(hr, META_C), 'From year no.', 'right');
-    E.gap();
     const pick = (rows: readonly M4Row[], pred: (s: string) => boolean): number[] | undefined => { const r = rows.find((x) => pred(x.label)); return r ? padded(r.values) : undefined; };
     const idcDepOf = (ids: readonly string[]): number[] => {
       const out = new Array<number>(N).fill(0);
@@ -5642,10 +5643,13 @@ function addSchedulesLive(ctx: EmitCtx, ws: ExcelJS.Worksheet, E: ReturnType<typ
       const withIdc = dep.some((r) => r.label.includes('IDC'));
       const L = (pred: (s: string) => boolean): number[] => pick(land, pred) ?? padded([]);
       const D = (pred: (s: string) => boolean): number[] => pick(dep, pred) ?? padded([]);
-      money(K('landOpen'), 'Land: opening', L((s) => s === 'Opening Land'), balance);
-      money(K('landAdd'), 'Land: (+) additions', L((s) => s === '(+) Land Additions'), { indent: 1 });
-      if (dCtx.booked) money(K('landDisp'), 'Land: (−) disposed at exit', L((s) => s.startsWith('(−) Land Disposed')), { indent: 1 });
-      money(K('landClose'), 'Land: closing', L((s) => s === 'Closing Land'), { ...balance, style: 'subtotal' });
+      // LAND ONCE, FOR THE PROJECT (2026-11-15, founder): land is not depreciated, so an asset's land rows add nothing.
+      if (base === '__project__') {
+        money(K('landOpen'), 'Land: opening', L((s) => s === 'Opening Land'), balance);
+        money(K('landAdd'), 'Land: (+) additions', L((s) => s === '(+) Land Additions'), { indent: 1 });
+        if (dCtx.booked) money(K('landDisp'), 'Land: (−) disposed at exit', L((s) => s.startsWith('(−) Land Disposed')), { indent: 1 });
+        money(K('landClose'), 'Land: closing', L((s) => s === 'Closing Land'), { ...balance, style: 'subtotal' });
+      }
       money(K('open'), 'Building: opening', D((s) => s.startsWith('Opening NBV')), balance);
       money(K('capAdd'), 'Building: (+) capex additions', D((s) => s === '(+) Capex Additions'), { indent: 1 });
       if (withIdc) { const r = money(K('idcAdd'), 'Building: (+) capitalised interest additions', D((s) => s.startsWith('(+) IDC Additions')), { indent: 1 }); setBasis(ws.getCell(r, META_B), base === '__project__' ? 'From Financing (interest loop): the assets added' : LOOP); }
@@ -5667,11 +5671,13 @@ function addSchedulesLive(ctx: EmitCtx, ws: ExcelJS.Worksheet, E: ReturnType<typ
       // handover year), and each year the year its additions start depreciating (the later of the two).
       const off = Math.max(0, utcYear(ph.startDate as string, snap.projectStartYear) - snap.projectStartYear);
       const first = off + Math.max(0, ph.constructionPeriods ?? 0) + 1;
-      const hrow = money(`fa|${l.hostId}|help`, 'Depreciation starts (year no.)', Array.from({ length: N }, (_, t) => Math.max(t + 1, first)), { indent: 1, noTotal: true, numFmt: NUMFMT.int });
-      num(hrow, META_B, input.lifeEffective);
-      num(hrow, META_C, first);
-      registerCell(`fain:${l.hostId}`, ws, ws.getCell(hrow, LBL_COL));
-      registerCell(`fafirst:${l.hostId}`, ws, ws.getCell(hrow, META_C));
+      // THE LIFE AND THE FIRST DEPRECIATION YEAR, ONE VALUE EACH IN THE INPUT COLUMN (2026-11-15, founder).
+      const lrow = E.cursor(); setLabel(ws.getCell(lrow, LBL_COL), 'Useful life (years)', { indent: 1 }); num(lrow, META_B, input.lifeEffective); E.jump(lrow + 1);
+      keyed(`fa|${l.hostId}|life`, lrow);
+      registerCell(`fain:${l.hostId}`, ws, ws.getCell(lrow, LBL_COL));
+      const hrow = E.cursor(); setLabel(ws.getCell(hrow, LBL_COL), 'Depreciation starts (year no.)', { indent: 1 }); num(hrow, META_B, first); E.jump(hrow + 1);
+      keyed(`fa|${l.hostId}|help`, hrow);
+      registerCell(`fafirst:${l.hostId}`, ws, ws.getCell(hrow, META_B));
       table(l.hostId, l.land.rows, l.depreciable.rows, idcDepOf(l.memberIds));
       E.gap();
     }

@@ -298,6 +298,8 @@ export const stage6Loop: LiveLayer = {
     put('fl:mkt', (t) => (has('cx1e:total') ? `-${P('cx1e:total', t)}` : '0'));
     const escNet = 'esc||C. Cash Flow Impact (project totals)|Net escrow cash flow';
     put('fl:esc', (t) => (has(escNet) ? P(escNet, t) : '0'));
+    // Paid in the year (0 payment days): the charge is the cash paid, so its row is read as the tax paid.
+    if (!has('fl:taxPaid') && has('fl:tax')) { const a = w.addr('fl:tax'); w.claim('fl:taxPaid', a.sheet, a.row, 1); }
     put('fl:taxPaidOps', (t) => `-${P('fl:taxPaid', t)}`);
     put('fl:feeOps', (t) => `-${P('fl:feeTot', t)}`);
     put('fl:opIn', (t) => chain(['fl:collected', 'fl:opexPaid', 'fl:mkt', 'fl:esc', 'fl:taxPaidOps', 'fl:feeOps'], t));
@@ -440,7 +442,7 @@ export const stage6Loop: LiveLayer = {
     }
     put('fl:tax', (t) => taxF(P('fl:taxable', t), rate0(), pc0.cit ? P('fl:taxRel', t) : undefined));
     put('fl:taxPay', (t) => `${P('fl:tax', t)}*MIN(365,MAX(0,N(${w.ref('project:taxDays')})))/365`, 'last');
-    put('fl:taxPaid', (t) => `${P('fl:tax', t)}-(${P('fl:taxPay', t)}-${P('fl:taxPay', t, -1)})`);
+    if (has('fl:taxPay')) put('fl:taxPaid', (t) => `${P('fl:tax', t)}-(${P('fl:taxPay', t)}-${P('fl:taxPay', t, -1)})`);
 
     // ── The fund fees ────────────────────────────────────────────────────────
     if (feeOn) {
@@ -478,11 +480,12 @@ export const stage6Loop: LiveLayer = {
     // ── The cash waterfall, the sweep and the dividends ──────────────────────
     put('fl:cwOpen', (t) => `N(${P('fl:close', t, -1)})`, 'last');
     put('fl:cfo', (t) => (byEq ? `${P('fl:opIn', t)}+${P('fl:feePaid', t)}` : P('fl:opIn', t)));
-    put('fl:cfi', (t) => `${P('fl:proceeds', t)}-${P('fl:capex', t)}`);
+    put('fl:cfiCapex', (t) => `-${P('fl:capex', t)}`);
+    put('fl:cfiExit', (t) => (has('fl:proceeds') ? P('fl:proceeds', t) : '0'));
     put('fl:eqCash', (t) => `${P('fl:eqDraw', t)}${byEq ? `+${P('fl:feeDraw', t)}` : ''}`);
     put('fl:debtCash', (t) => (has('fl:drawAll') ? `${P('fl:drawAll', t)}+${P('fl:idcAll', t)}` : `${sumF(fac, 'draw', t)}+${sumF(newF, 'idc', t)}`));
     put('fl:intPaid', (t) => `-(${interest(t)})`);
-    put('fl:cash', (t) => chain(['fl:cwOpen', 'fl:cfo', 'fl:cfi', 'fl:eqCash', 'fl:debtCash', 'fl:intPaid'], t), 'last');
+    put('fl:cash', (t) => chain(['fl:cwOpen', 'fl:cfo', 'fl:cfiCapex', 'fl:cfiExit', 'fl:eqCash', 'fl:debtCash', 'fl:intPaid'], t), 'last');
     why('fl:cash', CHAIN);
     put('fl:exitRepay', (t) => `${exitF(t)}*MAX(0,${sumF(fac, 'close', t)})`);
     put('fl:repaidCash', (t) => `${sumF(fac, 'repaid', t)}-${P('fl:exitRepay', t)}`);

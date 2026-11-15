@@ -33,6 +33,7 @@
  *
  * No em dashes in this file.
  */
+import { featureUsed } from '../exportScope';
 import type { LayerContext, LiveLayer } from '../formulaWorkbook';
 
 import { LiveWriter } from './writer';
@@ -75,7 +76,7 @@ export const stage5Statements: LiveLayer = {
     if (!w.reg.keys().some((k) => k.startsWith('rvc:'))) refuse.push('Revenue is not live');
     if (!has('fnc:tax') || !has('fnc:main:intexp')) refuse.push('the financing loop is not live');
     if (!has('project:taxRate')) refuse.push('the tax rate is not on the Inputs sheet');
-    if (!has('fl:taxPay')) refuse.push('the tax payable is not on the Financing sheet');
+    if (!has('fl:taxPay') && featureUsed(ctx.opts.state as never, 'taxPayable')) refuse.push('the tax payable is not on the Financing sheet');
     if (refuse.length) return [{ sheet: PL, status: 'values' as const, formulas: 0, note: `The P&L could not be made live for this model: ${refuse.join('; ')}.` }];
 
     // ── References: column relative, so a row is one formula copied across ───

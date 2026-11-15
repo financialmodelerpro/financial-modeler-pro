@@ -96,7 +96,7 @@ export function bsPlan(state: FinancialsResolverState, snap: Snap = computeFinan
   // Payables at 0 days: always zero, not built (2026-11-15).
   if (featureUsed(state as never, 'payables')) row(BS('Accounts Payable'), 'Accounts payable', sl(bs.apPerPeriod), { kind: 'link', key: 'ox|ap|close' }, { indent: 1 });
   row(BS('Unearned Revenue'), 'Unearned revenue (off-plan advances)', sl(bs.unearnedRevenuePerPeriod), { kind: 'link', key: 'rvc:__project__:ur' }, { indent: 1 });
-  row(BS('Tax payable'), `${labels.tax} payable`, sl(bs.taxPayablePerPeriod), { kind: 'link', key: 'fl:taxPay' }, { indent: 1 });
+  if (featureUsed(state as never, 'taxPayable')) row(BS('Tax payable'), `${labels.tax} payable`, sl(bs.taxPayablePerPeriod), { kind: 'link', key: 'fl:taxPay' }, { indent: 1 });
   row(BS('Total Current Liabilities'), 'Total current liabilities', sl(bs.totalCurrentLiabilitiesPerPeriod), null, { style: 'subtotal', sum: [BS('Accounts Payable'), BS('Unearned Revenue'), BS('Tax payable')] });
   const exitFrom = snap.disposal.booked ? snap.disposal.exitIdx : N;
   const debtKeys: string[] = [];

@@ -474,6 +474,7 @@ export function returnsPlan(state: FinancialsResolverState, snap: Snap, rs: RS, 
     // Net book value disposed: each held line, then the project as their sum.
     rows.push({ key: 'ret|#nbvcols', label: 'Net book value disposed, by held line', kind: 'cols', cols: [[D, 'Building'], [D + 1, 'Land'], [D + 2, 'Capitalised interest'], [D + 3, 'Total']] });
     const lineRows: string[] = [];
+    const landLineIds = (state.costLines as Array<{ id: string; catalogId?: string }>).filter((c) => isLandValueLine(c as never)).map((c) => c.id);
     const idcDisp = (E: REnv, base: string): string => (E.has(`schv:${base}:idcNbv`)
       ? `MAX(0,SUMPRODUCT(${E.exRng()},${rangePrev(E, `schv:${base}:idcNbv`)}+${E.xr(`schv:${base}:idcAdd`)}-${E.xr(`schv:${base}:idcDep`)}))` : '0');
     for (const l of rl) {
@@ -485,7 +486,14 @@ export function returnsPlan(state: FinancialsResolverState, snap: Snap, rs: RS, 
       const hostOf = (E: REnv): string => l.assetIds.find((id) => E.has(`schv:${id}:close`)) ?? host;
       rows.push({ key, label: pooled.label, kind: 'cells', indent: 1, cells: [
         { col: D, v: pooled.building, fmt: RF.money, f: (E) => `${E.has(`schv:${hostOf(E)}:disp`) ? `-SUM(${E.xr(`schv:${hostOf(E)}:disp`)})` : '0'}-${E.cell(key, D + 2)}` },
-        { col: D + 1, v: pooled.land, fmt: RF.money, f: (E) => (E.has(`schv:${hostOf(E)}:landDisp`) ? `-SUM(${E.xr(`schv:${hostOf(E)}:landDisp`)})` : '0') },
+        // Land is disposed at the exit as it was added (it is not depreciated): the line's land value rows on
+        // Capex up to the exit year (2026-11-15: Schedules keeps land once, for the project).
+        { col: D + 1, v: pooled.land, fmt: RF.money, f: (E) => {
+          const ks = l.assetIds.flatMap((id) => landLineIds.map((lid) => `cxc:${id}:${lid}`)).filter((k) => E.has(k));
+          if (!ks.length) return '0';
+          const adds = ks.length > 1 ? `(${ks.map((k) => E.xr(k)).join('+')})` : E.xr(ks[0]);
+          return `SUM(${E.exRng()})*SUMPRODUCT(${adds}*(${E.yrRng()}<=SUMPRODUCT(${E.exRng()},${E.yrRng()})))`;
+        } },
         { col: D + 2, v: pooled.capitalisedInterest, fmt: RF.money, f: (E) => idcDisp(E, hostOf(E)) },
         { col: D + 3, v: pooled.total, fmt: RF.money, f: (E) => `SUM(${E.cell(key, D)}:${E.cell(key, D + 2)})` },
       ] });

@@ -160,3 +160,81 @@ function withMergeCells(model: WsModel, ws: ExcelJS.Worksheet): WsModel {
   (ws as unknown as { _merges: Record<string, unknown> })._merges = {};
   return { ...model, mergeCells: model.merges ?? [] };
 }
+
+/**
+ * INLINE CELLS (2026-11-15, founder: "link to Inputs directly"): every formula in the workbook that reads
+ * one of the target cells reads the target's own formula in its place, in brackets, so the target rows
+ * can go. A range that covers only target cells of one column becomes their sum; a range that covers
+ * targets and other cells throws (it cannot be written without them). Cached results do not change.
+ */
+export function inlineCells(wb: ExcelJS.Workbook, targets: Array<{ sheet: string; row: number; col: number }>): void {
+  const id = (sh: string, r: number, c: number): string => `${sh}!${r}:${c}`;
+  const tset = new Map<string, { sheet: string; row: number; col: number }>();
+  for (const t of targets) tset.set(id(t.sheet, t.row, t.col), t);
+  const formulaOf = (t: { sheet: string; row: number; col: number }): string => {
+    const v = wb.getWorksheet(t.sheet)!.getCell(t.row, t.col).value as { formula?: string } | null;
+    if (!v || typeof v !== 'object' || typeof v.formula !== 'string') {
+      const n = wb.getWorksheet(t.sheet)!.getCell(t.row, t.col).value;
+      return typeof n === 'number' ? String(n) : '0';
+    }
+    return v.formula;
+  };
+  /** A formula of `from` re-expressed for a cell on `to`: its own-sheet references qualified. */
+  const qualify = (f: string, from: string, to: string): string => {
+    if (from === to) return f;
+    const parts = f.split(/("(?:[^"]|"")*")/);
+    return parts.map((seg, i) => (i % 2 === 1 ? seg : seg.replace(REF, (all: string, q: string | undefined) => (q ? all : `${quote(from)}!${all}`)))).join('');
+  };
+  const resolved = new Map<string, string>();
+  const subst = (f: string, own: string, depth: number): string => {
+    if (depth > 20) throw new Error('inlineCells: the targets read each other in a loop');
+    const parts = f.split(/("(?:[^"]|"")*")/);
+    return parts.map((seg, i) => (i % 2 === 1 ? seg : seg.replace(REF, (all: string, q: string | undefined, _d1: string, c1: string, _d2: string, r1: string, _d3?: string, c2?: string, _d4?: string, r2?: string) => {
+      const sheet = q ? unquote(q.slice(0, -1)) : own;
+      const a = { r: Number(r1), c: colNum(c1) };
+      const cells: Array<{ r: number; c: number }> = [];
+      if (c2 && r2) { const b = { r: Number(r2), c: colNum(c2) }; for (let r = a.r; r <= b.r; r++) for (let c = a.c; c <= b.c; c++) cells.push({ r, c }); }
+      else cells.push(a);
+      const hits = cells.filter((x) => tset.has(id(sheet, x.r, x.c)));
+      if (!hits.length) return all;
+      if (hits.length !== cells.length) throw new Error(`inlineCells: ${own} reads a range part target, part not (${all})`);
+      return `(${cells.map((x) => { const k = id(sheet, x.r, x.c); return `(${qualify(inner(tset.get(k)!, depth + 1), sheet, own)})`; }).join('+')})`;
+    }))).join('');
+  };
+  const inner = (t: { sheet: string; row: number; col: number }, depth: number): string => {
+    const k = id(t.sheet, t.row, t.col);
+    if (!resolved.has(k)) resolved.set(k, subst(formulaOf(t), t.sheet, depth));
+    return resolved.get(k)!;
+  };
+  for (const t of targets) inner(t, 0);
+  for (const ws of wb.worksheets) ws.eachRow((row) => row.eachCell((cell) => {
+    if (tset.has(id(ws.name, Number(cell.row), Number(cell.col)))) return;
+    const v = cell.value as { formula?: string; result?: unknown } | null;
+    if (!v || typeof v !== 'object' || typeof v.formula !== 'string') return;
+    const nf = subst(v.formula, ws.name, 0);
+    if (nf !== v.formula) {
+      const result = (cell as unknown as { model?: { result?: unknown } }).model?.result;
+      cell.value = { formula: nf, result } as ExcelJS.CellValue;
+    }
+  }));
+}
+
+/** Every cell some formula reads, as "Sheet!row:col" (ranges expanded). */
+export function referencedCells(wb: ExcelJS.Workbook): Set<string> {
+  const out = new Set<string>();
+  for (const ws of wb.worksheets) ws.eachRow((row) => row.eachCell((cell) => {
+    const v = cell.value as { formula?: string } | null;
+    if (!v || typeof v !== 'object' || typeof v.formula !== 'string') return;
+    const parts = v.formula.split(/("(?:[^"]|"")*")/);
+    parts.forEach((seg, i) => {
+      if (i % 2 === 1) return;
+      for (const m of seg.matchAll(REF)) {
+        const sheet = m[1] ? unquote(m[1].slice(0, -1)) : ws.name;
+        const r1 = Number(m[5]), c1 = colNum(m[3]);
+        const r2 = m[9] ? Number(m[9]) : r1, c2 = m[7] ? colNum(m[7]) : c1;
+        for (let r = r1; r <= r2; r++) for (let c = c1; c <= c2; c++) out.add(`${sheet}!${r}:${c}`);
+      }
+    });
+  }));
+  return out;
+}

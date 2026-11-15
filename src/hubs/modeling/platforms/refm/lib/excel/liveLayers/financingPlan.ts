@@ -16,7 +16,7 @@
  *
  * No em dashes in this file.
  */
-import { escrowInForce } from '../exportScope';
+import { escrowInForce, featureUsed } from '../exportScope';
 import { computeFinancialsSnapshot, computeFundingGap, type FinancialsResolverState } from '../../financials-resolvers';
 import { heldIncomePerPeriod, phaseProceedsShare } from '../../reports/phaseProceeds';
 import { resolveFundTerms, FUND_FEE_SPECS } from '../../fundTerms';
@@ -180,6 +180,7 @@ export function financingPlan(state: FinancialsResolverState, snap: Snap = compu
       per(`fl:tr:${t.id}:yoyShare`, `${t.name}: share of the total repaid in the year`, typed.map((v, u) => (u < start ? 0 : tot === 0 ? 1 / Math.max(1, N - start) : v / tot)), 'The typed % over its total; none typed repays evenly over the years left');
     }
   }
+  let sqmActive: number[] | null = null;
   const idcAssets = [...snap.idc.byAsset.values()];
   const lineState = { assets: state.assets, phases: state.phases, parcels: state.parcels };
   const idcLines = planReportLines(lineState, (a) => snap.idc.byAsset.has(a.id)).map((l) => ({ title: lineTitle(l, lineState), assetIds: [...l.assetIds] }));
@@ -199,7 +200,7 @@ export function financingPlan(state: FinancialsResolverState, snap: Snap = compu
       const s0 = clamp(yearOf(ph) - Y0, 0, N1), cp = ph.constructionPeriods ?? 0;
       for (let t = s0; t <= (cp > 0 ? Math.min(N1, s0 + cp - 1) : -1); t++) active[t] += x.landSqm;
     }
-    per('fl:sqmActive', 'Land under construction (sqm)', active, 'The land of the assets building in the year');
+    sqmActive = active;
   }
   gapRow();
 
@@ -293,6 +294,8 @@ export function financingPlan(state: FinancialsResolverState, snap: Snap = compu
     const tbl = buildIdcAllocationTables(snap, state, String)[0];
     // THE IDC ALLOCATION BY LINE (2026-11-12, founder: kept, compact): one row per line under one heading.
     if (idcLines.some((_l, i) => tbl?.rows[i])) title('fl:t:idc', 'Capitalised interest (IDC) allocated by line');
+    // The land under construction sits where it is used: the interest is shared on it (2026-11-15, founder).
+    if (sqmActive) per('fl:sqmActive', 'Land under construction (sqm)', sqmActive, 'The land of the assets building in the year');
     idcLines.forEach((l, i) => {
       const row = tbl?.rows[i];
       if (row) per(`fl:idc:${i}`, l.title, sl(row.values), FEEDS_SCHEDULES, { indent: 1 });
@@ -301,7 +304,8 @@ export function financingPlan(state: FinancialsResolverState, snap: Snap = compu
       const heldIdc = idcLines.some((l) => l.assetIds.some((id) => { const a = state.assets.find((x) => x.id === id); return a?.strategy === 'Operate' || a?.strategy === 'Lease'; }));
       const tables = buildIdcAllocationTables(snap, state, String);
       const disp = tables.flatMap((t) => t.rows).find((r) => r.label.startsWith('Disposed at Exit'));
-      if (heldIdc && booked) per('fl:idcDisp', '(-) Capitalised interest written off at the exit', sl(disp?.values ?? zeros()), 'Schedules: the held lines\' capitalised interest left at the exit, sold with the asset');
+      // Read by nothing (2026-11-15, founder): Schedules writes the capitalised interest off at the exit.
+      if (heldIdc && booked && (false as boolean)) per('fl:idcDisp', '(-) Capitalised interest written off at the exit', sl(disp?.values ?? zeros()), 'Schedules: the held lines\' capitalised interest left at the exit, sold with the asset');
     }
   }
   gapRow();
@@ -323,8 +327,11 @@ export function financingPlan(state: FinancialsResolverState, snap: Snap = compu
     per('fl:taxRel', 'Tax loss relief', sl(pl.taxLossReliefPerPeriod), 'The smaller of the losses and 25% of the year\'s profit');
   }
   per('fl:tax', TAX, sl(pl.taxPerPeriod), zakat ? 'The rate on Inputs x the profit above, where positive (each year on its own)' : 'The rate on Inputs x the profit less the relief');
-  per('fl:taxPay', `${TAX} payable at the year end`, sl(snap.bs.taxPayablePerPeriod), 'The charge x the payment days on Inputs over 365', { balance: true });
-  per('fl:taxPaid', `${TAX} paid`, neg(sl(dcf.taxPaidPerPeriod)), 'The charge less the rise in what is payable');
+  // Paid in the year (0 payment days): no payable, and the charge is what is paid (2026-11-15, founder).
+  if (featureUsed(state as never, 'taxPayable')) {
+    per('fl:taxPay', `${TAX} payable at the year end`, sl(snap.bs.taxPayablePerPeriod), 'The charge x the payment days on Inputs over 365', { balance: true });
+    per('fl:taxPaid', `${TAX} paid`, neg(sl(dcf.taxPaidPerPeriod)), 'The charge less the rise in what is payable');
+  }
   gapRow();
 
   // ── The fund fees ─────────────────────────────────────────────────────────
@@ -343,7 +350,13 @@ export function financingPlan(state: FinancialsResolverState, snap: Snap = compu
   title('fl:t:cw', 'Cash waterfall: debt service, the sweep and dividends');
   per('fl:cwOpen', 'Opening cash', sl(dcf.openingCashPerPeriod), 'The closing cash of the year before', { balance: true });
   per('fl:cfo', '(+) Cash from operations', sl(dcf.cashFromOperationsPerPeriod), feeByEquity ? 'Operating cash before financing, less the fund fees' : 'Operating cash before financing');
-  per('fl:cfi', '(+) Exit proceeds less capex paid', sl(dcf.cashFromInvestmentPerPeriod), 'Above');
+  // Two rows, one each (2026-11-15, founder): the capex paid in cash, and the exit proceeds.
+  {
+    const capexCash = sl(fin.capex.perPeriod.exclLandInKind);
+    const cfi = sl(dcf.cashFromInvestmentPerPeriod);
+    per('fl:cfiCapex', '(-) Capex paid in cash', capexCash.map((v) => -v), 'Above');
+    per('fl:cfiExit', '(+) Exit proceeds', cfi.map((v, t) => v + (capexCash[t] ?? 0)), 'Above');
+  }
   per('fl:eqCash', '(+) Equity drawn in cash', sl(dcf.equityDrawdownPerPeriod), feeByEquity ? 'For the funding and for the fund fees' : 'For the funding');
   per('fl:debtCash', '(+) Debt drawn (capex and interest)', sl(dcf.debtDrawdownPerPeriod), 'Every facility\'s capex drawdown and interest drawn as debt');
   per('fl:intPaid', '(-) Interest paid', sl(dcf.interestPaidPerPeriod), 'Interest charged, all facilities');
@@ -380,7 +393,8 @@ export function financingPlan(state: FinancialsResolverState, snap: Snap = compu
   // Each facility's balance after the exit repayment (2026-11-03): the Balance Sheet links each one.
   const afterExit = (v: number[]): number[] => v.map((x, t) => (snap.disposal.booked && t >= snap.disposal.exitIdx ? 0 : x));
   for (const t of tranches) per(`fl:tr:${t.id}:bs`, `${t.name}: outstanding after the exit repayment`, afterExit(sl(fin.facilities.get(t.id)?.outstanding)), 'Its closing balance, nothing from the exit year (the Balance Sheet)', { balance: true, indent: 1 });
-  per('fl:debtBs', 'Debt outstanding after the exit repayment', afterExit(add(...tranches.map((t) => sl(fin.facilities.get(t.id)?.outstanding)))), 'The facilities above', { balance: true });
+  // With one facility its own row says it (2026-11-15, founder).
+  if (tranches.length > 1) per('fl:debtBs', 'Debt outstanding after the exit repayment', afterExit(add(...tranches.map((t) => sl(fin.facilities.get(t.id)?.outstanding)))), 'The facilities above', { balance: true });
 
   return { rows, ctx: { method, feeOn, feeByEquity, zakat, cit, taxLag, anySweep, booked, idcLines } };
 }
