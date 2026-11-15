@@ -37,6 +37,7 @@ import { featureUsed } from '../exportScope';
 import type { LayerContext, LiveLayer } from '../formulaWorkbook';
 
 import { LiveWriter } from './writer';
+import { citReliefF, citPoolF, taxF } from './taxRule';
 import { PERIOD_COLS } from '../buildModelWorkbook';
 import { withResolvedAssetNames } from '@/src/core/calculations/assetName';
 
@@ -116,6 +117,8 @@ export const stage5Statements: LiveLayer = {
       return ks.length === 1 ? `-${R(ks[0], t)}` : `-(${ks.map((k) => R(k, t)).join('+')})`;
     };
     const rateWrites: Array<{ key: string; rateKey: string }> = [];
+    /** A P&L cell the year before (the opening column holds nothing). */
+    const plPrev = (key: string, t: number): string => { const a = w.addr(key); return w.refP({ sheet: a.sheet, row: a.row, col: pc(t) - 1 }, PL); };
     for (const row of plPlan(state, snap)) {
       if (row.kind !== 'row') continue;
       if (!has(row.key)) { refused = `the row "${row.label}" is not on the P&L`; break; }
@@ -134,6 +137,16 @@ export const stage5Statements: LiveLayer = {
           case 'int': f = keyF('fnc:main:intexp'); break;
           case 'gain': f = keyF('fl:gain'); break;
           case 'tax': f = costOf(['fnc:tax']); break;
+          // ZAKAT ON THE P&L (2026-11-15, founder): the gain, the profit it is charged on, the corporate tax
+          // losses and the charge are worked out here; Financing reads the charge back.
+          case 'feeTot': f = costOf(['fl:feeTot']); break;
+          case 'gainP': f = (t) => ['fl:proceeds', 'schv:__project__:landDisp', 'schv:__project__:disp'].filter(has).map((k) => R(k, t)).join('+') || '0'; break;
+          case 'taxable': f = (t) => `${R(s.pbt, t)}-${R(s.gain, t)}`; break;
+          case 'taxRel': f = (t) => citReliefF(R(s.taxable, t), `N(${plPrev(s.pool, t)})`); break;
+          case 'taxPool': f = (t) => citPoolF(R(s.taxable, t), `N(${plPrev(row.key, t)})`, R(s.rel, t)); break;
+          case 'taxP': f = (t) => `-${taxF(R(s.taxable, t), `MAX(0,N(${w.ref('project:taxRate')}))`, s.rel ? R(s.rel, t) : undefined)}`; break;
+          case 'cosLines': f = costOf(s.lines.map((l) => `cosc:${l}:cos`)); break;
+          case 'opexPhase': f = costOf([...s.assetIds.map((id) => `oxo:${id}:total`), ...expensedKeys.filter((k) => phaseOfAsset.get(k.split(':')[1]) === s.phaseId)]); break;
           case 'link': f = keyF(s.key); break;
           case 'diff': f = (t) => `${R(s.a, t)}-${R(s.b, t)}`; break;
         }
@@ -207,7 +220,8 @@ export const stage5Statements: LiveLayer = {
     // transfer (capped at the cap x share capital before this year's return), the dividend (the
     // distribution up to the retained earnings available) and the return of capital (the rest).
     let bsRefused = cfRefused ? 'the Cash Flow is not live' : '';
-    if (!bsRefused && !['project:reserveRate', 'project:reserveCap', 'project:shareCapital', 'fl:div'].every(has)) bsRefused = 'the share capital, statutory reserve inputs or the dividends are not on the workbook';
+    const reserveOn = featureUsed(state as never, 'statutoryReserve');
+    if (!bsRefused && ![...(reserveOn ? ['project:reserveRate', 'project:reserveCap'] : []), 'project:shareCapital', 'fl:div'].every(has)) bsRefused = 'the share capital, statutory reserve inputs or the dividends are not on the workbook';
     {
       here = BS;
       const prevCell = (key: string, t: number): string => { const a = w.addr(key); return w.refP({ sheet: a.sheet, row: a.row, col: pc(t) - 1 }, here); };
@@ -218,7 +232,7 @@ export const stage5Statements: LiveLayer = {
         const together = ks.length > 1 && rows.every((r, i) => i === 0 || r === rows[i - 1] + 1);
         return together ? `SUM(${R(ks[0], t)}:${R(ks[ks.length - 1], t)})` : `SUM(${ks.map((k) => R(k, t)).join(',')})`;
       };
-      const rate = `MAX(0,${w.ref('project:reserveRate')})`, cap = `MAX(0,${w.ref('project:reserveCap')})`;
+      const rate = reserveOn ? `MAX(0,${w.ref('project:reserveRate')})` : '0', cap = reserveOn ? `MAX(0,${w.ref('project:reserveCap')})` : '0';
       // Share capital before this year's return: the opening plus the equity drawn this year.
       const shareBefore = (t: number): string => `${R(E1('Opening'), t)}+${R(E1('Cash equity'), t)}+${R(E1('In-kind equity'), t)}`;
       const pat = (t: number): string => R(E2('PAT'), t);
@@ -245,7 +259,7 @@ export const stage5Statements: LiveLayer = {
             }; break;
             case 'roc': f = (t) => {
               const dist = `(-${R('fl:div', t)})`;
-              const avail = `MAX(0,${R(E2('Opening'), t)}+${pat(t)}+${R(E2('Transfer'), t)})`;
+              const avail = `MAX(0,${R(E2('Opening'), t)}+${pat(t)}${has(E2('Transfer')) ? `+${R(E2('Transfer'), t)}` : ''})`;
               return `-MAX(0,MIN(${dist}-MIN(${dist},${avail}),MAX(0,${shareBefore(t)})))`;
             }; break;
             case 'div': f = (t) => `${R('fl:div', t)}-${R(E1('Return of capital'), t)}`; break;
@@ -267,6 +281,7 @@ export const stage5Statements: LiveLayer = {
         for (let t = 0; t < N; t++) w.fA({ sheet, row: r, col: pc(t) }, f(t));
         const rng = w.rangeA(sheet, r, pc(0), pc(N - 1));
         const T = { sheet, row: r, col: TOTAL_COL };
+        if (sheet === BS) continue;
         if (tot === 'first') w.fA(T, w.refA({ sheet, row: r, col: pc(0) }, sheet));
         else if (tot === 'last') w.fA(T, w.refA({ sheet, row: r, col: pc(N - 1) }, sheet));
         else if (tot === 'maxabs') w.fA(T, `MAX(ABS(MAX(${rng})),ABS(MIN(${rng})))`);

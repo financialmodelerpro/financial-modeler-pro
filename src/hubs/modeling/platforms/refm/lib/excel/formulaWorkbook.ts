@@ -285,6 +285,8 @@ export const LOOP_LINKS: ReadonlyArray<{ from: string; to: string; fromRow?: Reg
   { from: 'Schedules', to: 'Financing' },
   { from: 'Capex', to: 'Financing' },
   { from: 'Financing', to: 'P&L', fromRow: /: EBITDA \(the phase P&L\)$/ },
+  // ZAKAT (2026-11-15, founder): worked out on the P&L; Financing reads the charge back for the cash.
+  { from: 'Financing', to: 'P&L', fromRow: / \(the P&L\)$/ },
   // AND ONE MORE (2026-11-12, founder): Revenue's selling costs by sell line link the cells Capex charges
   // them in, so a selling cost is worked out once. Only those rows and their total may read Capex.
   { from: 'Revenue', to: 'Capex', fromRow: /: selling costs$|^Total selling costs$/ },
@@ -494,9 +496,9 @@ export function deadSwitchCells(reg: CellRegistry): Set<string> {
 }
 
 /** The Financing settings block (scalars worked out from Inputs, Timeline and Land & Area). */
-export const FINANCING_SETTINGS: ReadonlyArray<RegExp> = [
-  /^fl:(lastCon|dF|eF|landDebt|sweepStart|divStart|firstDraw|sqmTot)$/, /^fl:sqmLine:/, /^fl:tr:[^:]+:(rate|td|start|n|fin|pmt)$/,
-];
+// (2026-11-15, founder) Only a plain copy is inlined: a facility's rate (Inputs' interbank rate plus spread)
+// and its total drawn. A value worked out from Inputs keeps one labelled row in the section that uses it.
+export const FINANCING_SETTINGS: ReadonlyArray<RegExp> = [/^fl:tr:[^:]+:(rate|td)$/];
 /**
  * NO SETTINGS BLOCK ON FINANCING (2026-11-15, founder): each setting's formula is written into the cells
  * that read it (inlineCells), so Financing links Inputs and Land & Area directly, and the rows go.

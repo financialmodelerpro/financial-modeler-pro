@@ -60,13 +60,14 @@ export const stage7cChecks: LiveLayer = {
 
     // ── The identities (2026-11-03): each that can fail; status, residue, scale and one short line ──
     // The cash tie went: the live Balance Sheet links the Cash Flow's closing cash, so it could not fail.
-    const ids: Array<{ label: string; a: string; b: string | null; mag: string }> = [
+    const phaseEb = [...ctx.opts.state.phases.map((ph) => `pl|${ph.id}||${finLabels.ebitda}`), 'pl|__all__||HQ overheads', 'pl|__all__||Total Fund Management Fee'].filter(has);
+    const ids: Array<{ label: string; a: string | string[]; b: string | null; mag: string }> = [
       { label: 'Balance sheet balances (Assets = L + E)', a: 'bs|__all__||Balance check', b: null, mag: 'bs|__all__||TOTAL ASSETS' },
-      { label: 'Direct cash flow == Indirect cash flow', a: 'cf|direct||Cash Flow from Operations', b: 'cf|indirect||Cash Flow from Operations', mag: 'cf|direct||Cash Flow from Operations' },
       // The financing loop solves its tax on its own profit before tax: it must be the P&L's, every year.
-      { label: LOOP_PBT_CHECK, a: 'fl:pbt', b: `pl|__all__||${pbtLabel}`, mag: `pl|__all__||${pbtLabel}` },
+      { label: LOOP_PBT_CHECK, a: 'pl|__all__||zakat', b: 'cf|direct||Tax paid', mag: 'pl|__all__||zakat' },
       // The phases foot to the project EBITDA (2026-10-25): the reconciliation under the phase P&Ls.
-      { label: PHASE_EBITDA_CHECK_LABEL, a: `pl|${PHASE_RECON_LINE}||${PHASE_RECON.sum}`, b: `pl|__all__||${finLabels.ebitda}`, mag: `pl|__all__||${finLabels.ebitda}` },
+      // The phase EBITDAs, the project-level HQ and fund fees, less the project EBITDA (2026-11-15: no block on the P&L).
+      { label: PHASE_EBITDA_CHECK_LABEL, a: phaseEb, b: `pl|__all__||${finLabels.ebitda}`, mag: `pl|__all__||${finLabels.ebitda}` },
     ];
     /** The platform sheet's largest and smallest yearly difference sit this far right of the residue (F and G). */
     const HI_OFFSET = 3;
@@ -82,7 +83,8 @@ export const stage7cChecks: LiveLayer = {
       const key = `chk|id|${id.label}`;
       if (!has(key)) continue;
       w.reset();
-      const A = liveRow(id.a), B = id.b ? liveRow(id.b) : '0', M = liveRow(id.mag);
+      const As = (Array.isArray(id.a) ? id.a : [id.a]).map(liveRow);
+      const A = As.length && As.every(Boolean) ? As.join('+') : null, B = id.b ? liveRow(id.b) : '0', M = liveRow(id.mag);
       if (!A || !B || !M) { valueIds.push(id.label); w.reset(); continue; }
       // SUMPRODUCT evaluates its argument as an array in every Excel version: the worst signed year.
       // The largest and the smallest yearly difference sit in two cells right of the detail

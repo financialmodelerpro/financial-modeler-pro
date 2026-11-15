@@ -97,7 +97,10 @@ export function bsPlan(state: FinancialsResolverState, snap: Snap = computeFinan
   if (featureUsed(state as never, 'payables')) row(BS('Accounts Payable'), 'Accounts payable', sl(bs.apPerPeriod), { kind: 'link', key: 'ox|ap|close' }, { indent: 1 });
   row(BS('Unearned Revenue'), 'Unearned revenue (off-plan advances)', sl(bs.unearnedRevenuePerPeriod), { kind: 'link', key: 'rvc:__project__:ur' }, { indent: 1 });
   if (featureUsed(state as never, 'taxPayable')) row(BS('Tax payable'), `${labels.tax} payable`, sl(bs.taxPayablePerPeriod), { kind: 'link', key: 'fl:taxPay' }, { indent: 1 });
-  row(BS('Total Current Liabilities'), 'Total current liabilities', sl(bs.totalCurrentLiabilitiesPerPeriod), null, { style: 'subtotal', sum: [BS('Accounts Payable'), BS('Unearned Revenue'), BS('Tax payable')] });
+  // A ONE-LINE GROUP SHOWS ONCE (2026-11-15, founder): no subtotal over a single row; the total above reads the row.
+  const clKeys = [BS('Accounts Payable'), BS('Unearned Revenue'), BS('Tax payable')].filter((k) => rows.some((x) => x.key === k));
+  const clOne = clKeys.length === 1;
+  if (!clOne) row(BS('Total Current Liabilities'), 'Total current liabilities', sl(bs.totalCurrentLiabilitiesPerPeriod), null, { style: 'subtotal', sum: clKeys });
   const exitFrom = snap.disposal.booked ? snap.disposal.exitIdx : N;
   const debtKeys: string[] = [];
   for (const t of orderedFacilities(state.financingTranches ?? [])) {
@@ -107,15 +110,18 @@ export function bsPlan(state: FinancialsResolverState, snap: Snap = computeFinan
     row(k, t.name, v, { kind: 'link', key: `fl:tr:${t.id}:bs` }, { indent: 1 });
     debtKeys.push(k);
   }
-  row(BS('Debt (long-term)'), 'Total debt', sl(bs.debtOutstandingPerPeriod), null, { style: 'subtotal', sum: debtKeys });
-  row(BS('TOTAL LIABILITIES'), 'Total liabilities', sl(bs.totalLiabilitiesPerPeriod), null, { style: 'total', sum: [BS('Total Current Liabilities'), BS('Debt (long-term)')] });
+  const debtOne = debtKeys.length === 1;
+  if (!debtOne) row(BS('Debt (long-term)'), 'Total debt', sl(bs.debtOutstandingPerPeriod), null, { style: 'subtotal', sum: debtKeys });
+  row(BS('TOTAL LIABILITIES'), 'Total liabilities', sl(bs.totalLiabilitiesPerPeriod), null, { style: 'total', sum: [clOne ? clKeys[0] : BS('Total Current Liabilities'), ...(debtOne ? debtKeys : [BS('Debt (long-term)')])] });
 
   // ── Equity ───────────────────────────────────────────────────────────────
   head(BS('#equity'), 'Shareholders\' equity');
   row(BS('Share Capital'), 'Share capital', sl(bs.shareCapitalPerPeriod), { kind: 'link', key: E1('Closing') }, { indent: 1 });
-  row(BS('Statutory Reserve'), 'Statutory reserve', sl(bs.statutoryReservePerPeriod), { kind: 'link', key: SR('Closing') }, { indent: 1 });
+  // Statutory reserve at 0% is a feature switched off (2026-11-15, founder): no row, no roll-forward, no transfer.
+  const reserveOn = featureUsed(state as never, 'statutoryReserve');
+  if (reserveOn) row(BS('Statutory Reserve'), 'Statutory reserve', sl(bs.statutoryReservePerPeriod), { kind: 'link', key: SR('Closing') }, { indent: 1 });
   row(BS('Retained Earnings'), 'Retained earnings', sl(bs.retainedEarningsPerPeriod), { kind: 'link', key: E2('Closing') }, { indent: 1 });
-  row(BS('Total Equity'), 'Total equity', sl(bs.totalEquityPerPeriod), null, { style: 'subtotal', sum: [BS('Share Capital'), BS('Statutory Reserve'), BS('Retained Earnings')] });
+  row(BS('Total Equity'), 'Total equity', sl(bs.totalEquityPerPeriod), null, { style: 'subtotal', sum: [BS('Share Capital'), ...(reserveOn ? [BS('Statutory Reserve')] : []), BS('Retained Earnings')] });
   row(BS('TOTAL LIABILITIES + EQUITY'), 'Total liabilities and equity', sl(bs.totalLiabilitiesAndEquityPerPeriod), null, { style: 'total', sum: [BS('TOTAL LIABILITIES'), BS('Total Equity')] });
 
   // ── Share capital ────────────────────────────────────────────────────────
@@ -132,11 +138,13 @@ export function bsPlan(state: FinancialsResolverState, snap: Snap = computeFinan
 
   // ── Statutory reserve ────────────────────────────────────────────────────
   const res = sl(bs.statutoryReservePerPeriod);
-  rows.push({ key: 'bs|gap|sr', label: '', kind: 'gap' });
-  rows.push({ key: 'sch|SR||#section', label: 'Statutory reserve', kind: 'section' });
-  row(SR('Opening'), 'Opening', prevOf(res, 0), { kind: 'prev', key: SR('Closing') }, { total: 'first' });
-  row(SR('Transfer'), 'Transfer from profit after tax', sl(bs.statutoryReserveTransferPerPeriod), { kind: 'transfer' }, { indent: 1, total: 'sum' });
-  row(SR('Closing'), 'Closing', res, null, { style: 'subtotal', sum: [SR('Opening'), SR('Transfer')] });
+  if (reserveOn) {
+    rows.push({ key: 'bs|gap|sr', label: '', kind: 'gap' });
+    rows.push({ key: 'sch|SR||#section', label: 'Statutory reserve', kind: 'section' });
+    row(SR('Opening'), 'Opening', prevOf(res, 0), { kind: 'prev', key: SR('Closing') }, { total: 'first' });
+    row(SR('Transfer'), 'Transfer from profit after tax', sl(bs.statutoryReserveTransferPerPeriod), { kind: 'transfer' }, { indent: 1, total: 'sum' });
+    row(SR('Closing'), 'Closing', res, null, { style: 'subtotal', sum: [SR('Opening'), SR('Transfer')] });
+  }
 
   // ── Retained earnings ────────────────────────────────────────────────────
   const re = sl(bs.retainedEarningsPerPeriod);
@@ -144,11 +152,17 @@ export function bsPlan(state: FinancialsResolverState, snap: Snap = computeFinan
   rows.push({ key: 'sch|E2||#section', label: 'Retained earnings', kind: 'section' });
   row(E2('Opening'), 'Opening', prevOf(re, 0), { kind: 'prev', key: E2('Closing') }, { total: 'first' });
   row(E2('PAT'), labels.pat, sl(snap.pl.patPerPeriod), { kind: 'link', key: `pl|__all__||${labels.pat}` }, { indent: 1, total: 'sum' });
-  row(E2('Transfer'), 'Transfer to the statutory reserve', neg(sl(bs.statutoryReserveTransferPerPeriod)), { kind: 'neg', key: SR('Transfer') }, { indent: 1, total: 'sum' });
+  if (reserveOn) row(E2('Transfer'), 'Transfer to the statutory reserve', neg(sl(bs.statutoryReserveTransferPerPeriod)), { kind: 'neg', key: SR('Transfer') }, { indent: 1, total: 'sum' });
   row(E2('Dividends'), 'Dividends declared', neg(sl(bs.dividendsDeclaredPerPeriod)), { kind: 'div' }, { indent: 1, total: 'sum' });
-  row(E2('Closing'), 'Closing', re, null, { style: 'subtotal', sum: [E2('Opening'), E2('PAT'), E2('Transfer'), E2('Dividends')] });
+  row(E2('Closing'), 'Closing', re, null, { style: 'subtotal', sum: [E2('Opening'), E2('PAT'), ...(reserveOn ? [E2('Transfer')] : []), E2('Dividends')] });
   // THE BALANCE CHECK, ONE ROW PER YEAR AT THE FOOT (2026-11-12, founder): assets less liabilities and equity, zero every year.
   rows.push({ key: 'bs|gap|chk', label: '', kind: 'gap' });
   row(BS_CHECK, 'Balance check (assets less liabilities and equity)', sl(bs.bsDifferencePerPeriod), { kind: 'diff', a: BS('TOTAL ASSETS'), b: BS('TOTAL LIABILITIES + EQUITY') }, { total: 'maxabs' });
   return rows;
+}
+
+/** The Balance Sheet row that holds the total debt: the one facility's own row where there is only one (2026-11-15). */
+export function bsTotalDebtKey(state: FinancialsResolverState): string {
+  const fs = orderedFacilities(state.financingTranches ?? []);
+  return fs.length === 1 ? BS(`debt:${fs[0].id}`) : BS('Debt (long-term)');
 }

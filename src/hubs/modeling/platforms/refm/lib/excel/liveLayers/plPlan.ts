@@ -44,6 +44,14 @@ export type PlSrc =
   | { kind: 'gain' }                         // Financing: the gain on disposal
   | { kind: 'tax' }                          // Financing: zakat or tax, negated
   | { kind: 'link'; key: string }            // another P&L row (the reconciliation)
+  | { kind: 'feeTot' }                       // Financing: the fund fees' total, negated (2026-11-15)
+  | { kind: 'gainP' }                        // the gain on disposal: the exit proceeds less what the exit writes off (Schedules)
+  | { kind: 'taxable'; pbt: string; gain: string } // profit before zakat less the gain where the gain is not charged
+  | { kind: 'taxRel'; taxable: string; pool: string } // corporate tax: the relief of the losses carried forward
+  | { kind: 'taxPool'; taxable: string; rel: string } // corporate tax: the losses carried forward
+  | { kind: 'taxP'; taxable: string; rel?: string } // zakat or tax on the P&L, negated
+  | { kind: 'cosLines'; lines: string[] }    // a phase's cost of sales, its lines added, negated
+  | { kind: 'opexPhase'; assetIds: string[]; phaseId: string } // a phase's opex and its selling, negated
   | { kind: 'diff'; a: string; b: string };  // a less b (the reconciliation)
 
 export interface PlRow {
@@ -90,29 +98,30 @@ export function plPlan(state: FinancialsResolverState, snap: Snap = computeFinan
     if (rows.length) rows.push({ key: `pl|gap|${view}`, label: '', kind: 'gap' });
     rows.push({ key: K('#section'), label: view === PL_ALL ? `${labels.incomeStatementTitle}: Project` : `${labels.incomeStatementTitle}: ${ph?.name} (to ${labels.ebitda})`, kind: 'section' });
 
-    // Revenue: each group's lines, the group's total, then the total of the groups.
-    const groups = groupRevenueLines(vl.filter(earns));
-    const revGroupKeys: string[] = [];
-    for (const g of groups) {
-      const memberKeys: string[] = [];
-      const vals: number[][] = [];
-      rows.push({ key: K(`${g.section} Revenue`), label: `${g.section} revenue`, kind: 'row', style: 'subtotal', values: [], sum: memberKeys });
-      const head = rows[rows.length - 1];
-      for (const l of g.lines) {
-        const v = perAsset(l, (x) => x.revenuePerPeriod);
-        vals.push(v);
-        const k = K(`rev:${l.key}`);
-        memberKeys.push(k);
-        rows.push({ key: k, label: revenueLineName(l), kind: 'row', indent: 1, values: v, src: { kind: 'rev', line: l.key } });
-      }
-      head.values = add(vals);
-      revGroupKeys.push(head.key);
+    // ONE ROW PER LINE, NO CATEGORY ROWS (2026-11-15, founder).
+    const revKeys: string[] = [];
+    const revVals: number[][] = [];
+    for (const g of groupRevenueLines(vl.filter(earns))) for (const l of g.lines) {
+      const v = perAsset(l, (x) => x.revenuePerPeriod);
+      const k = K(`rev:${l.key}`);
+      revKeys.push(k); revVals.push(v);
+      rows.push({ key: k, label: revenueLineName(l), kind: 'row', indent: 1, values: v, src: { kind: 'rev', line: l.key } });
     }
-    const totRev = add(revGroupKeys.map((k) => rows.find((r) => r.key === k)!.values!));
-    rows.push({ key: K('Total Revenue'), label: 'Total revenue', kind: 'row', style: 'total', values: totRev, sum: revGroupKeys });
+    const totRev = add(revVals);
+    const cosLines = vl.filter((l) => l.form === 'sell' && earns(l));
+    const opexLines = groupRevenueLines(vl.filter((l) => l.form !== 'sell')).flatMap((g) => g.lines);
+    if (view !== PL_ALL) {
+      // A PHASE, TO EBITDA (2026-11-15, founder): revenue by line, cost of sales, opex with its selling, EBITDA.
+      const cosV = neg(add(cosLines.map((l) => perAsset(l, (x) => x.cosPerPeriod))));
+      rows.push({ key: K('Residential cost of sales'), label: 'Cost of sales', kind: 'row', values: cosV, src: { kind: 'cosLines', lines: cosLines.map((l) => l.key) } });
+      const opV = add([neg(add(opexLines.map((l) => perAsset(l, (x) => x.opexPerPeriod)))), neg(sl(snap.pl.sellingExpenseByPhase?.[view]))]);
+      rows.push({ key: K('Total Operating Expenses'), label: 'Operating expenses, including selling', kind: 'row', values: opV, src: { kind: 'opexPhase', assetIds: opexLines.flatMap((l) => l.members.filter((m) => visIds.has(m.id)).map((m) => m.id)), phaseId: view } });
+      rows.push({ key: K(labels.ebitda), label: labels.ebitda, kind: 'row', style: 'total', values: add([totRev, cosV, opV]), sum: [...revKeys, K('Residential cost of sales'), K('Total Operating Expenses')] });
+      continue;
+    }
+    rows.push({ key: K('Total Revenue'), label: 'Total revenue', kind: 'row', style: 'total', values: totRev, sum: revKeys });
 
     // Cost of sales, by line.
-    const cosLines = vl.filter((l) => l.form === 'sell' && earns(l));
     const cosKeys: string[] = [];
     const cosVals: number[][] = [];
     for (const l of cosLines) {
@@ -126,94 +135,76 @@ export function plPlan(state: FinancialsResolverState, snap: Snap = computeFinan
     rows.push({ key: K('Residential cost of sales'), label: 'Total cost of sales', kind: 'row', style: 'subtotal', values: totCos, sum: cosKeys });
     rows.push({ key: K('Gross profit'), label: 'Gross profit', kind: 'row', style: 'total', values: add([totRev, totCos]), sum: [K('Total Revenue'), K('Residential cost of sales')] });
 
-    // Operating expenses, by line under the same groups.
+    // Operating expenses, one row per line.
     const opexKeys: string[] = [];
     const opexVals: number[][] = [];
-    for (const g of groupRevenueLines(vl.filter((l) => l.form !== 'sell'))) {
-      const memberKeys: string[] = [];
-      const vals: number[][] = [];
-      rows.push({ key: K(`${g.section} operating expenses`), label: `${g.section} operating expenses`, kind: 'row', style: 'subtotal', values: [], sum: memberKeys });
-      const head = rows[rows.length - 1];
-      for (const l of g.lines) {
-        const v = neg(perAsset(l, (x) => x.opexPerPeriod));
-        vals.push(v);
-        const k = K(`opex:${l.key}`);
-        memberKeys.push(k);
-        rows.push({ key: k, label: revenueLineName(l), kind: 'row', indent: 1, values: v, src: { kind: 'opex', assetIds: l.members.filter((m) => visIds.has(m.id)).map((m) => m.id) } });
-      }
-      head.values = add(vals);
-      opexKeys.push(head.key); opexVals.push(head.values);
+    for (const l of opexLines) {
+      const v = neg(perAsset(l, (x) => x.opexPerPeriod));
+      const k = K(`opex:${l.key}`);
+      opexKeys.push(k); opexVals.push(v);
+      rows.push({ key: k, label: revenueLineName(l), kind: 'row', indent: 1, values: v, src: { kind: 'opex', assetIds: l.members.filter((m) => visIds.has(m.id)).map((m) => m.id) } });
     }
     // HQ off: no HQ row (2026-11-15).
-    if (view === PL_ALL && featureUsed(state as never, 'hq')) {
+    if (featureUsed(state as never, 'hq')) {
       const v = neg(sl(snap.pl.hqOpexPerPeriod));
       rows.push({ key: K('HQ overheads'), label: 'HQ overheads', kind: 'row', values: v, src: { kind: 'hq' } });
       opexKeys.push(K('HQ overheads')); opexVals.push(v);
     }
     {
-      const v = neg(sl(view === PL_ALL ? snap.pl.sellingExpensePerPeriod : snap.pl.sellingExpenseByPhase?.[view]));
+      const v = neg(sl(snap.pl.sellingExpensePerPeriod));
       rows.push({ key: K('Selling and marketing'), label: 'Selling and marketing', kind: 'row', values: v, src: { kind: 'mkt', phaseId: view } });
       opexKeys.push(K('Selling and marketing')); opexVals.push(v);
     }
     const totOpex = add(opexVals);
     rows.push({ key: K('Total Operating Expenses'), label: 'Total operating expenses', kind: 'row', style: 'subtotal', values: totOpex, sum: opexKeys });
 
-    // The fund fees (project only), then EBITDA, struck after them.
+    // The fund fees: one row, the total on Financing (2026-11-15, founder); EBITDA is struck after them.
     const ebitdaParts = [K('Gross profit'), K('Total Operating Expenses')];
-    if (view === PL_ALL && fundOn) {
-      const feeKeys: string[] = [];
-      FUND_FEE_SPECS.forEach((spec, i) => {
-        const k = K(`fee:${i}`);
-        feeKeys.push(k);
-        rows.push({ key: k, label: spec.label, kind: 'row', indent: 1, values: neg(sl(snap.fundFees.lines[i]?.amountPerPeriod)), src: { kind: 'fee', index: i }, rateKey: `ft:${spec.label}`, rateFmt: spec.kind === 'amount' ? 'money' : 'pct' });
-      });
-      rows.push({ key: K('Total Fund Management Fee'), label: 'Total fund fees', kind: 'row', style: 'subtotal', values: neg(sl(snap.fundFees.totalPerPeriod)), sum: feeKeys });
+    if (fundOn) {
+      rows.push({ key: K('Total Fund Management Fee'), label: 'Fund fees', kind: 'row', values: neg(sl(snap.fundFees.totalPerPeriod)), src: { kind: 'feeTot' } });
       ebitdaParts.push(K('Total Fund Management Fee'));
     }
-    if (view === PL_ALL) {
-      rows.push({ key: K(labels.ebitda), label: labels.ebitda, kind: 'row', style: 'total', values: sl(snap.pl.ebitdaPerPeriod), sum: ebitdaParts });
-      rows.push({ key: K('Depreciation & Amortization'), label: 'Depreciation', kind: 'row', values: neg(sl(snap.pl.daPerPeriod)), src: { kind: 'dep' } });
-      // EBIT (2026-11-04, founder): EBITDA less depreciation, before interest, as the platform's P&L states it.
-      rows.push({ key: K(labels.ebit), label: labels.ebit, kind: 'row', style: 'subtotal', values: sl(snap.pl.ebitPerPeriod), sum: [K(labels.ebitda), K('Depreciation & Amortization')] });
-      rows.push({ key: K('Interest & financing cost'), label: 'Interest expensed', kind: 'row', values: neg(sl(snap.pl.interestExpensePerPeriod)), src: { kind: 'int' } });
-      rows.push({ key: K('Gain on Disposal of Operating Assets'), label: 'Gain on disposal', kind: 'row', values: sl(snap.pl.gainOnDisposalPerPeriod), src: { kind: 'gain' } });
-      rows.push({ key: K(labels.pbt), label: labels.pbt, kind: 'row', style: 'subtotal', values: sl(snap.pl.pbtPerPeriod), sum: [K(labels.ebit), K('Interest & financing cost'), K('Gain on Disposal of Operating Assets')] });
-      rows.push({ key: K('zakat'), label: labels.tax, kind: 'row', values: neg(sl(snap.pl.taxPerPeriod)), src: { kind: 'tax' }, rateKey: 'project:taxRate', rateFmt: 'pct',
-        labelRate: zakat ? `of ${labels.pbt.toLowerCase()}` : 'of taxable profit' });
-      rows.push({ key: K(labels.pat), label: labels.pat, kind: 'row', style: 'total', values: sl(snap.pl.patPerPeriod), sum: [K(labels.pbt), K('zakat')] });
-    } else {
-      const own = add([totRev, totCos, totOpex]);
-      rows.push({ key: K(labels.ebitda), label: labels.ebitda, kind: 'row', style: 'total', values: own, sum: ebitdaParts });
+    rows.push({ key: K(labels.ebitda), label: labels.ebitda, kind: 'row', style: 'total', values: sl(snap.pl.ebitdaPerPeriod), sum: ebitdaParts });
+    rows.push({ key: K('Depreciation & Amortization'), label: 'Depreciation', kind: 'row', values: neg(sl(snap.pl.daPerPeriod)), src: { kind: 'dep' } });
+    rows.push({ key: K(labels.ebit), label: labels.ebit, kind: 'row', style: 'subtotal', values: sl(snap.pl.ebitPerPeriod), sum: [K(labels.ebitda), K('Depreciation & Amortization')] });
+    rows.push({ key: K('Interest & financing cost'), label: 'Interest expensed', kind: 'row', values: neg(sl(snap.pl.interestExpensePerPeriod)), src: { kind: 'int' } });
+    rows.push({ key: K('Gain on Disposal of Operating Assets'), label: 'Gain on disposal', kind: 'row', values: sl(snap.pl.gainOnDisposalPerPeriod), src: { kind: 'gainP' } });
+    rows.push({ key: K(labels.pbt), label: labels.pbt, kind: 'row', style: 'subtotal', values: sl(snap.pl.pbtPerPeriod), sum: [K(labels.ebit), K('Interest & financing cost'), K('Gain on Disposal of Operating Assets')] });
+    // ZAKAT ON THE P&L (2026-11-15, founder): the profit it is charged on, the corporate tax losses where they
+    // apply, and the charge; Financing reads it back (formulaWorkbook LOOP_LINKS).
+    const taxedGain = p.tax?.applyToDisposalGain === true;
+    const cit = !zakat;
+    let taxableKey = K(labels.pbt);
+    if (!taxedGain) {
+      taxableKey = K('taxable');
+      rows.push({ key: taxableKey, label: zakat ? 'Profit zakat is charged on' : 'Taxable profit', kind: 'row', indent: 1, values: sl(snap.pl.pbtPerPeriod).map((v, t) => v - (sl(snap.pl.gainOnDisposalPerPeriod)[t] ?? 0)), src: { kind: 'taxable', pbt: K(labels.pbt), gain: K('Gain on Disposal of Operating Assets') } });
     }
+    if (cit) {
+      rows.push({ key: K('taxRel'), label: 'Tax loss relief', kind: 'row', indent: 1, values: sl(snap.pl.taxLossReliefPerPeriod), src: { kind: 'taxRel', taxable: taxableKey, pool: K('taxPool') } });
+      rows.push({ key: K('taxPool'), label: 'Tax losses carried forward', kind: 'row', indent: 1, values: sl(snap.pl.taxLossCarriedForwardPerPeriod), src: { kind: 'taxPool', taxable: taxableKey, rel: K('taxRel') } });
+    }
+    rows.push({ key: K('zakat'), label: labels.tax, kind: 'row', values: neg(sl(snap.pl.taxPerPeriod)), src: { kind: 'taxP', taxable: taxableKey, rel: cit ? K('taxRel') : undefined }, rateKey: 'project:taxRate', rateFmt: 'pct',
+      labelRate: zakat ? `of ${labels.pbt.toLowerCase()}` : 'of taxable profit' });
+    rows.push({ key: K(labels.pat), label: labels.pat, kind: 'row', style: 'total', values: sl(snap.pl.patPerPeriod), sum: [K(labels.pbt), K('zakat')] });
   }
-
-  // The reconciliation: the phases' EBITDA, the project's HQ and fund fees, their sum, the project EBITDA.
-  const RK = (name: string): string => `pl|${PHASE_RECON_LINE}||${name}`;
-  rows.push({ key: 'pl|gap|recon', label: '', kind: 'gap' });
-  rows.push({ key: RK('#section'), label: 'Phase EBITDA reconciliation', kind: 'section' });
-  const reconKeys: string[] = [];
-  const reconVals: number[][] = [];
-  for (const ph of state.phases) {
-    const src = rows.find((r) => r.key === `pl|${ph.id}||${labels.ebitda}`);
-    if (!src) continue;
-    reconKeys.push(RK(PHASE_RECON.phase(ph.name)));
-    reconVals.push(src.values!);
-    rows.push({ key: RK(PHASE_RECON.phase(ph.name)), label: PHASE_RECON.phase(ph.name), kind: 'row', values: src.values!, src: { kind: 'link', key: src.key } });
-  }
-  const hq = rows.find((r) => r.key === `pl|${PL_ALL}||HQ overheads`);
-  if (hq) {
-    reconKeys.push(RK(PHASE_RECON.hq)); reconVals.push(hq.values!);
-    rows.push({ key: RK(PHASE_RECON.hq), label: PHASE_RECON.hq, kind: 'row', values: hq.values!, src: { kind: 'link', key: hq.key } });
-  }
-  const fees = rows.find((r) => r.key === `pl|${PL_ALL}||Total Fund Management Fee`);
-  if (fees) {
-    reconKeys.push(RK(PHASE_RECON.fees)); reconVals.push(fees.values!);
-    rows.push({ key: RK(PHASE_RECON.fees), label: PHASE_RECON.fees, kind: 'row', values: fees.values!, src: { kind: 'link', key: fees.key } });
-  }
-  const sum = add(reconVals);
-  const proj = sl(snap.pl.ebitdaPerPeriod);
-  rows.push({ key: RK(PHASE_RECON.sum), label: PHASE_RECON.sum, kind: 'row', style: 'subtotal', values: sum, sum: reconKeys });
-  rows.push({ key: RK(PHASE_RECON.project), label: PHASE_RECON.project, kind: 'row', values: proj, src: { kind: 'link', key: `pl|${PL_ALL}||${labels.ebitda}` } });
-  rows.push({ key: RK(PHASE_RECON.diff), label: PHASE_RECON.diff, kind: 'row', values: sum.map((v, t) => v - proj[t]), src: { kind: 'diff', a: RK(PHASE_RECON.sum), b: RK(PHASE_RECON.project) } });
+  // (2026-11-15, founder) No reconciliation block: one row on Checks proves the phases foot to the project.
   return rows;
+}
+
+/**
+ * THE P&L LINE ROWS BY SECTION AND BY PHASE (2026-11-15): the P&L has no category rows, so a reader that
+ * wants a section's revenue or opex, or a phase's revenue, adds the line rows this names.
+ */
+export function plLineKeys(state: FinancialsResolverState): { bySection: Map<string, { rev: string[]; opex: string[] }>; byPhase: Map<string, string[]> } {
+  const p = state.project;
+  const visIds = new Set(state.assets.filter((a) => a.visible !== false).map((a) => a.id));
+  const lines = planRevenueLines(state.assets, state.subUnits, state.phases, p);
+  const earns = (l: RevenueLine): boolean => l.members.some((m) => visIds.has(m.id) && state.subUnits.some((u) => u.assetId === m.id && isRevenueSubUnit(u)));
+  const bySection = new Map<string, { rev: string[]; opex: string[] }>();
+  const at = (s: string): { rev: string[]; opex: string[] } => { if (!bySection.has(s)) bySection.set(s, { rev: [], opex: [] }); return bySection.get(s)!; };
+  for (const g of groupRevenueLines(lines.filter(earns))) for (const l of g.lines) at(g.section).rev.push(`pl|${PL_ALL}||rev:${l.key}`);
+  for (const g of groupRevenueLines(lines.filter((l) => l.form !== 'sell'))) for (const l of g.lines) at(g.section).opex.push(`pl|${PL_ALL}||opex:${l.key}`);
+  const byPhase = new Map<string, string[]>();
+  for (const ph of state.phases) byPhase.set(ph.id, groupRevenueLines(lines.filter((l) => earns(l) && l.phaseId === ph.id)).flatMap((g) => g.lines).map((l) => `pl|${ph.id}||rev:${l.key}`));
+  return { bySection, byPhase };
 }

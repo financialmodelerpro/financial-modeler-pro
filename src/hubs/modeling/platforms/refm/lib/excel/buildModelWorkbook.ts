@@ -390,7 +390,7 @@ function buildModelWorkbookInner(opts: BuildModelOptions): ExcelJS.Workbook {
 /** SELLING COSTS, HANDED FROM THE CAPEX BUILD TO REVENUE (2026-11-15, founder): each line's collections
  *  share and each selling cost row, which Revenue lays out as its last section. */
 interface SellingSection {
-  shares: Array<{ key: string; label: string; shares: number[]; window: number }>;
+  shares: Array<{ key: string; label: string; shares: number[]; window: number; inPhase: number[]; even: number[] }>;
   costs: Array<{ key: string; label: string; rate: number; qty: number; per: number[]; amount: number }>;
 }
 const SELLING_SECTION = new WeakMap<ExcelJS.Workbook, SellingSection>();
@@ -412,6 +412,15 @@ function emitSellingSection(wb: ExcelJS.Workbook, ws: ExcelJS.Worksheet, r0: num
   for (const [c, text, align] of [[LBL_COL, 'Line', 'left'], [2, 'Rate', 'right'], [3, 'Sale value', 'right'], [TOTAL_COL, 'Total', 'right'], [OPEN_COL, 'Window total', 'right']] as const) setColHeader(ws.getCell(r, c), text, align);
   r += 1;
   for (const x of sec.shares) {
+    // The phase's years (1 = yes) the share reads (2026-11-15: short formulas).
+    setLabel(ws.getCell(r, LBL_COL), `${x.label.replace(/^Collections share, /, '')}: in its phase's years (1 = yes)`, { indent: 1 });
+    registerCell(`${x.key}|in`, ws, ws.getCell(r, LBL_COL));
+    for (let t = 0; t < N; t++) put(r, cP(t), x.inPhase[t] ?? 0, NUMFMT.int);
+    r += 1;
+    setLabel(ws.getCell(r, LBL_COL), `${x.label.replace(/^Collections share, /, '')}: even over its window, if it collects nothing`, { indent: 1 });
+    registerCell(`${x.key}|even`, ws, ws.getCell(r, LBL_COL));
+    for (let t = 0; t < N; t++) put(r, cP(t), x.even[t] ?? 0, NUMFMT.pct2);
+    r += 1;
     setLabel(ws.getCell(r, LBL_COL), x.label, { indent: 1 });
     registerCell(x.key, ws, ws.getCell(r, LBL_COL));
     put(r, OPEN_COL, x.window, NUMFMT.money);
@@ -2347,8 +2356,9 @@ function addCapex(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancial
     subHeader(r, [[C_LBL, 'Spread', 'left'], [2, 'From period', 'right'], [3, 'To period', 'right'], [C_TOT, 'Total', 'right'], [C_OPEN, 'Window total', 'right']]);
     registerCell('cxwhead', ws, ws.getCell(r, C_LBL));
     r += 1;
-    // Each phase's period of every year is worked out inside the share formulas (2026-11-15): no helper row.
-    for (const ph of state.phases.filter((p) => (false as boolean) && [...plan.rows.values()].some((sp) => sp.phaseId === p.id))) {
+    // Each phase's period of every year (1 in its first year), one row per phase, so every spread formula
+    // stays short (2026-11-15, founder: no formula over 150 characters).
+    for (const ph of state.phases.filter((p) => [...plan.rows.values()].some((sp) => sp.phaseId === p.id && sp.kind !== 'collections'))) {
       const off = Math.max(0, new Date(ph.startDate as string).getUTCFullYear() - snap.projectStartYear);
       setLabel(ws.getCell(r, C_LBL), `Phase period of the year, ${ph.name} (its first year in Total)`, { indent: 1 });
       registerCell(`cxpp:${ph.id}`, ws, ws.getCell(r, C_LBL));
@@ -2367,7 +2377,11 @@ function addCapex(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancial
         const cash = (snap.revenue as { bySellAsset?: Map<string, { cashCollectedPerPeriod?: number[] } | undefined> }).bySellAsset?.get(sp.assetId ?? '')?.cashCollectedPerPeriod ?? [];
         const slots = ph ? (ph.constructionPeriods ?? 0) + (ph.operationsPeriods ?? 0) + 2 : 0;
         let w0 = 0; for (let t = 0; t < N; t++) { const i = t - off + 1; if (i >= 1 && i < slots) w0 += Math.max(0, cash[t] ?? 0); }
-        selling.shares.push({ key: `cxw:${sp.key}`, label: spreadLabel(sp).replace(/^Collections, /, 'Collections share, '), shares: sp.shares.slice(0, N), window: w0 });
+        const inPhase = Array.from({ length: N }, (_, t) => { const i = t - off + 1; return i >= 1 && i < slots ? 1 : 0; });
+        // The even spread over the line's window, the share's fallback where it collects nothing.
+        const lo = Math.max(1, sp.start), hi = Math.max(sp.start, sp.end);
+        const even = Array.from({ length: N }, (_, t) => { const i = t - off + 1; return (i >= lo && i <= hi ? 1 : 0) / (hi - sp.start + 1); });
+        selling.shares.push({ key: `cxw:${sp.key}`, label: spreadLabel(sp).replace(/^Collections, /, 'Collections share, '), shares: sp.shares.slice(0, N), window: w0, inPhase, even });
         continue;
       }
       setLabel(ws.getCell(r, C_LBL), spreadLabel(sp), { indent: 1 });
@@ -2405,7 +2419,15 @@ function addCapex(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancial
         const hardOf = blends.hardLines.get(m.hostId) ?? [];
         for (const wt of ws0) {
           const a = state.assets.find((x) => x.id === wt.plot);
-          setLabel(ws.getCell(r, C_LBL), `Hard cost, ${a ? assetPlotLabel(a, ctxNames) || a.name : wt.plot} (soft-cost weight)`, { indent: 1 });
+          const plotName = a ? assetPlotLabel(a, ctxNames) || a.name : wt.plot;
+          for (const lid of hardOf) {
+            if (!plotLn(wt.plot, lid)) continue;
+            setLabel(ws.getCell(r, C_LBL), `Hard cost, ${plotName}: ${state.costLines.find((c) => c.id === lid)?.name ?? lid}`, { indent: 2 });
+            registerCell(`${wt.key}|${lid}`, ws, ws.getCell(r, C_LBL));
+            put(r, C_TOT, plotLn(wt.plot, lid)?.amount ?? 0);
+            r += 1;
+          }
+          setLabel(ws.getCell(r, C_LBL), `Hard cost, ${plotName} (soft-cost weight)`, { indent: 1 });
           registerCell(wt.key, ws, ws.getCell(r, C_LBL));
           put(r, C_TOT, hardOf.reduce((s, lid) => s + (plotLn(wt.plot, lid)?.amount ?? 0), 0));
           r += 1;
@@ -3660,6 +3682,10 @@ function addRevenue(ctx: EmitCtx): { revLinks: RevLinks; cosLinks: CosLinks } {
             const pre = v.pre !== undefined ? axisFromPhase(v.pre, w.phaseOffset) : padded(v.preLegacy);
             const post = v.post !== undefined ? axisFromPhase(v.post, w.phaseOffset) : padded(v.postLegacy);
             const both = Array.from({ length: N }, (_, t) => Math.max(0, pre[t] ?? 0) + Math.max(0, post[t] ?? 0));
+            // Each grid on its own row, the velocity their sum (2026-11-15: short formulas).
+            const preV = Array.from({ length: N }, (_, t) => Math.max(0, pre[t] ?? 0)), postV = Array.from({ length: N }, (_, t) => Math.max(0, post[t] ?? 0));
+            em.periodRow(`${nm(u)}: pre-sales %`, preV, range(0, N - 1), NUMFMT.pct, { total: sumAll(preV) });
+            em.periodRow(`${nm(u)}: sales during operation %`, postV, range(0, N - 1), NUMFMT.pct, { total: sumAll(postV) });
             em.periodRow(`${nm(u)}: velocity`, both, range(0, N - 1), NUMFMT.pct, { total: sumAll(both) });
             const sold = add(per(r.presalesAreaPerPeriodPerSubUnit, u.id), per(r.postSalesAreaPerPeriodPerSubUnit, u.id));
             em.moneyRow(`${nm(u)}: sqm sold`, sold, { indent: 1, numFmt: NUMFMT.int });
@@ -3720,6 +3746,8 @@ function addRevenue(ctx: EmitCtx): { revLinks: RevLinks; cosLinks: CosLinks } {
           em.setRegTable('d');
           if (line.form === 'operate') {
             const typeValues = a.assetTypeId ? state.project.assetTypeValues?.[a.assetTypeId] : undefined;
+            // The key size first (the sub-unit's own, else the type's), then the keys (2026-11-15: short formulas).
+            em.scalarRow('Key size (sqm)', resolveAvgUnitSize(state.subUnits.filter((u) => u.assetId === a.id && isRevenueSubUnit(u)).map((u) => u.unitArea), typeValues).value ?? 0, NUMFMT.int);
             em.scalarRow('Keys', resolveAssetKeys(a, state.subUnits, typeValues).keys, NUMFMT.int);
           } else {
             em.scalarRow('Lettable area (sqm)', units.reduce((s, u) => s + Math.max(0, computeSubUnitArea(u, a)), 0), NUMFMT.int);
@@ -4895,6 +4923,7 @@ function addFinancingLive(ctx: EmitCtx): FinLinks {
     }
     setLabel(ws.getCell(r, LBL_COL), row.label, { indent: row.indent, bold: !!row.style });
     if (row.basis) setBasis(ws.getCell(r, META_B), row.basis);
+    if (row.metaB !== undefined) put(r, META_B, row.metaB, NUMFMT.int);
     const fmt = FMT[row.fmt ?? 'money'];
     if (row.kind === 'scalar') put(r, TOTAL_COL, row.value ?? 0, fmt);
     else {
@@ -5678,6 +5707,10 @@ function addSchedulesLive(ctx: EmitCtx, ws: ExcelJS.Worksheet, E: ReturnType<typ
       const hrow = E.cursor(); setLabel(ws.getCell(hrow, LBL_COL), 'Depreciation starts (year no.)', { indent: 1 }); num(hrow, META_B, first); E.jump(hrow + 1);
       keyed(`fa|${l.hostId}|help`, hrow);
       registerCell(`fafirst:${l.hostId}`, ws, ws.getCell(hrow, META_B));
+      // DEPRECIATING (1 = YES) (2026-11-15, founder): from the first year, for the life, until the exit.
+      const lifeN = Math.max(1, Math.floor(input.lifeEffective || 0));
+      const held = upToExit(state, N);
+      money(`fa|${l.hostId}|on`, 'Depreciating (1 = yes)', Array.from({ length: N }, (_, t) => (input.lifeEffective > 0 && t + 1 >= first && t + 1 < first + lifeN ? 1 : 0) * held(t)), { indent: 1, numFmt: NUMFMT.int });
       table(l.hostId, l.land.rows, l.depreciable.rows, idcDepOf(l.memberIds));
       E.gap();
     }
@@ -5731,7 +5764,7 @@ function addProfitLossLive(ctx: EmitCtx): void {
   const N = snap.axisLength;
   const labels = m4Labels(state);
   const ws = wb.addWorksheet(SHEETS.pl, { properties: { tabColor: { argb: ARGB.navy } } });
-  writeSheetHeader(ws, snap, N, 'P&L', `Revenue to ${labels.pat}, then each phase to ${labels.ebitda}, then the reconciliation of the phases to the project ${labels.ebitda}.`, { label: 'Line', feeds: 'Revenue, Schedules (cost of sales, depreciation), Opex, Capex (selling and marketing) and the financing loop (fund fees, interest, gain on disposal, zakat).' });
+  writeSheetHeader(ws, snap, N, 'P&L', `Revenue to ${labels.pat}, then each phase to ${labels.ebitda}. Checks proves the phases foot to the project.`, { label: 'Line', feeds: 'Revenue, Schedules (cost of sales, depreciation, the exit write-off), Opex, Capex (selling and marketing) and Financing (fund fees, interest, exit proceeds).' });
   const last = lastActiveCol(N);
   const put = (r: number, c: number, v: number, fmt: string): void => {
     const cell = ws.getCell(r, c);
@@ -5889,7 +5922,7 @@ function addCashFlowLive(ctx: EmitCtx): void {
   const { wb, snap, state } = ctx;
   const N = snap.axisLength;
   const ws = wb.addWorksheet(SHEETS.cashflow, { properties: { tabColor: { argb: ARGB.navy } } });
-  writeSheetHeader(ws, snap, N, 'Cash Flow', 'Direct method (operations, investing, financing, net and closing cash), the indirect method\'s operating cash with its check, each phase\'s operations and investing, and the phases to the project net cash flow.', { label: 'Line', feeds: 'Revenue (cash collected, escrow), Opex (opex and its payables), Capex (capex, selling and marketing), the P&L (the indirect method) and Financing (fund fees, zakat, disposal proceeds and every financing flow).', totalLabel: 'Total / Closing' });
+  writeSheetHeader(ws, snap, N, 'Cash Flow', 'Direct method: operations, investing, financing, net and closing cash. Land contributed in kind is not cash and is not here.', { label: 'Line', feeds: 'Revenue (cash collected, escrow), Opex (opex paid), Capex (capex, selling and marketing) and Financing (fund fees, zakat, disposal proceeds and every financing flow).', totalLabel: 'Total / Closing' });
   printPlanRows(ws, N, cfPlan(state, snap), 'sum');
 }
 
@@ -5900,7 +5933,7 @@ function addCashFlowLive(ctx: EmitCtx): void {
 function printPlanRows(
   ws: ExcelJS.Worksheet, N: number,
   rows: ReadonlyArray<{ key: string; label: string; kind: 'section' | 'head' | 'row' | 'gap'; values?: number[]; style?: 'total' | 'subtotal'; indent?: number; total?: 'sum' | 'first' | 'last' | 'maxabs' }>,
-  defaultTotal: 'sum' | 'last',
+  defaultTotal: 'sum' | 'last' | 'none',
 ): void {
   const last = lastActiveCol(N);
   const put = (r: number, c: number, v: number): void => {
@@ -5922,8 +5955,8 @@ function printPlanRows(
     setLabel(ws.getCell(r, LBL_COL), row.label, { indent: row.indent, bold: !!row.style });
     const vals = row.values ?? [];
     for (let t = 0; t < N; t++) put(r, pcol(t), vals[t] ?? 0);
-    const tot = row.total ?? defaultTotal;
-    put(r, TOTAL_COL, tot === 'first' ? (vals[0] ?? 0) : tot === 'last' ? (vals[N - 1] ?? 0) : tot === 'maxabs' ? Math.max(0, ...vals.slice(0, N).map((v) => Math.abs(v ?? 0)))
+    const tot = defaultTotal === 'none' ? 'none' : row.total ?? defaultTotal;
+    if (tot !== 'none') put(r, TOTAL_COL, tot === 'first' ? (vals[0] ?? 0) : tot === 'last' ? (vals[N - 1] ?? 0) : tot === 'maxabs' ? Math.max(0, ...vals.slice(0, N).map((v) => Math.abs(v ?? 0)))
       : vals.slice(0, N).reduce((sum, v) => sum + (v ?? 0), 0));
     if (row.style === 'total') {
       fillRange(ws, r, 1, r, last, ARGB.navy);
@@ -5940,8 +5973,9 @@ function addBalanceSheetLive(ctx: EmitCtx): void {
   const { wb, snap, state } = ctx;
   const N = snap.axisLength;
   const ws = wb.addWorksheet(SHEETS.balsheet, { properties: { tabColor: { argb: ARGB.navy } } });
-  writeSheetHeader(ws, snap, N, 'Balance Sheet', 'Assets, liabilities and equity at each year end, the balance check, and the share capital, statutory reserve and retained earnings roll-forwards.', { label: 'Line', feeds: 'Schedules (land, fixed assets, inventory), Revenue (receivables, unearned revenue, escrow), Opex (payables), Financing (debt, zakat payable, equity drawn, dividends), the P&L (profit after tax) and the Cash Flow (cash).', totalLabel: 'Closing' });
-  printPlanRows(ws, N, bsPlan(state, snap), 'last');
+  writeSheetHeader(ws, snap, N, 'Balance Sheet', 'Assets, liabilities and equity at each year end, the balance check, and the share capital and retained earnings roll-forwards.', { label: 'Line', feeds: 'Schedules (land, fixed assets, inventory), Revenue (receivables, unearned revenue, escrow), Financing (debt, equity drawn, dividends), the P&L (profit after tax) and the Cash Flow (cash).', totalLabel: '' });
+  // The total column is blank: a balance sheet has no total across the years (2026-11-15, founder).
+  printPlanRows(ws, N, bsPlan(state, snap), 'none');
 }
 
 function addCashFlow(ctx: EmitCtx): void {
@@ -7006,7 +7040,7 @@ function addScenarios(ctx: EmitCtx): void {
 
 // ── Checks / legend ───────────────────────────────────────────────────────────
 /** The Checks row that ties the financing loop's profit before tax to the P&L (live layout). */
-export const LOOP_PBT_CHECK = 'Profit before tax inside the financing loop equals the P&L';
+export const LOOP_PBT_CHECK = 'Zakat on the P&L equals zakat paid on the Cash Flow';
 
 function addChecks(ctx: EmitCtx, capexAddrs: CapexAddrs, retLinks: RetLinks): void {
   void capexAddrs;
@@ -7059,6 +7093,8 @@ function addChecks(ctx: EmitCtx, capexAddrs: CapexAddrs, retLinks: RetLinks): vo
     void where;
     // THE LIVE TAB COMPARES OPERATING CASH (2026-11-03): its indirect method shows operating cash only,
     // so the row measures the two cash flows from operations and their peak, not the net cash flow.
+    // No indirect method on the live Cash Flow (2026-11-15, founder): no row to compare.
+    if (liveChk && c.label === 'Direct cash flow == Indirect cash flow') continue;
     if (liveChk && c.label === 'Direct cash flow == Indirect cash flow') {
       const N0 = snap.axisLength;
       const d0 = Array.from({ length: N0 }, (_, t) => (snap.directCF.cashFromOperationsPerPeriod[t] ?? 0) - (snap.indirectCF.cashFromOperationsPerPeriod[t] ?? 0));
@@ -7073,9 +7109,10 @@ function addChecks(ctx: EmitCtx, capexAddrs: CapexAddrs, retLinks: RetLinks): vo
   // THE FINANCING LOOP'S OWN PROFIT BEFORE TAX (live layout): the loop solves its tax on it, so it must
   // equal the P&L's every year; the residue is the worst year's difference.
   if (isLiveLayout()) {
-    const pbt = snap.pl.pbtPerPeriod.slice(0, snap.axisLength);
+    const pbt = snap.pl.taxPerPeriod.slice(0, snap.axisLength);
     const peak = Math.max(0, ...pbt.map((v) => Math.abs(v ?? 0)));
-    checkRow(LOOP_PBT_CHECK, 'OK', 0, peak === 0 ? 'Nothing to reconcile' : 'Within tolerance', `chk|id|${LOOP_PBT_CHECK}`, peak, { hi: 0, lo: 0 });
+    // Paid in the year (no payable): the charge is the cash, year by year. With a payable they differ by its movement.
+    if (!featureUsed(ctx.state as never, 'taxPayable')) checkRow(LOOP_PBT_CHECK, 'OK', 0, peak === 0 ? 'Nothing to reconcile' : 'Within tolerance', `chk|id|${LOOP_PBT_CHECK}`, peak, { hi: 0, lo: 0 });
     // SOURCES EQUAL USES (2026-11-03): each total sums its own rows on Returns, so a flow left out shows here.
     const su = (() => { try { return computeReturnsSnapshot(snap, ctx.state.project).sourcesUses; } catch { return null; } })();
     if (su) {

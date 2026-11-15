@@ -32,6 +32,8 @@ import { defaultSensitivityValues } from '@/src/core/calculations/returns';
 import { computeReturnsSensitivity } from '../../returns-resolvers';
 import { STABILISATION_GROWTH_TOLERANCE } from '@/src/core/calculations/returns/analytics';
 import { getFinancialLabels, defaultTerminologyForCountry } from '@/src/core/calculations/financials';
+import { bsTotalDebtKey } from './bsPlan';
+import { plLineKeys } from './plPlan';
 
 type Snap = ReturnType<typeof computeFinancialsSnapshot>;
 type RS = ReturnType<typeof computeReturnsSnapshot>;
@@ -187,7 +189,7 @@ export function returnsPlan(state: FinancialsResolverState, snap: Snap, rs: RS, 
   const H = (E: REnv, s: number): string => E.s('rs|hold', s);
   // The figures the streams read, every year as the source tab has them.
   pRow('rs|noi', 'Held assets\' income (NOI)', yearsToStream(rs.noiPerPeriod), (E, s) => E.loop('fnc:noi', s), { total: 'sum' });
-  pRow('rs|debt', 'Debt outstanding', yearsToStream(snap.bs.debtOutstandingPerPeriod), (E, s) => E.x('bs|__all__||Debt (long-term)', s), { total: 'none' });
+  pRow('rs|debt', 'Debt outstanding', yearsToStream(snap.bs.debtOutstandingPerPeriod), (E, s) => E.x(bsTotalDebtKey(state), s), { total: 'none' });
   pRow('rs|close', 'Closing cash', yearsToStream(snap.directCF.closingCashPerPeriod), (E, s) => E.x('cf|direct||Closing cash', s), { total: 'none' });
   const sweeps = snap.cashSweep?.enabled === true;
   one('rs|floor', 'Minimum cash reserve', Number(p.financing?.minimumCashReserve ?? snap.financing.funding.minCashReserve ?? 0), (E) => `MAX(0,${E.ref('fin:in:min')})`);
@@ -198,7 +200,7 @@ export function returnsPlan(state: FinancialsResolverState, snap: Snap, rs: RS, 
   head('ret|#fcff', 'FCFF, unlevered project');
   pRow('rs|ff:cfo', 'Cash from operations', stream(bu.cfoPerPeriod), (E, s) => `${H(E, s)}*${E.x('cf|direct||Cash Flow from Operations', s)}`, { indent: 1 });
   pRow('rs|ff:capex', 'Capex paid in cash', stream(bu.cfiPerPeriod), (E, s) => `${H(E, s)}*${E.x('cf|direct||Total capex paid in cash', s)}`, { indent: 1 });
-  pRow('rs|ff:kind', 'Land contributed in kind', stream(bu.inKindLandPerPeriod), (E, s) => `${H(E, s)}*${E.x('cf|direct||Land in kind (investing)', s)}`, { indent: 1 });
+  pRow('rs|ff:kind', 'Land contributed in kind', stream(bu.inKindLandPerPeriod), (E, s) => `-${H(E, s)}*${E.x('cx5:total:inkind', s)}`, { indent: 1 });
   pRow('rs|ff:pre', 'FCFF before the exit value', stream(bu.fcffSubtotalPerPeriod).map((v, s) => (s === 0 ? -(rs.buildup.existingPreCapexPerPeriod?.[0] ?? 0) : v)),
     (E, s) => (s === 0 ? `-${E.ref('retin:hist')}` : `SUM(${E.s('rs|ff:cfo', s)}:${E.s('rs|ff:kind', s)})`), { from: 0, style: 'subtotal' });
   pRow('rs|ff:tv', 'Terminal enterprise value (exit proceeds)', stream(bu.terminalEnterprisePerPeriod), (E, s) => E.loop('fnc:proceeds', s), { indent: 1 });
@@ -308,10 +310,16 @@ export function returnsPlan(state: FinancialsResolverState, snap: Snap, rs: RS, 
     const cy = (a: number[]): number => a.reduce((s2, v, s) => s2 + (s === 0 ? 0 : -v * (N - (s - 1))), 0);
     const cyC = cy(cashS), cyK = cy(kindS);
     const cyJ = partners.map((q) => (cashT > 0 ? pctOf(q.cashPct) : 0) * cyC + (kindT > 0 ? pctOf(q.inKindPct) : 0) * cyK);
-    const cyRow = (E: REnv, key: string): string => `-SUMPRODUCT(${E.rngY(key)},${N}+1-(COLUMN(${E.rngY(key)})-COLUMN(${E.sA(key, 1)})+1))`;
+    const cyRow = (E: REnv, key: string): string => `-SUMPRODUCT(${E.rngY(key)},MAX(${E.yrRng()})+1-${E.yrRng()})`;
+    // One row per kind of equity, then the sum (2026-11-15: short formulas).
+    for (const [sfx, dd, t0] of [['cash', 'rs|dd:cash', cashT], ['kind', 'rs|dd:kind', kindT]] as const) {
+      const per0 = partners.map((q) => (t0 > 0 ? pctOf(sfx === 'cash' ? q.cashPct : q.inKindPct) : 0) * (sfx === 'cash' ? cyC : cyK));
+      rows.push({ key: `ret|pt|cy:${sfx}`, label: `Capital-years, ${sfx === 'cash' ? 'cash' : 'in-kind'} equity`, kind: 'cells', indent: 1, cells: partners.map((_q, j) => ({ col: pc(j), v: per0[j], fmt: RF.money,
+        f: (E: REnv) => `IF(${E.cell(`ret|pt|${sfx}`, D)}>0,${E.cell(`ret|pt|${sfx}:share`, pc(j))},0)*${cyRow(E, dd)}` })) });
+    }
     rows.push({ key: 'ret|pt|cy', label: 'Capital-years (each amount x the years it is held)', kind: 'cells', cells: [{ col: D, v: sumOf(cyJ), fmt: RF.money, f: (E) => `SUM(${partners.map((_q, j) => E.cell('ret|pt|cy', pc(j))).join(',')})` },
       ...partners.map((_q, j) => ({ col: pc(j), v: cyJ[j], fmt: RF.money,
-        f: (E: REnv) => `IF(${E.cell('ret|pt|cash', D)}>0,${E.cell('ret|pt|cash:share', pc(j))},0)*${cyRow(E, 'rs|dd:cash')}+IF(${E.cell('ret|pt|kind', D)}>0,${E.cell('ret|pt|kind:share', pc(j))},0)*${cyRow(E, 'rs|dd:kind')}` }))] });
+        f: (E: REnv) => `${E.cell('ret|pt|cy:cash', pc(j))}+${E.cell('ret|pt|cy:kind', pc(j))}` }))] });
     rows.push({ key: 'ret|pt|tw', label: 'Time-weighted share', kind: 'cells', cells: partners.map((_q, j) => ({ col: pc(j), v: ps.partners[j]?.weightedAvgShareholdingPct ?? 0, fmt: RF.pct,
       f: (E: REnv) => `IF(${E.cell('ret|pt|cy', D)}>0,${E.cell('ret|pt|cy', pc(j))}/${E.cell('ret|pt|cy', D)},IF(${E.cell('ret|pt|inv', D)}>0,${E.cell('ret|pt|inv', pc(j))}/${E.cell('ret|pt|inv', D)},0))` })) });
     rows.push({ key: 'ret|pt|share', label: 'Share used (the agreed share where one is typed)', kind: 'cells', style: 'subtotal', cells: partners.map((_q, j) => ({ col: pc(j), v: ps.partners[j]?.shareholdingPct ?? 0, fmt: RF.pct,
@@ -411,7 +419,7 @@ export function returnsPlan(state: FinancialsResolverState, snap: Snap, rs: RS, 
     const src: Array<[string, string, number, Fx]> = [
       ['ret|Existing Equity', 'Existing equity', su.existingEquity, (E) => E.ref('retin:equity')],
       ['ret|New Equity (cash)', 'Cash equity', su.newEquityCash, (E) => win(E, cf('Equity drawn in cash'))],
-      ['ret|In-Kind Equity (land)', 'Land contributed in kind', su.inKindEquity, (E) => win(E, cf('Land contributed in kind'))],
+      ['ret|In-Kind Equity (land)', 'Land contributed in kind', su.inKindEquity, (E) => win(E, 'fl:inKind')],
       ['ret|Existing Debt', 'Existing debt', su.existingDebt, (E) => E.ref('retin:debt')],
       ['ret|su|debtCapex', 'Debt drawn for capex', su.newDebtCapex, (E) => `${win(E, cf('Debt drawn'))}-${win(E, 'fnc:main:idcdraw')}`],
       ['ret|su|debtInt', 'Debt drawn for capitalised interest', su.newDebtInterest, (E) => win(E, 'fnc:main:idcdraw')],
@@ -465,7 +473,9 @@ export function returnsPlan(state: FinancialsResolverState, snap: Snap, rs: RS, 
     const atBasis = (E: REnv, rng: string): string => `SUMPRODUCT((${E.yrRng()}=${E.d('ret|Basis year')})*${rng})`;
     const atExit = (E: REnv, rng: string): string => `SUMPRODUCT(${E.exRng()},${rng})`;
     head('ret|#exit', 'The exit: terminal value and gain on disposal');
-    const hospKeys = ['pl|__all__||Hospitality Revenue', 'pl|__all__||Hospitality operating expenses'];
+    // The hospitality lines' revenue and opex rows on the P&L (2026-11-15: no category rows there).
+    const hk = plLineKeys(state).bySection.get('Hospitality');
+    const hospKeys = [...(hk?.rev ?? []), ...(hk?.opex ?? [])];
     const hospV = (snap.pl.hospitalityRevenuePerPeriod[M] ?? 0) - (snap.pl.hospitalityOpexPerPeriod[M] ?? 0);
     one('ret|x|hosp', 'Hospitality EBITDA in that year', hospV, (E) => hospKeys.filter((k) => E.has(k)).map((k) => atBasis(E, E.xr(k))).join('+') || '0', RF.money, { indent: 1 });
     one('ret|x|retail', 'Retail NOI in that year', d.exitMetric - hospV, (E) => `${E.d('ret|x|inc')}-${E.d('ret|x|hosp')}`, RF.money, { indent: 1 });
@@ -477,6 +487,8 @@ export function returnsPlan(state: FinancialsResolverState, snap: Snap, rs: RS, 
     const landLineIds = (state.costLines as Array<{ id: string; catalogId?: string }>).filter((c) => isLandValueLine(c as never)).map((c) => c.id);
     const idcDisp = (E: REnv, base: string): string => (E.has(`schv:${base}:idcNbv`)
       ? `MAX(0,SUMPRODUCT(${E.exRng()},${rangePrev(E, `schv:${base}:idcNbv`)}+${E.xr(`schv:${base}:idcAdd`)}-${E.xr(`schv:${base}:idcDep`)}))` : '0');
+    // The exit year as a number, read by each line's land below (2026-11-15: short formulas).
+    one('ret|x|exyr', 'Exit year (the year the exit flag marks)', exitYear, (E) => `SUMPRODUCT(${E.exRng()},${E.yrRng()})`, RF.year, { indent: 1 });
     for (const l of rl) {
       const host = l.assetIds.find((id) => d.byAsset.some((a) => a.assetId === id));
       const pooled = dw.byAsset.find((a) => a.label === lineTitle(l, lineState));
@@ -492,7 +504,7 @@ export function returnsPlan(state: FinancialsResolverState, snap: Snap, rs: RS, 
           const ks = l.assetIds.flatMap((id) => landLineIds.map((lid) => `cxc:${id}:${lid}`)).filter((k) => E.has(k));
           if (!ks.length) return '0';
           const adds = ks.length > 1 ? `(${ks.map((k) => E.xr(k)).join('+')})` : E.xr(ks[0]);
-          return `SUM(${E.exRng()})*SUMPRODUCT(${adds}*(${E.yrRng()}<=SUMPRODUCT(${E.exRng()},${E.yrRng()})))`;
+          return `SUM(${E.exRng()})*SUMPRODUCT(${adds}*(${E.yrRng()}<=${E.d('ret|x|exyr')}))`;
         } },
         { col: D + 2, v: pooled.capitalisedInterest, fmt: RF.money, f: (E) => idcDisp(E, hostOf(E)) },
         { col: D + 3, v: pooled.total, fmt: RF.money, f: (E) => `SUM(${E.cell(key, D)}:${E.cell(key, D + 2)})` },
@@ -505,7 +517,7 @@ export function returnsPlan(state: FinancialsResolverState, snap: Snap, rs: RS, 
     if (d.gainTaxed) {
       if ((p.tax?.basis ?? 'zakat') === 'cit') refused.push('tax on the disposal gain on the corporate income tax basis');
       one('ret|x|gaintax', 'Zakat charged on the gain', val('Zakat charged on the gain'),
-        (E) => `-(${atExit(E, E.xr('fl:tax'))}-MAX(0,${atExit(E, E.xr('fl:taxable'))}-${E.d('ret|x|gain')})*MAX(0,${E.ref('project:taxRate')}))`, RF.money, { indent: 1 });
+        (E) => `-(${atExit(E, E.xr('fl:tax'))}-MAX(0,${atExit(E, E.xr(`pl|__all__||${getFinancialLabels(p.financialTerminology ?? defaultTerminologyForCountry(p.country)).pbt}`))}-${E.d('ret|x|gain')})*MAX(0,${E.ref('project:taxRate')}))`, RF.money, { indent: 1 });
     }
     one('ret|x|repaid', 'Debt repaid from the proceeds', val('Debt repaid from the proceeds'), (E) => `-SUM(${E.xr('fnc:main:exitrepay')})`, RF.money, { indent: 1 });
     one('ret|x|left', 'Proceeds left after the debt', val('Proceeds left after debt'), (E) => `${E.d('ret|x|tv')}+${E.d('ret|x|repaid')}`, RF.money, { style: 'subtotal' });
@@ -570,7 +582,10 @@ export function returnsPlan(state: FinancialsResolverState, snap: Snap, rs: RS, 
     section('ret|#metrics', 'Real estate metrics');
     head('ret|#cov', 'Coverage by year');
     const opV = Array.from({ length: N }, (_, t) => (phases.some((ph) => { const tl = computePhaseTimeline(ph, p); const y = years[t]; return y >= new Date(tl.operationsStart).getUTCFullYear() && y <= new Date(tl.operationsEnd).getUTCFullYear(); }) ? 1 : 0));
-    pRow('rm|op', 'Operating year (any phase operating)', [null, ...opV], (E, s) => `IF(OR(${phases.map((ph) => `AND(${E.yr(s)}>=YEAR(${E.ref(`phase:${ph.id}:oStart`)}),${E.yr(s)}<=YEAR(${E.ref(`phase:${ph.id}:oEnd`)}))`).join(',')}),1,0)`, { total: 'none', fmt: RF.int });
+    // A year any phase operates: the phases' own operating flags on Timeline, where they are (2026-11-15: short).
+    pRow('rm|op', 'Operating year (any phase operating)', [null, ...opV], (E, s) => (phases.every((ph) => E.has(`tl:flag:${ph.id}:ops`))
+      ? `MIN(1,${phases.map((ph) => E.x(`tl:flag:${ph.id}:ops`, s)).join('+')})`
+      : `IF(OR(${phases.map((ph) => `AND(${E.yr(s)}>=YEAR(${E.ref(`phase:${ph.id}:oStart`)}),${E.yr(s)}<=YEAR(${E.ref(`phase:${ph.id}:oEnd`)}))`).join(',')}),1,0)`), { total: 'none', fmt: RF.int });
     const dash = (v: number | null | undefined): number | null => (v == null || !Number.isFinite(v) ? null : v);
     const series = (metric: string): Array<number | null> => [null, ...covenantSeries(metric as never, covInputs).map((v) => dash(v as number | null))];
     const dsV = rs.scheduledDebtServicePerPeriod;
@@ -609,8 +624,11 @@ export function returnsPlan(state: FinancialsResolverState, snap: Snap, rs: RS, 
     head('ret|#cards', 'Metrics');
     const heldIds = [...snap.perAssetPL.values()].filter((q) => q.strategy === 'Operate' || q.strategy === 'Lease').map((q) => q.assetId);
     const heldCost = m.yieldOnCost ? rs.stabilisedNOI / m.yieldOnCost : 0;
+    // One row per held asset, then their sum (2026-11-15: short formulas).
+    heldIds.forEach((id, i) => one(`rm|heldcost:${i}`, `Held cost, ${state.assets.find((a) => a.id === id)?.name ?? id}`, Math.max(0, (snap.perAssetCF.get(id)?.capexPerPeriod ?? []).reduce((a, b) => a + (b ?? 0), 0)),
+      (E) => { const ks = KEYS.cxc(E).filter((k) => k.startsWith(`cxc:${id}:`)); return ks.length ? `MAX(0,${ks.map((k) => `SUM(${E.xr(k)})`).join('+')})` : '0'; }, RF.money, { indent: 2 }));
     one('rm|heldcost', 'Held assets\' cost (hotel and lease lines, land included)', heldCost,
-      (E) => heldIds.map((id) => { const ks = KEYS.cxc(E).filter((k) => k.startsWith(`cxc:${id}:`)); return ks.length ? `MAX(0,${ks.map((k) => `SUM(${E.xr(k)})`).join('+')})` : '0'; }).join('+') || '0', RF.money, { indent: 1 });
+      (E) => heldIds.map((_id, i) => E.d(`rm|heldcost:${i}`)).join('+') || '0', RF.money, { indent: 1 });
     one('rm|ltvexit', 'LTV at the exit (debt over the exit value)', m.ltvAtExit ?? '-', (E) => `IF(${E.d('ret|x|tv')}>0,${E.d('ret|x|debtX')}/${E.d('ret|x|tv')},"-")`, RF.pct, { indent: 1 });
     one('rm|stabnoi', 'Stabilised NOI (the income capitalised)', rs.stabilisedNOI, (E) => E.d('ret|x|inc'));
     one('rm|exitnoi', 'Exit-year NOI', rs.exitNOI, (E) => `SUMPRODUCT(${E.exRng()},${E.rngY('rs|noi')})`);
@@ -643,8 +661,10 @@ export function returnsPlan(state: FinancialsResolverState, snap: Snap, rs: RS, 
     const noiV = stream(rs.noiPerPeriod ? [0, ...rs.noiPerPeriod] : undefined);
     pRow('rm|at95', 'NOI at 95% of the stabilised NOI or more (1 = yes)', [null, ...Array.from({ length: N }, (_, t) => (rs.stabilisedNOI > 0 && (noiV[t + 1] ?? 0) >= rs.stabilisedNOI * 0.95 ? 1 : 0))],
       (E, s) => `IF(AND(${E.d('rm|stabnoi')}>0,${E.s('rs|noi', s)}>=${E.d('rm|stabnoi')}*0.95),1,0)`, { total: 'none', fmt: RF.int });
+    const at95Y = (() => { const i = noiV.findIndex((v, k) => k > 0 && rs.stabilisedNOI > 0 && (v ?? 0) >= rs.stabilisedNOI * 0.95); return i > 0 ? years[i - 1] : 'n/a'; })();
+    one('rm|at95y', 'First year at 95% of the stabilised NOI', at95Y, (E) => `IFERROR(INDEX(${E.yrRng()},MATCH(1,${E.rngY('rm|at95')},0)),"n/a")`, RF.year, { indent: 1 });
     one('rm|stabyear', 'Stabilisation year', stabY ?? 'n/a',
-      (E) => `IF(AND(COUNTIF(${E.rngY('rs|noi')},">0")>0,${E.d('rm|stabnoi')}>0),IF(${E.d('rm|prevnoi')}>0,${E.d('ret|Basis year')}-SUMIF(${E.yrRng()},${E.d('ret|Basis year')},${E.rngY('rm|run')}),IFERROR(INDEX(${E.yrRng()},MATCH(1,${E.rngY('rm|at95')},0)),"n/a")),"n/a")`, RF.year);
+      (E) => `IF(AND(COUNTIF(${E.rngY('rs|noi')},">0")>0,${E.d('rm|stabnoi')}>0),IF(${E.d('rm|prevnoi')}>0,${E.d('ret|Basis year')}-SUMIF(${E.yrRng()},${E.d('ret|Basis year')},${E.rngY('rm|run')}),${E.d('rm|at95y')}),"n/a")`, RF.year);
     // Funding mix, of the sources above.
     const su = (k: string): Fx => (E) => `IF(${E.d('ret|Total Sources')}>0,(${k.split('+').map((x) => E.d(x)).join('+')})/${E.d('ret|Total Sources')},"n/a")`;
     one('rm|mixdebt', 'Funding mix: debt', rs.fundingMix.debtPct ?? 'n/a', su('ret|Existing Debt+ret|su|debtCapex+ret|su|debtInt'), RF.pct);
@@ -692,7 +712,10 @@ export function returnsPlan(state: FinancialsResolverState, snap: Snap, rs: RS, 
       // The platform's figures behind its averages: area let = revenue over rent per sqm, available = let over occupancy.
       const letV = l.rentPerSqm && l.rentPerSqm > 0 ? l.totalRevenue / l.rentPerSqm : 0;
       const availV = l.avgOccupancy && l.avgOccupancy > 0 ? letV / l.avgOccupancy : 0;
-      one('rm|k:lavail', 'Area available to let over the hold (sqm-years)', availV, (E) => avail(E), RF.int, { indent: 1 });
+      // One row per lease line, then their sum (2026-11-15: short formulas).
+      const lkAll = [...new Set(lines.map((x) => x.key))];
+      lkAll.forEach((k, i) => one(`rm|k:lavail:${i}`, `Area available, ${lines.find((x) => x.key === k)?.label ?? k} (sqm-years)`, 0, (E) => (E.has(`rvc:${k}:gla`) && E.has(`rvc:${k}:occupied`) ? `${E.xo(`rvc:${k}:gla`)}*COUNTIF(${E.xr(`rvc:${k}:occupied`)},">0")` : '0'), RF.int, { indent: 2 }));
+      one('rm|k:lavail', 'Area available to let over the hold (sqm-years)', availV, (E) => (lkAll.length ? lkAll.map((_k, i) => E.d(`rm|k:lavail:${i}`)).join('+') : avail(E)), RF.int, { indent: 1 });
       one('rm|k:llet', 'Area let over the hold (sqm-years)', letV, (E) => let_(E), RF.int, { indent: 1 });
       one('rm|k:locc', 'Average occupancy', l.avgOccupancy ?? 'n/a', (E) => `IF(${E.d('rm|k:lavail')}>0,${E.d('rm|k:llet')}/${E.d('rm|k:lavail')},"n/a")`, RF.pct);
       one('rm|k:lrev', 'Total lease revenue', l.totalRevenue, (E) => lk(E).map((k) => `SUM(${E.xr(`rvc:${k}:rev`)})`).join('+') || '0');

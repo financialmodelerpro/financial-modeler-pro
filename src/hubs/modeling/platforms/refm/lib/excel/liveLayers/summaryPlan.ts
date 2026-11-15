@@ -15,8 +15,9 @@ import { buildOverviewReport, chargesPerformanceFee, distributedReturnPair } fro
 import { buildAssetAreaTables } from '../../../components/modules/_shared/assetInputsView';
 import { nsaUsedLines } from '../inputsSheetSections';
 import { financingPlan } from './financingPlan';
-import { plPlan } from './plPlan';
+import { plPlan, plLineKeys } from './plPlan';
 import { RF } from './returnsPlan';
+import { bsTotalDebtKey } from './bsPlan';
 
 type Snap = ReturnType<typeof computeFinancialsSnapshot>;
 type RS = ReturnType<typeof computeReturnsSnapshot>;
@@ -63,6 +64,7 @@ export function summaryPlan(state: FinancialsResolverState, snap: Snap, rs: RS):
   const N = snap.axisLength;
   const ov = buildOverviewReport(snap, rs, state);
   const p = state.project;
+  const plKeys = plLineKeys(state);
   const rows: SumRow[] = [];
   const section = (key: string, label: string): void => { rows.push({ key, label, kind: 'section' }); };
   const head = (key: string, label: string, cols?: Array<[number, string]>): void => { rows.push({ key, label, kind: cols ? 'cols' : 'head', cols }); };
@@ -250,7 +252,7 @@ export function summaryPlan(state: FinancialsResolverState, snap: Snap, rs: RS):
   for (const s2 of ov.revenueMix) {
     const k = `sum|mix|${s2.label}`;
     rows.push({ key: k, label: `${s2.label} revenue`, kind: 'cells', cells: [
-      { col: B, v: s2.value, fmt: RF.money, f: (E) => E.tot(`pl|__all__||${s2.label} Revenue`) },
+      { col: B, v: s2.value, fmt: RF.money, f: (E) => (plKeys.bySection.get(s2.label)?.rev ?? []).map((x) => E.tot(x)).join('+') || '0' },
       { col: B + 1, v: s2.pct, fmt: RF.pct, f: (E) => `IF(${E.tot('pl|__all__||Total Revenue')}>0,${E.cell(k, B)}/${E.tot('pl|__all__||Total Revenue')},0)` },
     ] });
   }
@@ -271,7 +273,7 @@ export function summaryPlan(state: FinancialsResolverState, snap: Snap, rs: RS):
       { col: B + 4, v: ph.landSqm, fmt: RF.int, f: (E) => sumOf(E, keysF('land')) },
       { col: B + 5, v: ph.gfaSqm, fmt: RF.int, f: (E) => sumOf(E, keysF('tg')) },
       { col: B + 6, v: ph.capex, fmt: RF.money, f: (E) => E.tot(`cx2sub:${ph.id}`) },
-      { col: B + 7, v: ph.revenue, fmt: RF.money, f: (E) => E.tot(`pl|${ph.id}||Total Revenue`) },
+      { col: B + 7, v: ph.revenue, fmt: RF.money, f: (E) => (plKeys.byPhase.get(ph.id) ?? []).map((x) => E.tot(x)).join('+') || '0' },
       { col: B + 8, v: ph.ebitda, fmt: RF.money, f: (E) => E.tot(`pl|${ph.id}||EBITDA`) },
     ] });
   }
@@ -282,7 +284,7 @@ export function summaryPlan(state: FinancialsResolverState, snap: Snap, rs: RS):
   section('sum|#exit', 'Exit and cash');
   one('sum|tv', 'Terminal value (proceeds from disposal)', ex.terminalValue, (E) => E.tot('ret|x|tv'), RF.money, M);
   one('sum|gain', 'Gain on disposal', ex.gainOnDisposal, (E) => E.tot('ret|x|gain'), RF.money, M);
-  one('sum|peakdebt', 'Peak debt', ex.peakDebt, (E) => `MAX(0,MAX(${E.rngY('bs|__all__||Debt (long-term)')}))`, RF.money, M);
+  one('sum|peakdebt', 'Peak debt', ex.peakDebt, (E) => `MAX(0,MAX(${E.rngY(bsTotalDebtKey(state))}))`, RF.money, M);
   one('sum|cashlow', 'Cash low point', ex.cashLow, (E) => `MIN(${E.rngY('bs|__all__||Cash')})`, RF.money, M);
   one('sum|cashlowyr', 'Year of the cash low point', ex.cashLowYear ?? 'n/a',
     // No array formula (2026-11-04): the first year at the low point, through SUMPRODUCT.

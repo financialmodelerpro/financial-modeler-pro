@@ -197,12 +197,21 @@ export const stage4Schedules: LiveLayer = {
       row(K('capAdd'), byTables ? (t) => p(c4!, t) : (t) => otherKeys.map((k) => p(k, t)).join('+') || '0', 'sum');
       if (withIdc) pendingRow(K('idcAdd'));
       const flows = [K('capAdd'), ...(withIdc ? [K('idcAdd')] : [])];
-      row(K('dep'), (t) => `-${dep(flows)(t)}`, 'sum');
+      // SIMPLE ROWS (2026-11-15, founder): what was added before depreciation starts, over the life, in a year
+      // the asset depreciates. An addition in or after the first year (none on most models) keeps the exact
+      // vintage formula, since its own years would need rows of their own.
+      const onK = K('on');
+      const late = flows.some((k) => { const r = w.addr(k).row; for (let t = 0; t < N; t++) { const v = Number(w.platformValue({ sheet: SCH, row: r, col: pc(t) }) ?? 0); if (v !== 0 && t + 1 >= Number(w.platformValue({ sheet: SCH, row: w.addr(hk).row, col: META_B }) ?? 0)) return true; } return false; });
+      const simple = has(onK) && !late;
+      if (simple) row(onK, (t) => `${upto(t)}IF(${life}>0,(${idxNow(t)}>=${first})*(${idxNow(t)}<${first}+MAX(1,INT(${life}))),0)`, 'none');
+      const before0 = (ks: string[]): string => ks.filter(has).map((k) => `SUMIF(${idxR},"<"&${first},${rng(k)})`).join('+') || '0';
+      const simpleDep = (ks: string[]) => (t: number): string => `(${before0(ks)})/MAX(1,${life})*${p(onK, t)}`;
+      row(K('dep'), (t) => `-${simple ? simpleDep(flows)(t) : dep(flows)(t)}`, 'sum');
       const before = (t: number): string => `${p(K('open'), t)}+${p(K('capAdd'), t)}${withIdc ? `+${p(K('idcAdd'), t)}` : ''}+${p(K('dep'), t)}`;
       row(K('disp'), (t) => `-${exit(t)}*(${before(t)})`, 'sum');
       row(K('close'), (t) => `${before(t)}${has(K('disp')) ? `+${p(K('disp'), t)}` : ''}`, 'none');
       if (withIdc) {
-        row(K('idcDep'), dep([K('idcAdd')]), 'sum');
+        row(K('idcDep'), simple ? simpleDep([K('idcAdd')]) : dep([K('idcAdd')]), 'sum');
         row(K('idcNbv'), (t) => `(1-${exit(t)})*(${p(K('idcNbv'), t, -1)}+${p(K('idcAdd'), t)}-${p(K('idcDep'), t)})`, 'none');
       }
       for (const name of CLAIMED) claim(`schv:${l.hostId}:${name}`, K(name));

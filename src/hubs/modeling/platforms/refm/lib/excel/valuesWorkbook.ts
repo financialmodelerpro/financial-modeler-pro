@@ -41,7 +41,7 @@ function orderTabs(wb: ExcelJS.Workbook): void {
 export const WORKING_ROWS: ReadonlyArray<RegExp> = [
   /^tl:flag:/, /^tl:ctr:/,                                   // Timeline: year flags and counters
   /^cxpp:/, /^cxw:/, /^cxwhead$/, /^cxbband:/, /^cxbw:/, /^cxhw:/, /^cxbs:/, /^cx:escf$/, // Capex: phase periods, spend shares (and their heads), plot weights, escalation factor
-  /^rev\|.+\|s\|.*: (velocity|sqm sold|sqm unsold at year end)$/, // Revenue: the sales path's workings
+  /^rev\|.+\|s\|.*: (velocity|pre-sales %|sales during operation %|sqm sold|sqm unsold at year end)$/, // Revenue: the sales path's workings
   /^rev\|.+\|s\|Price indexation factor$/,
   /^rev\|.+\|o\|In operations \(1 = yes\)$/,
   /^ox\|.+\|(io|fac)$/,                                       // Opex: in operations, inflation factors (a line, a strip, HQ)
@@ -49,13 +49,16 @@ export const WORKING_ROWS: ReadonlyArray<RegExp> = [
   /^rs\|/,                                                    // Returns: the stream workings and sensitivity streams
   /^fl:sqmActive$/,                                           // Financing: land under construction (a working of the land split)
   // Financing: the settings block (2026-11-15, founder: the live file links Inputs and Land & Area directly).
-  /^fl:t:set$/, /^fl:(lastCon|dF|eF|landDebt|sweepStart|divStart|firstDraw|sqmTot)$/, /^fl:sqmLine:/, /^fl:tr:[^:]+:(rate|td|start|n|fin|pmt)$/,
+  /^fl:tr:[^:]+:(rate|td)$/, /^fl:idcLand:/, /^fl:idcShare:/, /^fl:sqmTot$/,
   /^fl:ph:/, /^fl:(open|avail|after|idcDisp|ebit0)$/,         // Financing: the loop's own workings (per-phase income and proceeds, cash before / after funding)
   /^cx5memo:/,                                                // Capex: the land-stage memo, a sum the builder forms
   /^fa\|.+\|idcNbv$/,                                         // Schedules: the capitalised interest NBV memo the loop reads
-  /^ret\|pt\|cy$/,                                            // Returns: capital-years, a working of the time-weighted share
+  /^ret\|pt\|cy(:cash|:kind)?$/,                               // Returns: capital-years, a working of the time-weighted share
   /^ret\|ey[fe]\|/,                                           // Returns: the exit-year streams (Scenarios carries the exit-year table, step 6)
-  /^rm\|k:l(avail|let)$/,                                     // Returns: lease area let and available, worked back from the averages
+  /^rm\|k:l(avail|let)(:\d+)?$/,                              // Returns: lease area let and available, worked back from the averages
+  /^rm\|at95y$/,
+  /^rm\|heldcost:\d+$/,
+  /^ret\|x\|exyr$/,
   /^rm\|heldcost$/,                                           // Returns: held assets' cost, worked back from income over yield
 ];
 

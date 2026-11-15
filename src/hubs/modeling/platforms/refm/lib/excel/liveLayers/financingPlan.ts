@@ -40,6 +40,8 @@ export interface FinRow {
   fmt?: FinFmt;
   /** A balance: its Total is the last year, never a sum. */
   balance?: boolean;
+  /** A value the row reads from another tab, shown in its Input column (a line's land, 2026-11-15). */
+  metaB?: number;
   style?: 'total' | 'subtotal';
   indent?: number;
 }
@@ -181,17 +183,14 @@ export function financingPlan(state: FinancialsResolverState, snap: Snap = compu
     }
   }
   let sqmActive: number[] | null = null;
+  let idcSqmTot = 0;
   const idcAssets = [...snap.idc.byAsset.values()];
   const lineState = { assets: state.assets, phases: state.phases, parcels: state.parcels };
   const idcLines = planReportLines(lineState, (a) => snap.idc.byAsset.has(a.id)).map((l) => ({ title: lineTitle(l, lineState), assetIds: [...l.assetIds] }));
   if (idcAssets.length) {
     // ONE LAND ROW PER LINE (2026-11-07): the total, the land under construction and each line's
     // share of the interest read these, so no formula repeats every plot's land.
-    idcLines.forEach((l, i) => {
-      const sqmOfLine = idcAssets.filter((x) => l.assetIds.includes(x.assetId)).reduce((a, x) => a + x.landSqm, 0);
-      scalar(`fl:sqmLine:${i}`, `${l.title}: land (sqm)`, sqmOfLine, 'int', 'Land & Area: the land of the line\'s assets');
-    });
-    scalar('fl:sqmTot', 'Land of the assets that share capitalised interest (sqm)', idcAssets.reduce((a, x) => a + x.landSqm, 0), 'int', 'The lines above, the basis the interest is shared on');
+    idcSqmTot = idcAssets.reduce((a, x) => a + x.landSqm, 0);
     const active = zeros();
     for (const x of idcAssets) {
       const a = state.assets.find((y) => y.id === x.assetId);
@@ -294,8 +293,27 @@ export function financingPlan(state: FinancialsResolverState, snap: Snap = compu
     const tbl = buildIdcAllocationTables(snap, state, String)[0];
     // THE IDC ALLOCATION BY LINE (2026-11-12, founder: kept, compact): one row per line under one heading.
     if (idcLines.some((_l, i) => tbl?.rows[i])) title('fl:t:idc', 'Capitalised interest (IDC) allocated by line');
-    // The land under construction sits where it is used: the interest is shared on it (2026-11-15, founder).
-    if (sqmActive) per('fl:sqmActive', 'Land under construction (sqm)', sqmActive, 'The land of the assets building in the year');
+    // THE IDC ALLOCATION IN SIMPLE ROWS (2026-11-15, founder): each line's land under construction (its land
+    // from Land & Area in the Input column), the total, each line's share, then its IDC (rows below).
+    if (sqmActive) {
+      scalar('fl:sqmTot', 'Land of the assets that share capitalised interest (sqm)', idcSqmTot, 'int', 'The lines\' land below');
+      const landUC: number[][] = [];
+      idcLines.forEach((l, i) => {
+        const sqmOfLine = idcAssets.filter((x) => l.assetIds.includes(x.assetId)).reduce((a, x) => a + x.landSqm, 0);
+        const a0 = state.assets.find((y) => y.id === l.assetIds.find((id) => idcAssets.some((x) => x.assetId === id)));
+        const ph = a0 && state.phases.find((q) => q.id === a0.phaseId);
+        const v = zeros();
+        if (ph) { const s0 = clamp(yearOf(ph) - Y0, 0, N1), cp = ph.constructionPeriods ?? 0; for (let t = s0; t <= (cp > 0 ? Math.min(N1, s0 + cp - 1) : -1); t++) v[t] = sqmOfLine; }
+        landUC.push(v);
+        per(`fl:idcLand:${i}`, `${l.title}: land under construction (sqm)`, v, 'Its land (Input column) in its construction years', { fmt: 'int', metaB: sqmOfLine, indent: 1 });
+      });
+      per('fl:sqmActive', 'Land under construction (sqm)', sqmActive, 'The lines above', { fmt: 'int' });
+      idcLines.forEach((l, i) => {
+        const sqmOfLine = idcAssets.filter((x) => l.assetIds.includes(x.assetId)).reduce((a, x) => a + x.landSqm, 0);
+        const sh = sqmActive!.map((act, t) => (act > 0 ? landUC[i][t] / act : idcSqmTot > 0 ? sqmOfLine / idcSqmTot : 0));
+        per(`fl:idcShare:${i}`, `${l.title}: share of the capitalised interest`, sh, 'Its land under construction over the total', { fmt: 'pct', indent: 1 });
+      });
+    }
     idcLines.forEach((l, i) => {
       const row = tbl?.rows[i];
       if (row) per(`fl:idc:${i}`, l.title, sl(row.values), FEEDS_SCHEDULES, { indent: 1 });
@@ -310,23 +328,10 @@ export function financingPlan(state: FinancialsResolverState, snap: Snap = compu
   }
   gapRow();
 
-  // ── Profit before zakat, inside the loop ──────────────────────────────────
+  // ── Zakat: worked out on the P&L, read back here for the cash (2026-11-15, founder) ──
   const pl = snap.pl;
-  title('fl:t:pbt', `Profit before ${TAX.toLowerCase()}, inside the financing loop`);
-  per('fl:ebit0', 'Revenue less operating expenses', add(sl(pl.ebitdaBeforeFundFeesPerPeriod), sl(pl.cosPerPeriod)), 'Revenue recognised, less Opex (lines and HQ) and the selling and marketing expensed');
-  per('fl:cos', '(-) Cost of sales', neg(sl(pl.cosPerPeriod)), 'Schedules');
-  if (feeOn) per('fl:feeExp', '(-) Fund fees', neg(sl(snap.fundFees.totalPerPeriod)), 'The fund fees, below');
-  per('fl:dep', '(-) Depreciation (capex and capitalised interest)', neg(sl(pl.daPerPeriod)), 'Schedules');
-  per('fl:int', '(-) Interest expensed', neg(sl(pl.interestExpensePerPeriod)), 'Above');
-  per('fl:gain', '(+) Gain on disposal', sl(pl.gainOnDisposalPerPeriod), 'Exit proceeds less what the exit writes off (Schedules)');
-  per('fl:pbt', `= Profit before ${TAX.toLowerCase()}`, sl(pl.pbtPerPeriod), 'The rows above (Checks proves it equals the P&L)', { style: 'subtotal' });
-  const taxedGain = p.tax?.applyToDisposalGain === true;
-  per('fl:taxable', zakat ? 'Profit zakat is charged on' : 'Taxable profit', sl(pl.pbtPerPeriod).map((v, t) => v - (taxedGain ? 0 : (sl(pl.gainOnDisposalPerPeriod)[t] ?? 0))), taxedGain ? 'Profit before it, gain included' : 'Profit before it, less the gain on disposal');
-  if (cit) {
-    per('fl:taxPool', 'Tax losses carried forward', sl(pl.taxLossCarriedForwardPerPeriod), 'Losses not yet relieved', { balance: true });
-    per('fl:taxRel', 'Tax loss relief', sl(pl.taxLossReliefPerPeriod), 'The smaller of the losses and 25% of the year\'s profit');
-  }
-  per('fl:tax', TAX, sl(pl.taxPerPeriod), zakat ? 'The rate on Inputs x the profit above, where positive (each year on its own)' : 'The rate on Inputs x the profit less the relief');
+  title('fl:t:pbt', TAX);
+  per('fl:tax', `${TAX} (the P&L)`, sl(pl.taxPerPeriod), 'The charge on the P&L');
   // Paid in the year (0 payment days): no payable, and the charge is what is paid (2026-11-15, founder).
   if (featureUsed(state as never, 'taxPayable')) {
     per('fl:taxPay', `${TAX} payable at the year end`, sl(snap.bs.taxPayablePerPeriod), 'The charge x the payment days on Inputs over 365', { balance: true });
@@ -348,6 +353,7 @@ export function financingPlan(state: FinancialsResolverState, snap: Snap = compu
 
   // ── The cash waterfall, the sweep and dividends ───────────────────────────
   title('fl:t:cw', 'Cash waterfall: debt service, the sweep and dividends');
+  scalar('fl:payout', 'Dividend payout ratio', Math.max(0, Math.min(1, (p.dividendPolicy?.payoutRatio ?? 0) / 100)), 'pct', 'The ratio on Inputs, between 0% and 100%');
   per('fl:cwOpen', 'Opening cash', sl(dcf.openingCashPerPeriod), 'The closing cash of the year before', { balance: true });
   per('fl:cfo', '(+) Cash from operations', sl(dcf.cashFromOperationsPerPeriod), feeByEquity ? 'Operating cash before financing, less the fund fees' : 'Operating cash before financing');
   // Two rows, one each (2026-11-15, founder): the capex paid in cash, and the exit proceeds.
@@ -362,6 +368,14 @@ export function financingPlan(state: FinancialsResolverState, snap: Snap = compu
   per('fl:intPaid', '(-) Interest paid', sl(dcf.interestPaidPerPeriod), 'Interest charged, all facilities');
   per('fl:cash', '= Cash available', add(sl(dcf.openingCashPerPeriod), sl(dcf.cashFromOperationsPerPeriod), sl(dcf.cashFromInvestmentPerPeriod), sl(dcf.equityDrawdownPerPeriod), sl(dcf.debtDrawdownPerPeriod), sl(dcf.interestPaidPerPeriod)), 'The rows above', { balance: true, style: 'subtotal' });
   per('fl:exitRepay', 'Debt repaid at the exit', sl(snap.disposal.debtRepaidPerPeriod), 'Timeline\'s exit year: every balance still outstanding');
+  if (anySweep) {
+    // The cash above the minimum after the scheduled principal and the exit repayment: what a sweep may take.
+    const cashV = add(sl(dcf.openingCashPerPeriod), sl(dcf.cashFromOperationsPerPeriod), sl(dcf.cashFromInvestmentPerPeriod), sl(dcf.equityDrawdownPerPeriod), sl(dcf.debtDrawdownPerPeriod), sl(dcf.interestPaidPerPeriod));
+    const schedV = sl(c.totalPrincipalRepaid.map((v, i) => Math.max(0, (v ?? 0) - (c.totalSweepRepaid[i] ?? 0))));
+    const exitV = sl(snap.disposal.debtRepaidPerPeriod);
+    const minR = Math.max(0, p.financing?.minimumCashReserve ?? fin.funding.minCashReserve ?? 0);
+    per('fl:sweepLeft', 'Cash above the minimum, before the sweep', cashV.map((v, t) => Math.max(0, v - (schedV[t] ?? 0) - (exitV[t] ?? 0) - minR)), 'Cash available less the scheduled principal, the exit repayment and the minimum cash');
+  }
   per('fl:repaidCash', '(-) Debt repaid (scheduled, swept and at the exit)', sl(dcf.debtRepaymentPerPeriod), 'Each facility\'s principal repaid, and the exit repayment');
   const forDiv = add(sl(dcf.openingCashPerPeriod), sl(dcf.cashFromOperationsPerPeriod), sl(dcf.cashFromInvestmentPerPeriod), sl(dcf.equityDrawdownPerPeriod), sl(dcf.debtDrawdownPerPeriod), sl(dcf.interestPaidPerPeriod), sl(dcf.debtRepaymentPerPeriod));
   per('fl:forDiv', '= Cash available for dividends', forDiv, 'Cash available less the debt repaid', { balance: true, style: 'subtotal' });
@@ -396,5 +410,24 @@ export function financingPlan(state: FinancialsResolverState, snap: Snap = compu
   // With one facility its own row says it (2026-11-15, founder).
   if (tranches.length > 1) per('fl:debtBs', 'Debt outstanding after the exit repayment', afterExit(add(...tranches.map((t) => sl(fin.facilities.get(t.id)?.outstanding)))), 'The facilities above', { balance: true });
 
+  // A SETTING SITS IN THE SECTION THAT USES IT (2026-11-15, founder): no settings block on top. A plain copy
+  // of an Inputs cell is not a row at all (the live workbook links Inputs directly: formulaWorkbook.ts).
+  const place = (pred: (k: string) => boolean, after: (k: string) => boolean): void => {
+    const moving = rows.filter((x) => pred(x.key));
+    if (!moving.length) return;
+    for (const m of moving) rows.splice(rows.indexOf(m), 1);
+    const at = rows.findIndex((x) => after(x.key));
+    if (at < 0) { rows.unshift(...moving); return; }
+    rows.splice(at + 1, 0, ...moving);
+  };
+  const setIdx = rows.findIndex((x) => x.key === 'fl:t:set');
+  if (setIdx >= 0) rows.splice(setIdx, 1);
+  place((k) => ['fl:dF', 'fl:eF', 'fl:landDebt'].includes(k), (k) => k === 'fl:t:need');
+  place((k) => ['fl:lastCon', 'fl:sweepStart'].includes(k), (k) => k.startsWith('fl:t:tr:'));
+  for (const t of tranches) place((k) => new RegExp(`^fl:tr:${t.id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}:(rate|td|start|n|fin|pmt)$`).test(k), (k) => k === `fl:t:tr:${t.id}`);
+  place((k) => k === 'fl:divStart', (k) => k === 'fl:payout');
+  place((k) => k === 'fl:firstDraw', (k) => k === 'fl:t:fee');
+  // The first gap row a removed block leaves at the top goes.
+  while (rows[0]?.kind === 'gap') rows.shift();
   return { rows, ctx: { method, feeOn, feeByEquity, zakat, cit, taxLag, anySweep, booked, idcLines } };
 }

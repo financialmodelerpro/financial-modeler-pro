@@ -605,9 +605,11 @@ export function emitStatementInputsSection(c: SheetCursor, state: FinancialsReso
   // Read by the payable on Financing (2026-11-03): 0 pays it in the year it is charged.
   if (!isLiveLayout() || featureUsed(state as never, 'taxPayable')) kv(c, `${zakat ? 'Zakat' : 'Tax'} payment (days)`, p.tax?.paymentDays ?? 0, NUMFMT.int, true, undefined, undefined, 'project:taxDays');
   kv(c, 'Basis', (p.tax?.basis ?? 'zakat') === 'cit' ? 'Corporate income tax (losses carried forward, 25% cap)' : 'Zakat (net worth; no loss carry-forward)', '@', true);
-  kv(c, 'Statutory reserve transfer (% of PAT)', p.statutoryReserve?.transferRate ?? 0, NUMFMT.pct, true, undefined, undefined, 'project:reserveRate');
+  // Statutory reserve at 0%: off, not built (2026-11-15); it is named under "Not used in this project".
+  const reserveOn = !isLiveLayout() || featureUsed(state as never, 'statutoryReserve');
+  if (reserveOn) kv(c, 'Statutory reserve transfer (% of PAT)', p.statutoryReserve?.transferRate ?? 0, NUMFMT.pct, true, undefined, undefined, 'project:reserveRate');
   // Read by the reserve transfer on the Balance Sheet (2026-11-03): 0 applies no cap.
-  kv(c, 'Statutory reserve cap (% share capital)', p.statutoryReserve?.capOfShareCapital ?? 0, NUMFMT.pct, true, undefined, undefined, 'project:reserveCap');
+  if (reserveOn) kv(c, 'Statutory reserve cap (% share capital)', p.statutoryReserve?.capOfShareCapital ?? 0, NUMFMT.pct, true, undefined, undefined, 'project:reserveCap');
   kv(c, 'Share capital (explicit, 0 = auto)', p.shareCapital ?? 0, NUMFMT.money, true, undefined, undefined, 'project:shareCapital');
   // 2026-10-06: where hotel and lease lines state their OWN receivable days
   // (receivableDays.ts), the engine collects them on those, so this one door is

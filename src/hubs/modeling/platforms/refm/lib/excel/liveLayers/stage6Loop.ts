@@ -187,7 +187,8 @@ export const stage6Loop: LiveLayer = {
 
     // ── Settings in force ────────────────────────────────────────────────────
     const psd = (): string => `YEAR(${w.ref('project:startDate')})`;
-    putS('fl:lastCon', `MAX(${phases.map((p) => `MAX(0,YEAR(${w.ref(`tl:phase:${p.id}:cs`)})-${psd()})+MAX(0,${w.ref(`tl:phase:${p.id}:cp`)})`).join(',')})+${psd()}-1`);
+    // The latest handover year on Timeline (2026-11-15: short; each phase's handover year is a Timeline cell).
+    putS('fl:lastCon', phases.every((p) => has(`tl:phase:${p.id}:hy`)) ? `MAX(${phases.map((p) => w.ref(`tl:phase:${p.id}:hy`)).join(',')})` : `MAX(${phases.map((p) => `MAX(0,YEAR(${w.ref(`tl:phase:${p.id}:cs`)})-${psd()})+MAX(0,${w.ref(`tl:phase:${p.id}:cp`)})`).join(',')})+${psd()}-1`);
     const lastCon = (): string => T('fl:lastCon');
     const D = (): string => `MAX(0,N(${IN('fin:in:debt')}))`, E = (): string => `MAX(0,N(${IN('fin:in:equity')}))`;
     putS('fl:dF', `IF(${D()}+${E()}>0,${D()}/(${D()}+${E()}),0.7)`);
@@ -211,13 +212,14 @@ export const stage6Loop: LiveLayer = {
     }
     if (has('fl:sweepStart')) { const s = IN('fin:in:sweepStart'); putS('fl:sweepStart', `IF(ISNUMBER(${s}),MAX(${Y0()},MIN(${YN()},${s})),MAX(${Y0()},MIN(${YN()},${lastCon()}+1)))`); }
     {
-      const dflt = `MAX(${Y0()},MIN(${YN()},MAX(${psd()},${phases.map((p) => `YEAR(${w.ref(`tl:phase:${p.id}:cs`)})+MAX(0,${w.ref(`tl:phase:${p.id}:cp`)})`).join(',')})))`;
+      const dflt = `MAX(${Y0()},MIN(${YN()},MAX(${psd()},${lastCon()}+1)))`;
       const d = IN('fin:in:divStart');
       putS('fl:divStart', `IF(ISNUMBER(${d}),MAX(${Y0()},MIN(${YN()},${d})),${dflt})`);
     }
     const sweepRatio = (): string => `MAX(0,MIN(1,N(${IN('fin:in:sweepRatio')})))`;
     const divOn = (): string => `IF(N(${IN('fin:in:divOn')})=1,1,0)`;
-    const payout = (): string => `MAX(0,MIN(1,N(${IN('fin:in:payout')})))`;
+    putS('fl:payout', `MAX(0,MIN(1,N(${IN('fin:in:payout')})))`);
+    const payout = (): string => (has('fl:payout') ? T('fl:payout') : `MAX(0,MIN(1,N(${IN('fin:in:payout')})))`);
     const onEbitda = project.dividendPolicy?.mode === 'pct_of_ebitda';
 
     // ── The facilities, in the order the engine consumes the shared budgets ────
@@ -366,9 +368,12 @@ export const stage6Loop: LiveLayer = {
     // repayment, each swept loan in turn from what the loans before it left.
     const schedTot = (t: number): string => fac.filter((f) => f.kind !== 'sweep').map((f) => `(-${P(f.repaid, t)})`).join('+') || '0';
     const preSweep = (t: number): string => `MAX(0,${P('fl:cash', t)}-(${schedTot(t)})-${P('fl:exitRepay', t)}-${MIN()})`;
+    // Its own row (2026-11-15): the cash above the minimum a sweep may take.
+    put('fl:sweepLeft', (t) => preSweep(t));
+    const pre = (t: number): string => (has('fl:sweepLeft') ? P('fl:sweepLeft', t) : preSweep(t));
     for (const [j, f] of fac.entries()) {
       const swBefore = (t: number): string => fac.slice(0, j).filter((b) => b.kind === 'sweep').map((b) => `(-${P(b.repaid, t)})`).join('+') || '0';
-      const left = (t: number): string => `MAX(0,${preSweep(t)}-(${swBefore(t)}))`;
+      const left = (t: number): string => (swBefore(t) === '0' ? pre(t) : `MAX(0,${pre(t)}-(${swBefore(t)}))`);
       put(f.repaid, (t) => (f.kind === 'sweep'
         ? `-IF(AND(${Y(t)}>=${T('fl:sweepStart')},${owed(f, t)}>0),MIN(${owed(f, t)},${left(t)}*${sweepRatio()},${left(t)}),0)`
         : `-${sched(f, t)}`));
@@ -395,7 +400,26 @@ export const stage6Loop: LiveLayer = {
     const lineAssets = pc0.idcLines.map((l) => l.assetIds.map((id) => idcAssets.find((a) => a.id === id)).filter((a): a is Asset => !!a));
     const byLine = lineAssets.every((as, i) => has(`fl:sqmLine:${i}`) && as.every((a) => a.phaseId === as[0]?.phaseId))
       && idcAssets.every((a) => lineAssets.some((as) => as.includes(a)));
-    if (byLine) {
+    const helpers = lineAssets.every((_as, i) => has(`fl:idcLand:${i}`) && has(`fl:idcShare:${i}`)) && has('fl:sqmTot') && has('fl:sqmActive');
+    if (byLine || helpers) { /* below */ }
+    if (helpers && lineAssets.every((as) => as.every((a) => a.phaseId === as[0]?.phaseId))) {
+      // Each line's land (Input column) under construction, the total, each line's share (2026-11-15).
+      const B = (k: string): string => w.refA({ sheet: FIN, row: w.addr(k).row, col: 2 }, here);
+      lineAssets.forEach((as, i) => {
+        const k = `fl:idcLand:${i}`;
+        w.fA({ sheet: FIN, row: w.addr(k).row, col: 2 }, as.map(sqm).join('+') || '0', { numFmt: '#,##0' });
+        put(k, (t) => (as[0] ? `${conFlag(as[0], t)}*${B(k)}` : '0'), 'none');
+      });
+      const lk = lineAssets.map((_, i) => `fl:idcLand:${i}`);
+      const rs = lk.map((k) => w.addr(k).row);
+      const together = rs.every((r, i) => i === 0 || r === rs[i - 1] + 1);
+      putS('fl:sqmTot', together && rs.length ? `SUM(${B(lk[0])}:${B(lk[lk.length - 1])})` : lk.map(B).join('+') || '0');
+      put('fl:sqmActive', (t) => (together && rs.length > 1 ? `SUM(${P(lk[0], t)}:${P(lk[lk.length - 1], t)})` : lk.map((k) => P(k, t)).join('+') || '0'), 'none');
+      lineAssets.forEach((_as, i) => {
+        const k = `fl:idcShare:${i}`, lkI = `fl:idcLand:${i}`;
+        put(k, (t) => `IF(${P('fl:sqmActive', t)}>0,${P(lkI, t)}/${P('fl:sqmActive', t)},IF(${T('fl:sqmTot')}>0,${B(lkI)}/${T('fl:sqmTot')},0))`, 'none');
+      });
+    } else if (byLine) {
       lineAssets.forEach((as, i) => putS(`fl:sqmLine:${i}`, as.map(sqm).join('+') || '0'));
       const rs = lineAssets.map((_, i) => w.addr(`fl:sqmLine:${i}`).row);
       const together = rs.every((r, i) => i === 0 || r === rs[i - 1] + 1);
@@ -414,33 +438,18 @@ export const stage6Loop: LiveLayer = {
       const k = `fl:idc:${i}`;
       if (!has(k)) return;
       const as = lineAssets[i];
-      const sq = byLine ? T(`fl:sqmLine:${i}`) : as.map(sqm).join('+') || '0';
+      const sq = byLine && has(`fl:sqmLine:${i}`) ? T(`fl:sqmLine:${i}`) : as.map(sqm).join('+') || '0';
       const flag = (t: number): string => (as[0] ? conFlag(as[0], t) : '0');
-      put(k, (t) => `IF(${P('fl:idcBasis', t)}=0,0,IF(${P('fl:sqmActive', t)}>0,${flag(t)}*${P('fl:idcBasis', t)}*(${sq})/${P('fl:sqmActive', t)},IF(${T('fl:sqmTot')}>0,${P('fl:idcBasis', t)}*(${sq})/${T('fl:sqmTot')},0)))`);
+      if (has(`fl:idcShare:${i}`)) put(k, (t) => `${P('fl:idcBasis', t)}*${P(`fl:idcShare:${i}`, t)}`);
+      else put(k, (t) => `IF(${P('fl:idcBasis', t)}=0,0,IF(${P('fl:sqmActive', t)}>0,${flag(t)}*${P('fl:idcBasis', t)}*(${sq})/${P('fl:sqmActive', t)},IF(${T('fl:sqmTot')}>0,${P('fl:idcBasis', t)}*(${sq})/${T('fl:sqmTot')},0)))`);
       for (const id of l.assetIds) w.claim(`fnc:main:idc:${id}`, FIN, w.addr(k).row, 1);
     });
     const idcPre = (t: number): string => `MAX(0,${P('schv:__project__:idcNbv', t, -1)}+${P('schv:__project__:idcAdd', t)}-${P('schv:__project__:idcDep', t)})`;
     put('fl:idcDisp', (t) => (has('schv:__project__:idcNbv') ? `-(${exitF(t)}*${idcPre(t)})` : '0'));
 
-    // ── Profit before zakat inside the loop, and zakat ───────────────────────
-    const revTot = 'rev|__project__|sum-rec|Total revenue recognised';
-    const opexKeys = [...visible.map((a) => `oxo:${a.id}:total`), 'oxo:hq:total'].filter(has);
-    put('fl:ebit0', (t) => `${has(revTot) ? P(revTot, t) : '0'}-(${opexKeys.map((k) => P(k, t)).join('+') || '0'})${has('cx1e:total') ? `-${P('cx1e:total', t)}` : ''}`);
-    put('fl:cos', (t) => (has('cs|__project__|cos') ? `-${P('cs|__project__|cos', t)}` : '0'));
-    put('fl:feeExp', (t) => `-${fee(t)}`);
-    put('fl:dep', (t) => P('schv:__project__:dep', t));
-    put('fl:int', (t) => P('fl:intExp', t));
-    put('fl:gain', (t) => `${P('fl:proceeds', t)}${has('schv:__project__:landDisp') ? `+${P('schv:__project__:landDisp', t)}` : ''}${has('schv:__project__:disp') ? `+${P('schv:__project__:disp', t)}` : ''}`);
-    put('fl:pbt', (t) => chain(['fl:ebit0', 'fl:cos', 'fl:feeExp', 'fl:dep', 'fl:int', 'fl:gain'], t));
-    why('fl:pbt', `${CHAIN} Checks proves it equals the P&L every year.`);
-    const taxedGain = project.tax?.applyToDisposalGain === true;
-    put('fl:taxable', (t) => (taxedGain ? P('fl:pbt', t) : `${P('fl:pbt', t)}-${P('fl:gain', t)}`));
-    const rate0 = (): string => `MAX(0,N(${w.ref('project:taxRate')}))`;
-    if (pc0.cit) {
-      put('fl:taxRel', (t) => citReliefF(P('fl:taxable', t), `N(${P('fl:taxPool', t, -1)})`));
-      put('fl:taxPool', (t) => citPoolF(P('fl:taxable', t), `N(${P('fl:taxPool', t, -1)})`, P('fl:taxRel', t)), 'last');
-    }
-    put('fl:tax', (t) => taxF(P('fl:taxable', t), rate0(), pc0.cit ? P('fl:taxRel', t) : undefined));
+    // ── Zakat: the P&L's charge, read back (2026-11-15, founder; formulaWorkbook LOOP_LINKS) ──
+    const plTax = 'pl|__all__||zakat';
+    put('fl:tax', (t) => (has(plTax) ? `-${P(plTax, t)}` : '0'));
     put('fl:taxPay', (t) => `${P('fl:tax', t)}*MIN(365,MAX(0,N(${w.ref('project:taxDays')})))/365`, 'last');
     if (has('fl:taxPay')) put('fl:taxPaid', (t) => `${P('fl:tax', t)}-(${P('fl:taxPay', t)}-${P('fl:taxPay', t, -1)})`);
 
@@ -546,7 +555,6 @@ export const stage6Loop: LiveLayer = {
     // The minimum cash and the dividend switch are read through loopOne, by name; claimed so a reader can test for them.
     for (const [name, key] of [['fnc:min', 'fin:in:min'], ['fnc:don', 'fin:in:divOn']] as const) { const a = w.addr(key); w.claim(name, a.sheet, a.row, a.col); }
     claim('fnc:capexall', 'cx2:total');
-    claim('fnc:pbt', 'fl:pbt');
     for (const f of fac) {
       claim(`fnc:main:tr:${f.t.id}:bal`, f.close);
       claim(`fnc:tr:${f.t.id}:draw`, f.draw); claim(`fnc:tr:${f.t.id}:idc`, f.idc);

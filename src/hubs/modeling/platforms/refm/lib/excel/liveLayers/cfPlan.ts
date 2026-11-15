@@ -88,19 +88,12 @@ export function cfPlan(state: FinancialsResolverState, snap: Snap = computeFinan
     const K = (name: string): string => `cf|${view}||${name}`;
     const vl = lines.filter((l) => !phaseId || l.phaseId === phaseId);
     rows.push({ key: K('#ops'), label: 'Operating activities', kind: 'head' });
-    // Cash collected by line, in the P&L's groups.
+    // Cash collected: one row per line, no category rows (2026-11-15, founder).
     const colGroups: string[] = []; const colVals: number[][] = [];
-    for (const g of groupRevenueLines(vl.filter(earns))) {
-      const head: CfRow = { key: K(`${g.section} cash collected`), label: `${g.section} cash collected`, kind: 'row', style: 'subtotal', sum: [] };
-      rows.push(head);
-      const vs: number[][] = [];
-      for (const l of g.lines) {
-        const v = perAsset(l, (x) => x.revenueReceivedPerPeriod);
-        vs.push(v);
-        head.sum!.push(K(`rcv:${l.key}`));
-        rows.push({ key: K(`rcv:${l.key}`), label: revenueLineName(l), kind: 'row', indent: 1, values: v, src: { kind: 'link', key: `rvc:${l.key}:collected` } });
-      }
-      head.values = add(vs); colGroups.push(head.key); colVals.push(head.values);
+    for (const l of groupRevenueLines(vl.filter(earns)).flatMap((g) => g.lines)) {
+      const v = perAsset(l, (x) => x.revenueReceivedPerPeriod);
+      rows.push({ key: K(`rcv:${l.key}`), label: `Cash collected: ${revenueLineName(l)}`, kind: 'row', indent: 1, values: v, src: { kind: 'link', key: `rvc:${l.key}:collected` } });
+      colGroups.push(K(`rcv:${l.key}`)); colVals.push(v);
     }
     const parts: string[] = []; const partV: number[][] = [];
     const totCol = add(colVals);
@@ -116,19 +109,12 @@ export function cfPlan(state: FinancialsResolverState, snap: Snap = computeFinan
         src: phaseId ? { kind: 'add', keys: el.map((l) => `escc:${l.key}:released`) } : { kind: 'link', key: 'esc||C. Cash Flow Impact (project totals)|Add: cash released from escrow' } });
       parts.push(K('Escrow: cash held'), K('Escrow: cash released')); partV.push(held, rel);
     }
-    // Opex paid by line, the same groups.
+    // Opex paid: one row per line.
     const opGroups: string[] = []; const opVals: number[][] = [];
-    for (const g of groupRevenueLines(vl.filter((l) => l.form !== 'sell'))) {
-      const head: CfRow = { key: K(`${g.section} opex paid`), label: `${g.section} opex paid`, kind: 'row', style: 'subtotal', sum: [] };
-      rows.push(head);
-      const vs: number[][] = [];
-      for (const l of g.lines) {
-        const v = neg(perAsset(l, (x) => x.opexPaidPerPeriod));
-        vs.push(v);
-        head.sum!.push(K(`paid:${l.key}`));
-        rows.push({ key: K(`paid:${l.key}`), label: revenueLineName(l), kind: 'row', indent: 1, values: v, src: { kind: 'paid', keys: ids(l).map((id) => `oxo:paid:${id}`) } });
-      }
-      head.values = add(vs); opGroups.push(head.key); opVals.push(head.values);
+    for (const l of groupRevenueLines(vl.filter((l) => l.form !== 'sell')).flatMap((g) => g.lines)) {
+      const v = neg(perAsset(l, (x) => x.opexPaidPerPeriod));
+      rows.push({ key: K(`paid:${l.key}`), label: `Opex paid: ${revenueLineName(l)}`, kind: 'row', indent: 1, values: v, src: { kind: 'paid', keys: ids(l).map((id) => `oxo:paid:${id}`) } });
+      opGroups.push(K(`paid:${l.key}`)); opVals.push(v);
     }
     // HQ off: no HQ row (2026-11-15).
     if (!phaseId && featureUsed(state as never, 'hq')) {
@@ -160,28 +146,16 @@ export function cfPlan(state: FinancialsResolverState, snap: Snap = computeFinan
     // Investing: capex paid in cash by line (Capex Table 2 less its land in kind), the land in kind
     // (non-cash, Capex Table 5, matched by the in-kind equity in financing), and the disposal proceeds.
     rows.push({ key: K('#inv'), label: 'Investing activities', kind: 'head' });
+    // Capex paid in cash, one row per line; the land contributed in kind is not cash and is not here
+    // (2026-11-15, founder; it stays in share capital on the Balance Sheet).
     const cxGroups: string[] = []; const cxVals: number[][] = [];
-    for (const g of groupRevenueLines(vl.filter((l) => ids(l).some((id) => snap.perAssetCF.has(id))))) {
-      const head: CfRow = { key: K(`${g.section} capex`), label: `${g.section} capex`, kind: 'row', style: 'subtotal', sum: [] };
-      rows.push(head);
-      const vs: number[][] = [];
-      for (const l of g.lines) {
-        const v = neg(add(ids(l).map((id) => { const c = snap.perAssetCF.get(id); return c ? sl(c.capexPerPeriod).map((x, t) => x - (c.landInKindPerPeriod?.[t] ?? 0)) : sl(undefined); })));
-        vs.push(v);
-        head.sum!.push(K(`capex:${l.key}`));
-        rows.push({ key: K(`capex:${l.key}`), label: revenueLineName(l), kind: 'row', indent: 1, values: v, src: { kind: 'cash', key: capexKeyOf(l), less: inKindKeysOf(l) } });
-      }
-      head.values = add(vs); cxGroups.push(head.key); cxVals.push(head.values);
+    for (const l of groupRevenueLines(vl.filter((l) => ids(l).some((id) => snap.perAssetCF.has(id)))).flatMap((g) => g.lines)) {
+      const v = neg(add(ids(l).map((id) => { const c = snap.perAssetCF.get(id); return c ? sl(c.capexPerPeriod).map((x, t) => x - (c.landInKindPerPeriod?.[t] ?? 0)) : sl(undefined); })));
+      rows.push({ key: K(`capex:${l.key}`), label: `Capex: ${revenueLineName(l)}`, kind: 'row', indent: 1, values: v, src: { kind: 'cash', key: capexKeyOf(l), less: inKindKeysOf(l) } });
+      cxGroups.push(K(`capex:${l.key}`)); cxVals.push(v);
     }
-    const totCash = add(cxVals);
-    rows.push({ key: K('Total capex paid in cash'), label: 'Total capex paid in cash', kind: 'row', style: 'subtotal', values: totCash, sum: cxGroups });
-    const inKindV = neg(add(vl.flatMap((l) => ids(l)).map((id) => sl(snap.perAssetCF.get(id)?.landInKindPerPeriod))));
-    rows.push({ key: K('Land in kind (investing)'), label: 'Land contributed in kind (non-cash, matched by the in-kind equity in financing)', kind: 'row', values: inKindV,
-      // A phase's in-kind land is its lines' in-kind land value rows on Capex Table 1 (2026-11-15: the capex
-      // summary has no per-phase land rows); the project's, the summary's in-kind total.
-      src: { kind: 'cost', keys: phaseId ? vl.flatMap((l) => ids(l).slice(0, 1).flatMap((h) => inKindLines.filter((c) => c.phaseId === phaseId).map((c) => `cx1:${h}:${c.id}`))) : ['cx5:total:inkind'] } });
-    const totCx = add([totCash, inKindV]);
-    rows.push({ key: K('Total capex'), label: 'Total capex', kind: 'row', style: 'subtotal', values: totCx, sum: [K('Total capex paid in cash'), K('Land in kind (investing)')] });
+    const totCx = add(cxVals);
+    rows.push({ key: K('Total capex paid in cash'), label: 'Total capex paid in cash', kind: 'row', style: 'subtotal', values: totCx, sum: cxGroups });
     const proceeds = sl(dcf.proceedsFromDisposalPerPeriod);
     let procV = proceeds;
     let procKey = 'fl:proceeds';
@@ -191,7 +165,7 @@ export function cfPlan(state: FinancialsResolverState, snap: Snap = computeFinan
     }
     rows.push({ key: K('Proceeds from Disposal of Operating Assets'), label: 'Disposal proceeds', kind: 'row', values: procV, src: { kind: 'link', key: procKey } });
     const cfiV = add([totCx, procV]);
-    rows.push({ key: K('Cash Flow from Investment'), label: 'Cash flow from investing', kind: 'row', style: 'total', values: cfiV, sum: [K('Total capex'), K('Proceeds from Disposal of Operating Assets')] });
+    rows.push({ key: K('Cash Flow from Investment'), label: 'Cash flow from investing', kind: 'row', style: 'total', values: cfiV, sum: [K('Total capex paid in cash'), K('Proceeds from Disposal of Operating Assets')] });
     return { cfo: K('Cash Flow from Operations'), cfi: K('Cash Flow from Investment'), cfoV, cfiV };
   };
 
@@ -202,7 +176,6 @@ export function cfPlan(state: FinancialsResolverState, snap: Snap = computeFinan
   rows.push({ key: D('#fin'), label: 'Financing activities', kind: 'head' });
   const finRows: Array<[string, string, number[], string]> = [
     ['Equity drawn in cash', 'Equity drawn in cash', sl(dcf.equityDrawdownPerPeriod), 'fl:eqCash'],
-    ['Land contributed in kind', 'Land contributed in kind (non-cash equity, matched in investing)', sl(snap.financing.equity.inKindPerPeriod), 'fl:inKind'],
     ['Debt drawn', 'Debt drawn (capex and interest)', sl(dcf.debtDrawdownPerPeriod), 'fl:debtCash'],
     ['Debt repaid', 'Debt repaid (scheduled, swept and at the exit)', sl(dcf.debtRepaymentPerPeriod), 'fl:repaidCash'],
     ['Interest paid', 'Interest paid', sl(dcf.interestPaidPerPeriod), 'fl:intPaid'],
@@ -216,60 +189,7 @@ export function cfPlan(state: FinancialsResolverState, snap: Snap = computeFinan
   rows.push({ key: D('Opening cash'), label: 'Opening cash', kind: 'row', values: sl(dcf.openingCashPerPeriod), src: { kind: 'prev', key: D('Closing cash') }, total: 'first' });
   rows.push({ key: D('Closing cash'), label: 'Closing cash', kind: 'row', style: 'total', values: sl(dcf.closingCashPerPeriod), sum: [D('Opening cash'), D('Net Cash Flow')], total: 'last' });
 
-  // ── The indirect method: operating cash only, and its check ──────────────
-  const ic = snap.indirectCF;
-  const I = (name: string): string => `cf|indirect||${name}`;
-  rows.push({ key: 'cf|gap|ind', label: '', kind: 'gap' });
-  rows.push({ key: I('#section'), label: 'Cash flow from operations, indirect method: Project', kind: 'section' });
-  const indRows: Array<[string, string, number[], CfSrc]> = [
-    ['pat', labels.pat, sl(ic.patPerPeriod), { kind: 'link', key: `pl|__all__||${labels.pat}` }],
-    ['dep', 'Depreciation (non-cash)', sl(ic.daPerPeriod), { kind: 'cost', keys: ['pl|__all__||Depreciation & Amortization'] }],
-    ['int', 'Interest expensed (paid in financing)', sl(ic.interestExpensePerPeriod), { kind: 'cost', keys: ['pl|__all__||Interest & financing cost'] }],
-    ['cos', 'Cost of sales (its capex is in investing)', sl(ic.costOfSalesAddBackPerPeriod), { kind: 'cost', keys: ['pl|__all__||Residential cost of sales'] }],
-    ['gain', 'Gain on disposal (its proceeds are in investing)', sl(ic.gainOnDisposalPerPeriod), { kind: 'cost', keys: ['pl|__all__||Gain on Disposal of Operating Assets'] }],
-    ['ar', 'Change in receivables', sl(ic.changeInArPerPeriod), { kind: 'rise', key: 'rvc:__project__:ar', sign: -1 }],
-    ['ur', 'Change in unearned revenue', sl(ic.changeInUnearnedPerPeriod), { kind: 'rise', key: 'rvc:__project__:ur', sign: 1 }],
-  ];
-  // Payables at 0 days: no change in payables row (2026-11-15).
-  if (featureUsed(state as never, 'payables')) indRows.splice(indRows.length - 1, 0, ['ap', 'Change in payables', sl(ic.changeInApPerPeriod), { kind: 'rise', key: 'ox|ap|close', sign: 1 }]);
-  if (featureUsed(state as never, 'taxPayable')) indRows.push(['taxpay', `Change in ${TAX.toLowerCase()} payable`, sl(ic.changeInTaxPayablePerPeriod), { kind: 'rise', key: 'fl:taxPay', sign: 1 }]);
-  if (hasEscrow) indRows.push(['esc', 'Change in the escrow balance', sl(ic.changeInEscrowPerPeriod), { kind: 'rise', key: 'esc||B. Escrow Balance Roll-Forward|Closing Balance', sign: -1 }]);
-  for (const [k, label, v, src] of indRows) rows.push({ key: I(k), label, kind: 'row', indent: k === 'pat' ? 0 : 1, values: v, src });
-  const indCfo = add(indRows.map((x) => x[2]));
-  rows.push({ key: I('Cash Flow from Operations'), label: 'Cash flow from operations (indirect)', kind: 'row', style: 'total', values: indCfo, sum: indRows.map((x) => I(x[0])) });
-  rows.push({ key: I('check'), label: 'Check: direct less indirect (should be zero)', kind: 'row', values: proj.cfoV.map((v, t) => v - indCfo[t]), src: { kind: 'diff', a: D('Cash Flow from Operations'), b: I('Cash Flow from Operations') } });
-
-  // ── Each phase: operations and investing ─────────────────────────────────
-  const phaseNets: Array<{ key: string; v: number[]; name: string }> = [];
-  if (multiPhase) for (const ph of state.phases) {
-    if (!lines.some((l) => l.phaseId === ph.id)) continue;
-    const V = `ph:${ph.id}`;
-    rows.push({ key: `cf|gap|${V}`, label: '', kind: 'gap' });
-    rows.push({ key: `cf|${V}||#section`, label: `Cash flow: ${ph.name} (operations and investing)`, kind: 'section' });
-    const r = opsAndInv(V, ph.id);
-    const k = `cf|${V}||Net cash flow`;
-    const v = add([r.cfoV, r.cfiV]);
-    rows.push({ key: k, label: `Net cash flow, ${ph.name}`, kind: 'row', style: 'subtotal', values: v, sum: [r.cfo, r.cfi] });
-    phaseNets.push({ key: k, v, name: ph.name });
-  }
-
-  // ── The phases to the project ────────────────────────────────────────────
-  if (phaseNets.length) {
-    const R = (name: string): string => `cf|recon||${name}`;
-    rows.push({ key: 'cf|gap|recon', label: '', kind: 'gap' });
-    rows.push({ key: R('#section'), label: 'The phases to the project net cash flow', kind: 'section' });
-    const keys: string[] = []; const vals: number[][] = [];
-    const link = (name: string, label: string, v: number[], key: string): void => { rows.push({ key: R(name), label, kind: 'row', values: v, src: { kind: 'link', key } }); keys.push(R(name)); vals.push(v); };
-    for (const pn of phaseNets) link(`net:${pn.name}`, `${pn.name} net cash flow`, pn.v, pn.key);
-    const get = (k: string): number[] => rows.find((x) => x.key === k)?.values ?? new Array<number>(N).fill(0);
-    if (featureUsed(state as never, 'hq')) link('hq', 'Project level: HQ overheads paid', get(D('HQ overheads paid')), D('HQ overheads paid'));
-    if (fundOn) link('fees', 'Project level: fund fees paid', get(D('Fund fees paid')), D('Fund fees paid'));
-    link('tax', `Project level: ${TAX.toLowerCase()} paid`, get(D('Tax paid')), D('Tax paid'));
-    link('cff', 'Project level: cash flow from financing', cffV, D('Cash Flow from Financing'));
-    const sum = add(vals);
-    rows.push({ key: R('sum'), label: 'Project net cash flow, from the phases', kind: 'row', style: 'subtotal', values: sum, sum: keys });
-    rows.push({ key: R('proj'), label: 'Project net cash flow, per the statement', kind: 'row', values: net, src: { kind: 'link', key: D('Net Cash Flow') } });
-    rows.push({ key: R('diff'), label: 'Difference (should be zero)', kind: 'row', values: sum.map((v, t) => v - net[t]), src: { kind: 'diff', a: R('sum'), b: R('proj') } });
-  }
+  // (2026-11-15, founder) No indirect method, no phase cash flows and no reconciliation: the direct method only.
+  void labels; void phaseProceedsPerPeriod; void multiPhase;
   return rows;
 }

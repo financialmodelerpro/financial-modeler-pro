@@ -296,7 +296,13 @@ export const stage3Revenue: LiveLayer = {
         // Velocity in force: the pre-sales and operation grids on Inputs, at the Timeline's year numbers.
         for (const u of units) {
           const gPre = gridOf(`${l.key}|pre|${nm(u)}`), gPost = gridOf(`${l.key}|post|${nm(u)}`);
-          row(S(`${nm(u)}: velocity`), (t) => [gPre ? atYear(gPre, ctr(p, 'con', t)) : '', gPost ? atYear(gPost, ctr(p, 'ops', t)) : ''].filter(Boolean).join('+') || '0');
+          const kPre = S(`${nm(u)}: pre-sales %`), kPost = S(`${nm(u)}: sales during operation %`);
+          if (has(kPre) && has(kPost)) {
+            // One grid per row, the velocity their sum (2026-11-15: short formulas).
+            row(kPre, (t) => (gPre ? atYear(gPre, ctr(p, 'con', t)) : '0'));
+            row(kPost, (t) => (gPost ? atYear(gPost, ctr(p, 'ops', t)) : '0'));
+            row(S(`${nm(u)}: velocity`), (t) => `${P(kPre, t)}+${P(kPost, t)}`);
+          } else row(S(`${nm(u)}: velocity`), (t) => [gPre ? atYear(gPre, ctr(p, 'con', t)) : '', gPost ? atYear(gPost, ctr(p, 'ops', t)) : ''].filter(Boolean).join('+') || '0');
         }
         // Sqm sold: the velocity share of the inventory, rounded to whole sqm, or exactly what is still
         // unsold once the share reaches it or the typed velocity reaches 100%. The one tolerance is the
@@ -438,7 +444,10 @@ export const stage3Revenue: LiveLayer = {
         const typeUnit = tk && has(`type:${tk}:unit`) ? w.ref(`type:${tk}:unit`) : '0';
         const size = unitCell ? `IF(N(${unitCell})>0,${unitCell},N(${typeUnit}))` : `N(${typeUnit})`;
         const keysK = D('Keys');
-        if (u && has(keysK)) w.fA(at(keysK, TOTAL_COL), `IF(AND(${w.ref(`su:${u.id}:area`)}>0,${size}>0),MAX(1,ROUND(${w.ref(`su:${u.id}:area`)}/${size},0)),0)`);
+        const sizeK = D('Key size (sqm)');
+        if (has(sizeK)) w.fA(at(sizeK, TOTAL_COL), size);
+        const sz = has(sizeK) ? A(sizeK, TOTAL_COL) : size;
+        if (u && has(keysK)) w.fA(at(keysK, TOTAL_COL), `IF(AND(${w.ref(`su:${u.id}:area`)}>0,${sz}>0),MAX(1,ROUND(${w.ref(`su:${u.id}:area`)}/${sz},0)),0)`);
         const keys = (): string => A(keysK, TOTAL_COL);
         const adrR = byPrefix(R('ADR ('));
         if (adrR && u) row(adrR, (t) => `${IO(t)}*${w.ref(`su:${u.id}:rate`)}*${factorF(l, idx, t)}`, 'none');

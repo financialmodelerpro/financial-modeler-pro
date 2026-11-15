@@ -297,13 +297,29 @@ export const stage2Capex: LiveLayer = {
         const even = (c: number): string => `(${p0 ? `(${yr(c)}=MAX(${axis()},${first}-1))*(${B}<=0)+` : ''}(${i1(c)}>=MAX(1,${B}))*(${i1(c)}<=MAX(${B},${C})))/(MAX(${B},${C})-${B}+1)`;
         const cash = w.addr(`rvc:${sp.assetId}:cash`);
         const slots = `${cp()}+${w.ref(`tl:phase:${ph.id}:op`)}+1`;
+        // The phase's years (1 = yes) on their own row (2026-11-15: short formulas).
+        const inK = `cxw:${sp.key}|in`;
+        const inR = w.has(inK) ? w.addr(inK).row : 0;
+        if (inR) for (let t = 0; t < N; t++) { const c = cP(t); w.fA({ sheet: S, row: inR, col: c }, `(${i1(c)}>=1)*(${i1(c)}<=${slots})`); }
+        const inF = (c: number): string => (inR ? w.refP({ sheet: S, row: inR, col: c }, S) : `(${i1(c)}>=1)*(${i1(c)}<=${slots})`);
         const yrs = w.rangeA(S, 3, cP(0), cP(N - 1)).replace(/^'?[^!]+'?!/, '');
         const ppr = `(${yrs}-${first}+1)`;
-        w.fA({ sheet: S, row: r, col: C_OPEN }, `SUMPRODUCT((${ppr}>=1)*(${ppr}<=${slots}),${w.rangeA(cash.sheet, cash.row, cP(0), cP(N - 1))})`);
+        const inRng = inR ? w.rangeA(S, inR, cP(0), cP(N - 1)).replace(/^'?[^!]+'?!/, '') : '';
+        w.fA({ sheet: S, row: r, col: C_OPEN }, inR ? `SUMPRODUCT(${inRng},${w.rangeA(cash.sheet, cash.row, cP(0), cP(N - 1))})` : `SUMPRODUCT((${ppr}>=1)*(${ppr}<=${slots}),${w.rangeA(cash.sheet, cash.row, cP(0), cP(N - 1))})`);
         const W = w.refA({ sheet: S, row: r, col: C_OPEN }, S);
+        // The even fallback on its own row: a window that follows the construction years (from year 1 or
+        // later) reads Timeline's construction year number of the phase (2026-11-15: short formulas).
+        const evK = `cxw:${sp.key}|even`;
+        const evR = w.has(evK) ? w.addr(evK).row : 0;
+        const ctrK = `tl:ctr:${ph.id}:con`;
+        if (evR) for (let t = 0; t < N; t++) {
+          const c = cP(t);
+          const viaCtr = sp.win === 'follows' && rule !== 'land' && w.has(ctrK);
+          w.fA({ sheet: S, row: evR, col: c }, viaCtr ? `(${w.refP({ sheet: 'Timeline', row: w.addr(ctrK).row, col: c }, S)}>=${B})/(MAX(${B},${cp()})-${B}+1)` : even(c));
+        }
         for (let t = 0; t < N; t++) {
           const c = cP(t);
-          w.fA({ sheet: S, row: r, col: c }, `IF(${W}>0,(${i1(c)}>=1)*(${i1(c)}<=${slots})*${w.refP({ sheet: cash.sheet, row: cash.row, col: c }, S)}/${W},${even(c)})`);
+          w.fA({ sheet: S, row: r, col: c }, `IF(${W}>0,${inF(c)}*${w.refP({ sheet: cash.sheet, row: cash.row, col: c }, S)}/${W},${evR ? w.refP({ sheet: S, row: evR, col: c }, S) : even(c)})`);
         }
         w.fA({ sheet: S, row: r, col: C_TOT }, `SUM(${w.rangeA(S, r, cP(0), cP(N - 1)).replace(/^'?[^!]+'?!/, '')})`);
         continue;
@@ -320,16 +336,21 @@ export const stage2Capex: LiveLayer = {
         w.fA({ sheet: CAPEX, row: r, col: C_FROM }, inp(ir, 6));
         w.fA({ sheet: CAPEX, row: r, col: C_TO }, inp(ir, 7));
       }
-      // The phase period of a year: its year less the phase's first year, plus 1; period 0 is the
-      // year before (never before the first model year). Worked out here (2026-11-15: no helper row).
-      const first = `MAX(${axis()},YEAR(${w.ref(`tl:phase:${ph.id}:cs`)}))`;
+      // The phase period of a year: the phase's own row (its year less the phase's first year, plus 1);
+      // period 0 is the year before, never before the first model year (the first year, then).
+      const ppKey = `cxpp:${ph.id}`;
+      if (!w.has(ppKey)) return values(`the phase periods of ${ph.name} are not on the sheet`);
+      const ppr = w.addr(ppKey).row;
+      const first = A(ppr, C_TOT);
       const B = A(r, C_FROM), C = A(r, C_TO);
-      const i1 = (c: number): string => `(${P(3, c)}-${first}+1)`;
-      const z0 = (c: number): string => `(${P(3, c)}=MAX(${axis()},${first}-1))`;
-      const inWin = (c: number): string => `(${i1(c)}>=MAX(1,${B}))*(${i1(c)}<=MAX(${B},${C}))`;
-      // A window that follows the construction years never holds period 0 unless it is the land rule.
+      const i1 = (c: number): string => P(ppr, c);
+      const z0 = (c: number): string => `(${i1(c)}=1-(${first}>${axis()}))`;
+      // A window that follows the construction years never holds period 0 unless it is the land rule; its
+      // start is 1 or later and its end at least its start, so it reads its two cells as they are.
       const p0 = sp.win !== 'follows' || followedRule(sp.baseId) === 'land';
-      const even = (c: number): string => `(${p0 ? `${z0(c)}*(${B}<=0)+` : ''}${inWin(c)})/(MAX(${B},${C})-${B}+1)`;
+      const lo = p0 ? `MAX(1,${B})` : B, hi = p0 ? `MAX(${B},${C})` : C;
+      const inWin = (c: number): string => `(${i1(c)}>=${lo})*(${i1(c)}<=${hi})`;
+      const even = (c: number): string => `(${p0 ? `${z0(c)}*(${B}<=0)+` : ''}${inWin(c)})/(${hi}-${B}+1)`;
       if (sp.kind === 'even') {
         for (let t = 0; t < N; t++) w.fA({ sheet: CAPEX, row: r, col: cP(t) }, even(cP(t)));
       } else if (sp.kind === 'curve') {
@@ -436,15 +457,22 @@ export const stage2Capex: LiveLayer = {
     }
     for (const wt of blends.weights) {
       if (!w.has(wt.key)) return values('a plot\'s hard-cost weight is not on the sheet');
-      // The plot's hard-cost money: each hard line's rate x the plot's quantity, spread and escalated.
-      const parts = (blends.hardLines.get(wt.host) ?? []).map((lid) => {
+      // The plot's hard-cost money: each hard line's rate x the plot's quantity, spread and escalated, one row
+      // per hard line (2026-11-15: short formulas), the weight their sum.
+      const partKeys: string[] = [];
+      for (const lid of blends.hardLines.get(wt.host) ?? []) {
         const pl = plotLines.get(`${wt.plot}|${lid}`);
-        if (!pl || pl.disabled) return '';
+        const pk = `${wt.key}|${lid}`;
+        if (!w.has(pk)) continue;
+        if (!pl || pl.disabled) { w.f(pk, '0', { col: C_TOT }); partKeys.push(pk); continue; }
         const sp = plan.plotLine.get(`${wt.plot}|${lid}`)!;
         const esc = sp.escalates ? `*SUMPRODUCT(${w.rangeA(CAPEX, spreadRow(wt.plot, lid), cP(0), cP(N - 1)).replace(/^'?Capex'?!/, '')},${w.rangeA(CAPEX, escRow, cP(0), cP(N - 1)).replace(/^'?Capex'?!/, '')})` : '';
-        return `${rateRef(pl)}*${plotQty(pl)}${esc}`;
-      }).filter(Boolean);
-      w.f(wt.key, parts.join('+') || '0', { col: C_TOT });
+        w.f(pk, `${rateRef(pl)}*${plotQty(pl)}${esc}`, { col: C_TOT });
+        partKeys.push(pk);
+      }
+      const rs = partKeys.map((k) => w.addr(k).row).sort((a, b) => a - b);
+      const L = colOf(C_TOT);
+      w.f(wt.key, rs.length ? (rs.every((x, i) => i === 0 || x === rs[i - 1] + 1) ? `SUM(${L}$${rs[0]}:${L}$${rs[rs.length - 1]})` : rs.map((x) => `${L}$${x}`).join('+')) : '0', { col: C_TOT });
     }
     for (const b of blends.soft) {
       if (!w.has(b.key)) return values(`the blended soft-cost share on ${b.host} is not on the sheet`);
