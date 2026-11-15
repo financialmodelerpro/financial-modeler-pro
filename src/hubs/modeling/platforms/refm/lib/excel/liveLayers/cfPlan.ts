@@ -19,6 +19,7 @@
  *
  * No em dashes in this file.
  */
+import { escrowInForce, featureUsed } from '../exportScope';
 import { computeFinancialsSnapshot, type FinancialsResolverState } from '../../financials-resolvers';
 import { phaseProceedsPerPeriod } from '../../reports/phaseProceeds';
 import { getFinancialLabels, defaultTerminologyForCountry } from '@/src/core/calculations/financials';
@@ -71,7 +72,8 @@ export function cfPlan(state: FinancialsResolverState, snap: Snap = computeFinan
   const escOf = (l: RevenueLine, pick: 'heldPerPeriod' | 'releasePerPeriod'): number[] =>
     add(ids(l).map((id) => { const e = snap.escrow.byAsset.get(id) as { result?: Record<string, number[]> } & Record<string, unknown> | undefined; return sl(e?.result?.[pick] ?? (e?.[pick] as number[] | undefined)); }));
   const fundOn = resolveFundTerms(p).enabled;
-  const hasEscrow = snap.escrow.byAsset.size > 0;
+  // Escrow off (0%, no line overriding it) builds no escrow row (2026-11-15).
+  const hasEscrow = snap.escrow.byAsset.size > 0 && escrowInForce(state as never);
   const TAX = (p.tax?.basis ?? 'zakat') !== 'cit' ? 'Zakat' : 'Tax';
   const dcf = snap.directCF;
   const rows: CfRow[] = [];
@@ -128,7 +130,8 @@ export function cfPlan(state: FinancialsResolverState, snap: Snap = computeFinan
       }
       head.values = add(vs); opGroups.push(head.key); opVals.push(head.values);
     }
-    if (!phaseId) {
+    // HQ off: no HQ row (2026-11-15).
+    if (!phaseId && featureUsed(state as never, 'hq')) {
       const v = sl(dcf.hqOpexPaidPerPeriod);
       rows.push({ key: K('HQ overheads paid'), label: 'HQ overheads paid', kind: 'row', values: v, src: { kind: 'paid', keys: ['oxo:paid:hq'] } });
       opGroups.push(K('HQ overheads paid')); opVals.push(v);
@@ -225,9 +228,10 @@ export function cfPlan(state: FinancialsResolverState, snap: Snap = computeFinan
     ['cos', 'Cost of sales (its capex is in investing)', sl(ic.costOfSalesAddBackPerPeriod), { kind: 'cost', keys: ['pl|__all__||Residential cost of sales'] }],
     ['gain', 'Gain on disposal (its proceeds are in investing)', sl(ic.gainOnDisposalPerPeriod), { kind: 'cost', keys: ['pl|__all__||Gain on Disposal of Operating Assets'] }],
     ['ar', 'Change in receivables', sl(ic.changeInArPerPeriod), { kind: 'rise', key: 'rvc:__project__:ar', sign: -1 }],
-    ['ap', 'Change in payables', sl(ic.changeInApPerPeriod), { kind: 'rise', key: 'ox|ap|close', sign: 1 }],
     ['ur', 'Change in unearned revenue', sl(ic.changeInUnearnedPerPeriod), { kind: 'rise', key: 'rvc:__project__:ur', sign: 1 }],
   ];
+  // Payables at 0 days: no change in payables row (2026-11-15).
+  if (featureUsed(state as never, 'payables')) indRows.splice(indRows.length - 1, 0, ['ap', 'Change in payables', sl(ic.changeInApPerPeriod), { kind: 'rise', key: 'ox|ap|close', sign: 1 }]);
   indRows.push(['taxpay', `Change in ${TAX.toLowerCase()} payable`, sl(ic.changeInTaxPayablePerPeriod), { kind: 'rise', key: 'fl:taxPay', sign: 1 }]);
   if (hasEscrow) indRows.push(['esc', 'Change in the escrow balance', sl(ic.changeInEscrowPerPeriod), { kind: 'rise', key: 'esc||B. Escrow Balance Roll-Forward|Closing Balance', sign: -1 }]);
   for (const [k, label, v, src] of indRows) rows.push({ key: I(k), label, kind: 'row', indent: k === 'pat' ? 0 : 1, values: v, src });
@@ -258,7 +262,7 @@ export function cfPlan(state: FinancialsResolverState, snap: Snap = computeFinan
     const link = (name: string, label: string, v: number[], key: string): void => { rows.push({ key: R(name), label, kind: 'row', values: v, src: { kind: 'link', key } }); keys.push(R(name)); vals.push(v); };
     for (const pn of phaseNets) link(`net:${pn.name}`, `${pn.name} net cash flow`, pn.v, pn.key);
     const get = (k: string): number[] => rows.find((x) => x.key === k)?.values ?? new Array<number>(N).fill(0);
-    link('hq', 'Project level: HQ overheads paid', get(D('HQ overheads paid')), D('HQ overheads paid'));
+    if (featureUsed(state as never, 'hq')) link('hq', 'Project level: HQ overheads paid', get(D('HQ overheads paid')), D('HQ overheads paid'));
     if (fundOn) link('fees', 'Project level: fund fees paid', get(D('Fund fees paid')), D('Fund fees paid'));
     link('tax', `Project level: ${TAX.toLowerCase()} paid`, get(D('Tax paid')), D('Tax paid'));
     link('cff', 'Project level: cash flow from financing', cffV, D('Cash Flow from Financing'));

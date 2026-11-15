@@ -16,6 +16,7 @@
  *
  * No em dashes in this file.
  */
+import { escrowInForce } from '../exportScope';
 import { computeFinancialsSnapshot, computeFundingGap, type FinancialsResolverState } from '../../financials-resolvers';
 import { heldIncomePerPeriod, phaseProceedsShare } from '../../reports/phaseProceeds';
 import { resolveFundTerms, FUND_FEE_SPECS } from '../../fundTerms';
@@ -232,7 +233,7 @@ export function financingPlan(state: FinancialsResolverState, snap: Snap = compu
   per('fl:opexPaid', '(-) Opex paid, lines and HQ', add(sl(dcf.opexPaidPerPeriod), sl(dcf.hqOpexPaidPerPeriod)), 'Opex: each line\'s opex less the rise in its payable');
   // Selling and marketing expensed has a block on Capex only where a line is expensed; escrow on Revenue only where a line holds escrow.
   if (expensedRowsOf(state, snap, state.assets.filter((a) => a.visible !== false).map((a) => a.id), (_a, _l, valued) => valued).length) per('fl:mkt', '(-) Selling and marketing paid as incurred', sl(dcf.sellingExpensePaidPerPeriod), 'Capex: selling and marketing expensed');
-  if (snap.escrow.byAsset.size > 0) per('fl:esc', 'Escrow: pre-sales cash held back and released', sl(dcf.netRevenueAdjustmentPerPeriod), 'Revenue: net escrow cash flow');
+  if (snap.escrow.byAsset.size > 0 && escrowInForce(state as never)) per('fl:esc', 'Escrow: pre-sales cash held back and released', sl(dcf.netRevenueAdjustmentPerPeriod), 'Revenue: net escrow cash flow');
   per('fl:taxPaidOps', `(-) ${TAX} paid`, sl(dcf.taxPaidPerPeriod), `The ${TAX.toLowerCase()} paid, below`);
   if (feeOn && !feeByEquity) per('fl:feeOps', '(-) Fund fees paid', sl(dcf.fundFeesPaidPerPeriod), 'The fund fees, below: inside the funding need');
   const opIn = sl(w.operatingInflowsPerPeriod);

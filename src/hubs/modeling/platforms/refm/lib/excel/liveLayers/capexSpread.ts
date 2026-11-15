@@ -80,6 +80,59 @@ export function followedRule(baseId: string): 'land' | 'half' | 'preop' | 'std' 
     : baseId === 'landscaping' || baseId === 'marketing' || baseId === 'commission' ? 'half' : baseId === 'pre-operating' ? 'preop' : 'std';
 }
 
+/**
+ * ONE CURVE ROW FOR THE SAME CURVE (2026-11-15, founder): assets whose typed spend curves are the same
+ * on the platform share one curve, read from one Inputs row. The first asset of each curve (in the
+ * model's order) stands for the group; Inputs lists the group on that row and registers every member's
+ * key there, so the Capex rows that read it are exact.
+ */
+export function curveGroups(state: { assets: Asset[] }): Map<string, string[]> {
+  const sig = (a: Asset): string => {
+    const d = (a.capexPhasing?.distribution ?? []).map((v) => Math.max(0, v ?? 0));
+    while (d.length && d[d.length - 1] === 0) d.pop();
+    return JSON.stringify(d);
+  };
+  const out = new Map<string, string[]>();
+  const firstOf = new Map<string, string>();
+  for (const a of state.assets) {
+    if (a.visible === false || a.capexPhasing?.phasing !== 'manual' || !(a.capexPhasing.distribution ?? []).some((v) => (v ?? 0) !== 0)) continue;
+    const k = sig(a);
+    const first = firstOf.get(k);
+    if (first) out.get(first)!.push(a.id); else { firstOf.set(k, a.id); out.set(a.id, [a.id]); }
+  }
+  return out;
+}
+export function curveCanon(state: { assets: Asset[] }): Map<string, string> {
+  const m = new Map<string, string>();
+  for (const [first, ids] of curveGroups(state)) for (const id of ids) m.set(id, first);
+  return m;
+}
+
+/**
+ * ONE WINDOW FOR THE CASH AND IN-KIND LAND LINES WHERE THEY MATCH (2026-11-15, founder): in a phase whose
+ * two land value lines carry the same window (the line's own, and every asset override the same on both),
+ * the in-kind line reads the cash line's window: one Inputs row and one spend share. Maps the in-kind
+ * line id to the cash line id.
+ */
+export function landWindowCanon(state: { costLines: CostLine[]; costOverrides: CostOverride[]; phases: Phase[] }): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const p of state.phases) {
+    const cash = state.costLines.find((l) => l.phaseId === p.id && isLandValueLine(l) && l.method === 'percent_of_cash_land');
+    const kind = state.costLines.find((l) => l.phaseId === p.id && isLandValueLine(l) && l.method === 'percent_of_inkind_land');
+    if (!cash || !kind) continue;
+    const same = (a: CostLine, b: CostLine): boolean => a.windowFollowsConstruction === b.windowFollowsConstruction && a.startPeriod === b.startPeriod && a.endPeriod === b.endPeriod && (a.phasing ?? 'even') === (b.phasing ?? 'even');
+    if (!same(cash, kind)) continue;
+    const win = (lineId: string, assetId: string): string => {
+      const o = state.costOverrides.find((x) => x.assetId === assetId && x.lineId === lineId && x.overridden !== false);
+      return o && (o.startPeriod !== undefined || o.endPeriod !== undefined) ? `${o.startPeriod}-${o.endPeriod}` : '';
+    };
+    const assets = [...new Set(state.costOverrides.filter((o) => o.lineId === cash.id || o.lineId === kind.id).map((o) => o.assetId))];
+    if (assets.some((id) => win(cash.id, id) !== win(kind.id, id))) continue;
+    out.set(kind.id, cash.id);
+  }
+  return out;
+}
+
 export function planCapexSpread(
   state: PlanState,
   members: Map<string, string[]>,
@@ -117,12 +170,24 @@ export function planCapexSpread(
       ? { ...followedWindow(deriveLineBaseId(line.id), p.constructionPeriods ?? 0), follows: true, win: 'follows' }
       : { start: line.startPeriod, end: line.endPeriod, follows: false, win: 'line' };
   };
-  const winTag = (line: CostLine, w: { win: SpreadRow['win'] }, a?: Asset): string => (w.win === 'follows' ? `f:${followedRule(deriveLineBaseId(line.id))}` : w.win === 'plot' ? `p:${a!.id}:${line.id}` : line.id);
+  const curveOf = curveCanon(state);
+  const landOf = landWindowCanon(state);
+  const lid = (line: CostLine): string => landOf.get(line.id) ?? line.id;
+  // A followed window equal to the construction years' (a landscape window that starts in year 1) is
+  // the construction years' row: its own row only where it differs (2026-11-15, founder).
+  const sameAsStd = (line: CostLine, p: Phase): boolean => {
+    const r = followedRule(deriveLineBaseId(line.id));
+    if (r === 'std' || r === 'land') return false;
+    const a = followedWindow(deriveLineBaseId(line.id), p.constructionPeriods ?? 0), b = followedWindow('__std__', p.constructionPeriods ?? 0);
+    return a.start === b.start && a.end === b.end;
+  };
+  const winTag = (line: CostLine, w: { win: SpreadRow['win'] }, a?: Asset, p?: Phase): string => (w.win === 'follows' ? `f:${p && sameAsStd(line, p) ? 'std' : followedRule(deriveLineBaseId(line.id))}` : w.win === 'plot' ? `p:${a!.id}:${lid(line)}` : lid(line));
+  const baseOf = (line: CostLine, p: Phase, w: { win: SpreadRow['win'] }): string => (w.win === 'follows' && sameAsStd(line, p) ? '__std__' : deriveLineBaseId(line.id));
   const evenRow = (line: CostLine, p: Phase, a?: Asset): string => {
     const win = windowOf(line, p, a);
-    const key = `even|${p.id}|${winTag(line, win, a)}`;
+    const key = `even|${p.id}|${winTag(line, win, a, p)}`;
     if (!rows.has(key)) rows.set(key, {
-      key, phaseId: p.id, kind: 'even', start: win.start, end: Math.max(win.start, win.end), win: win.win, follows: win.follows, lineId: line.id, baseId: deriveLineBaseId(line.id),
+      key, phaseId: p.id, kind: 'even', start: win.start, end: Math.max(win.start, win.end), win: win.win, follows: win.follows, lineId: lid(line), baseId: baseOf(line, p, win),
       assetId: win.win === 'plot' ? a?.id : undefined,
       // Short labels (2026-10-20): the spread and its window in phase periods; the Guide explains them.
       label: `Even${state.phases.length > 1 ? `, ${p.name}` : ''}, P${win.start} to P${Math.max(win.start, win.end)}${win.follows ? '' : `, ${win.win === 'plot' && a ? `${assetLabel(a, names)} ` : ''}${line.name}`}`,
@@ -136,12 +201,14 @@ export function planCapexSpread(
     const slice = dist.slice(win.start, Math.max(win.start, win.end) + 1).map((v) => Math.max(0, v ?? 0));
     const sum = slice.reduce((s, v) => s + v, 0);
     if (!(sum > 0)) return null;
-    const key = `curve|${a.id}|${winTag(line, win, a)}`;
+    // The group's first asset stands for a curve shared by several (curveGroups).
+    const ca = curveOf.get(a.id) ?? a.id;
+    const key = `curve|${win.win === 'plot' ? a.id : ca}|${p.id}|${winTag(line, win, a, p)}`;
     if (!rows.has(key)) {
       const local = new Array<number>(Math.max(win.start, win.end) + 1).fill(0);
       slice.forEach((v, k) => { local[win.start + k] = v / sum; });
       rows.set(key, {
-        key, phaseId: p.id, kind: 'curve', start: win.start, end: Math.max(win.start, win.end), win: win.win, follows: win.follows, lineId: line.id, baseId: deriveLineBaseId(line.id), assetId: a.id,
+        key, phaseId: p.id, kind: 'curve', start: win.start, end: Math.max(win.start, win.end), win: win.win, follows: win.follows, lineId: lid(line), baseId: baseOf(line, p, win), assetId: win.win === 'plot' ? a.id : ca,
         label: `Curve, ${assetLabel(a, names)}, P${win.start} to P${Math.max(win.start, win.end)}`,
         shares: toAxis(local, offsetOf(p)),
       });

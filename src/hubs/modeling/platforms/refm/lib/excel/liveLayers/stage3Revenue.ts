@@ -43,6 +43,8 @@
  *
  * No em dashes in this file.
  */
+import { operatingReceivablesInForce } from '../exportScope';
+import { hotelGuestsRead } from '../buildModelWorkbook';
 import type { LayerContext, LiveLayer } from '../formulaWorkbook';
 import type { CellAddr } from '../cellRegistry';
 import { LiveWriter } from './writer';
@@ -109,6 +111,7 @@ export const stage3Revenue: LiveLayer = {
       return (override != null ? Math.max(cs, Math.min(N - 1, override - snap.revenue.projectStartYear)) : dflt) - cs;
     };
     const idxOf = (l: RevenueLine, a: Asset): Idx => (l.form === 'sell' ? a.revenue?.sell?.indexation : l.form === 'operate' ? a.revenue?.operate?.adrIndexation : a.revenue?.lease?.rentIndexation) as Idx;
+    const recOn = operatingReceivablesInForce(state as never);
     for (const l of lines) {
       const p = phaseOf(l);
       if (!p) continue;
@@ -125,8 +128,9 @@ export const stage3Revenue: LiveLayer = {
       if ((ix?.method ?? 'none') !== 'none' && earners.length && (!has(`rxin|${l.key}|rate`) || !has(`rxin|${l.key}|from`))) refuse.push(`${name}: its indexation has no rate on Inputs`);
       const off = offsetAt(p);
       if (l.form !== 'sell' && statedLineReceivableDays(a) !== statedLineReceivableDays(l.host)) refuse.push(`${name}: the earning plot and the line card state different receivable days`);
-      if (l.form !== 'sell' && earners.length && !has(`rxin|${l.key}|arDays`)) refuse.push(`${name}: its receivable days are not on Inputs`);
-      if (l.form !== 'sell' && earners.length && !has('project:dso')) refuse.push(`${name}: the project DSO is not on Inputs`);
+      // Receivables off (0 days everywhere): the line collects as it earns and Inputs carries no days.
+      if (recOn && l.form !== 'sell' && earners.length && !has(`rxin|${l.key}|arDays`)) refuse.push(`${name}: its receivable days are not on Inputs`);
+      if (recOn && l.form !== 'sell' && earners.length && !has('project:dso')) refuse.push(`${name}: the project DSO is not on Inputs`);
       if (l.form === 'sell') {
         const sell = a.revenue?.sell;
         if (!sell) continue;
@@ -167,7 +171,7 @@ export const stage3Revenue: LiveLayer = {
         if (op.occupancyShiftPts) refuse.push(`${name}: an occupancy lever`);
         if (revRows(a).length > 1) refuse.push(`${name}: more than one room type`);
         if (!has(`rxin|${l.key}|days`)) refuse.push(`${name}: its days per year are not on Inputs`);
-        if (!has(`rxin|${l.key}|guests`) || !has(`rxin|${l.key}|fb`) || !has(`rxin|${l.key}|other`)) refuse.push(`${name}: its guests, F&B or other share is not on Inputs`);
+        if ((hotelGuestsRead(a) && !has(`rxin|${l.key}|guests`)) || !has(`rxin|${l.key}|fb`) || !has(`rxin|${l.key}|other`)) refuse.push(`${name}: its guests, F&B or other share is not on Inputs`);
         for (const u of revRows(a)) {
           if ((u.startingAdr ?? 0) > 0) refuse.push(`${name}: ${u.name} stores an ADR of its own`);
           if (u.hospitalityIndexation) refuse.push(`${name}: ${u.name} has its own ADR indexation`);
@@ -420,6 +424,8 @@ export const stage3Revenue: LiveLayer = {
       }
       const opCash = (rev: string): void => {
         const arK = R('Receivable at year end'), cashK = R('Cash collected');
+        // Collected as earned (receivables off): the revenue row is the cash.
+        if (!has(cashK)) { claim(`rvc:${l.key}:opcash`, rev); return; }
         row(arK, (t) => `${P(rev, t)}*${A(daysK, TOTAL_COL)}/365`, 'last');
         row(cashK, (t) => (t === 0 ? `${P(rev, t)}-${P(arK, t)}` : `${P(rev, t)}-(${P(arK, t)}-${Prev(arK, t)})`));
         claim(`rvc:${l.key}:opar`, arK); claim(`rvc:${l.key}:opcash`, cashK);
@@ -446,7 +452,9 @@ export const stage3Revenue: LiveLayer = {
         row(otRev, (t) => `${P(roomsR, t)}*${IN(`rxin|${l.key}|other`)}`);
         row(totR, (t) => sumRows([rowOf(roomsR), rowOf(fbRev), rowOf(otRev)], t));
         opCash(totR);
-        lineTotals.set(l.key, { value: (t) => P(totR, t), rec: (t) => P(totR, t), cash: (t) => P(R('Cash collected'), t) });
+        lineTotals.set(l.key, { value: (t) => P(totR, t), rec: (t) => P(totR, t), cash: (t) => P(has(R('Cash collected')) ? R('Cash collected') : totR, t) });
+        const rvpR = byPrefix(R('RevPAR ('));
+        if (rvpR) row(rvpR, (t) => `IF(${P(arnR, t)}>0,${P(roomsR, t)}/${P(arnR, t)},0)`, 'none');
         claim(`rvc:${l.key}:total`, totR); claim(`rvc:${l.key}:rooms`, roomsR); claim(`rvc:${l.key}:fb`, fbRev); claim(`rvc:${l.key}:other`, otRev);
         claim(`rvc:${l.key}:arn`, arnR); claim(`rvc:${l.key}:orn`, ornR); claim(`rvc:${l.key}:keys`, keysK);
         continue;
@@ -468,7 +476,7 @@ export const stage3Revenue: LiveLayer = {
         const revTot = units.length === 1 ? R(`${nm(units[0])}: rent`) : R('Lease revenue');
         if (units.length !== 1) { row(occTot, (t) => sumRows(occRows, t)); row(revTot, (t) => sumRows(revRowsL, t)); }
         opCash(revTot);
-        lineTotals.set(l.key, { value: (t) => P(revTot, t), rec: (t) => P(revTot, t), cash: (t) => P(R('Cash collected'), t) });
+        lineTotals.set(l.key, { value: (t) => P(revTot, t), rec: (t) => P(revTot, t), cash: (t) => P(has(R('Cash collected')) ? R('Cash collected') : revTot, t) });
         claim(`rvc:${l.key}:rev`, revTot); claim(`rvc:${l.key}:occupied`, occTot); claim(`rvc:${l.key}:gla`, glaK);
       }
     }
@@ -480,6 +488,13 @@ export const stage3Revenue: LiveLayer = {
       for (const g of groupRevenueLines(lines)) for (const l of g.lines) {
         const f = lineTotals.get(l.key);
         const key = O(l, `sum-${id}`, revenueLineName(l));
+        // A line with no row of its own here (sales value is the sell lines'; a hotel or lease line
+        // collecting as it earns is in the one row below) is read at its revenue recognised.
+        if (f && !has(key) && l.form !== 'sell') {
+          const recKey = O(l, 'sum-rec', revenueLineName(l));
+          if (id === 'sv') claim(`rvc:${l.key}:salesValue`, recKey);
+          if (id === 'cash') claim(`rvc:${l.key}:collected`, recKey);
+        }
         if (!f || !has(key)) continue;
         row(key, f[k]);
         lineRows.push(rowOf(key));
@@ -487,6 +502,12 @@ export const stage3Revenue: LiveLayer = {
         if (id === 'sv') { claim(`rvc:${l.key}:salesValue`, key); if (l.form === 'sell' && a) claim(`rvc:${a.id}:saleRev`, key); }
         if (id === 'rec') claim(`rvc:${l.key}:recognised`, key);
         if (id === 'cash') { claim(`rvc:${l.key}:collected`, key); if (l.form === 'sell' && a) claim(`rvc:${a.id}:cash`, key); }
+      }
+      const aeK = `rev|__project__|sum-${id}|Hotel and lease lines (collected as earned)`;
+      if (has(aeK)) {
+        const parts = lines.filter((l) => l.form !== 'sell' && lineTotals.has(l.key)).map((l) => lineTotals.get(l.key)!);
+        row(aeK, (t) => parts.map((p0) => p0.rec(t)).join('+') || '0');
+        lineRows.push(rowOf(aeK));
       }
       const tk = `rev|__project__|sum-${id}|${totalLabel}`;
       row(tk, (t) => sumRows(lineRows, t));
@@ -504,6 +525,9 @@ export const stage3Revenue: LiveLayer = {
       const arParts = [sarK, oparK].filter(has);
       const urParts = lines.filter((l) => l.form === 'sell').map((l) => `rvc:${l.key}:ur`).filter(has);
       if (has(arK)) { row(arK, (t) => arParts.map((k) => P(k, t)).join('+') || '0', 'last'); claim('rvc:__project__:ar', arK); }
+      // Receivables off: one row, the sell lines' receivable, which the Balance Sheet and the Cash Flow read.
+      const oneK = 'rev|__project__|bal|Receivables';
+      if (has(oneK)) { row(oneK, (t) => sarParts.map((k) => P(k, t)).join('+') || '0', 'last'); claim('rvc:__project__:sar', oneK); claim('rvc:__project__:ar', oneK); }
       if (has(urK)) { row(urK, (t) => urParts.map((k) => P(k, t)).join('+') || '0', 'last'); claim('rvc:__project__:ur', urK); }
     }
     for (const c of checks) c();

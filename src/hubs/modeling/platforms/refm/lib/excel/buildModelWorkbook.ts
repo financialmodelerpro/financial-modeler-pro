@@ -122,6 +122,8 @@ import { projectLocationLabel } from '@/src/core/countries';
 import { buildLiveCover, buildLiveGuide, liveUnitsLine, dropNoteRows, collapseSpaces, shortenTexts } from './liveFrontMatter';
 import { applyHouseStyle, phaseLabelsFor, type HouseContext } from './houseStyle';
 import { modelTypeOf } from './tabFrame';
+import { curveGroups, landWindowCanon } from './liveLayers/capexSpread';
+import { escrowInForce, operatingReceivablesInForce, featureUsed } from './exportScope';
 import { capexCostType, CAPEX_COST_TYPES, type CapexCostType } from './capexCostType';
 import { isExpensedAsIncurred } from '@/src/core/calculations/sellingExpense';
 import { notUsedLine } from './exportScope';
@@ -434,6 +436,12 @@ function emitSellingSection(wb: ExcelJS.Workbook, ws: ExcelJS.Worksheet, r0: num
     fillRange(ws, r, 1, r, last, ARGB.subtotal);
     for (let c = 1; c <= last; c++) ws.getCell(r, c).font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.navyDark } };
   }
+}
+
+/** A hotel's guests feed only an F&B or other revenue charged per guest (2026-11-15). */
+export function hotelGuestsRead(a: { revenue?: { operate?: { fb?: { mode?: string }; otherRevenue?: { mode?: string } } } }): boolean {
+  const op = a.revenue?.operate;
+  return (op?.fb?.mode ?? 'percent_of_rooms') === 'per_guest' || (op?.otherRevenue?.mode ?? 'percent_of_rooms') === 'per_guest';
 }
 
 /** The house style's context per built workbook, for the live build to apply it after its layers. */
@@ -998,6 +1006,13 @@ function addAssumptions(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFin
   if (isLiveLayout()) {
     interface Cx { ia: CapexReport['inputAssets'][number]; ln: CapexReport['inputAssets'][number]['lines'][number]; rateKind: 'std' | 'locked' | 'plot' | 'line'; rateVal: number; winKind: 'cons' | 'land' | 'own' | 'line'; sig: string }
     const byLine = new Map<string, Cx[]>();
+    const landPairs = landWindowCanon(state);
+    // A share of selected lines, in plain words: what kinds of cost it charges on (2026-11-15).
+    const selectedBasis = (ids: readonly string[] | undefined): string => {
+      const kinds = new Set((ids ?? []).map((id) => state.costLines.find((x) => x.id === id)).filter((x): x is NonNullable<typeof x> => !!x).map((x) => capexCostType(x)));
+      const words = (['hard', 'soft', 'contingency', 'developerFee'] as const).filter((k) => kinds.has(k)).map((k) => (k === 'hard' ? 'hard costs' : k === 'soft' ? 'soft costs' : k === 'contingency' ? 'contingency' : 'developer fee'));
+      return words.length ? `% of ${words.join(', ').replace(/, ([^,]*)$/, ' and $1')}` : '% of selected lines';
+    };
     for (const ia of capex.inputAssets) for (const ln of ia.lines) {
       const cl = state.costLines.find((x) => x.id === ln.id);
       const ovr = state.costOverrides.find((o) => o.assetId === ia.assetId && o.lineId === ln.id);
@@ -1006,29 +1021,32 @@ function addAssumptions(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFin
       const ownWin = ovrOn && (ovr!.startPeriod !== undefined || ovr!.endPeriod !== undefined);
       const followsLand = !!cl && !isParcelDrivenLandLine(cl) && resolvePhasingSource(cl, ovr) === 'land_cash';
       const winKind: Cx['winKind'] = cl?.windowFollowsConstruction === true && !ownWin ? 'cons' : followsLand ? 'land' : ownWin ? 'own' : 'line';
-      const basis = methodLabel(ln.method, ln.basis);
+      // The cash and in-kind land lines share a row where their windows match (landWindowCanon).
+      const landPair = landPairs.has(ln.id) || [...landPairs.values()].includes(ln.id);
+      const basis = landPair ? '% of cash and of in-kind land' : ln.method === 'percent_of_selected' ? selectedBasis(ln.selectedLineIds) : methodLabel(ln.method, ln.basis);
       // A typed value is part of what makes two rows the same (cost lines are per phase, so one
       // row may carry several phases' lines only where their inputs agree).
       const sig = JSON.stringify([basis, rateKind === 'plot' || rateKind === 'line' ? `${rateKind}:${ln.rate}` : rateKind, winKind === 'own' || winKind === 'line' ? `${winKind}:${ln.startPeriod}-${ln.endPeriod}` : winKind, ln.stage, ln.phasing, ln.perSubUnitRates ?? null]);
-      const list = byLine.get(ln.name) ?? [];
+      const nameKey = landPair ? 'Land (Cash) and Land (In-Kind)' : ln.name;
+      const list = byLine.get(nameKey) ?? [];
       list.push({ ia, ln, rateKind, rateVal: ln.rate, winKind, sig });
-      byLine.set(ln.name, list);
+      byLine.set(nameKey, list);
     }
     const lineRefsOf = new Map<string, CapexLineRef[]>();
     const rateWritten = new Set<string>(), winWritten = new Set<string>();
     const hostsWithAny = capex.inputAssets.length;
-    for (const [, list] of byLine) {
+    for (const [lineName, list] of byLine) {
       const groups = new Map<string, Cx[]>();
       for (const x of list) groups.set(x.sig, [...(groups.get(x.sig) ?? []), x]);
       const ordered = [...groups.values()].sort((a, b) => b.length - a.length);
       for (const [gi, g] of ordered.entries()) {
         const rep = g[0];
         const ln = rep.ln;
-        const names = g.map((x) => x.ia.assetName);
-        setLabel(ws.getCell(`A${r}`), gi === 0 ? ln.name : `${ln.name}, where it differs`, { indent: gi === 0 ? 0 : 1 });
+        const names = [...new Set(g.map((x) => x.ia.assetName))];
+        setLabel(ws.getCell(`A${r}`), lineName, { indent: gi === 0 ? 0 : 1 });
         for (const x of g) registerCell(`inpcx:${x.ia.assetId}:${x.ln.id}`, ws, ws.getCell(`A${r}`));
         const ids = [...new Set(g.map((x) => x.ln.id))];
-        setLabel(ws.getCell(`B${r}`), methodLabel(ln.method, ln.basis));
+        setLabel(ws.getCell(`B${r}`), landPairs.has(ln.id) || [...landPairs.values()].includes(ln.id) ? '% of cash and of in-kind land' : ln.method === 'percent_of_selected' ? selectedBasis(ln.selectedLineIds) : methodLabel(ln.method, ln.basis));
         if (rep.rateKind === 'std') setLabel(ws.getCell(`C${r}`), 'Types and Standards');
         else if (rep.rateKind === 'locked') { const lc = ws.getCell(`C${r}`); lc.value = ln.rate / 100; lc.numFmt = NUMFMT.pct2; lc.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } }; }
         else if (rep.rateKind === 'line' && ids.every((id) => rateWritten.has(id))) { /* typed on the line's first row */ }
@@ -1048,8 +1066,10 @@ function addAssumptions(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFin
         }
         // Short names (a line's plots dropped, "Phase 1" as "P1") so the list fits one cell.
         const short = names.map((n) => n.replace(/\s*\((?:Land|Plot)[^)]*\)/g, '').replace(/\bPhase (\d+)/g, 'P$1'));
-        const applies = ordered.length === 1 && list.length === hostsWithAny ? 'All assets' : short.join('; ');
-        setLabel(ws.getCell(`H${r}`), applies.length <= 60 ? applies : `${names.length} assets`);
+        const applies = ordered.length === 1 && new Set(list.map((x) => x.ia.assetId)).size === hostsWithAny ? 'All assets' : short.join('; ');
+        // The assets by name, however many (2026-11-15, founder): the cell wraps rather than shortens.
+        setLabel(ws.getCell(`H${r}`), applies);
+        ws.getCell(`H${r}`).alignment = { wrapText: true, vertical: 'top' };
         for (const x of g) {
           const lr = lineRefsOf.get(x.ia.assetId) ?? [];
           lr.push({ id: x.ln.id, method: x.ln.method, selectedLineIds: x.ln.selectedLineIds, stage: x.ln.stage, rate: x.ln.rate, isPercent: x.ln.isPercent, basis: x.ln.basis, name: x.ln.name, rateAddr: sheetRef(SHEETS.assumptions, `$C$${r}`), qtyAddr: null, metricKind: x.ln.metricKind, amount: x.ln.amount });
@@ -1170,12 +1190,18 @@ function addAssumptions(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFin
     const typedL = Math.max(...curved.map((a) => (a.capexPhasing?.distribution ?? []).length));
     const L = Math.max(typedL, snap.axisLength + 1);
     setSectionHeader(ws.getRow(r), 'Plot spend curves (typed by phase period; period 0 is the year before the phase starts)', Math.max(9, L + 1)); r += 1;
-    setColHeader(ws.getCell(`A${r}`), 'Plot', 'left');
+    setColHeader(ws.getCell(`A${r}`), 'Curve, for', 'left');
     for (let i = 0; i < L; i++) setColHeader(ws.getCell(r, 2 + i), `P${i}`, 'right');
     r += 1;
+    // ONE ROW PER CURVE (2026-11-15, founder): assets typing the same curve share its row (curveGroups).
+    const groupsC = curveGroups(state);
     for (const a of curved) {
-      setLabel(ws.getCell(`A${r}`), assetLabel(a, { parcels: state.parcels, phases: state.phases }), { indent: 1 });
-      registerCell(`inpcurve:${a.id}`, ws, ws.getCell(`A${r}`));
+      const ids = groupsC.get(a.id);
+      if (!ids) continue;
+      const nm = ids.map((id) => state.assets.find((x) => x.id === id)).filter((x): x is Asset => !!x).map((x) => assetLabel(x, { parcels: state.parcels, phases: state.phases }).replace(/\bPhase (\d+)/g, 'P$1'));
+      setLabel(ws.getCell(`A${r}`), nm.join('; '), { indent: 1 });
+      ws.getCell(`A${r}`).alignment = { wrapText: true, vertical: 'top', indent: 1 };
+      for (const id of ids) registerCell(`inpcurve:${id}`, ws, ws.getCell(`A${r}`));
       const dist = a.capexPhasing?.distribution ?? [];
       for (let i = 0; i < L; i++) {
         const cell = ws.getCell(r, 2 + i);
@@ -2299,9 +2325,14 @@ function addCapex(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancial
       const ph = state.phases.find((p) => p.id === sp.phaseId);
       const a = sp.assetId ? state.assets.find((x) => x.id === sp.assetId) : undefined;
       const lineName = state.costLines.find((c) => c.id === sp.lineId)?.name ?? '';
-      const win = sp.win === 'follows' ? ruleWords[followedRule(sp.baseId)] : `${lineName} window`;
+      const pairIn = [...landWindowCanon(state).values()].includes(sp.lineId);
+      const win = sp.win === 'follows' ? ruleWords[followedRule(sp.baseId)] : pairIn ? 'land (cash and in-kind) window' : `${lineName} window`;
       if (sp.kind === 'collections') { const rl = a ? lineForAsset(revLines, a.id) : undefined; return `Collections, ${rl ? revenueLineName(rl) : a?.name ?? ''}`; }
-      if (sp.kind === 'curve') return `Curve, ${a ? assetLabel(a, ctxNames) : ''}, ${win}`;
+      if (sp.kind === 'curve') {
+        const grp = curveGroups(state).get(sp.assetId ?? '') ?? [];
+        const who = grp.length > 1 ? `${grp.length} assets` : a ? assetLabel(a, ctxNames) : '';
+        return `Curve, ${who}${multiPhase && ph && grp.length > 1 ? ` in ${ph.name}` : ''}, ${win}`;
+      }
       return `Even${multiPhase && ph ? `, ${ph.name}` : ''}, ${sp.win === 'plot' && a ? `${assetLabel(a, ctxNames)}, ` : ''}${win}`;
     };
     let r = 5;
@@ -2391,7 +2422,7 @@ function addCapex(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancial
     }
 
     // ── Table 1: one row per cost line per asset ──────────────────────────
-    setSectionHeader(ws.getRow(r), 'Table 1 - Construction cost by asset and year', cLast); r += 1;
+    setSectionHeader(ws.getRow(r), 'Development cost by asset', cLast); r += 1;
     subHeader(r, [[C_LBL, 'Cost line', 'left'], [C_UOM, 'Rate', 'right'], [3, 'Quantity', 'right'], [C_TOT, 'Total', 'right']]);
     r += 1;
     const moneyBasis = new Set(['percent_of_inkind_land', 'percent_of_cash_land', 'percent_of_revenue_sale', 'percent_of_selected']);
@@ -3595,7 +3626,18 @@ function addRevenue(ctx: EmitCtx): { revLinks: RevLinks; cosLinks: CosLinks } {
     const nm = (u: SubUnit): string => u.name || 'sub-unit';
     // What the summary links, per line: sales value, revenue recognised, cash collected.
     const summary = new Map<string, { value: number[]; rec: number[]; cash: number[] }>();
+    // RECEIVABLES ON HOTEL AND LEASE LINES OFF (0 days, 2026-11-15, founder): a line collects as it earns,
+    // so no receivable days, receivable or cash collected row is built for it.
+    const recOn = operatingReceivablesInForce(state as never);
+    // THE LEASE LINES IN ONE SECTION (2026-11-15, founder), where the platform files them under several.
+    const leaseLines = groups.flatMap((g) => g.lines.filter((l) => l.form === 'lease'));
+    const outGroups: Array<{ section: string; lines: RevenueLine[] }> = [];
     for (const g of groups) {
+      if (g.lines.length && g.lines.every((l) => l.form === 'lease')) {
+        if (!outGroups.some((x) => x.section === 'Lease lines')) outGroups.push({ ...g, section: 'Lease lines', lines: leaseLines });
+      } else outGroups.push(g);
+    }
+    for (const g of outGroups) {
       em.groupBand(g.section);
       for (const line of g.lines) {
         const p = phaseById.get(line.phaseId);
@@ -3639,7 +3681,9 @@ function addRevenue(ctx: EmitCtx): { revLinks: RevLinks; cosLinks: CosLinks } {
           // One row per model year (2026-10-27): a year with no pre-sales shows zero, so a phase
           // lengthened in Excel still has a row for every year it now pre-sells in.
           const inst = Math.max(0, Math.floor(buildSaleCohortTermsBlock(a, p, psy)?.instalmentYears ?? 0));
+          // A SALE YEAR THAT CAN HAVE PRE-SALES ONLY (2026-11-15, founder): the phase's construction years.
           for (let s = 0; s < N; s++) {
+            if (!w.construction.includes(s)) continue;
             const row = em.moneyRow(`${yl[s]} sales: cash collected`, padded(r.cashVintageMatrix[s]), { indent: 1 });
             const dp = s >= w.handoverIdx ? 1 : (w.construction.includes(s) ? resolveCohortDownpayment(a.revenue?.sell?.downpaymentByPhase, state.project.saleCohortDefaults?.downpayment, s - w.phaseOffset).value : 0);
             const b = ws.getCell(row, META_B); b.value = dp; b.numFmt = NUMFMT.pct; b.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } };
@@ -3662,6 +3706,7 @@ function addRevenue(ctx: EmitCtx): { revLinks: RevLinks; cosLinks: CosLinks } {
         // A hotel or lease line's receivable (revenue x its days over 365) and the cash it collects
         // (revenue less the rise in that receivable): the rule Schedules and the Balance Sheet read.
         const opCashRows = (earner: Asset, rev: number[]): number[] => {
+          if (!recOn) return rev;
           const ar = buildAccountsReceivableDSO({ revenuePerPeriod: rev, dsoDays: lineReceivableDays(earner, state.project), daysPerYear: Math.max(1, state.project.operatingAr?.daysPerYear ?? 365), axisLength: N });
           em.moneyRow('Receivable at year end', ar.perPeriod, { indent: 1, totalLast: true });
           em.moneyRow('Cash collected', ar.cashReceivedPerPeriod, { style: 'subtotal' });
@@ -3679,7 +3724,7 @@ function addRevenue(ctx: EmitCtx): { revLinks: RevLinks; cosLinks: CosLinks } {
             em.scalarRow('Lettable area (sqm)', units.reduce((s, u) => s + Math.max(0, computeSubUnitArea(u, a)), 0), NUMFMT.int);
           }
           em.scalarRow('Operations start year', psy + w.opsStartIdx, NUMFMT.year);
-          em.scalarRow('Receivable days', lineReceivableDays(a, state.project), NUMFMT.int);
+          if (recOn) em.scalarRow('Receivable days', lineReceivableDays(a, state.project), NUMFMT.int);
           em.setRegTable('o');
           em.periodRow('In operations (1 = yes)', inOps, range(0, N - 1), NUMFMT.int, { total: sumAll(inOps) });
         };
@@ -3690,8 +3735,11 @@ function addRevenue(ctx: EmitCtx): { revLinks: RevLinks; cosLinks: CosLinks } {
           em.periodRow(`ADR (${cur} per occupied room night)`, padded(r.adrPerPeriod), range(0, N - 1), NUMFMT.rate);
           em.moneyRow('Available room nights', padded(r.availableRoomNightsPerPeriod), { indent: 1, numFmt: NUMFMT.int });
           em.moneyRow('Occupied room nights', padded(r.occupiedRoomNightsPerPeriod), { indent: 1, numFmt: NUMFMT.int });
-          em.moneyRow('Guests', padded(r.guestsPerPeriod), { indent: 1, numFmt: NUMFMT.int });
+          if (hotelGuestsRead(a)) em.moneyRow('Guests', padded(r.guestsPerPeriod), { indent: 1, numFmt: NUMFMT.int });
           em.moneyRow('Rooms revenue', padded(r.roomsRevenuePerPeriod), { indent: 1 });
+          // RevPAR (2026-11-15, founder): rooms revenue over the available room nights.
+          const arnV = padded(r.availableRoomNightsPerPeriod), roomsV = padded(r.roomsRevenuePerPeriod);
+          em.periodRow(`RevPAR (${cur} per available room night)`, arnV.map((v, t) => (v > 0 ? roomsV[t] / v : 0)), range(0, N - 1), NUMFMT.rate);
           em.moneyRow('F&B revenue', padded(r.fbRevenuePerPeriod), { indent: 1 });
           em.moneyRow('Other revenue', padded(r.otherRevenuePerPeriod), { indent: 1 });
           em.moneyRow('Hotel revenue', padded(r.totalRevenuePerPeriod), { style: 'subtotal' });
@@ -3730,12 +3778,23 @@ function addRevenue(ctx: EmitCtx): { revLinks: RevLinks; cosLinks: CosLinks } {
     for (const [id, title, k, total] of views) {
       em.tableTitle(title);
       const tot = zeros();
+      const asEarned = zeros();
+      let anyAsEarned = false;
       for (const g of groups) for (const line of g.lines) {
         const s = summary.get(line.key);
         if (!s) continue;
+        // SALES VALUE IS THE SELL LINES' (2026-11-15, founder); cash collected adds the hotel and lease
+        // lines in one row where they collect as they earn.
+        if (id === 'sv' && line.form !== 'sell') continue;
+        if (id === 'cash' && line.form !== 'sell' && !recOn) { for (let t = 0; t < N; t++) asEarned[t] += s[k][t] ?? 0; anyAsEarned = true; continue; }
         em.setRegLine(line.key); em.setRegTable(`sum-${id}`);
         em.moneyRow(revenueLineName(line), s[k], { indent: 1 });
         for (let t = 0; t < N; t++) tot[t] += s[k][t] ?? 0;
+      }
+      if (anyAsEarned) {
+        em.setRegLine('__project__'); em.setRegTable(`sum-${id}`);
+        em.moneyRow('Hotel and lease lines (collected as earned)', asEarned, { indent: 1 });
+        for (let t = 0; t < N; t++) tot[t] += asEarned[t];
       }
       em.setRegLine('__project__'); em.setRegTable(`sum-${id}`);
       em.moneyRow(total, tot, { style: 'total' });
@@ -3749,9 +3808,11 @@ function addRevenue(ctx: EmitCtx): { revLinks: RevLinks; cosLinks: CosLinks } {
       const urV = Array.from({ length: N }, (_, t) => (ur += ic.changeInUnearnedPerPeriod[t] ?? 0));
       em.tableTitle('Balances at year end');
       em.setRegLine('__project__'); em.setRegTable('bal');
-      em.moneyRow('Sales receivables, sell lines', ctx.snap.bs.residentialReceivablesPerPeriod.slice(0, N), { indent: 1, totalLast: true });
-      em.moneyRow('Operating receivables, hotel and lease lines', ctx.snap.bs.arPerPeriod.slice(0, N), { indent: 1, totalLast: true });
-      em.moneyRow('Receivables, all lines', arV, { style: 'subtotal', totalLast: true });
+      if (recOn) {
+        em.moneyRow('Sales receivables, sell lines', ctx.snap.bs.residentialReceivablesPerPeriod.slice(0, N), { indent: 1, totalLast: true });
+        em.moneyRow('Operating receivables, hotel and lease lines', ctx.snap.bs.arPerPeriod.slice(0, N), { indent: 1, totalLast: true });
+        em.moneyRow('Receivables, all lines', arV, { style: 'subtotal', totalLast: true });
+      } else em.moneyRow('Receivables', arV, { style: 'subtotal', totalLast: true });
       em.moneyRow('Unearned revenue, all lines', urV, { style: 'subtotal', totalLast: true });
       em.gap();
     }
@@ -4334,7 +4395,8 @@ function addRevenue(ctx: EmitCtx): { revLinks: RevLinks; cosLinks: CosLinks } {
   else emitFeeds(em, ws, true);
 
   // ── 5. Escrow (whenever a Sell line has pre-sales cash) ──────────────────────
-  const escrowLines = planReportLines({ assets: state.assets, phases: state.phases, parcels: state.parcels }, (a) => snap.escrow.byAsset.has(a.id));
+  // Escrow off builds no escrow block in the live layout (2026-11-15, founder).
+  const escrowLines = isLiveLayout() && !escrowInForce(state as never) ? [] : planReportLines({ assets: state.assets, phases: state.phases, parcels: state.parcels }, (a) => snap.escrow.byAsset.has(a.id));
   if (escrowLines.length > 0) {
     em.section('5. Escrow (inputs, pre-sales cash subject to escrow, balance roll-forward, cash flow impact)');
     em.setRegScope('esc');
@@ -4627,11 +4689,16 @@ function addOpexLive(ctx: EmitCtx, ws: ExcelJS.Worksheet, em: ReturnType<typeof 
   const money = (key: string, label: string, v: readonly number[], opts: Parameters<typeof em.moneyRow>[2] = {}): number => { const r = em.moneyRow(label, [...v], opts); keyed(key, r); return r; };
   const tables = buildOpexReport(snap, state, { allLines: true });
   const lineRows: Array<{ line: RevenueLine; rev: number[]; opex: number[]; ebitda: number[] }> = [];
+  const hqOn = featureUsed(state as never, 'hq'), apOn = featureUsed(state as never, 'payables');
 
+  // THE LEASE LINES IN ONE SECTION (2026-11-15, founder), as on Revenue.
+  let lastBand = '';
   for (const section of REVENUE_SECTIONS) {
     const st = tables.filter((t) => t.lineKey && t.section === section && t.title.endsWith('Operating statement'));
     if (st.length === 0) continue;
-    em.groupBand(`${section}: ${REVENUE_SECTION_META[section]}`);
+    const allLease = st.every((tb) => revLines.find((l) => l.key === tb.lineKey)?.form === 'lease');
+    const band = allLease ? 'Lease lines' : `${section}: ${REVENUE_SECTION_META[section]}`;
+    if (band !== lastBand) { em.groupBand(band); lastBand = band; }
     for (const tb of st) {
       const line = revLines.find((l) => l.key === tb.lineKey);
       const a = line?.members.find((m) => (m.strategy === 'Operate' || m.strategy === 'Lease') && snap.opex.byAsset.has(m.id));
@@ -4643,8 +4710,11 @@ function addOpexLive(ctx: EmitCtx, ws: ExcelJS.Worksheet, em: ReturnType<typeof 
       const K = (id: string): string => oxKey(line.key, id);
       const per = snap.opex.byAsset.get(a.id)?.perLinePerPeriod ?? [];
       const stored = (a.opex?.lines ?? []) as OpexLine[];
-      const plan = planOpexStatement(line.key, stored, isHotel);
+      const plan = planOpexStatement(line.key, stored, isHotel, true);
       const costVals = (row: OpexCostRow): number[] => sumOf(row.idxs.map((i) => padded(per[i])));
+      // ONE COST ROW (a lease line whose only cost is property management): shown once, no heading or total.
+      const allRows = plan.groups.flatMap((g) => g.rows);
+      const single = !isHotel && allRows.length === 1 ? allRows[0] : null;
       em.subTitle(revenueLineName(line));
       const held = upToExit(state, N);
       money(K('io'), 'In operations (1 = yes)', vals('In operations (1 = yes)').map((v, t) => v * held(t)), { indent: 1, numFmt: NUMFMT.int });
@@ -4653,8 +4723,9 @@ function addOpexLive(ctx: EmitCtx, ws: ExcelJS.Worksheet, em: ReturnType<typeof 
       if (isHotel) {
         // THE HOTEL'S OPERATING STATISTICS (2026-11-12, founder: kept, compact): keys, room nights sold,
         // occupancy, ADR and RevPAR, the engine's own figures (RevPAR = rooms revenue over available nights).
+        // The statistics are on Revenue (keys, occupancy, ADR, RevPAR): no block here (2026-11-15, founder).
         const hs = line.members.map((m) => snap.revenue.byHospitalityAsset.get(m.id)).filter((x): x is NonNullable<typeof x> => !!x);
-        if (hs.length) {
+        if (hs.length && (false as boolean)) {
           const h = hs[0];
           const keysN = Math.max(0, ...hs.map((x) => Math.max(0, ...(x.effectiveKeysPerPeriod ?? [0]))));
           const avail = padded(h.availableRoomNightsPerPeriod), rooms = padded(h.roomsRevenuePerPeriod);
@@ -4679,8 +4750,15 @@ function addOpexLive(ctx: EmitCtx, ws: ExcelJS.Worksheet, em: ReturnType<typeof 
       for (const g of plan.groups) {
         const active = g.rows.filter((r) => !r.off);
         groupVals.set(g.group, sumOf(g.rows.map(costVals)));
-        if (active.length === 0 && !g.totalKey) continue;
-        head(g.label);
+        if (active.length === 0 && !g.totalKey) {
+          if (isHotel && g.group === 'departmental') money(K('dp'), 'Departmental profit', vals('Departmental profit'), { style: 'subtotal' });
+          if (isHotel && g.group === 'undistributed') {
+            money(K('gop'), 'Gross operating profit, GOP', vals('Gross operating profit, GOP'), { style: 'subtotal' });
+            money(K('gopm'), 'GOP margin', vals('GOP margin'), { indent: 1, numFmt: NUMFMT.pct, totalValue: byLabel.get('GOP margin')?.totalValue });
+          }
+          continue;
+        }
+        if (!single) head(g.label);
         for (const r of active) money(r.key, r.name, costVals(r), { indent: 1 });
         if (g.totalKey) money(g.totalKey, g.totalLabel, groupVals.get(g.group)!, { style: 'subtotal' });
         if (isHotel && g.group === 'departmental') money(K('dp'), 'Departmental profit', vals('Departmental profit'), { style: 'subtotal' });
@@ -4691,7 +4769,8 @@ function addOpexLive(ctx: EmitCtx, ws: ExcelJS.Worksheet, em: ReturnType<typeof 
       }
       const opex = vals('Total operating expenses');
       const ebitda = vals('EBITDA, net operating income');
-      money(K('opex'), 'Total operating expenses', opex, { style: 'subtotal' });
+      if (single) registerCell(K('opex'), ws, ws.getCell(em.cursor() - 1, LBL_COL));
+      else money(K('opex'), 'Total operating expenses', opex, { style: 'subtotal' });
       money(K('ebitda'), 'EBITDA, net operating income', ebitda, { style: 'total' });
       money(K('ebm'), 'EBITDA margin', vals('EBITDA margin'), { indent: 1, numFmt: NUMFMT.pct, totalValue: byLabel.get('EBITDA margin')?.totalValue });
       if (plan.off.length) {
@@ -4705,7 +4784,8 @@ function addOpexLive(ctx: EmitCtx, ws: ExcelJS.Worksheet, em: ReturnType<typeof 
   }
 
   // HQ, project-wide: the factor, every line, the total.
-  const hqLines = hqOpexLinesInForce(state.project.hqOpex?.lines as OpexLine[] | undefined);
+  // HQ OFF (every line off or zero) builds no HQ block (2026-11-15, founder).
+  const hqLines = hqOn ? hqOpexLinesInForce(state.project.hqOpex?.lines as OpexLine[] | undefined) : [];
   const hqTotal = padded(snap.opex.hq.totalOpexPerPeriod);
   let hqRow = -1;
   if (hqLines.length) {
@@ -4735,10 +4815,12 @@ function addOpexLive(ctx: EmitCtx, ws: ExcelJS.Worksheet, em: ReturnType<typeof 
     }
     return money(`ox|sum|${id}`, totalLabel, total, { style: 'subtotal' });
   };
-  block('rev', 'Revenue', (x) => x.rev, null, 'Total revenue');
+  // The summary's revenue repeated Revenue: opex and EBITDA by line only (2026-11-15, founder).
   const totalRow = block('opex', 'Operating expenses', (x) => x.opex, 'add', 'Total project opex');
   block('ebitda', 'EBITDA', (x) => x.ebitda, 'less', 'Total EBITDA');
   em.gap();
+  // PAYABLES AT 0 DAYS: no payables block; each line pays its opex as incurred (2026-11-15, founder).
+  if (!apOn) return { hospRow: totalRow, retailRow: totalRow, hqRow, totalRow };
 
   // PAYABLES: each line's closing payable and HQ's, then one project roll-forward.
   em.groupBand('Accounts payable');

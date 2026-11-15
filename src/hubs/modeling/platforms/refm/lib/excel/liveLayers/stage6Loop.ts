@@ -143,7 +143,7 @@ export const stage6Loop: LiveLayer = {
     if ((project.idcConfig?.allocationBasis ?? 'land') !== 'land') refuse.push('capitalised interest allocated by GFA');
     for (const k of ['fin:in:debt', 'fin:in:equity', 'fin:in:min', 'fin:in:divOn', 'fin:in:payout', 'fin:in:divStart']) if (!has(k)) refuse.push(`the ${k} cell is not on Inputs`);
     if (pc0.anySweep && !(has('fin:in:sweepStart') && has('fin:in:sweepRatio'))) refuse.push('the sweep settings are not on Inputs');
-    for (const k of ['cx2:total', 'cx5:total:cash', 'cx5:total:inkind', 'schv:__project__:dep', 'rev|__project__|sum-cash|Total cash collected', 'ox|ap|paid', 'fl:capex', 'fl:need', 'fl:close']) if (!has(k)) refuse.push(`the ${k} row is not live`);
+    for (const k of ['cx2:total', 'cx5:total:cash', 'cx5:total:inkind', 'schv:__project__:dep', 'rev|__project__|sum-cash|Total cash collected', has('ox|ap|close') ? 'ox|ap|paid' : 'ox|sum|opex', 'fl:capex', 'fl:need', 'fl:close']) if (!has(k)) refuse.push(`the ${k} row is not live`);
     if (refuse.length) return values(`The financing could not be made live for this model: ${[...new Set(refuse)].join('; ')}.`);
 
     // ── Writing helpers ──────────────────────────────────────────────────────
@@ -293,7 +293,8 @@ export const stage6Loop: LiveLayer = {
       }
     }
     put('fl:collected', (t) => P('rev|__project__|sum-cash|Total cash collected', t));
-    put('fl:opexPaid', (t) => `-${P('ox|ap|paid', t)}`);
+    // Payables at 0 days: opex is paid as incurred (2026-11-15), so the cash paid is the project opex.
+    put('fl:opexPaid', (t) => `-${P(has('ox|ap|close') ? 'ox|ap|paid' : 'ox|sum|opex', t)}`);
     put('fl:mkt', (t) => (has('cx1e:total') ? `-${P('cx1e:total', t)}` : '0'));
     const escNet = 'esc||C. Cash Flow Impact (project totals)|Net escrow cash flow';
     put('fl:esc', (t) => (has(escNet) ? P(escNet, t) : '0'));

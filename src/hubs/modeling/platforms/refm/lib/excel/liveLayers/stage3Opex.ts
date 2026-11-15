@@ -121,7 +121,9 @@ export const stage3Opex: LiveLayer = {
       if (ln.rateMode === 'yoy') refuse.push(`HQ: ${ln.name} has year-by-year rates`);
       if (ln.useAssetDefault === false && ln.mode === 'fixed_baseline' && (ln.indexation?.method ?? 'none') !== 'none') refuse.push(`HQ: ${ln.name} has its own inflation`);
     }
-    if (!has('oxin|dpo|default') || !has('oxin|dpo|days')) refuse.push('the DPO days are not on Inputs');
+    // Payables at 0 days (2026-11-15): no days on Inputs and no payables block; opex is paid as incurred.
+    const apOn = has('ox|ap|close');
+    if (apOn && (!has('oxin|dpo|default') || !has('oxin|dpo|days'))) refuse.push('the DPO days are not on Inputs');
     if (!has('rvc:__project__:salesValue')) refuse.push('Revenue\'s project sales value is not on the Revenue tab');
     // An exit before the last year stops the held assets trading after it (`stopAfterExit`).
     if (snap.disposal.booked && snap.disposal.exitIdx < N - 1 && opexAssets.length) refuse.push('the exit falls before the last year, which stops the held assets trading after it');
@@ -219,7 +221,7 @@ export const stage3Opex: LiveLayer = {
       const keys = isOp && earner && has(RV('keys')) ? A(RV('keys'), TOTAL_COL) : '0';
       const gla = !isOp && earner && has(RV('gla')) ? A(RV('gla'), TOTAL_COL) : '0';
       const stored = (a.opex?.lines ?? []) as OpexLine[];
-      const plan = planOpexStatement(l.key, stored, isOp);
+      const plan = planOpexStatement(l.key, stored, isOp, true);
       const lineF = (i: number) => (t: number): string => {
         const ln = stored[i];
         const vK = `oxv|${a.id}|${i}`, onK = `oxon|${a.id}|${i}`;
@@ -252,7 +254,10 @@ export const stage3Opex: LiveLayer = {
         row(K('ebitda'), (t) => `${P(K('gop'), t)}-${gt('management', t)}-${gt('fixed', t)}`);
         for (const g of HOSPITALITY_COST_GROUPS) { const k = GT(g); if (k && has(k)) w.claim(`oxo:${l.key}:grp:${g}`, OPEX, w.addr(k).row, 1); }
       } else {
-        row(K('opex'), (t) => sumRows(groupKeys, t));
+        // One cost row: it is the total (the same cell), so no second formula is written.
+        const one = plan.groups.flatMap((g) => g.rows);
+        const same = one.length === 1 && has(K('opex')) && w.addr(K('opex')).row === w.addr(one[0].key).row;
+        if (!same) row(K('opex'), (t) => sumRows(groupKeys, t));
         row(K('ebitda'), (t) => `${P(K('rev'), t)}-${P(K('opex'), t)}`);
       }
       ratioRow(K('ebm'), K('ebitda'), K('rev'));
@@ -274,7 +279,10 @@ export const stage3Opex: LiveLayer = {
       if (!has(`oxv|hq|${i}`) || !has(`oxon|hq|${i}`)) throw new Error(`HQ Inputs cell missing: ${i}`);
       const rate = IN(`oxv|hq|${i}`, 4);
       row(k, (t) => {
-        const v = ln.mode === 'fixed_baseline' ? (has('ox|hq|fac') ? `${rate}*${P('ox|hq|fac', t)}` : rate) : ln.mode === 'pct_of_total_rev' ? `${rate}*${P(salesValue, t)}` : '';
+        // Total revenue: the sell lines' sales value plus the hotel and lease lines' revenue (2026-11-15: the
+        // Revenue summary's sales value is the sell lines' only).
+        const nonSellRec = lines.filter((x) => x.form !== 'sell').map((x) => `rvc:${x.key}:recognised`).filter(has);
+        const v = ln.mode === 'fixed_baseline' ? (has('ox|hq|fac') ? `${rate}*${P('ox|hq|fac', t)}` : rate) : ln.mode === 'pct_of_total_rev' ? `${rate}*(${[salesValue, ...nonSellRec].map((k) => P(k, t)).join('+')})` : '';
         return v ? `IF(${IN(`oxon|hq|${i}`, 6)}="Off",0,${v})` : '0';
       });
       hqKeys.push(k);
@@ -284,7 +292,7 @@ export const stage3Opex: LiveLayer = {
     // ── The summary: each line's revenue, opex and EBITDA, HQ, the project ───
     for (const id of ['rev', 'opex', 'ebitda'] as const) {
       const ks: string[] = [];
-      for (const o of outs) { const k = `ox|sum|${id}|${o.line.key}`; row(k, (t) => P(oxKey(o.line.key, id), t)); ks.push(k); }
+      for (const o of outs) { const k = `ox|sum|${id}|${o.line.key}`; if (!has(k)) continue; row(k, (t) => P(oxKey(o.line.key, id), t)); ks.push(k); }
       const hqK = `ox|sum|${id}|hq`;
       row(hqK, (t) => (has('ox|hq|total') ? P('ox|hq|total', t) : '0'));
       if (id === 'ebitda') row(`ox|sum|${id}`, (t) => `${sumRows(ks, t)}${has(hqK) ? `-${P(hqK, t)}` : ''}`);
@@ -292,9 +300,15 @@ export const stage3Opex: LiveLayer = {
     }
 
     // ── Payables ─────────────────────────────────────────────────────────────
+    if (!apOn) {
+      // Paid as incurred: each line's cash paid is its opex row.
+      for (const o of outs) w.claim(`oxo:paid:${o.asset.id}`, OPEX, w.addr(o.total).row, 1);
+      if (has('ox|hq|total')) w.claim('oxo:paid:hq', OPEX, w.addr('ox|hq|total').row, 1);
+    }
     // Each line's closing payable: its opex x the days in force (column B) / the days basis.
-    const daysBasis = `MAX(1,${IN('oxin|dpo|days', 2)})`;
-    const dflt = IN('oxin|dpo|default', 2);
+    const daysBasis = apOn ? `MAX(1,${IN('oxin|dpo|days', 2)})` : '1';
+    const dflt = apOn ? IN('oxin|dpo|default', 2) : '0';
+    if (apOn) {
     const closeKeys: string[] = [];
     const payable = (key: string, inc: (t: number) => string, daysF: string): void => {
       if (!has(key)) return;
@@ -333,6 +347,7 @@ export const stage3Opex: LiveLayer = {
     row('ox|ap|inc', (t) => P('ox|sum|opex', t));
     row('ox|ap|paid', (t) => sumRows(paidKeys, t));
     row('ox|ap|close', (t) => `${P('ox|ap|open', t)}+${P('ox|ap|inc', t)}-${P('ox|ap|paid', t)}`, 'last');
+    }
 
     // ── What later tabs read: the visible rows, named once here ─────────────
     for (const o of outs) w.claim(`oxo:${o.asset.id}:total`, OPEX, w.addr(o.total).row, 1);

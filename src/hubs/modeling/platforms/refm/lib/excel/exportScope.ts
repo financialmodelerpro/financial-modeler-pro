@@ -20,13 +20,14 @@
  */
 import { hqOpexLinesInForce, type OpexLine } from '@/src/core/calculations/opex';
 
-export type ExportFeature = 'escrow' | 'hq' | 'payables' | 'existing' | 'statutoryReserve' | 'opexLines';
+export type ExportFeature = 'escrow' | 'hq' | 'payables' | 'receivables' | 'existing' | 'statutoryReserve' | 'opexLines';
 
 /** The words Inputs uses for each feature, in the order the line lists them. */
 export const FEATURE_WORDS: Record<ExportFeature, string> = {
   escrow: 'escrow (held at 0%)',
   hq: 'HQ overheads',
   payables: 'payables (0 days)',
+  receivables: 'receivable days on hotel and lease lines (0 days)',
   existing: 'an existing position (debt, equity or operations at the start)',
   statutoryReserve: 'statutory reserve (0%)',
   opexLines: 'zero opex lines',
@@ -37,6 +38,7 @@ export interface ScopeState {
   project: {
     escrow?: { heldPct?: number };
     opexAp?: { defaultApDays?: number };
+    operatingAr?: { dsoDays?: number };
     statutoryReserve?: { transferRate?: number };
     hqOpex?: { lines?: unknown[] };
     existingRetainedEarnings?: number;
@@ -45,12 +47,13 @@ export interface ScopeState {
   phases: Array<{ status?: string }>;
   assets: Array<{
     visible?: boolean;
+    strategy?: string;
     historicalPreCapexLand?: number;
     historicalPreCapexBuilding?: number;
     historicalPreCapex?: number;
     historicalEquityAmount?: number;
     opex?: { apDaysOverride?: number; lines?: Array<{ value?: number; disabled?: boolean; yoyRates?: number[]; yoyRatesByPhase?: number[]; rateMode?: string }> };
-    revenue?: { sell?: { escrow?: { heldPctOverride?: number } } };
+    revenue?: { sell?: { escrow?: { heldPctOverride?: number } }; operate?: { dso?: number }; lease?: { arDays?: number } };
   }>;
   financingTranches?: Array<{ origin?: string; openingBalance?: number }>;
 }
@@ -86,6 +89,9 @@ export function featureUsed(state: ScopeState, f: ExportFeature): boolean {
       return (hqOpexLinesInForce(p.hqOpex?.lines as OpexLine[] | undefined) as Array<{ value?: number; disabled?: boolean }>).some((l) => !opexLineIsZero(l));
     case 'payables':
       return pos(p.opexAp?.defaultApDays) || assets.some((a) => pos(a.opex?.apDaysOverride));
+    case 'receivables':
+      // A hotel or lease line collects on its own days, else the project DSO (receivableDays.ts).
+      return pos(p.operatingAr?.dsoDays) || assets.some((a) => (a.strategy === 'Operate' && pos(a.revenue?.operate?.dso)) || (a.strategy === 'Lease' && pos(a.revenue?.lease?.arDays)));
     case 'existing':
       return state.phases.some((ph) => ph.status === 'operational')
         || (state.financingTranches ?? []).some((t) => t.origin === 'existing' || pos(t.openingBalance))
@@ -120,3 +126,10 @@ export function isZeroLine(values: ReadonlyArray<number | null | undefined>): bo
 export function groupNeedsTotal(rowsInGroup: number): boolean {
   return rowsInGroup >= 2;
 }
+
+/** Escrow held on a sell line's pre-sales (2026-11-15): when off, no escrow row is built anywhere. */
+export function escrowInForce(state: ScopeState): boolean { return featureUsed(state, 'escrow'); }
+
+/** Receivables on hotel and lease lines (2026-11-15): when off, a line collects as it earns and no
+ *  receivable row is built for it. */
+export function operatingReceivablesInForce(state: ScopeState): boolean { return featureUsed(state, 'receivables'); }

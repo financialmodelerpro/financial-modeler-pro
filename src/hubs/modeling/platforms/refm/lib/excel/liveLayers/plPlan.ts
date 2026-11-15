@@ -19,6 +19,7 @@
  *
  * No em dashes in this file.
  */
+import { featureUsed } from '../exportScope';
 import { computeFinancialsSnapshot, type FinancialsResolverState } from '../../financials-resolvers';
 import { getFinancialLabels, defaultTerminologyForCountry } from '@/src/core/calculations/financials';
 import { isRevenueSubUnit } from '@/src/core/calculations';
@@ -143,7 +144,8 @@ export function plPlan(state: FinancialsResolverState, snap: Snap = computeFinan
       head.values = add(vals);
       opexKeys.push(head.key); opexVals.push(head.values);
     }
-    if (view === PL_ALL) {
+    // HQ off: no HQ row (2026-11-15).
+    if (view === PL_ALL && featureUsed(state as never, 'hq')) {
       const v = neg(sl(snap.pl.hqOpexPerPeriod));
       rows.push({ key: K('HQ overheads'), label: 'HQ overheads', kind: 'row', values: v, src: { kind: 'hq' } });
       opexKeys.push(K('HQ overheads')); opexVals.push(v);
@@ -198,9 +200,11 @@ export function plPlan(state: FinancialsResolverState, snap: Snap = computeFinan
     reconVals.push(src.values!);
     rows.push({ key: RK(PHASE_RECON.phase(ph.name)), label: PHASE_RECON.phase(ph.name), kind: 'row', values: src.values!, src: { kind: 'link', key: src.key } });
   }
-  const hq = rows.find((r) => r.key === `pl|${PL_ALL}||HQ overheads`)!;
-  reconKeys.push(RK(PHASE_RECON.hq)); reconVals.push(hq.values!);
-  rows.push({ key: RK(PHASE_RECON.hq), label: PHASE_RECON.hq, kind: 'row', values: hq.values!, src: { kind: 'link', key: hq.key } });
+  const hq = rows.find((r) => r.key === `pl|${PL_ALL}||HQ overheads`);
+  if (hq) {
+    reconKeys.push(RK(PHASE_RECON.hq)); reconVals.push(hq.values!);
+    rows.push({ key: RK(PHASE_RECON.hq), label: PHASE_RECON.hq, kind: 'row', values: hq.values!, src: { kind: 'link', key: hq.key } });
+  }
   const fees = rows.find((r) => r.key === `pl|${PL_ALL}||Total Fund Management Fee`);
   if (fees) {
     reconKeys.push(RK(PHASE_RECON.fees)); reconVals.push(fees.values!);

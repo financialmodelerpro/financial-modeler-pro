@@ -31,6 +31,7 @@
  *
  * No em dashes in this file.
  */
+import { escrowInForce } from '../exportScope';
 import type { LayerContext, LiveLayer } from '../formulaWorkbook';
 import { LiveWriter } from './writer';
 import { PERIOD_COLS } from '../buildModelWorkbook';
@@ -92,7 +93,7 @@ export const stage3Cos: LiveLayer = {
     const lineOfAsset = (id: string): RevenueLine | undefined => lines.find((l) => l.members.some((m) => m.id === id));
 
     // ── Escrow (Revenue) ─────────────────────────────────────────────────────
-    const escLines = planReportLines({ assets: state.assets, phases: state.phases, parcels: state.parcels }, (a) => snap.escrow.byAsset.has(a.id));
+    const escLines = escrowInForce(state as never) ? planReportLines({ assets: state.assets, phases: state.phases, parcels: state.parcels }, (a) => snap.escrow.byAsset.has(a.id)) : [];
     // THE INPUTS ARE READ WHERE THEY ARE TYPED (2026-10-27): Revenue no longer echoes them, so the
     // project defaults and each line's overrides are Inputs cells; a blank override is "auto".
     if (escLines.length && has('escin|pct')) {

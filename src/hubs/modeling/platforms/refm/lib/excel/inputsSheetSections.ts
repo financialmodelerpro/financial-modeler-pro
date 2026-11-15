@@ -34,7 +34,9 @@ import { INERT_INPUTS, inertKey } from './liveLayers/inputAudit';
 import { normaliseAssetTypeId, resolveRetailSlotTypeId } from '../state/assetTypeStandards';
 import { phaseHasModelCapex } from '@/src/core/calculations/modelCapex';
 import { hqOpexLinesInForce, normalizeOpexIndexation } from '@/src/core/calculations/opex';
-import { featureUsed, opexLineIsZero } from './exportScope';
+import { featureUsed, opexLineIsZero, escrowInForce, operatingReceivablesInForce } from './exportScope';
+import { hotelGuestsRead } from './buildModelWorkbook';
+import { capexCostType } from './capexCostType';
 import { planRevenueLines, groupRevenueLines, lineForAsset, type RevenueLine } from '../revenueLines';
 import { revenueLineName } from '../reports/revenueOutputReports';
 import { planReportLines, lineTitle } from '../reports/lineRows';
@@ -244,6 +246,14 @@ export function emitStandardsSection(c: SheetCursor, state: FinancialsResolverSt
   // THE LIVE WORKBOOK SHOWS NO TYPE PRICES (2026-10-25): every price it reads is the sub-unit's own
   // Table 5 rate, so a type's sale price, ADR or rent here would be a second, unread copy.
   const prices = !live;
+  // A soft cost on selected lines (developer fee, contingency) names what it charges on (2026-11-15).
+  const softBasisOf = (label: string): string => {
+    const cl = state.costLines.find((l) => l.name === label && l.method === 'percent_of_selected');
+    if (!cl) return '';
+    const kinds = new Set((cl.selectedLineIds ?? []).map((id) => state.costLines.find((x) => x.id === id)).filter((x): x is NonNullable<typeof x> => !!x).map((x) => capexCostType(x)));
+    const words = (['hard', 'soft', 'contingency', 'developerFee'] as const).filter((k) => kinds.has(k)).map((k) => (k === 'hard' ? 'hard costs' : k === 'soft' ? 'soft costs' : k === 'contingency' ? 'contingency' : 'developer fee'));
+    return words.length ? `% of ${words.join(', ').replace(/, ([^,]*)$/, ' and $1')}` : '';
+  };
   const standardsTable = (title: string, rows0: typeof v.construction, construction: boolean): void => {
     const rows = rows0.filter((row) => typeShown(row.assetTypeId));
     setSectionHeader(c.ws.getRow(c.r), title, construction ? (prices ? 9 : 5) : 5); c.r += 1;
@@ -255,7 +265,8 @@ export function emitStandardsSection(c: SheetCursor, state: FinancialsResolverSt
       setLabel(c.ws.getCell(c.r, 1), row.label);
       let col = 2;
       if (construction) { setLabel(c.ws.getCell(c.r, col), row.appliesTo); col += 1; }
-      setLabel(c.ws.getCell(c.r, col), row.basis); col += 1;
+      // A basis that lists every selected line runs past a cell's width: the short form says the same.
+      setLabel(c.ws.getCell(c.r, col), construction ? row.basis : (row.basis && row.basis.length <= 60 ? row.basis : softBasisOf(row.label) || row.basis)); col += 1;
       if (row.rate !== undefined) { setInput(c.ws.getCell(c.r, col), row.isPercent ? row.rate / 100 : row.rate, row.isPercent ? NUMFMT.pct2 : NUMFMT.rate); fixedHere(c, c.r, col, 'No cost line in this model charges at this standard.'); }
       registerCell(`std:${row.id}:rate`, c.ws, c.ws.getCell(c.r, col));
       col += 1;
@@ -602,7 +613,8 @@ export function emitStatementInputsSection(c: SheetCursor, state: FinancialsReso
   // the days EVERY such line collects on (the live layers refuse a model whose
   // lines differ from it), and it says so; typing it moves every line.
   const ownDays = state.assets.some((a) => a.visible !== false && statedLineReceivableDays(a) !== undefined);
-  kv(c, isLiveLayout() ? 'Operating receivables, project DSO (days; a hotel or lease line with no days of its own)' : ownDays ? 'Operating receivables, days (every hotel and lease line)' : 'Operating receivables, DSO (days)', p.operatingAr?.dsoDays ?? 0, NUMFMT.int, true, 'DsoDays', undefined, 'project:dso');
+  // RECEIVABLES OFF (0 days everywhere): no DSO in the live layout (2026-11-15, founder).
+  if (!(isLiveLayout() && !operatingReceivablesInForce(state as never))) kv(c, isLiveLayout() ? 'Operating receivables, project DSO (days; a hotel or lease line with no days of its own)' : ownDays ? 'Operating receivables, days (every hotel and lease line)' : 'Operating receivables, DSO (days)', p.operatingAr?.dsoDays ?? 0, NUMFMT.int, true, 'DsoDays', undefined, 'project:dso');
   c.r += 1;
 }
 
@@ -815,7 +827,10 @@ function ancillaryRows(c: SheetCursor, title: string, cfg: { mode?: string; perc
   else kv(c, `${title}: baseline amount`, scalar(cfg?.fixedAmountPerPeriod), NUMFMT.money, true);
 }
 
+/** Whether the hotel and lease lines' receivable days are in force, for the line emitters (set per build). */
+let recOnInputs = true;
 export function emitRevenueInputs(c: SheetCursor, state: FinancialsResolverState, snap: Snap): void {
+  recOnInputs = operatingReceivablesInForce(state as never);
   const visible = state.assets.filter((a) => a.visible !== false);
   const lines = planRevenueLines(visible, state.subUnits, state.phases, state.project);
   const reportLines = planReportLines({ assets: visible, phases: state.phases, parcels: state.parcels });
@@ -886,7 +901,7 @@ function emitLeaseTable(c: SheetCursor, leaseLines: RevenueLine[], state: Financ
       registerCell(`rxgrid|${per[i].line.key}|occ@${k}`, c.ws, cell);
     });
   }
-  rowOf('Accounts Receivable Days (blank = the project DSO)', (i, cell) => {
+  if (operatingReceivablesInForce(state as never)) rowOf('Accounts Receivable Days (blank = the project DSO)', (i, cell) => {
     const own = per[i].lease?.arDays;
     const stated = typeof own === 'number' && Number.isFinite(own) && own > 0 ? own : undefined;
     if (stated !== undefined) setInput(cell, stated, NUMFMT.int); else { markInput(cell); cell.numFmt = NUMFMT.int; }
@@ -1026,10 +1041,11 @@ function emitOperateLine(c: SheetCursor, line: RevenueLine, w: LineWindow, snap:
   if (isLiveLayout()) kv(c, 'Days per year', op?.daysPerYear ?? 365, NUMFMT.int, true, undefined, 'Available room nights = keys x days per year.', `rxin|${line.key}|days`);
   // The live workbook reads these three where they are typed (2026-10-27): the Revenue card is gone.
   const live = isLiveLayout();
-  kv(c, 'Average guests per occupied room night', op?.guestsPerOccupiedRoom ?? 1.5, NUMFMT.rate, op?.guestsPerOccupiedRoom !== undefined, undefined, undefined, live ? `rxin|${line.key}|guests` : L('Average guests per occupied room night'));
+  // Guests are read only by a per-guest F&B or other revenue (2026-11-15): otherwise not on Inputs.
+  if (!live || hotelGuestsRead(line.host)) kv(c, 'Average guests per occupied room night', op?.guestsPerOccupiedRoom ?? 1.5, NUMFMT.rate, op?.guestsPerOccupiedRoom !== undefined, undefined, undefined, live ? `rxin|${line.key}|guests` : L('Average guests per occupied room night'));
   ancillaryRows(c, 'F&B Revenue', op?.fb, live ? `rxin|${line.key}|fb` : L('F&B Revenue, F&B %'));
   ancillaryRows(c, 'Other Revenue', op?.otherRevenue, live ? `rxin|${line.key}|other` : L('Other Revenue, Other %'));
-  arRow(c, line, op?.dso, op?.dso !== undefined ? 'Accounts Receivable Days (set on this line)' : 'Accounts Receivable Days (the project DSO; this line states none)', op?.dso ?? Math.max(0, projectDso), NUMFMT.int, op?.dso !== undefined, undefined, undefined, L('Accounts Receivable Days'));
+  if (!live || recOnInputs) arRow(c, line, op?.dso, op?.dso !== undefined ? 'Accounts Receivable Days (set on this line)' : 'Accounts Receivable Days (the project DSO; this line states none)', op?.dso ?? Math.max(0, projectDso), NUMFMT.int, op?.dso !== undefined, undefined, undefined, L('Accounts Receivable Days'));
 }
 
 function emitLeaseLine(c: SheetCursor, line: RevenueLine, w: LineWindow, snap: Snap, projectDso: number): void {
@@ -1049,6 +1065,8 @@ function emitLeaseLine(c: SheetCursor, line: RevenueLine, w: LineWindow, snap: S
 }
 
 export function emitEscrowInputs(c: SheetCursor, state: FinancialsResolverState, snap: Snap): void {
+  // ESCROW NOT USED: no escrow inputs in the live layout (2026-11-15, founder); the "Not used" line names it.
+  if (isLiveLayout() && !escrowInForce(state as never)) return;
   const p = state.project;
   const assets = state.assets;
   setSectionHeader(c.ws.getRow(c.r), 'Escrow Inputs', 7); c.r += 1;
@@ -1248,6 +1266,8 @@ export function emitOpexInputs(c: SheetCursor, state: FinancialsResolverState, a
     c.r += 1;
   }
   if (ordered.length === 0 && hq.length === 0) { note(c, 'No operating lines: opex applies to Operate and Lease lines.'); c.r += 1; }
+  // PAYABLES NOT USED (0 days): no payables inputs in the live layout (2026-11-15, founder).
+  if (isLiveLayout() && !featureUsed(state as never, 'payables')) return;
   setSectionHeader(c.ws.getRow(c.r), 'Accounts Payable (DPO)', 3); c.r += 1;
   kv(c, 'Project Default DPO (days)', p.opexAp?.defaultApDays ?? 0, NUMFMT.int, true, 'DpoDays', 'Blank or 0 = pay on incurrence (no AP).', isLiveLayout() ? 'oxin|dpo|default' : 'inp=opexin|__ap__||Project Default DPO (days)@4#dpo');
   kv(c, 'Days basis', p.opexAp?.daysPerYear ?? 365, NUMFMT.int, p.opexAp?.daysPerYear !== undefined || isLiveLayout(), undefined, undefined, isLiveLayout() ? 'oxin|dpo|days' : undefined);

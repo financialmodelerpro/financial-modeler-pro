@@ -21,6 +21,7 @@
  *
  * No em dashes in this file.
  */
+import { escrowInForce, operatingReceivablesInForce, featureUsed } from '../exportScope';
 import { computeFinancialsSnapshot, type FinancialsResolverState } from '../../financials-resolvers';
 import { getFinancialLabels, defaultTerminologyForCountry } from '@/src/core/calculations/financials';
 import { orderedFacilities } from './financingPlan';
@@ -82,16 +83,18 @@ export function bsPlan(state: FinancialsResolverState, snap: Snap = computeFinan
   const ca: string[] = [];
   const caRow = (key: string, label: string, v: number[], src: BsSrc): void => { row(key, label, v, src, { indent: 1 }); ca.push(key); };
   caRow(BS('Cash'), 'Cash', sl(bs.cashPerPeriod), { kind: 'link', key: 'cf|direct||Closing cash' });
-  caRow(BS('Operating Receivables'), 'Operating receivables (hotel and lease)', sl(bs.arPerPeriod), { kind: 'link', key: 'rvc:__project__:opar' });
+  // Receivables off on hotel and lease lines (0 days): the row is always zero and is not built (2026-11-15).
+  if (operatingReceivablesInForce(state as never)) caRow(BS('Operating Receivables'), 'Operating receivables (hotel and lease)', sl(bs.arPerPeriod), { kind: 'link', key: 'rvc:__project__:opar' });
   caRow(BS('Sales Receivables'), 'Sales receivables', sl(bs.residentialReceivablesPerPeriod), { kind: 'link', key: 'rvc:__project__:sar' });
   caRow(BS('Inventory'), 'Inventory (residential work in progress)', sl(bs.inventoryPerPeriod), { kind: 'link', key: 'schv:A3:close' });
-  if (snap.escrow.byAsset.size > 0) caRow(BS('Restricted Cash (Escrow)'), 'Restricted cash (escrow)', sl(bs.escrowRestrictedCashPerPeriod), { kind: 'link', key: ESC_CLOSE });
+  if (snap.escrow.byAsset.size > 0 && escrowInForce(state as never)) caRow(BS('Restricted Cash (Escrow)'), 'Restricted cash (escrow)', sl(bs.escrowRestrictedCashPerPeriod), { kind: 'link', key: ESC_CLOSE });
   row(BS('Total Current Assets'), 'Total current assets', sl(bs.totalCurrentAssetsPerPeriod), null, { style: 'subtotal', sum: ca });
   row(BS('TOTAL ASSETS'), 'Total assets', sl(bs.totalAssetsPerPeriod), null, { style: 'total', sum: [BS('Total Fixed Assets'), BS('Total Current Assets')] });
 
   // ── Liabilities ──────────────────────────────────────────────────────────
   head(BS('#liabilities'), 'Liabilities');
-  row(BS('Accounts Payable'), 'Accounts payable', sl(bs.apPerPeriod), { kind: 'link', key: 'ox|ap|close' }, { indent: 1 });
+  // Payables at 0 days: always zero, not built (2026-11-15).
+  if (featureUsed(state as never, 'payables')) row(BS('Accounts Payable'), 'Accounts payable', sl(bs.apPerPeriod), { kind: 'link', key: 'ox|ap|close' }, { indent: 1 });
   row(BS('Unearned Revenue'), 'Unearned revenue (off-plan advances)', sl(bs.unearnedRevenuePerPeriod), { kind: 'link', key: 'rvc:__project__:ur' }, { indent: 1 });
   row(BS('Tax payable'), `${labels.tax} payable`, sl(bs.taxPayablePerPeriod), { kind: 'link', key: 'fl:taxPay' }, { indent: 1 });
   row(BS('Total Current Liabilities'), 'Total current liabilities', sl(bs.totalCurrentLiabilitiesPerPeriod), null, { style: 'subtotal', sum: [BS('Accounts Payable'), BS('Unearned Revenue'), BS('Tax payable')] });

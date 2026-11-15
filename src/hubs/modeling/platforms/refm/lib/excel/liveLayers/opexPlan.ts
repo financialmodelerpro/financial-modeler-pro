@@ -14,6 +14,7 @@
  *
  * No em dashes in this file.
  */
+import { opexLineIsZero } from '../exportScope';
 import type { OpexLine } from '@/src/core/calculations/opex';
 import { hospitalityCostGroup, HOSPITALITY_COST_GROUPS, HOSPITALITY_COST_GROUP_LABEL } from '../../reports/hospitalityStatement';
 import { leaseCostBucket } from '../../reports/opexReports';
@@ -35,7 +36,7 @@ const HOTEL_TOTALS: Record<string, string> = {
 /** The live row keys of a line's statement. */
 export const oxKey = (lineKey: string, id: string): string => `ox|${lineKey}|${id}`;
 
-export function planOpexStatement(lineKey: string, lines: readonly OpexLine[], isHotel: boolean): OpexStatementPlan {
+export function planOpexStatement(lineKey: string, lines: readonly OpexLine[], isHotel: boolean, skipZero = false): OpexStatementPlan {
   const defs: Array<[string, string, string]> = isHotel
     ? HOSPITALITY_COST_GROUPS.map((g) => [g, HOSPITALITY_COST_GROUP_LABEL[g], HOTEL_TOTALS[g]])
     : LEASE_GROUPS;
@@ -43,11 +44,14 @@ export function planOpexStatement(lineKey: string, lines: readonly OpexLine[], i
   let n = 0;
   const groups: OpexGroupPlan[] = defs.map(([group, label, totalLabel]) => {
     const names: string[] = [];
+    // A ZERO LINE HAS NO ROW (live layout, 2026-11-15, founder): switched off or charging nothing; the
+    // Inputs line "Not used in this project" counts them. The keys of the rows that remain do not move.
     lines.forEach((ln) => { if (groupOf(ln) === group && !names.includes(ln.name)) names.push(ln.name); });
     const rows = names.map((name) => {
       const idxs = lines.map((ln, i) => (groupOf(ln) === group && ln.name === name ? i : -1)).filter((i) => i >= 0);
+      if (skipZero && idxs.every((i) => opexLineIsZero(lines[i]))) { n++; return null; }
       return { key: oxKey(lineKey, `c${n++}`), name, group, idxs, off: idxs.every((i) => lines[i].disabled === true) };
-    });
+    }).filter((r): r is OpexCostRow => r !== null);
     return { group, label, totalLabel, rows, totalKey: rows.length > 1 ? oxKey(lineKey, `t:${group}`) : undefined };
   });
   return { groups, off: groups.flatMap((g) => g.rows.filter((r) => r.off)) };

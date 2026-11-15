@@ -189,6 +189,8 @@ export function shortenTexts(ws: ExcelJS.Worksheet): void {
     if (c.isMerged && c.master.address !== c.address) return;
     const v = c.value;
     if (typeof v !== 'string' || v.length <= 60) return;
+    // A cell set to wrap is meant to be read in full (an "Applies to" list, 2026-11-15).
+    if (c.alignment?.wrapText === true) return;
     // A shaded cell is an input (its text is the choice made): never rewritten.
     const f = c.fill as { pattern?: string; fgColor?: { argb?: string } } | undefined;
     if (f?.pattern === 'solid' && f.fgColor?.argb === ARGB.inputFill) return;
