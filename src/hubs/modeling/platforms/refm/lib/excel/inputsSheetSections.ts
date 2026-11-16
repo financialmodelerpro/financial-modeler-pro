@@ -45,7 +45,6 @@ import { resolveRowVelocity, resolveLinePace, occupancyAxis } from '../revenue-r
 import { buildSaleCohortTermsBlock, saleCohortRuleText } from '../reports/saleCohortReports';
 import { OPEX_CATEGORY_LABELS, OPEX_MODE_LABELS, isFixedCostOpexMode, summarizeOpexIndexation } from '../reports/opexInputLabels';
 import { resolveReturnsConfig, computeReturnsSnapshot } from '../returns-resolvers';
-import { defaultSensitivityValues } from '@/src/core/calculations/returns';
 import { statedLineReceivableDays } from '../receivableDays';
 
 type Snap = ReturnType<typeof computeFinancialsSnapshot>;
@@ -670,18 +669,7 @@ export function emitReturnsSection(c: SheetCursor, state: FinancialsResolverStat
     one('Existing equity', snap.financing.equity.totalExisting, 'retin:equity');
     c.r += 1;
   }
-  // THE SENSITIVITY GRID'S AXES (live workbook, 2026-10-20): typed here, the Returns grid reads them.
-  {
-    setSectionHeader(c.ws.getRow(c.r), 'Sensitivity grid axes', 8); c.r += 1;
-    const axis = (label: string, vals: number[], key: string): void => {
-      setLabel(c.ws.getCell(c.r, 1), label);
-      vals.forEach((v, i) => { setInput(c.ws.getCell(c.r, 2 + i), v, NUMFMT.pct2); registerCell(`${key}:${i}`, c.ws, c.ws.getCell(c.r, 2 + i)); });
-      c.r += 1;
-    };
-    axis('Operating cash flow change', defaultSensitivityValues('sales_price_pct', cfg.discountRate), 'sensin:price');
-    axis('Exit cap rate', defaultSensitivityValues('exit_cap_rate', cfg.discountRate), 'sensin:cap');
-    c.r += 1;
-  }
+  // NO SENSITIVITY AXES (2026-11-16, founder): the grid is the platform's result on Scenarios, not a live table.
   // THE EQUITY PARTNERS AND THE LENDER COVENANTS (live workbook): typed here, the Returns sheet echoes them.
   const partners = state.project.partners ?? [];
   const effective = partners.length ? partners : [{ id: 'sponsor', name: 'Sponsor', cashPct: 100, inKindPct: 100, existingPct: 100 }];

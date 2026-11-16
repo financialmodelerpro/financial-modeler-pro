@@ -81,17 +81,21 @@ export function summaryPlan(state: FinancialsResolverState, snap: Snap, rs: RS):
   {
     const de0 = rs.developmentEconomics;
     const m0 = rs.result.realEstate;
+    const fee0 = chargesPerformanceFee(rs), dp0 = distributedReturnPair(rs);
     const tiles: Array<Array<{ cap: string; v: number | string; fmt: string; f: Fx }>> = [
       [
-        { cap: 'GROSS DEVELOPMENT VALUE', v: de0.gdv, fmt: RF.money, f: (E) => E.cell('sum|gdv', B) },
-        { cap: 'TOTAL DEVELOPMENT COST', v: de0.totalDevelopmentCost, fmt: RF.money, f: (E) => E.cell('sum|tdc', B) },
-        { cap: 'DEVELOPMENT MARGIN', v: nz(de0.developmentMargin), fmt: RF.pct, f: (E) => E.cell('sum|margin', B) },
-        { cap: 'PEAK EQUITY', v: m0.peakEquity, fmt: RF.money, f: (E) => E.cell('sum|peakeq', B) },
+        { cap: 'GROSS DEVELOPMENT VALUE', v: de0.gdv, fmt: RF.money, f: (E) => E.tot('ret|de|gdv') },
+        { cap: 'TOTAL DEVELOPMENT COST', v: de0.totalDevelopmentCost, fmt: RF.money, f: (E) => E.tot('ret|de|tdc') },
+        { cap: 'DEVELOPMENT MARGIN', v: nz(de0.developmentMargin), fmt: RF.pct, f: (E) => E.tot('ret|de|margin') },
+        { cap: 'PEAK EQUITY', v: m0.peakEquity, fmt: RF.money, f: (E) => E.tot('rm|peakeq') },
       ],
       [
-        { cap: 'PROJECT IRR (FCFF)', v: nz(rs.result.fcff.irr), fmt: RF.pct, f: (E) => E.cell('sum|r|fcff', B) },
-        { cap: 'EQUITY IRR (FCFE)', v: nz(rs.result.fcfe.irr), fmt: RF.pct, f: (E) => E.cell('sum|r|fcfe', B) },
-        { cap: 'EQUITY MOIC', v: nz(rs.result.fcfe.moic), fmt: RF.mult, f: (E) => E.cell('sum|r|fcfe', B + 1) },
+        { cap: 'PROJECT IRR (FCFF)', v: nz(rs.result.fcff.irr), fmt: RF.pct, f: (E) => E.ref('ret|h|fcff|4') },
+        { cap: 'EQUITY IRR (FCFE)', v: nz(rs.result.fcfe.irr), fmt: RF.pct, f: (E) => E.ref('ret|h|fcfe|4') },
+        { cap: 'EQUITY MOIC', v: nz(rs.result.fcfe.moic), fmt: RF.mult, f: (E) => E.ref('ret|h|fcfe|5') },
+        fee0
+          ? { cap: 'DISTRIBUTIONS IRR (NET)', v: nz(dp0.irr), fmt: RF.pct, f: (E) => E.ref('ret|h|net|4') }
+          : { cap: 'DISTRIBUTIONS IRR', v: nz(dp0.irr), fmt: RF.pct, f: (E) => E.ref('ret|h|ddm|4') },
       ],
     ];
     tiles.forEach((set, i) => {
@@ -115,48 +119,26 @@ export function summaryPlan(state: FinancialsResolverState, snap: Snap, rs: RS):
   one('sum|lines', 'Number of lines', ov.scheme.lines, (E) => `COUNT(${[...areas.lines.map((l) => E.ref(lineKey(l.key, 'land'))), ...areas.companions.map((c) => E.ref(compKey(c.name, 'land')))].join(',')})`, RF.int);
   gap('sum|gap|a');
 
-  // ── Returns: each stream's IRR and MOIC, linked from Returns ─────────────
-  section('sum|#returns', 'Returns');
-  head('sum|#retcols', 'Stream', [[B, 'IRR'], [B + 1, 'MOIC']]);
-  const fee = chargesPerformanceFee(rs);
-  const dp = distributedReturnPair(rs);
-  const pair = (key: string, label: string, src: string, irr: number | null | undefined, moic: number | null | undefined): void => {
-    rows.push({ key, label, kind: 'cells', cells: [
-      { col: B, v: nz(irr), fmt: RF.pct, f: (E) => E.ref(`${src}|4`), bold: true },
-      { col: B + 1, v: nz(moic), fmt: RF.mult, f: (E) => E.ref(`${src}|5`) },
-    ] });
-  };
-  pair('sum|r|fcff', 'Project (FCFF)', 'ret|h|fcff', rs.result.fcff.irr, rs.result.fcff.moic);
-  pair('sum|r|fcfe', 'Equity (FCFE)', 'ret|h|fcfe', rs.result.fcfe.irr, rs.result.fcfe.moic);
-  if (fee) {
-    pair('sum|r|net', 'Distributions, net of the performance fee', 'ret|h|net', dp.irr, dp.moic);
-    pair('sum|r|ddm', 'Distributions, before the performance fee', 'ret|h|ddm', dp.preFeeIrr, dp.preFeeMoic);
-  } else pair('sum|r|ddm', 'Distributions', 'ret|h|ddm', dp.irr, dp.moic);
-  gap('sum|gap|b');
-
   // ── Economics ─────────────────────────────────────────────────────────────
   const de = rs.developmentEconomics, su = rs.sourcesUses, m = rs.result.realEstate;
   section('sum|#econ', 'Development economics');
-  one('sum|gdv', 'Gross development value', de.gdv, (E) => E.tot('ret|de|gdv'), RF.money, M);
-  one('sum|tdc', 'Total development cost', de.totalDevelopmentCost, (E) => E.tot('ret|de|tdc'), RF.money, M);
-  one('sum|land', 'Land cost', su.land, (E) => E.tot('ret|Land'), RF.money, M, { indent: 1 });
-  one('sum|cons', 'Construction', su.construction, (E) => E.tot('ret|Construction & Infrastructure'), RF.money, M, { indent: 1 });
+  // THE TILES CARRY GDV, COST, MARGIN AND PEAK EQUITY (2026-11-16, founder): each figure shows once.
+  one('sum|land', 'Land cost', su.land, (E) => E.tot('ret|Land'), RF.money, M);
+  one('sum|cons', 'Construction', su.construction, (E) => E.tot('ret|Construction & Infrastructure'), RF.money, M);
   one('sum|opex', 'Operating expenses over the hold', de.operatingExpenses, (E) => E.tot('ret|de|opex'), RF.money, M);
   one('sum|fin', 'Total financing cost', de.totalFinancingCost, (E) => E.tot('ret|de|fin'), RF.money, M);
   one('sum|surplus', 'Development surplus after finance', de.profitAfterFinancing, (E) => E.tot('ret|de|after'), RF.money, M, { style: 'subtotal' });
-  one('sum|margin', 'Development margin', nz(de.developmentMargin), (E) => E.tot('ret|de|margin'), RF.pct);
   if (ov.fundLayer) {
     const feeRow = plPlan(state, snap).find((r) => r.key === 'pl|__all__||Total Fund Management Fee');
     if (feeRow) one('sum|fees', 'Fund fees over the life (charged in the P&L)', -(feeRow.values ?? []).slice(0, N).reduce((s2: number, v: number) => s2 + (v ?? 0), 0), (E) => `-${E.tot('pl|__all__||Total Fund Management Fee')}`, RF.money, M);
   }
-  one('sum|peakeq', 'Peak equity', m.peakEquity, (E) => E.tot('rm|peakeq'), RF.money, M);
   one('sum|cap', 'Cap rate at exit', nz(m.capRateAtExit), (E) => E.tot('rm|cap'), RF.pct);
   gap('sum|gap|c');
 
   // ── Cost per sqm ──────────────────────────────────────────────────────────
   const cps = ov.costPerSqm;
   section('sum|#cps', 'Cost per square metre');
-  const tdcF: Fx = (E) => E.cell('sum|tdc', B), gfaF: Fx = (E) => E.cell('sum|gfa', B), nsaF: Fx = (E) => E.cell('sum|nsa', B);
+  const tdcF: Fx = (E) => E.tot('ret|de|tdc'), gfaF: Fx = (E) => E.cell('sum|ty|total', B + 2), nsaF: Fx = (E) => E.cell('sum|nsa', B);
   one('sum|cps:dev', 'Development cost per sqm of GFA', nz(cps.developmentCostPerGfa), ratio(tdcF, gfaF), RF.rate, PER);
   one('sum|cps:con', 'Construction cost per sqm of GFA', nz(cps.constructionCostPerGfa), ratio((E) => E.cell('sum|cons', B), gfaF), RF.rate, PER);
   one('sum|cps:sal', 'Development cost per saleable sqm', nz(cps.developmentCostPerSaleable), ratio(tdcF, nsaF), RF.rate, PER);
@@ -167,8 +149,8 @@ export function summaryPlan(state: FinancialsResolverState, snap: Snap, rs: RS):
   section('sum|#stack', 'Capital stack');
   head('sum|#stackcols', 'Source', [[B, 'Amount'], [B + 1, 'Share of sources'], [B + 2, 'Share of the stack']]);
   const stack: Array<[string, string, number, Fx]> = [
-    ['sum|st:debt', 'Debt', su.existingDebt + su.newDebt, (E) => `${E.tot('ret|Existing Debt')}+${E.tot('ret|su|debtCapex')}+${E.tot('ret|su|debtInt')}`],
-    ['sum|st:cash', 'Cash equity', su.existingEquity + su.newEquityCash, (E) => `${E.tot('ret|Existing Equity')}+${E.tot('ret|New Equity (cash)')}`],
+    ['sum|st:debt', 'Debt', su.existingDebt + su.newDebt, (E) => ['ret|Existing Debt', 'ret|su|debtCapex', 'ret|su|debtInt'].filter((k) => E.has(k)).map((k) => E.tot(k)).join('+')],
+    ['sum|st:cash', 'Cash equity', su.existingEquity + su.newEquityCash, (E) => ['ret|Existing Equity', 'ret|New Equity (cash)'].filter((k) => E.has(k)).map((k) => E.tot(k)).join('+')],
     ['sum|st:kind', 'In-kind equity', su.inKindEquity, (E) => E.tot('ret|In-Kind Equity (land)')],
   ];
   const stackTot = stack.reduce((s2, x) => s2 + x[2], 0);
@@ -191,15 +173,10 @@ export function summaryPlan(state: FinancialsResolverState, snap: Snap, rs: RS):
   // ── Scheme ────────────────────────────────────────────────────────────────
   const sc = ov.scheme;
   section('sum|#scheme', 'Scheme');
-  const sellLines = areas.lines.filter((l) => l.strategy === 'Sell' || l.strategy === 'Sell + Manage');
-  const hotelLines = areas.lines.filter((l) => l.strategy === 'Operate');
-  const leaseLines = areas.lines.filter((l) => l.strategy === 'Lease');
   const sumOf = (E: SEnv, keys: string[]): string => (keys.length ? `SUM(${keys.map((k) => E.ref(k)).join(',')})` : '0');
-  one('sum|landsqm', 'Land', sc.landSqm, (E) => E.ref('chaintot:lines:land'), RF.int, 'sqm');
   one('sum|landval', 'Land value', sc.landValue, (E) => E.ref('landtot:value'), RF.money, M);
-  one('sum|gfa', 'Total GFA', sc.gfaSqm, (E) => E.ref('chaintot:lines:tg'), RF.int, 'sqm');
   one('sum|bua', 'Total BUA (parking included)', sc.buaSqm, (E) => E.ref('chaintot:lines:bua'), RF.int, 'sqm');
-  one('sum|ratio', 'Plot ratio (GFA over land)', nz(sc.plotRatio), ratio(gfaF, (E) => E.cell('sum|landsqm', B)), RF.mult);
+  one('sum|ratio', 'Plot ratio (GFA over land)', nz(sc.plotRatio), ratio(gfaF, (E) => E.cell('sum|ty|total', B)), RF.mult);
   // THE NSA USED (2026-11-03): the table total, with each line's NSA used (Inputs, the larger of its
   // sub-units' area and its Stated NSA) in place of the line's table figure, as the platform counts it.
   const usedLines = nsaUsedLines(state, areas);
@@ -208,9 +185,6 @@ export function summaryPlan(state: FinancialsResolverState, snap: Snap, rs: RS):
     const lineCells = areas.lines.map((l) => (used.has(l.key) ? `nsaline:${l.key}` : lineKey(l.key, 'nsa')));
     return sumOf(E, [...lineCells, ...areas.companions.map((c) => compKey(c.name, 'nsa'))]);
   }, RF.int, 'sqm');
-  one('sum|units', 'Units (sell lines)', sc.units, (E) => sumOf(E, sellLines.map((l) => lineKey(l.key, 'units'))), RF.int);
-  one('sum|keys', 'Keys (hotel lines)', sc.keys, (E) => sumOf(E, hotelLines.map((l) => lineKey(l.key, 'units'))), RF.int);
-  one('sum|lease', 'Lettable area (lease lines and retail strips)', sc.leasableSqm, (E) => sumOf(E, [...leaseLines.map((l) => lineKey(l.key, 'nsa')), ...areas.companions.map((c) => compKey(c.name, 'nsa'))]), RF.int, 'sqm');
   gap('sum|gap|g');
 
   // ── By asset type ─────────────────────────────────────────────────────────
@@ -224,7 +198,7 @@ export function summaryPlan(state: FinancialsResolverState, snap: Snap, rs: RS):
     const keysF = (f: string, only?: (l: typeof ls[number]) => boolean): string[] => [...ls.filter((l) => !only || only(l)).map((l) => lineKey(l.key, f)), ...comps.map((c) => compKey(c.name, f))];
     rows.push({ key: k, label: t.label, kind: 'cells', cells: [
       { col: B, v: t.landSqm, fmt: RF.int, f: (E) => sumOf(E, keysF('land')) },
-      { col: B + 1, v: t.landPct, fmt: RF.pct, f: (E) => `IF(${E.cell('sum|landsqm', B)}>0,${E.cell(k, B)}/${E.cell('sum|landsqm', B)},0)` },
+      { col: B + 1, v: t.landPct, fmt: RF.pct, f: (E) => `IF(${E.cell('sum|ty|total', B)}>0,${E.cell(k, B)}/${E.cell('sum|ty|total', B)},0)` },
       { col: B + 2, v: t.gfaSqm, fmt: RF.int, f: (E) => sumOf(E, keysF('tg')) },
       { col: B + 3, v: t.units, fmt: RF.int, f: (E) => sumOf(E, ls.filter((l) => l.strategy === 'Sell' || l.strategy === 'Sell + Manage').map((l) => lineKey(l.key, 'units'))) },
       { col: B + 4, v: t.keys, fmt: RF.int, f: (E) => sumOf(E, ls.filter((l) => l.strategy === 'Operate').map((l) => lineKey(l.key, 'units'))) },
@@ -283,7 +257,7 @@ export function summaryPlan(state: FinancialsResolverState, snap: Snap, rs: RS):
   const ex = ov.exit;
   section('sum|#exit', 'Exit and cash');
   one('sum|tv', 'Terminal value (proceeds from disposal)', ex.terminalValue, (E) => E.tot('ret|x|tv'), RF.money, M);
-  one('sum|gain', 'Gain on disposal', ex.gainOnDisposal, (E) => E.tot('ret|x|gain'), RF.money, M);
+  one('sum|gain', 'Gain on disposal', ex.gainOnDisposal, (E) => E.tot('pl|__all__||Gain on Disposal of Operating Assets'), RF.money, M);
   one('sum|peakdebt', 'Peak debt', ex.peakDebt, (E) => `MAX(0,MAX(${E.rngY(bsTotalDebtKey(state))}))`, RF.money, M);
   one('sum|cashlow', 'Cash low point', ex.cashLow, (E) => `MIN(${E.rngY('bs|__all__||Cash')})`, RF.money, M);
   one('sum|cashlowyr', 'Year of the cash low point', ex.cashLowYear ?? 'n/a',

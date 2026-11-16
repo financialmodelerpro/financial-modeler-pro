@@ -460,30 +460,30 @@ export function backwardReads(wb: ExcelJS.Workbook): Array<{ from: string; row: 
   return out;
 }
 
-/** THE LOOP'S LINKS ON THE GUIDE: each row that reads the financing loop's output back, and what it reads. */
+/**
+ * THE LINKS THAT READ A LATER TAB, ON THE GUIDE (2026-11-16, founder): one line per allowed exception,
+ * each written only where this model has such a link, not a list of every row.
+ */
 function writeLoopLinks(wb: ExcelJS.Workbook): void {
   const guide = wb.getWorksheet('Guide');
   if (!guide) return;
-  const label = (sheet: string, row: number): string => String(wb.getWorksheet(sheet)?.getCell(row, 1).value ?? '').trim();
   const links = backwardReads(wb).filter((x) => isLoopLink(wb, x));
   if (!links.length) return;
-  const uniq = new Map<string, [string, string]>();
-  for (const x of links) {
-    const a = `${x.from}: ${label(x.from, x.row)}`, b = `${x.to}: ${label(x.to, x.toRow)}`;
-    uniq.set(`${a}|${b}`, [a, b]);
-  }
+  const label = (sheet: string, row: number): string => String(wb.getWorksheet(sheet)?.getCell(row, 1).value ?? '').trim();
+  const kinds: Array<[boolean, string]> = [
+    [links.some((x) => x.to === 'Financing'), 'Capitalised interest: Schedules reads it from Financing, which solves the financing loop.'],
+    [links.some((x) => x.to === 'P&L' && /: EBITDA \(the phase P&L\)$/.test(label(x.from, x.row))), "Phase EBITDA: each phase's dividend cap on Financing reads that phase's EBITDA on the P&L."],
+    [links.some((x) => x.to === 'P&L' && / \(the P&L\)$/.test(label(x.from, x.row))), 'Zakat: worked out on the P&L; Financing reads the charge back for the cash.'],
+    [links.some((x) => x.from === 'Revenue' && x.to === 'Capex'), 'Selling costs: Revenue links the cells Capex charges them in.'],
+  ];
   let r = guide.rowCount + 2;
-  const head = guide.getCell(r, 1);
-  head.value = 'Links that read a later tab: the financing loop\'s output';
+  const head = guide.getCell(r, 2);
+  head.value = 'Links that read a later tab';
   head.font = { name: 'Calibri', size: 11, bold: true };
   r += 1;
-  const note = guide.getCell(r, 1);
-  note.value = 'Every other formula reads only the tabs before it. The financing loop solves the capitalised interest, which Schedules (cost of sales and the held lines\' additions) and Capex (Table 7) read back, and each phase\'s dividend cap reads that phase\'s EBITDA on the P&L; Excel iterates the loop to the platform\'s fixed point.';
-  note.font = { name: 'Calibri', size: 9, italic: true };
-  r += 1;
-  for (const [a, b] of [...uniq.values()].sort((x, y) => x[0].localeCompare(y[0]))) {
-    guide.getCell(r, 1).value = a;
-    guide.getCell(r, 2).value = `reads ${b}`;
+  for (const [on, text] of kinds) {
+    if (!on) continue;
+    guide.getCell(r, 3).value = text;
     r += 1;
   }
 }

@@ -16,50 +16,23 @@ import type ExcelJS from 'exceljs';
 import { ARGB, BODY_SIZE, fillRange, setLabel, type DisplayScale } from './styles';
 import { notifyRowsDeleted, rowIsRegistered } from './cellRegistry';
 
-/** One short paragraph per tab: what it does, in plain English. */
+/** One line per tab: what it does, in plain English (2026-11-16, founder: export simplification step 6). */
 export const LIVE_TAB_GUIDE: Array<[string, string]> = [
-  ['Summary', 'The project at a glance: returns, cost per sqm, funding and the scheme. Every card reads the tabs behind it.'],
-  ['Inputs', 'Every number you can change. Shaded cells are inputs; type over them and every tab recalculates. An unshaded cell with a note was fixed when the file was exported.'],
-  ['Timeline', 'The model years, each phase\'s dates, and the flags every other tab reads: construction years, the handover year, the operating years and the exit year.'],
-  ['Land & Area', 'The value of each plot, then each plot\'s areas from the top down (land, footprint, GFA, saleable area, parking), merged by line, and the land each asset holds. Capex and Revenue take their quantities from here.'],
-  ['Revenue', 'One path per line, reading its inputs on Inputs. A sale line: velocity, sqm sold and unsold, revenue split at handover, pre-sales recognised in the handover year, cash collected by pre-sales year (down % and instalment years beside each) and sales during operation in their year, then the receivable and unearned balances. A hotel or lease line: keys or lettable area, the operations start and the receivable days, then occupancy, rate and revenue, the receivable and the cash collected (revenue less the rise in the receivable). The summary gives sales value, revenue recognised and cash collected per line, which the P&L and Cash Flow link; escrow sits at the foot.'],
-  ['Capex', 'What each asset costs and when. Table 1 has one row per cost line per asset: the rate (from Inputs or the cost standards) in B, the quantity (from Land & Area, Revenue or the lines it selects) in C, and each year rate x quantity x the spend share x the escalation factor. The spend shares above it are one row per distinct spread, its window in phase periods from the construction years on Timeline or the line\'s own window on Inputs; a landscape-type line starts at half the construction years, the platform\'s rule. Where an asset\'s plots spread a line differently, a hard line blends them by plot quantity and the soft lines by each plot\'s hard cost. Table 2 is capex with land, Table 4 without, Table 5 the land cash and in-kind Financing funds, Table 7 the cost per sqm.'],
-  ['Opex', 'Operating costs per line: a fixed amount, a rate per key or sqm, or a share of revenue, inflated while the line operates, and the payables they leave.'],
-  ['Schedules', 'One fixed asset table per held asset (land and building, with the capitalised interest) and one cost of sales and inventory block per sell line, then the project totals. Depreciation is straight line from the year after handover over the useful life on Inputs. Receivables, unearned revenue, escrow and payables are on Revenue and Opex, which the Balance Sheet reads.'],
-  ['Financing', 'The funding need, each facility\'s draws, interest, repayments and the cash sweep, the dividends and the exit. It is a circular calculation, so Excel iterates it (iterative calculation is on in this file).'],
-  ['P&L', 'Revenue, cost of sales, operating expenses and fund fees down to EBITDA, then depreciation, interest, the gain on disposal and zakat or tax. Each group line is the sum of the rows under it.'],
-  ['Cash Flow', 'Cash in and out, by the direct and the indirect method, and net, opening and closing cash. Each total adds the rows shown above it.'],
-  ['Balance Sheet', 'Balances at each year end, the equity and retained earnings roll-forwards beneath, and the reconciliation bridge. The check row must read zero.'],
-  ['Returns', 'Project and equity returns on three bases (FCFF, FCFE and distributions), the partners, fund fees, sources and uses, the exit, the sensitivity grid and the real estate metrics. The workings at the foot build each stream.'],
-  ['Scenarios', 'The other cases as the platform computed them when the file was exported. They do not recalculate.'],
-  ['Checks', 'The identities that prove the model holds together, Revenue\'s own checks (typed velocity inside the model years, pre-sales collected in full, a handover-year downpayment that a sale in that year does not use, since it pays in full), and the headline returns recomputed. OK means a check holds; CHECK means it does not; NOTE is an advisory.'],
-];
-
-/** What each Land & Area column is (2026-10-26): moved off the tab, which keeps its tables only. */
-export const LAND_AREA_COLUMNS: Array<[string, string]> = [
-  ['Plot Area', "The sqm the asset draws from its plot on Inputs Table 2 (a blank draws the whole plot), less the retail carve-out."],
-  ['Retail carve-out', "The land a retail strip takes from its host on a plot: the plot area x coverage x retail % / FAR, which is the plot area x retail GFA / total GFA."],
-  ['Net Developable Area', "Plot Area x Land Utilisation %."],
-  ['Building Footprint', "Net Developable Area x Ground Coverage %."],
-  ['Landscape %', "1 - Ground Coverage %."],
-  ['Landscape and Open Area', "Net Developable Area x Landscape %."],
-  ['Retail GFA', "Building Footprint x Retail % (ground floor). On the plot table it sits on the host; on the line table it is the retail strip's line."],
-  ['Lobby and Circulation GFA', "Building Footprint - Retail GFA (none when there is no retail)."],
-  ['Total GFA', "Net Developable Area x FAR. On the line table a host line leaves out the retail GFA, which its strip's line shows."],
-  ['Main Asset GFA', "Total GFA - Retail GFA - Lobby and Circulation GFA; the whole Total GFA when there is no retail."],
-  ['NSA or GLA', "Main Asset GFA x (1 - Service %). A retail strip's NSA is its retail GFA."],
-  ['Average Unit Size', "The sub-units' unit sizes first, the asset type's size as the fallback."],
-  ['Units or Keys', "NSA / Average Unit Size, rounded to whole units (a sub-unit count wins)."],
-  ['Parking Ratio', "The asset type's ratio: slots per unit, or sqm of GFA per slot."],
-  ['Parking Slots', "Units x ratio (slots per unit) or Main Asset GFA / ratio (sqm per slot), whole slots."],
-  ['Retail Parking Slots', "Retail GFA / the retail type's sqm per slot, whole slots. On the line table it is the strip's."],
-  ['Parking Area', "Parking Slots x the parking area per slot (Inputs, asset types)."],
-  ['Retail Parking Area', "Retail Parking Slots x the parking area per slot."],
-  ['Total BUA', "Total GFA + Total Parking Area, everything built."],
-  ['TOTAL rows', "Each table's total adds the rows above it, and the two tables' totals agree: the line table groups the plot rows."],
-  ['Land value', "Land (sqm) x the plot's rate; land is allocated by sqm only. A strip on several plots has a row per plot."],
-  ['Cash land / In-kind land', "Land value x the plot's Cash % / In-Kind %."],
-  ['NSA used', "Per line: each asset's larger of its sub-units' area and the Stated NSA on Inputs Table 2, added."],
+  ['Summary', 'The project at a glance: headline returns, economics, cost per sqm by line, funding, scheme and phases.'],
+  ['Inputs', 'Every number you can change: shaded cells are inputs; type over them and every tab recalculates.'],
+  ['Timeline', "The model years, each phase's dates and the flags every tab reads (construction, operations, exit)."],
+  ['Land & Area', "Each plot's value and its areas from the top down, merged by line; Capex and Revenue take their quantities here."],
+  ['Revenue', 'One path per line: sales and collections for a sell line; occupancy, rate and revenue for a hotel or lease line.'],
+  ['Capex', 'Each cost line per asset: rate x quantity x spend share x escalation, by year, with and without land.'],
+  ['Opex', 'Operating costs per line, inflated while the line operates, and the payables they leave.'],
+  ['Schedules', 'Fixed assets and depreciation per held asset, and cost of sales and inventory per sell line.'],
+  ['Financing', 'The funding need, draws, interest, repayments, sweep, dividends and the exit; Excel iterates this loop.'],
+  ['P&L', 'Revenue to EBITDA by line, then depreciation, interest, the gain on disposal and zakat; phases to EBITDA.'],
+  ['Cash Flow', 'Cash in and out by the direct method, and opening and closing cash.'],
+  ['Balance Sheet', 'Balances at each year end with the equity roll-forward; the check row must read zero.'],
+  ['Returns', 'The exit value; FCFF, FCFE and distributions, each with IRR, MOIC and NPV; partners, fees, sources and uses, key metrics.'],
+  ['Scenarios', 'The cases, the assumptions that differ, the comparison, the sensitivity grid and exit years (platform results).'],
+  ['Checks', "The identities that prove the model holds together, and Revenue's own checks: OK holds, CHECK fails, NOTE advises."],
 ];
 
 /** The Cover: project name, date, currency, location and horizon. */
@@ -89,21 +62,13 @@ export function buildLiveGuide(ws: ExcelJS.Worksheet, markInput: (c: ExcelJS.Cel
   head('The tabs');
   // The values file says what IT is: the tabs that talk of typing over an input or of Excel iterating.
   const VALUES_TEXT: Record<string, string> = {
-    Inputs: 'Every number the model takes. Shaded cells are what was typed on the platform; change them on the platform and export again.',
-    Financing: 'The funding need, each facility\'s draws, interest, repayments and the cash sweep, the dividends and the exit, as the platform solved them.',
+    Inputs: 'Every number the model takes: shaded cells were typed on the platform; change them there and export again.',
+    Financing: 'The funding need, draws, interest, repayments, sweep, dividends and the exit, as the platform solved them.',
   };
   for (const [tab, liveText] of LIVE_TAB_GUIDE) {
     const text = valuesFile ? VALUES_TEXT[tab] ?? liveText : liveText;
     const a = ws.getCell(r, 2); a.value = { text: tab, hyperlink: `#'${tab}'!A1` } as ExcelJS.CellValue;
     a.font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.navy }, underline: true }; a.alignment = { vertical: 'top' };
-    const b = ws.getCell(r, 3); b.value = text; b.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } }; b.alignment = { wrapText: true, vertical: 'top' };
-    ws.getRow(r).height = Math.max(15, Math.ceil(text.length / 110) * 15);
-    r += 1;
-  }
-  r += 1;
-  head('Land & Area, column by column');
-  for (const [col, text] of LAND_AREA_COLUMNS) {
-    setLabel(ws.getCell(r, 2), col, { bold: true });
     const b = ws.getCell(r, 3); b.value = text; b.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } }; b.alignment = { wrapText: true, vertical: 'top' };
     ws.getRow(r).height = Math.max(15, Math.ceil(text.length / 110) * 15);
     r += 1;

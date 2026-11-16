@@ -61,10 +61,10 @@ import { isParcelDrivenLandLine, resolvePhasingSource } from '@/src/core/calcula
 import { buildPLRows, buildPhaseEbitdaReconciliationRows, phaseEbitdaFooting, PHASE_RECON_LINE, taxBasisNote, buildDirectCFRows, buildIndirectCFRows, buildBSRows, buildBsReconciliationRows, buildBsFeederTables, BS_FEEDER_SECTIONS, BS_RECONCILIATION_CAPTION, buildFundFeeBasisRows, buildFundCapitalRows, fundFeeBasisBaseCell, totalColumnHeading, totalColumnNote, TOTAL_COLUMN_HEADINGS, TOTAL_COLUMN_NOTES, FUND_CAPITAL_BASES_TITLE, FUND_CAPITAL_BASES_NOTE, FUND_CAPITAL_BASE_TAG, type M4ReportCtx, type FundFeeBasisRow } from '../reports/m4Reports';
 import { buildFixedAssetReport, idcRowIsHeld, type FixedAssetTable } from '../reports/fixedAssetReports';
 import { buildCaseComparisonReport, caseOverridesNote, type CaseComparisonInput, type CaseComparisonReport, type CaseKpiKind } from '../reports/caseComparisonReport';
-import { buildCaseYoYReport, YOY_DRIVER_NOTE, YOY_RECONCILIATION_TITLE, YOY_RECONCILIATION_NOTE, yoyAloneLabel, yoyReconLabels, type CaseYoYReport } from '../reports/caseYoYReport';
 import { formatAssumptionValue, assumptionUnitSuffix, curatedDefaultFields, inactiveLeverReason, nonEconomicLeverReason, isPerPeriodLever, isAppliedValue, assumptionFor, buildGridContext, groupAssumptionRows, leverNote, type GridRowLite } from '../cases/assumptionGrid';
 import { getFinancialLabels, defaultTerminologyForCountry } from '@/src/core/calculations/financials';
 import { computeReturnsSnapshot, computeReturnsSensitivity, resolveReturnsConfig, type ReturnsSnapshot } from '../returns-resolvers';
+import { defaultSensitivityValues } from '@/src/core/calculations/returns';
 import type { M4Row } from '../../components/modules/_shared/m4Table';
 import { resolveAssetAreaMetrics, computePhaseTimeline, computeProjectTimeline, resolveSubUnitAdr, type AssetAreaMetrics } from '@/src/core/calculations';
 import { FUNDING_METHOD_LABELS, COST_METHOD_LABELS, type FundingMethodId } from '../state/module1-types';
@@ -2590,39 +2590,49 @@ function addCapex(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancial
       moneyRow(r, 'Total capex by cost type', all, { style: 'subtotal' }); r += 2;
     }
 
-    // ── Table 7: cost per sqm by line, and a Sell line's price against cost ──
-    const cur7 = state.project.currency ?? 'SAR';
-    const tables7 = costPerSqmTables(buildCostPerSqmReport(snap, state).lines, { currency: cur7, scaleTag: amountUnit(cur7, displayScale), multiPhase: state.phases.length > 1 });
-    // No cost line is in the operating (pre-opening) stage: the construction base says what it holds.
-    const preOpen = state.costLines.some((c) => deriveCostStage(c) === 'operating');
-    const fix7 = (s: string): string => (preOpen ? s : s.replace(/\(hard, soft, pre-opening\)/, '(hard and soft)'));
-    const cols = [C_LBL, C_OPEN, C_OPEN + 1, C_OPEN + 2, C_OPEN + 3];
-    // THE COST PER SQM IS ANALYSIS, SO IT SITS ON SUMMARY (2026-11-12, founder: export simplification
-    // step 2): the same tables, keys and columns, at the foot of the Summary tab; the live layer
-    // (stage8Capex7) writes its formulas wherever the registry put the rows.
+    // ── Cost per sqm by line, and a sell line's price against cost (Summary) ──
+    // ONE ROW PER LINE (2026-11-16, founder: export simplification step 6): the cost per sqm of NSA on
+    // three cumulative bases (construction, + capitalised interest, + land), then for each sell line the
+    // realised sale price per sqm of NSA and its margin over each base. The live layer (stage8Capex7)
+    // writes the formulas wherever the registry put the rows.
+    const lines7 = buildCostPerSqmReport(snap, state).lines;
+    const multi7 = state.phases.length > 1;
+    const name7 = (l: typeof lines7[number]): string => (multi7 ? `${l.label}, ${l.phaseName}` : l.label);
     const sws = wb.getWorksheet(SHEETS.summary) ?? ws;
+    const C7 = [C_LBL, 2, 3, 4, 5];
     let sr = sws.rowCount + 2;
-    for (const t of tables7) {
+    const put7 = (row: number, col: number, v: number | null, fmt: string): void => {
+      const cell = sws.getCell(row, col);
+      if (v === null || !Number.isFinite(v)) { setLabel(cell, 'n/a'); return; }
+      cell.value = v; cell.numFmt = fmt; cell.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } };
+    };
+    const table7 = (title: string, cols: string[], rows7: Array<{ key: string; label: string; cells: Array<{ v: number | null; fmt: string }> }>): void => {
+      if (!rows7.length) return;
       sr += 1;
-      setSectionHeader(sws.getRow(sr), t.title, cols[cols.length - 1]); sr += 1;
-      t.columns.forEach((c, i) => setColHeader(sws.getCell(sr, cols[i]), c, i === 0 ? 'left' : 'right'));
+      setSectionHeader(sws.getRow(sr), title, C7[C7.length - 1], ARGB.accent); sr += 1;
+      cols.forEach((c, i) => setColHeader(sws.getCell(sr, C7[i]), c, i === 0 ? 'left' : 'right'));
       sr += 1;
-      for (const row7 of t.rows) {
-        if (row7.kind === 'heading') {
-          fillRange(sws, sr, 1, sr, cols[cols.length - 1], ARGB.subtotal);
-          for (let c = 1; c <= cols[cols.length - 1]; c++) sws.getCell(sr, c).font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.navyDark } };
-        }
-        if (row7.key) registerCell(row7.key, sws, sws.getCell(sr, C_LBL));
-        row7.cells.forEach((c, i) => {
-          const col = cols[i];
-          if (typeof c === 'string') { if (c) setLabel(sws.getCell(sr, col), fix7(c), { indent: i === 0 && row7.kind !== 'heading' ? 1 : undefined, bold: row7.kind !== 'data' }); return; }
-          if (c.n === null) { setLabel(sws.getCell(sr, col), 'n/a'); return; }
-          const cell = sws.getCell(sr, col); cell.value = c.n; cell.numFmt = c.as === 'amount' ? NUMFMT.money : c.as === 'area' ? NUMFMT.int : NUMFMT.rate;
-          cell.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } };
-        });
+      for (const row7 of rows7) {
+        registerCell(row7.key, sws, sws.getCell(sr, C_LBL));
+        setLabel(sws.getCell(sr, C_LBL), row7.label);
+        row7.cells.forEach((c, i) => put7(sr, C7[i + 1], c.v, c.fmt));
         sr += 1;
       }
-    }
+    };
+    table7('Cost per sqm of NSA, by line', ['Line', 'NSA (sqm)', 'Construction', '+ IDC', '+ land'],
+      lines7.map((l) => ({ key: `cx7a|${l.key}`, label: name7(l), cells: [
+        { v: l.area.nsa, fmt: NUMFMT.int },
+        { v: l.perSqm.construction.nsa, fmt: NUMFMT.rate },
+        { v: l.perSqm.withIdc.nsa, fmt: NUMFMT.rate },
+        { v: l.perSqm.withLand.nsa, fmt: NUMFMT.rate },
+      ] })));
+    table7('Sale price against cost, per sqm of NSA (sell lines): the margin over each cost', ['Sell line', 'Sale price', 'Construction', '+ IDC', '+ land'],
+      lines7.filter((l) => l.sale).map((l) => ({ key: `cx7b|${l.key}`, label: name7(l), cells: [
+        { v: l.sale!.realisedPrice, fmt: NUMFMT.rate },
+        { v: l.sale!.marginAtRealised.construction, fmt: NUMFMT.rate },
+        { v: l.sale!.marginAtRealised.withIdc, fmt: NUMFMT.rate },
+        { v: l.sale!.marginAtRealised.withLand, fmt: NUMFMT.rate },
+      ] })));
     void subRows; void landAddrs; void TOL;
     return {
       scheduleTotalAddr: sheetRef(SHEETS.capex, `$${colLetter(C_TOT)}$${projTotalRow}`), buildupTotalAddr: sheetRef(SHEETS.capex, `$${colLetter(C_TOT)}$${projTotalRow}`),
@@ -6082,7 +6092,7 @@ function addReturnsLive(ctx: EmitCtx): RetLinks {
   const ws = wb.addWorksheet(SHEETS.returns, { properties: { tabColor: { argb: ARGB.navy } } });
   let rs: ReturnsSnapshot | null = null;
   try { rs = computeReturnsSnapshot(snap, state.project); } catch { rs = null; }
-  writeSheetHeader(ws, snap, N, 'Returns', 'The FCFF, FCFE and distribution streams with one IRR, MOIC and NPV each, the equity partners, fee income, sources and uses, development economics, the exit, the sensitivity grid, the real estate metrics and the exit-year analysis.', { label: 'Line', feeds: 'The Cash Flow, Financing, the Balance Sheet, the P&L, Revenue, Schedules and the returns settings on Inputs.', totalLabel: 'Total / Value' });
+  writeSheetHeader(ws, snap, N, 'Returns', 'The exit value, the FCFF, FCFE and distribution streams each with its IRR, MOIC and NPV, the equity partners, fund fees, sources and uses, and the key metrics.', { label: 'Line', feeds: 'The Cash Flow, Financing, the Balance Sheet, the P&L, Revenue, Schedules and the returns settings on Inputs.', totalLabel: 'Total / Value' });
   ws.getCell(2, LBL_COL).value = `${currency} m`;
   if (!rs) return { rs };
   const last = lastActiveCol(N);
@@ -6875,19 +6885,17 @@ function emitCaseComparison(a: {
   a.setRow(r + 1);
 }
 
-// ── Scenarios (Module 6: 1. Cases, 2. Assumptions by case, 3. Comparison, 4. YoY) ─
-/** Mirror of the platform Module 6 (Scenario Analysis) in its own section order,
- *  from the same shared builders its screen reads: the case list, the
- *  assumptions grid (`curatedDefaultFields`, `inactiveLeverReason`,
- *  `isAppliedValue`, `groupAssumptionRows`, so the curated key drivers show with
- *  their Management values even when no case overrides anything), the comparison
- *  report and the year-on-year report. The statement tabs render the SELECTED
+// ── Scenarios (Module 6: 1. Cases, 2. Assumptions by case, 3. Comparison; then the platform results) ─
+/** Mirror of the platform Module 6 (Scenario Analysis) from the same shared builders its screen reads:
+ *  the case list, the assumptions where a case differs from the Management Case, and the comparison
+ *  report. The sensitivity grid and the exit-year analysis follow as the platform's results
+ *  (2026-11-16, founder: moved off Returns, the same numbers). The statement tabs render the SELECTED
  *  case; this tab always compares ALL cases. */
 function addScenarios(ctx: EmitCtx): void {
   const { wb, snap, currency } = ctx;
   const N = snap.axisLength;
   const ws = wb.addWorksheet(SHEETS.scenarios, { properties: { tabColor: { argb: ARGB.navy } } });
-  writeSheetHeader(ws, snap, N, 'Scenarios', 'Mirror of the platform Module 6 (Scenario Analysis): 1. Cases, 2. Assumptions by case, 3. Comparison, 4. Year-on-Year Impact. The statement tabs render the selected case; this tab always compares ALL cases.', { label: 'Line', feeds: 'Every case is computed through the same engine as the platform (overrides applied to the Management base, then the financials and returns). The Management base is the reference column.' });
+  writeSheetHeader(ws, snap, N, 'Scenarios', 'The cases, the assumptions where a case differs from the Management Case, the comparison, and the platform\'s sensitivity grid and exit-year analysis.', { label: 'Line', feeds: 'Every case is computed through the same engine as the platform (overrides applied to the Management base, then the financials and returns). The Management base is the reference column.' });
   let r = 5;
 
   const section = (text: string): void => { setSectionHeader(ws.getRow(r), text, lastActiveCol(N), ARGB.accent); r += 1; };
@@ -6903,41 +6911,27 @@ function addScenarios(ctx: EmitCtx): void {
     ws.getCell(r, LBL_COL).font = { name: 'Calibri', size: 8.5, italic: true, color: { argb: ARGB.navyDark } };
     r += 2;
   };
-  // A per-period money row (label + opening E + F.. + Total D). A running
-  // balance ('stock') leaves the Total BLANK, as the screen does: a balance
-  // summed over periods is not a number.
-  const periodRow = (label: string, values: number[], prior: number, kind: 'flow' | 'stock', style: 'plain' | 'bold' | 'delta' = 'plain'): void => {
-    const vals = values.slice(0, N);
-    setLabel(ws.getCell(r, LBL_COL), label, { bold: style === 'bold' });
-    const font = { name: 'Calibri', size: BODY_SIZE, bold: style === 'bold', italic: style === 'delta', color: { argb: style === 'delta' ? ARGB.navyDark : ARGB.formula } };
-    if (style === 'delta') ws.getCell(r, LBL_COL).font = font;
-    const put = (c: number, v: number): void => { const cell = ws.getCell(r, c); cell.value = v; cell.numFmt = NUMFMT.money; cell.font = font; };
-    if (!openBlank(prior)) put(OPEN_COL, prior);
-    for (let t = 0; t < N; t++) put(pcol(t), vals[t] ?? 0);
-    if (kind === 'flow') put(TOTAL_COL, vals.reduce((s, v) => s + (v ?? 0), 0));
-    r += 1;
-  };
 
   const input = ctx.caseComparison;
   const report = caseReportOf(input);
   const useScenarios = (input?.baseModel?.project?.useScenarios ?? ctx.state.project.useScenarios) ?? true;
 
-  // ── "Use scenarios?" ──
-  setLabel(ws.getCell(r, LBL_COL), 'Use scenarios?', { bold: true });
-  { const c = ws.getCell(r, TOTAL_COL); c.value = useScenarios ? 'Yes' : 'No'; c.numFmt = '@'; c.alignment = { horizontal: 'right' }; markInput(c); }
-  r += 1;
-  note(useScenarios
-    ? 'A scenario is the Management (base) case plus a few input overrides. The active case drives every module and the Returns tabs. The base model is never changed.'
-    : 'Scenarios are off. The platform computes on the Management Case, and the assumptions grid and case comparison are hidden. The cases and overrides are saved, not deleted.');
+  const cases = (): void => {
+    // ── "Use scenarios?" ──
+    setLabel(ws.getCell(r, LBL_COL), 'Use scenarios?', { bold: true });
+    { const c = ws.getCell(r, TOTAL_COL); c.value = useScenarios ? 'Yes' : 'No'; c.numFmt = '@'; c.alignment = { horizontal: 'right' }; markInput(c); }
+    r += 1;
+    note(useScenarios
+      ? 'A scenario is the Management (base) case plus a few input overrides. The active case drives every module and the Returns tabs. The base model is never changed.'
+      : 'Scenarios are off. The platform computes on the Management Case, and the assumptions grid and case comparison are hidden. The cases and overrides are saved, not deleted.');
 
-  // ── 1. Cases ──
-  section('1. Cases');
-  if (!input || !report || report.columns.length === 0) {
-    note('No scenario cases are defined for this project. Add scenario cases in Module 6 (Scenario Analysis) on the platform to compare assumptions and outcomes here, then re-export.');
-    return;
-  }
-  const cols = report.columns;
-  {
+    // ── 1. Cases ──
+    section('1. Cases');
+    if (!input || !report || report.columns.length === 0) {
+      note('No scenario cases are defined for this project. Add scenario cases in Module 6 (Scenario Analysis) on the platform to compare assumptions and outcomes here, then re-export.');
+      return;
+    }
+    const cols = report.columns;
     setColHeader(ws.getCell(r, LBL_COL), 'Case', 'left');
     ['Type', 'Active', 'Overrides'].forEach((h, i) => setColHeader(ws.getCell(r, OPEN_COL + i), h, 'right'));
     r += 1;
@@ -6949,90 +6943,99 @@ function addScenarios(ctx: EmitCtx): void {
       r += 1;
     }
     r += 1;
-  }
-  if (!useScenarios) return;
+    if (!useScenarios) return;
 
-  // ── 2. Assumptions by case ──
-  section('2. Assumptions by case');
-  note('Each row is an assumption, each column a case. A scenario value that differs from the Management Case is bold. Key drivers show by default, then every field any case overrides; a lever that cannot move results under the current settings is marked so.');
-  // ONE BUILDER WITH THE REPORT (2026-09-21): reports/scenarioAssumptions.ts.
-  // This grid was built inline here and not built at all in the report, which
-  // printed only the levers that diverge, so a project whose cases carry no
-  // overrides showed a full grid in one file and nothing in the other.
-  {
-    const grid = buildAssumptionGrid(input);
-    if (grid.groups.length === 0) {
-      note(grid.emptyNote);
-    } else {
-      setColHeader(ws.getCell(r, LBL_COL), 'Assumption', 'left');
-      setColHeader(ws.getCell(r, META_B), 'Note', 'left');
-      grid.columns.forEach((c, i) => setColHeader(ws.getCell(r, OPEN_COL + i), `${c.isBase ? '★' : '◆'} ${c.name}`, 'right'));
-      r += 1;
-      for (const g of grid.groups) {
-        subTitle(g.label);
-        for (const item of g.items) {
-          if (item.label) { setLabel(ws.getCell(r, LBL_COL), item.label, { bold: true, indent: 1 }); r += 1; }
-          for (const row of item.rows) {
-            setLabel(ws.getCell(r, LBL_COL), row.label, { indent: row.indented ? 2 : 0 });
-            if (row.note) setBasis(ws.getCell(r, META_B), row.note);
-            row.cells.forEach((cell, i) => {
-              const c = ws.getCell(r, OPEN_COL + i);
-              c.value = cell.text; c.numFmt = '@'; c.alignment = { horizontal: 'right' };
-              markInput(c);
-              if (cell.overridden) c.font = { ...(c.font as object), bold: true };
-            });
-            r += 1;
+    // ── 2. Assumptions by case: only the rows where a case differs (2026-11-16, founder) ──
+    section('2. Assumptions by case');
+    note('Only the assumptions where at least one case differs from the Management Case; the differing values are bold.');
+    {
+      const grid = buildAssumptionGrid(input);
+      const groups = grid.groups.map((g) => ({ ...g, items: g.items.map((it) => ({ ...it, rows: it.rows.filter((row) => row.cells.some((cell) => cell.overridden)) })).filter((it) => it.rows.length) })).filter((g) => g.items.length);
+      if (groups.length === 0) {
+        note(grid.groups.length === 0 ? grid.emptyNote : 'No case differs from the Management Case in any assumption.');
+      } else {
+        setColHeader(ws.getCell(r, LBL_COL), 'Assumption', 'left');
+        setColHeader(ws.getCell(r, META_B), 'Note', 'left');
+        grid.columns.forEach((c, i) => setColHeader(ws.getCell(r, OPEN_COL + i), `${c.isBase ? '★' : '◆'} ${c.name}`, 'right'));
+        r += 1;
+        for (const g of groups) {
+          subTitle(g.label);
+          for (const item of g.items) {
+            if (item.label) { setLabel(ws.getCell(r, LBL_COL), item.label, { bold: true, indent: 1 }); r += 1; }
+            for (const row of item.rows) {
+              setLabel(ws.getCell(r, LBL_COL), row.label, { indent: row.indented ? 2 : 0 });
+              if (row.note) setBasis(ws.getCell(r, META_B), row.note);
+              row.cells.forEach((cell, i) => {
+                const c = ws.getCell(r, OPEN_COL + i);
+                c.value = cell.text; c.numFmt = '@'; c.alignment = { horizontal: 'right' };
+                markInput(c);
+                if (cell.overridden) c.font = { ...(c.font as object), bold: true };
+              });
+              r += 1;
+            }
           }
         }
+        r += 1;
       }
-      r += 1;
     }
-  }
-  // ── 3. Comparison ──
-  section('3. Comparison');
-  emitCaseComparison({ ws, N, row: () => r, setRow: (x) => { r = x; }, subTitle, note, report, currency, title: 'Comparison',
-    intro: 'Every case computed through the full model. Money figures in millions. The figure in brackets under each scenario is the delta vs the Management Case.' });
+    // ── 3. Comparison ──
+    section('3. Comparison');
+    emitCaseComparison({ ws, N, row: () => r, setRow: (x) => { r = x; }, subTitle, note, report, currency, title: 'Comparison',
+      intro: 'Every case computed through the full model. Money figures in millions. The figure in brackets under each scenario is the delta vs the Management Case.' });
+  };
+  cases();
 
-  // ── 4. Year-on-Year Impact ──
-  section('4. Year-on-Year Impact');
-  let yoy: CaseYoYReport | null = null;
-  try { yoy = buildCaseYoYReport(input); } catch { yoy = null; }
-  note(`${YOY_DRIVER_NOTE} The Total column sums flows and is blank for running balances. The opening column${yoy ? ` (${yoy.priorYearLabel})` : ''} is the opening / inception period.`);
-  if (!yoy || yoy.blocks.length === 0) {
-    note('No year-on-year impact yet. Override an input that drives a per-period output (for example debt %, an interest rate, a price / ADR, opex, or a construction cost) in a scenario to see how it diverges from Management over time.');
-    return;
-  }
-  for (const b of yoy.blocks) {
-    subTitle(b.inputLabel);
-    for (const line of b.inputs) {
-      const parts = line.byCase.map((iv) => `${iv.role === 'base' ? '★' : '◆'} ${iv.name}: ${formatAssumptionValue(iv.value, line.format)}${assumptionUnitSuffix(line.format)}`);
-      setLabel(ws.getCell(r, LBL_COL), `${line.label}:  ${parts.join('   ')}`, { bold: true });
+  // ── The platform's results, moved off Returns (2026-11-16, founder): the same numbers, as values ──
+  let rs: ReturnsSnapshot | null = null;
+  try { rs = computeReturnsSnapshot(snap, ctx.state.project); } catch { rs = null; }
+  if (!rs) return;
+  const PLATFORM_NOTE = 'Platform results: re-export after changing inputs';
+  const italic = (): void => {
+    setLabel(ws.getCell(r, LBL_COL), PLATFORM_NOTE);
+    ws.getCell(r, LBL_COL).font = { name: 'Calibri', size: 8.5, italic: true, color: { argb: ARGB.navyDark } };
+    r += 1;
+  };
+  const num = (c: number, v: number | string, fmt: string, bold = false): void => {
+    const cell = ws.getCell(r, c);
+    cell.value = v; cell.numFmt = typeof v === 'string' ? '@' : fmt;
+    if (typeof v === 'string') cell.alignment = { horizontal: 'right' };
+    cell.font = { name: 'Calibri', size: BODY_SIZE, bold, color: { argb: ARGB.formula } };
+  };
+  const pctOrNa = (v: number | null | undefined): number | string => (v == null || !Number.isFinite(v) ? 'n/a' : v);
+  if (ctx.includeSensitivity) {
+    const cfg = rs.config;
+    const ys = defaultSensitivityValues('sales_price_pct', cfg.discountRate);
+    const xs = defaultSensitivityValues('exit_cap_rate', cfg.discountRate);
+    let grid: ReturnType<typeof computeReturnsSensitivity> | null = null;
+    try { grid = computeReturnsSensitivity(snap, ctx.state.project, 'exit_cap_rate', 'sales_price_pct'); } catch { grid = null; }
+    if (grid) {
+      section('4. Sensitivity: equity IRR (FCFE)');
+      italic();
+      setColHeader(ws.getCell(r, LBL_COL), 'Operating cash change \\ exit cap rate', 'left');
+      xs.forEach((x, j) => setColHeader(ws.getCell(r, OPEN_COL + j), sensValueLabel('exit_cap_rate', x), 'right'));
+      r += 1;
+      ys.forEach((y, i) => {
+        setLabel(ws.getCell(r, LBL_COL), sensValueLabel('sales_price_pct', y), { bold: true });
+        xs.forEach((_x, j) => num(OPEN_COL + j, pctOrNa(grid!.irr[i]?.[j]), NUMFMT.pct2));
+        r += 1;
+      });
       r += 1;
     }
-    for (const o of b.outputs) {
-      setLabel(ws.getCell(r, LBL_COL), `${o.label}${o.kind === 'stock' ? ' (balance)' : ''}`, { bold: true });
-      fillRange(ws, r, 1, r, lastActiveCol(N), ARGB.grey);
-      r += 1;
-      periodRow(`★ ${o.base.name}`, o.base.values, o.base.prior, o.kind, 'bold');
-      for (const sc of o.scenarios) periodRow(`◆ ${yoyAloneLabel(sc.name)}`, sc.values, sc.prior, o.kind);
-      for (const d of o.deltas) periodRow(`${d.name} delta vs Management`, d.values, d.prior, o.kind, 'delta');
-      r += 1;
-    }
   }
-  // The reconciliation: each output's drivers-alone sum against each case.
-  if (yoy.reconciliation.length) {
-    subTitle(YOY_RECONCILIATION_TITLE);
-    note(YOY_RECONCILIATION_NOTE);
-    for (const rc of yoy.reconciliation) {
-      setLabel(ws.getCell(r, LBL_COL), `${rc.label}${rc.kind === 'stock' ? ' (balance)' : ''}, ${rc.drivers} driver${rc.drivers === 1 ? '' : 's'}`, { bold: true });
-      fillRange(ws, r, 1, r, lastActiveCol(N), ARGB.grey);
-      r += 1;
-      for (const pc of rc.perCase) {
-        const L = yoyReconLabels(pc.name);
-        periodRow(L.sum, pc.sumOfDrivers.values, pc.sumOfDrivers.prior, rc.kind, 'delta');
-        periodRow(L.interaction, pc.interaction.values, pc.interaction.prior, rc.kind, 'delta');
-        periodRow(L.total, pc.total.values, pc.total.prior, rc.kind, 'bold');
-      }
+  if (rs.exitYears.length) {
+    section(`${ctx.includeSensitivity ? 5 : 4}. Exit-year analysis (selling at the end of each year)`);
+    italic();
+    setColHeader(ws.getCell(r, LBL_COL), 'Exit year', 'left');
+    ['Enterprise value', 'Equity value', 'Project IRR', 'Equity IRR', 'Equity MOIC', 'Selected'].forEach((h, i) => setColHeader(ws.getCell(r, OPEN_COL + i), h, 'right'));
+    r += 1;
+    for (const x of [...rs.exitYears].sort((a, b) => a.exitIdx - b.exitIdx)) {
+      setLabel(ws.getCell(r, LBL_COL), String(x.exitYearLabel), { bold: x.isSelected });
+      num(OPEN_COL, x.enterpriseValue, NUMFMT.money, x.isSelected);
+      num(OPEN_COL + 1, x.equityValue, NUMFMT.money, x.isSelected);
+      num(OPEN_COL + 2, pctOrNa(x.fcffIrr), NUMFMT.pct2, x.isSelected);
+      num(OPEN_COL + 3, pctOrNa(x.fcfeIrr), NUMFMT.pct2, x.isSelected);
+      num(OPEN_COL + 4, x.equityMoic, NUMFMT.mult, x.isSelected);
+      num(OPEN_COL + 5, x.isSelected ? 'Yes' : 'No', '@', x.isSelected);
       r += 1;
     }
   }
@@ -7167,8 +7170,9 @@ function addChecks(ctx: EmitCtx, capexAddrs: CapexAddrs, retLinks: RetLinks): vo
   for (const a of poolSaleCohortByLine(buildSaleCohortAdvisories(ctx.state.assets, ctx.state.project.saleCohortDefaults?.downpayment, snap.revenue), ctx.state)) {
     checkRow(`Downpayment not stated, ${a.assetName}`, 'NOTE', a.saleValue, liveChk ? 'No downpayment stated; residue is the sale value' : `${saleCohortAdvisoryText(a, checkMoney)} Advisory, not a failure: the residue is the sale value the missing input applies to.`);
   }
-  // An input left at zero (2026-10-05): a NOTE, never a CHECK; the export goes ahead.
-  for (const a of buildEmptyInputAdvisories(ctx.state)) {
+  // An input left at zero (2026-10-05): a NOTE, never a CHECK; the export goes ahead. NOT IN THE LIVE LAYOUT
+  // (2026-11-16, founder): a line left at zero is not built, and the Inputs "Not used" line says so.
+  if (!liveChk) for (const a of buildEmptyInputAdvisories(ctx.state)) {
     checkRow(`Input at zero, ${a.item}`, 'NOTE', liveChk ? a.zeroCount : 0, liveChk ? 'Left at zero; the model charges nothing for it' : `${emptyInputAdvisoryText(a)} Advisory, not a failure: the model charges nothing for it.`, liveChk ? `chk|zero|${a.item}` : undefined);
   }
   // A typed performance fee column short of 100% (2026-10-06): a NOTE with the amount.

@@ -31,7 +31,7 @@ import { figureTools, liveAssetAreas, type X } from './liveAreas';
 import { withResolvedAssetNames } from '@/src/core/calculations/assetName';
 import { deriveCostStage, resolveSubUnitMetric } from '@/src/core/calculations';
 import { computeFinancialsSnapshot } from '../../financials-resolvers';
-import { buildCostPerSqmReport, COST_BASES } from '../../reports/costPerSqmReport';
+import { buildCostPerSqmReport } from '../../reports/costPerSqmReport';
 import type { CostLine, SubUnit } from '../../state/module1-types';
 
 // THE COST PER SQM MOVED TO SUMMARY (2026-11-12, founder: export simplification step 2). The rows keep
@@ -128,43 +128,26 @@ export const stage8Capex7: LiveLayer = {
     }
     if (problems.length) { w.reset(); return kept([...new Set(problems)].slice(0, 4).join('; ')); }
 
-    // ── Writing: 7a, then 7b, cell by cell as costPerSqmTables lays them out ──
-    const C_TOT = 5;
+    // ── Writing: one row per line (2026-11-16, founder): NSA in B, then the cost per sqm of NSA on each
+    // cumulative base, each adding its own cost over the NSA to the base before it (short formulas). ──
     const at = (key: string, col: number) => ({ sheet: w.addr(key).sheet, row: w.addr(key).row, col });
-    const perSqm = (num: string, den: string): string => `IF(${den}>0,(${num})/(${den}),"n/a")`;
     const diff = (a: string, b: string): string => `IF(AND(ISNUMBER(${a}),ISNUMBER(${b})),${a}-${b},"n/a")`;
     for (const l of report.lines) {
       const f = figs.get(l.key)!;
-      const areas = [f.nsa.f, f.bua.f, f.gfa.f];
-      const cost = { construction: f.construction.f, withIdc: `(${f.construction.f}+${f.idc})`, withLand: `(${f.construction.f}+${f.idc}+${f.land.f})` };
-      const head = `cx7a|${l.key}|head`;
-      if (has(head)) areas.forEach((a, i) => w.fA(at(head, C_TOT + 1 + i), a));
-      // SHORT FORMULAS (2026-11-03): each base divides its own cost cell by the line's areas in the
-      // heading row above it, so neither the cost nor the area expression is written twice.
-      const areaRef = (i: number): string => (has(head) ? w.refA(at(head, C_TOT + 1 + i)) : areas[i]);
-      for (const b of COST_BASES) {
-        const k = `cx7a|${l.key}|${b.key}`;
-        if (!has(k)) continue;
-        w.fA(at(k, C_TOT), cost[b.key]);
-        areas.forEach((_a, i) => { const c = w.refA(at(k, C_TOT)), d = areaRef(i); w.fA(at(k, C_TOT + 1 + i), perSqm(c, d)); });
-      }
-      if (!l.sale || !has(`cx7b|${l.key}|sold`)) continue;
-      const soldK = `cx7b|${l.key}|sold`;
-      w.fA(at(soldK, C_TOT), f.sold!);
-      w.fA(at(soldK, C_TOT + 1), f.basePrice ?? perSqm(f.atBase!, f.sold!));
-      w.fA(at(soldK, C_TOT + 2), perSqm(f.gdv!, f.sold!));
-      const base = w.refA(at(soldK, C_TOT + 1)), realised = w.refA(at(soldK, C_TOT + 2));
-      for (const b of COST_BASES) {
-        const k = `cx7b|${l.key}|${b.key}`;
-        if (!has(k)) continue;
-        // The cost per sqm of NSA is Table 7a's own cell for that base.
-        const costCell = has(`cx7a|${l.key}|${b.key}`) ? w.refA(at(`cx7a|${l.key}|${b.key}`, C_TOT + 1)) : perSqm(cost[b.key], f.nsa.f);
-        w.fA(at(k, C_TOT), costCell);
-        const mine = w.refA(at(k, C_TOT));
-        w.fA(at(k, C_TOT + 1), diff(base, mine));
-        w.fA(at(k, C_TOT + 2), diff(realised, mine));
-      }
-      if (has(`cx7b|${l.key}|esc`)) w.fA(at(`cx7b|${l.key}|esc`, C_TOT + 2), diff(realised, base));
+      const k = `cx7a|${l.key}`;
+      if (!has(k)) continue;
+      w.fA(at(k, 2), f.nsa.f);
+      const nsa = w.refA(at(k, 2));
+      w.fA(at(k, 3), `IF(${nsa}>0,(${f.construction.f})/${nsa},"n/a")`);
+      const c1 = w.refA(at(k, 3));
+      w.fA(at(k, 4), `IF(ISNUMBER(${c1}),${c1}+${f.idc}/${nsa},"n/a")`);
+      const c2 = w.refA(at(k, 4));
+      w.fA(at(k, 5), `IF(ISNUMBER(${c2}),${c2}+(${f.land.f})/${nsa},"n/a")`);
+      const kb = `cx7b|${l.key}`;
+      if (!l.sale || !has(kb)) continue;
+      w.fA(at(kb, 2), `IF(${f.sold}>0,${f.gdv}/${f.sold},"n/a")`);
+      const price = w.refA(at(kb, 2));
+      for (const col of [3, 4, 5]) w.fA(at(kb, col), diff(price, w.refA(at(k, col))));
     }
     // Table 7 was the last part of the sheet that was values. The sheet is live unless
     // stage 2 left a cell waiting (its revenue-based lines, where Revenue is not live).

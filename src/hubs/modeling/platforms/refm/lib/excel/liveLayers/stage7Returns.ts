@@ -110,7 +110,7 @@ export const stage7Returns: LiveLayer = {
     each(true);
     return [{
       sheet: RET, status: 'live' as const, formulas: w.formulas.get(RET) ?? 0,
-      note: 'Live: the FCFF, FCFE and distribution streams over the Cash Flow, Financing and the Balance Sheet, each following the exit year on Inputs; one IRR, MOIC and NPV per stream (NPV on the discount rate on Inputs); the partners, the fee split from the shares on Inputs, sources and uses, development economics, the exit, the sensitivity grid, the real estate metrics and the exit-year analysis.',
+      note: 'Live: the exit value, then the FCFF, FCFE and distribution streams over the Cash Flow, Financing and the Balance Sheet, each following the exit year on Inputs, with one IRR, MOIC and NPV under each; the partners, the fee split from the shares on Inputs, sources and uses and the key metrics.',
     }];
   },
 };
