@@ -84,6 +84,19 @@ export const WORKING_LABELS = /\(1 = yes\)$|^Operating year \(any phase operatin
 export interface ValuesWorkbookResult { wb: ExcelJS.Workbook; dropped: Array<{ sheet: string; key: string; label: string }>; source?: 'live' | 'values'; charts?: ChartSpec[] }
 
 /**
+ * A formula's value in the values file (2026-11-17, founder: "zeros written as blank"). ExcelJS reports a cached 0 as
+ * NO result (TRAPS 3.45), so `result ?? null` wrote 3,518 zeros as empty cells, which show nothing where the live file
+ * shows "-". A missing result is the zero it stands for; only a formula that returns "" is empty, and an error value
+ * (none is exported) would be empty too.
+ */
+export function frozenValue(result: unknown): ExcelJS.CellValue {
+  if (result === undefined || result === null) return 0;
+  if (result === '') return null;
+  if (typeof result === 'object' && !(result instanceof Date)) return null;
+  return result as ExcelJS.CellValue;
+}
+
+/**
  * The live workbook with every formula frozen to the value it holds, or null when the live workbook does not build
  * for this project (no asset, a refusal, a failed check), in which case the values mode builds the file.
  */
@@ -102,7 +115,7 @@ export function frozenLiveWorkbook(opts: BuildModelOptions): { wb: ExcelJS.Workb
     const v = c.value as unknown as { formula?: string; result?: unknown } | null;
     if (!v || typeof v !== 'object' || typeof v.formula !== 'string') return;
     const r = v.result;
-    c.value = (r !== null && typeof r === 'object' ? null : r ?? null) as ExcelJS.CellValue;
+    c.value = frozenValue(r);
   }));
   applyPartVisibility(wb, opts.parts);
   return { wb, charts };
@@ -161,7 +174,7 @@ export function buildValuesModeWorkbook(opts: BuildModelOptions): ValuesWorkbook
   // No formula reaches the values file: a stray one keeps the number the builder printed beside it.
   for (const ws of wb.worksheets) ws.eachRow((row) => row.eachCell((c) => {
     const v = c.value as unknown as { formula?: string; result?: unknown } | null;
-    if (v && typeof v === 'object' && typeof v.formula === 'string') c.value = (v.result ?? null) as ExcelJS.CellValue;
+    if (v && typeof v === 'object' && typeof v.formula === 'string') c.value = frozenValue(v.result);
   }));
   const house = houseContextOf(wb);
   if (house) {
@@ -180,7 +193,7 @@ export function buildValuesModeWorkbook(opts: BuildModelOptions): ValuesWorkbook
     // The front tabs are built as formulas over the figures; a values file holds their values.
     for (const ws of wb.worksheets) ws.eachRow((row) => row.eachCell((c) => {
       const v = c.value as unknown as { formula?: string; result?: unknown } | null;
-      if (v && typeof v === 'object' && typeof v.formula === 'string') c.value = (v.result !== null && typeof v.result === 'object' ? null : v.result ?? null) as ExcelJS.CellValue;
+      if (v && typeof v === 'object' && typeof v.formula === 'string') c.value = frozenValue(v.result);
     }));
   }
   orderTabs(wb);

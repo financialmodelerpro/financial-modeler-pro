@@ -209,6 +209,9 @@ function buildGuide(ws: ExcelJS.Worksheet, wb: ExcelJS.Workbook, ctx: FrontConte
   line('Checks', 'The Checks tab must read ALL OK before you use any number. The Dashboard shows the same status at the top.');
   r++;
 
+  // PRINTED ON TWO PAGES (2026-11-17, founder): the colours, the model and before you start on page 1; the model map
+  // onward on page 2 (fitted to the width and to two pages tall, below).
+  ws.getRow(r - 1).addPageBreak();
   bar('Model map');
   for (const [tab, text] of TAB_LINES) {
     if (!wb.getWorksheet(tab)) continue;
@@ -245,7 +248,7 @@ function buildGuide(ws: ExcelJS.Worksheet, wb: ExcelJS.Workbook, ctx: FrontConte
 
   for (let c = 2; c <= 11; c++) ws.getCell(r, c).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: NAVY } };
   const e = ws.getCell(r, 2); e.value = 'End of sheet'; e.font = f(9, WHITE, true);
-  ws.pageSetup = { ...ws.pageSetup, orientation: 'landscape', paperSize: 9, fitToPage: true, fitToWidth: 1, fitToHeight: 0, margins: { left: 0.4, right: 0.4, top: 0.5, bottom: 0.5, header: 0.3, footer: 0.3 } } as ExcelJS.PageSetup;
+  ws.pageSetup = { ...ws.pageSetup, orientation: 'landscape', paperSize: 9, fitToPage: true, fitToWidth: 1, fitToHeight: 2, margins: { left: 0.4, right: 0.4, top: 0.5, bottom: 0.5, header: 0.3, footer: 0.3 } } as ExcelJS.PageSetup;
 }
 
 // ── The Cover: quick navigation and footer as the reference has them ─────────────────────────────────────────────
@@ -277,6 +280,8 @@ function restyleCover(wb: ExcelJS.Workbook, tax: 'zakat' | 'tax'): void {
   // white, and the note pale, on the navy band (verify-export-vs-reference names this difference).
   const f1 = ws.getCell(r, 3); f1.value = 'Built with Financial Modeler Pro, financialmodelerpro.com'; f1.font = { name: 'Calibri', size: 9, bold: true, color: { argb: WHITE } };
   const f2 = ws.getCell(r + 1, 3); f2.value = 'The results depend on the inputs entered for this project: review them before relying on any figure.'; f2.font = { name: 'Calibri', size: 8, italic: true, color: { argb: 'FFC9D6E5' } };
+  // THE COVER PRINTS ON ONE PAGE (2026-11-17, founder): fitted to one page wide and one tall.
+  ws.pageSetup = { ...ws.pageSetup, fitToPage: true, fitToWidth: 1, fitToHeight: 1 } as ExcelJS.PageSetup;
   // Every link on the Cover opens its tab at A1.
   ws.eachRow((row) => row.eachCell((c) => { const v = c.value as { text?: string; hyperlink?: string } | null; if (v && typeof v === 'object' && typeof v.hyperlink === 'string') c.value = { ...v, hyperlink: v.hyperlink.replace(/!\$?[A-Z]+\$?\d+$/, '!A1') } as ExcelJS.CellValue; }));
 }

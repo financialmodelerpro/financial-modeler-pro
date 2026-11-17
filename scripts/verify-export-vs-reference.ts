@@ -66,6 +66,8 @@ const ACCEPTED: Array<{ at: RegExp; cat?: RegExp; why: string; mode?: 'live' | '
   // read the switch (IF(switch=1, ..., 0)), and the switch sits on Inputs (section 13, below the reference's rows).
   // The phase EBITDA links (each phase's dividend cap reads its P&L) are read back from the P&L too, and cut the same way.
   { at: /^Financing![G-S](41|43|74|86|104|106)\(ours (40|42|73|85|103|105)\)$/, cat: /^formula$/, why: 'the circularity switch cuts the financing loops (open fix 8, TRAPS 3.46)' },
+  // Print set-up (2026-11-17, founder): the Cover on one page; the Guide fitted to the width on two pages.
+  { at: /^(Cover|Guide)!print$/, cat: /^print$/, why: 'the Cover prints on one page and the Guide on two (founder)' },
   // The export date on the Cover is the day the file is made.
   { at: /^Cover!D12$/, cat: /^value$/, why: 'the Cover states the day the file is exported', mayNotOccur: true },
   // 6. The Cover footer: the reference wrote it navy on its navy band, which cannot be read; ours is white and pale.
@@ -332,6 +334,32 @@ function report(label: string, diffs: Diff[]): void {
     }
     mode = 'values';
     report('B3 the values export, cell for cell', vd);
+    // B4 THE VALUES FILE HOLDS WHAT EACH FORMULA HOLDS (2026-11-17, founder: 3,518 zeros were written as blank): every
+    // formula cell of the live file against its values cell, a missing cached result being the 0 it stands for
+    // (ExcelJS reads a cached 0 as no result), 0 = 0, and blank only where the formula returns "".
+    {
+      const bad: string[] = []; let cells = 0, zeros = 0;
+      for (const ws of ours.worksheets) {
+        const vw = vals.getWorksheet(ws.name);
+        if (!vw) { bad.push(`${ws.name} missing`); continue; }
+        ws.eachRow((row, r) => row.eachCell((c, col) => {
+          const v = c.value as { formula?: string; result?: unknown } | null;
+          if (!v || typeof v !== 'object' || typeof v.formula !== 'string') return;
+          if (c.isMerged && c.master.address !== c.address) return;
+          // A cell whose values-file words the founder asked to differ (the Guide's purpose line) is named above.
+          if (accepted(`${ws.name}!${c.address}`, 'value')) return;
+          cells++;
+          const res = v.result;
+          const want = res === undefined || res === null ? 0 : res === '' ? null : res instanceof Date ? res.getTime() : res;
+          const g0 = vw.getCell(r, col).value as unknown;
+          const got = g0 instanceof Date ? g0.getTime() : g0 === '' ? null : g0 ?? null;
+          if (want === 0) zeros++;
+          const same = typeof want === 'number' && typeof got === 'number' ? Math.abs(want - got) <= 1e-9 * Math.max(1, Math.abs(want)) : want === got;
+          if (!same && bad.length < 400) bad.push(`${ws.name}!${c.address} live ${JSON.stringify(want)} values ${JSON.stringify(got)}`);
+        }));
+      }
+      check(`B4 every formula's value is in the values file, 0 as 0 and blank only for "" (${cells} formula cells, ${zeros} zeros)`, bad.length === 0 && cells > 5000 && zeros > 0, `${bad.length} differ: ${bad.slice(0, 12).join('; ')}`);
+    }
   }
 
   // D. THE LOOP FROM A COLD START (founder, open fix 8): the live file with every stored value taken out, recalculated

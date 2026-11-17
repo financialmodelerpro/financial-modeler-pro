@@ -144,7 +144,13 @@ export function addRiskTriggers(wb: ExcelJS.Workbook): void {
     };
     put(2, t.amber);
     if (t.red !== undefined) put(3, t.red);
-    const d = ws.getCell(r, 4); d.value = t.basis; d.font = { name: 'Calibri', size: 9, color: { argb: 'FF000000' } };
+    else {
+      // An amber-only test has no red trigger of its own (its red is the rate or covenant itself): "n/a", not an input.
+      const na = ws.getCell(r, 3); na.value = 'n/a';
+      na.font = { name: 'Calibri', size: 9, italic: true, color: { argb: 'FF6B7785' } }; na.alignment = { horizontal: 'right' };
+    }
+    // The basis sits one indent clear of the right-aligned figures beside it.
+    const d = ws.getCell(r, 4); d.value = t.basis; d.font = { name: 'Calibri', size: 9, color: { argb: 'FF000000' } }; d.alignment = { indent: 1 };
     r += 1;
   }
 
@@ -158,7 +164,8 @@ export function addRiskTriggers(wb: ExcelJS.Workbook): void {
   for (let c = 1; c <= 6; c++) bar2.getCell(c).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: BAR } };
   bar2.getCell(1).value = `${barNo + 2}. Calculation settings`;
   bar2.getCell(1).font = { name: 'Calibri', size: 10, bold: true, color: { argb: WHITE } };
-  r += 2;
+  // The switch sits directly under its bar (no empty row, whose blank left the input's top edge standing alone).
+  r += 1;
   const s1 = ws.getCell(r, 1); s1.value = CIRCULARITY_LABEL; s1.font = { name: 'Calibri', size: 9, color: { argb: 'FF000000' } };
   const s2 = ws.getCell(r, 2); s2.value = 1; s2.numFmt = '0';
   const p = proto as ExcelJS.Cell | null;
@@ -166,7 +173,7 @@ export function addRiskTriggers(wb: ExcelJS.Workbook): void {
   s2.font = p?.font ? { ...p.font } : { name: 'Calibri', size: 9, color: { argb: BLUE } };
   if (p?.border) s2.border = JSON.parse(JSON.stringify(p.border));
   const s3 = ws.getCell(r, 4); s3.value = 'Set to 0, recalculate (F9), then back to 1 if an error ever fills the financing loop';
-  s3.font = { name: 'Calibri', size: 9, color: { argb: 'FF000000' } };
+  s3.font = { name: 'Calibri', size: 9, color: { argb: 'FF000000' } }; s3.alignment = { indent: 1 };
   s2.dataValidation = { type: 'whole', operator: 'between', allowBlank: false, formulae: [0, 1], showErrorMessage: true, errorTitle: 'Circularity switch', error: 'Type 1 (on) or 0 (off).' };
 
   // The switch cuts the loop where it closes: every year of every facility's "Interest charged" row, and every
