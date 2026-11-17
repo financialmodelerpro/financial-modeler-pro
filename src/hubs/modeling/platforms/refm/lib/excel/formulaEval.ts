@@ -260,6 +260,17 @@ export class FormulaEvaluator {
   }
 }
 
+/**
+ * FORMULAS THAT SHOW NOTHING (2026-11-17). ExcelJS keeps no cached result of "" (it drops it, in memory and in the
+ * file), so a formula that returns "" looks like one that returns 0. A builder that knows a formula evaluates to ""
+ * marks the cell here, and the values file (the live file frozen) leaves exactly those cells empty.
+ */
+const EMPTY_TEXT = new WeakMap<object, Set<string>>();
+export function markEmptyText(wb: object, sheet: string, address: string): void {
+  let s = EMPTY_TEXT.get(wb); if (!s) { s = new Set(); EMPTY_TEXT.set(wb, s); } s.add(`${sheet}!${address}`);
+}
+export function isEmptyText(wb: object, sheet: string, address: string): boolean { return EMPTY_TEXT.get(wb)?.has(`${sheet}!${address}`) ?? false; }
+
 /** A reader over an ExcelJS workbook's cached values. */
 export function workbookReader(wb: { getWorksheet(name: string): unknown }): CellReader {
   return (sheet, r, c) => {

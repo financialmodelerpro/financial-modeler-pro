@@ -51,6 +51,7 @@ import { finalPasses } from '../src/hubs/modeling/platforms/refm/lib/excel/reada
 import { applyReferenceLayout } from '../src/hubs/modeling/platforms/refm/lib/excel/referenceLayout';
 import { buildFrontTabs } from '../src/hubs/modeling/platforms/refm/lib/excel/referenceFront';
 import { addRiskTriggers } from '../src/hubs/modeling/platforms/refm/lib/excel/dashboard';
+import { freezeFormulas } from '../src/hubs/modeling/platforms/refm/lib/excel/valuesWorkbook';
 
 /**
  * THE PLATFORM TWIN IN THE LIVE FILE'S FRAME (2026-11-17, step 7). Since step 2 the live workbook ends
@@ -72,7 +73,7 @@ function framedPlain(o: Parameters<typeof buildModelWorkbook>[0], live?: ExcelJS
   // the Dashboard in place of the Summary).
   if (house) { addRiskTriggers(w); applyReferenceLayout(w, { mirror: live }); buildFrontTabs(w, { valuesOutput: false, scale: house.scale }); }
   // The twin stands for the hardcoded figures: its front tabs hold their values (the live file's are formulas over them).
-  for (const ws of w.worksheets) ws.eachRow((row) => row.eachCell((c) => { const v = c.value as { formula?: string; result?: unknown } | null; if (v && typeof v === 'object' && typeof v.formula === 'string') c.value = (v.result !== null && typeof v.result === 'object' ? null : v.result ?? 0) as ExcelJS.CellValue; })); // ExcelJS reports a cached 0 as no result (TRAPS 3.45)
+  freezeFormulas(w); // ExcelJS reports a cached 0 as no result (TRAPS 3.45)
   if (live) mirrorBlankTotals(w, live);
   return w;
 }

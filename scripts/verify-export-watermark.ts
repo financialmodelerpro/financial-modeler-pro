@@ -359,8 +359,12 @@ section('C. The stamp is drawn, on every page, and a paid export is untouched');
       // no plan gains Excel that was previously allowed it.
       check('H: trial was denied under the old key as well',
         inc('trial', 'excel_formula') === false);
-      check('H: no plan had excel_formula, so nothing loses access',
-        ['trial', 'solo', 'pro', 'firm'].every((p) => inc(p, 'excel_formula') === false));
+      // RE-AIMED 2026-11-17 (founder, migration 257): excel_formula is now the LIVE workbook's own entitlement, a Beta
+      // for Pro and Firm. The rule this guarded still holds: the hardcoded Excel never gated on it, and no plan that
+      // lacks the snapshot export gains a workbook through it.
+      check('H: excel_formula (the live workbook Beta) is open on Pro and Firm only, and never where Excel is denied',
+        inc('pro', 'excel_formula') === true && inc('firm', 'excel_formula') === true
+        && inc('trial', 'excel_formula') === false && inc('solo', 'excel_formula') === false);
 
       // PDF, including trial, which keeps it and is watermarked instead.
       for (const p of ['trial', 'solo', 'pro', 'firm']) {

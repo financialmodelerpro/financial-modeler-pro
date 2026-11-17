@@ -40,7 +40,7 @@
  */
 import ExcelJS from 'exceljs';
 import { createClient } from '@supabase/supabase-js';
-import { buildValuesWorkbook, buildValuesModeWorkbook } from '../src/hubs/modeling/platforms/refm/lib/excel/valuesWorkbook';
+import { buildValuesWorkbook, buildValuesModeWorkbook, formulaValuesOf } from '../src/hubs/modeling/platforms/refm/lib/excel/valuesWorkbook';
 import { buildFormulaWorkbook } from '../src/hubs/modeling/platforms/refm/lib/excel/formulaWorkbook';
 import { liveWorkbookRefusal } from '../src/hubs/modeling/platforms/refm/lib/excel/liveWorkbookAvailability';
 import { computeFinancialsSnapshot, computeFundingGap } from '../src/hubs/modeling/platforms/refm/lib/financials-resolvers';
@@ -220,12 +220,16 @@ function probe(name: string, input: LiveExportInputs, state: Any, plant = false)
       if (!live) check(`F3 ${name}: the live workbook does not build here, and the shipped file is the values mode`, shipped.source === 'values', String(shipped.source));
       else {
         const diffs: string[] = []; let cells = 0;
+        // Each formula's value as the values file holds it (a missing cached result: its 0, or its "" worked out).
+        const liveVals = formulaValuesOf(live);
         for (const ws of live.worksheets) {
           const o = shipped.wb.getWorksheet(ws.name);
           if (!o) { diffs.push(`${ws.name} missing`); continue; }
           ws.eachRow((row, r) => row.eachCell((c, col) => {
             const v = c.value as unknown;
-            const want = isF(v) ? (v.result !== null && typeof v.result === 'object' ? null : v.result ?? null) : v;
+            // A formula's value as the values file holds it (2026-11-17): a missing cached result is the 0 it stands for,
+            // and empty only where the formula returns "" (frozenValue, isEmptyText).
+            const want = isF(v) ? liveVals.get(`${ws.name}!${c.address}`) ?? null : v;
             const got = o.getCell(r, col).value as unknown;
             cells++;
             const same = typeof want === 'number' && typeof got === 'number' ? Math.abs(want - got) <= 1e-9 * Math.max(1, Math.abs(want)) : JSON.stringify(want) === JSON.stringify(got);

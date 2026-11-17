@@ -21,7 +21,7 @@
  */
 import type ExcelJS from 'exceljs';
 import JSZip from 'jszip';
-import { FormulaEvaluator, workbookReader, type Scalar } from './formulaEval';
+import { FormulaEvaluator, workbookReader, markEmptyText, type Scalar } from './formulaEval';
 
 // ── Colours and formats (the reference's) ────────────────────────────────────────────────────────────────────────
 const NAVY = 'FF153D64', BAR = 'FF1B4F8A', ZEBRA = 'FFF2F5F9', TOTAL = 'FFDDE7F3', INPUT = 'FFFFF2CC';
@@ -300,6 +300,7 @@ export function buildDashboard(wb: ExcelJS.Workbook, ctx: DashboardContext): { c
       let res: Scalar;
       try { res = ev.evaluate(f, 'Dashboard'); } catch (e) { throw new Error(`dashboard ${colL(c)}${r}: ${(e as Error).message}`); }
       cell.value = { formula: f, result: res === null ? 0 : typeof res === 'object' ? undefined : res } as ExcelJS.CellValue;
+      if (res === '') markEmptyText(wb, 'Dashboard', cell.address);
     } else cell.value = v as ExcelJS.CellValue;
     if (s) styleCell(cell, s, fill);
     else if (fill) cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: fill } };

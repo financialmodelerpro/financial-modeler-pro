@@ -39,6 +39,7 @@ import { finalPasses } from './readability';
 import { TAB_ORDER, buildFormulaWorkbook } from './formulaWorkbook';
 import { emptyProjectRefusal, liveWorkbookRefusal } from './liveWorkbookAvailability';
 import { addDashboardCharts, addRiskTriggers, type ChartSpec } from './dashboard';
+import { isEmptyText, FormulaEvaluator, workbookReader } from './formulaEval';
 import { buildFrontTabs } from './referenceFront';
 
 /** THE VALUES FILE'S TABS IN THE LIVE FILE'S ORDER (founder, 2026-11-15): Revenue before Capex and Financing. */
@@ -89,11 +90,38 @@ export interface ValuesWorkbookResult { wb: ExcelJS.Workbook; dropped: Array<{ s
  * shows "-". A missing result is the zero it stands for; only a formula that returns "" is empty, and an error value
  * (none is exported) would be empty too.
  */
-export function frozenValue(result: unknown): ExcelJS.CellValue {
+export function frozenValue(result: unknown, emptyText = false): ExcelJS.CellValue {
+  if (emptyText) return null;
   if (result === undefined || result === null) return 0;
   if (result === '') return null;
   if (typeof result === 'object' && !(result instanceof Date)) return null;
   return result as ExcelJS.CellValue;
+}
+
+/**
+ * EVERY FORMULA'S VALUE, as the values file holds it: the cached result; where ExcelJS kept none (it keeps no 0 and no
+ * ""), the formula worked out over the cached figures (formulaEval.ts), "" staying empty and anything else its value;
+ * a formula the evaluator cannot read (IRR, EDATE: always a figure) its 0. Worked out before any cell is replaced.
+ */
+export function formulaValuesOf(wb: ExcelJS.Workbook): Map<string, ExcelJS.CellValue> {
+  const ev = new FormulaEvaluator(workbookReader(wb));
+  const out = new Map<string, ExcelJS.CellValue>();
+  for (const ws of wb.worksheets) ws.eachRow((row) => row.eachCell((c) => {
+    const v = c.value as unknown as { formula?: string; result?: unknown } | null;
+    if (!v || typeof v !== 'object' || typeof v.formula !== 'string') return;
+    let empty = isEmptyText(wb, ws.name, c.address);
+    if (!empty && (v.result === undefined || v.result === null)) { try { empty = ev.evaluate(v.formula, ws.name) === ''; } catch { empty = false; } }
+    out.set(`${ws.name}!${c.address}`, frozenValue(v.result, empty));
+  }));
+  return out;
+}
+/** Every formula of the workbook replaced by its value (formulaValuesOf). */
+export function freezeFormulas(wb: ExcelJS.Workbook): void {
+  const vals = formulaValuesOf(wb);
+  for (const ws of wb.worksheets) ws.eachRow((row) => row.eachCell((c) => {
+    const k = `${ws.name}!${c.address}`;
+    if (vals.has(k)) c.value = vals.get(k)!;
+  }));
 }
 
 /**
@@ -111,12 +139,7 @@ export function frozenLiveWorkbook(opts: BuildModelOptions): { wb: ExcelJS.Workb
   } catch {
     return null;
   }
-  for (const ws of wb.worksheets) ws.eachRow((row) => row.eachCell((c) => {
-    const v = c.value as unknown as { formula?: string; result?: unknown } | null;
-    if (!v || typeof v !== 'object' || typeof v.formula !== 'string') return;
-    const r = v.result;
-    c.value = frozenValue(r);
-  }));
+  freezeFormulas(wb);
   applyPartVisibility(wb, opts.parts);
   return { wb, charts };
 }
@@ -191,10 +214,7 @@ export function buildValuesModeWorkbook(opts: BuildModelOptions): ValuesWorkbook
   if (house) {
     charts = buildFrontTabs(wb, { valuesOutput: true, scale: house.scale, emptyDashboardIfUnreadable: true }).charts;
     // The front tabs are built as formulas over the figures; a values file holds their values.
-    for (const ws of wb.worksheets) ws.eachRow((row) => row.eachCell((c) => {
-      const v = c.value as unknown as { formula?: string; result?: unknown } | null;
-      if (v && typeof v === 'object' && typeof v.formula === 'string') c.value = frozenValue(v.result);
-    }));
+    freezeFormulas(wb);
   }
   orderTabs(wb);
   return { wb, dropped, source: 'values', charts };

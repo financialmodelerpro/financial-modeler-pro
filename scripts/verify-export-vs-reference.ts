@@ -22,6 +22,7 @@
 import ExcelJS from 'exceljs';
 import { existsSync, readFileSync } from 'node:fs';
 import JSZip from 'jszip';
+import { FormulaEvaluator, workbookReader } from '../src/hubs/modeling/platforms/refm/lib/excel/formulaEval';
 
 const REF_PATH = 'docs/refm-export-reference.xlsx';
 const argv = process.argv.slice(2);
@@ -341,6 +342,7 @@ function report(label: string, diffs: Diff[]): void {
     // (ExcelJS reads a cached 0 as no result), 0 = 0, and blank only where the formula returns "".
     {
       const bad: string[] = []; let cells = 0, zeros = 0;
+      const ev = new FormulaEvaluator(workbookReader(ours));
       for (const ws of ours.worksheets) {
         const vw = vals.getWorksheet(ws.name);
         if (!vw) { bad.push(`${ws.name} missing`); continue; }
@@ -352,7 +354,11 @@ function report(label: string, diffs: Diff[]): void {
           if (accepted(`${ws.name}!${c.address}`, 'value')) return;
           cells++;
           const res = v.result;
-          const want = res === undefined || res === null ? 0 : res === '' ? null : res instanceof Date ? res.getTime() : res;
+          // ExcelJS keeps no cached "" either: a missing result is a formula's 0 or its "", told apart by working the
+          // formula out where the evaluator can (the Dashboard's; any other tab's formula is a figure).
+          let blankText = false;
+          if (res === undefined || res === null) { try { blankText = ev.evaluate(v.formula, ws.name) === ''; } catch { blankText = false; } }
+          const want = blankText ? null : res === undefined || res === null ? 0 : res === '' ? null : res instanceof Date ? res.getTime() : res;
           const g0 = vw.getCell(r, col).value as unknown;
           const got = g0 instanceof Date ? g0.getTime() : g0 === '' ? null : g0 ?? null;
           if (want === 0) zeros++;
