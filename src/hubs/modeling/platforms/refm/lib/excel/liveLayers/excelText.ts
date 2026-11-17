@@ -68,3 +68,12 @@ export function workingLabel(s: string): string {
   for (const [re, to] of WORKING_WORDS) out = out.replace(re, to);
   return out.charAt(0).toUpperCase() + out.slice(1);
 }
+
+/**
+ * A sell line's row label (2026-11-17, founder): "1 BR: sqm sold" where the line has several sub-units,
+ * "Sqm sold" where it has one (no prefix that names the only thing there is). The values builder and the
+ * live layer both call it, so a row's registry key is the same in both.
+ */
+export function sellRowLabel(unitCount: number, name: string, what: string): string {
+  return unitCount > 1 ? `${name}: ${what}` : `${what.charAt(0).toUpperCase()}${what.slice(1)}`;
+}

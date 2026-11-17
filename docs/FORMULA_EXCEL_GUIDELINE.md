@@ -156,6 +156,7 @@ The rebuild that retires the hidden working sheets, one tab per commit, the firs
 - **Rows are shared only when the rule is the same**, and a test typing into a shared row edits every line on it (the cash and in-kind land window, step 7).
 - **A Total only for a flow** (`blankNonFlowTotals`).
 - **Later-tab links: capitalised interest, each phase's EBITDA and zakat**, nothing else (A12, A12h).
+- **The last passes read like a hand-built model** (`readability.ts`: labels, formats, input guards, SUMIF; 2026-11-17). Each keeps a cached value on a formula it rewrites (TRAPS 3.45), and the verifier's twin runs the same `finalPasses`, so rows still pair by label.
 - **The frame moves cells after every layer, and the registry follows it** (`FrameMoves`, `CellRegistry.remap`, 2026-11-17). A caller reading a key gets the cell where it now is; a test that names a column in the build's own geometry moves it through `frame.newCol`.
 
 **How the proof compares since step 7.** `verify-formula-workbook` builds the platform twin with the same house style and frame (`framedPlain`), takes the live file's blank Totals onto it (`mirrorBlankTotals`), pairs every row by its label (a row the live file removes after the build, the Financing settings, has no twin, and A3a fails if a row that does have a twin goes uncompared) and keys the oracle at live addresses. Until this change the comparison read the neighbouring cell on every tab the frame had moved, about 3,200 cells "differed", and `verify-values-mode` V5/V6 had checked "0 rows" since step 2 and passed (TRAPS 3.41).

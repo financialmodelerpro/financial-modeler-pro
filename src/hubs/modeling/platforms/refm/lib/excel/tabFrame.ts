@@ -54,7 +54,7 @@ export function modelTypeOf(categories: string[]): string {
   const only = [...set][0] ?? '';
   if (only.startsWith('resid')) return 'RESIDENTIAL DEVELOPMENT MODEL';
   if (only.startsWith('hosp')) return 'HOSPITALITY DEVELOPMENT MODEL';
-  if (only.startsWith('retail') || only.startsWith('comm')) return 'COMMERCIAL DEVELOPMENT MODEL';
+  if (only.startsWith('retail') || only.startsWith('comm') || only.startsWith('standalone')) return 'COMMERCIAL DEVELOPMENT MODEL';
   return 'REAL ESTATE DEVELOPMENT MODEL';
 }
 
@@ -85,7 +85,7 @@ export interface FrameMoves {
   newCol(sheet: string, c: number): number;
 }
 
-export function applyTabFrame(wb: ExcelJS.Workbook, ctx: FrameContext, mode: { values?: boolean } = {}): FrameMoves {
+export function applyTabFrame(wb: ExcelJS.Workbook, ctx: FrameContext, mode: { values?: boolean; keepInput?: ReadonlySet<string> } = {}): FrameMoves {
   const plans = new Map<string, SheetPlan>();
   const info = new Map<string, { period: boolean; unit: string; titleCol: number; dropB: boolean; inputCol: boolean; xSplit: number; ySplit: number; print?: string }>();
   const timeline = wb.getWorksheet('Timeline');
@@ -114,6 +114,9 @@ export function applyTabFrame(wb: ExcelJS.Workbook, ctx: FrameContext, mode: { v
         const v = row.getCell(2).value as unknown;
         if (typeof v === 'number' || isFormula(v)) keeps = true;
       });
+      // The values file keeps the Input column wherever the tab had an input there before its working rows went
+      // (2026-11-17, founder: the same columns as the live file, so the years line up).
+      if (mode.keepInput?.has(ws.name)) keeps = true;
       if (!keeps) {
         dropB = true;
         // A heading left in the column is cleared with it.
@@ -185,20 +188,26 @@ export function applyTabFrame(wb: ExcelJS.Workbook, ctx: FrameContext, mode: { v
     const inf = info.get(ws.name);
     if (!inf) continue;
     const tc = inf.titleCol;
+    // THE TITLE BLOCK (2026-11-17, founder): row 1 the model line, a heading (bold navy, 14pt, not a link);
+    // row 2 the tab's name; row 3 what it holds; "<- Back to Cover" at the far right of row 1.
+    for (let c = 1; c <= 60; c++) { const x = ws.getCell(2, c).value as { hyperlink?: string } | null; if (x && typeof x === 'object' && x.hyperlink === "#'Cover'!A1") ws.getCell(2, c).value = null; }
     const t1 = ws.getCell(1, tc);
-    t1.value = { text: line, hyperlink: "#'Cover'!A1" } as ExcelJS.CellValue;
-    t1.font = { name: 'Calibri', size: 9, bold: true, color: { argb: HOUSE.bar } };
+    t1.value = line;
+    t1.font = { name: 'Calibri', size: 14, bold: true, color: { argb: HOUSE.band } };
     const t2 = ws.getCell(2, tc);
-    t2.value = ws.name.toUpperCase();
-    t2.font = { name: 'Calibri', size: 13, bold: true, color: { argb: HOUSE.band } };
-    const back = ws.getCell(2, tc + 1);
+    t2.value = ws.name;
+    t2.font = { name: 'Calibri', size: 11, bold: true, color: { argb: HOUSE.bar } };
+    let far = tc + 1;
+    ws.eachRow({ includeEmpty: false }, (row) => row.eachCell({ includeEmpty: false }, (_c, col) => { if (col > far) far = col; }));
+    const back = ws.getCell(1, Math.max(tc + 2, far));
     back.value = { text: '<- Back to Cover', hyperlink: "#'Cover'!A1" } as ExcelJS.CellValue;
     back.font = { name: 'Calibri', size: 9, underline: true, color: { argb: HOUSE.bar } };
+    back.alignment = { horizontal: 'right', vertical: 'middle' };
     const desc = DESCRIPTIONS[ws.name] ?? '';
     const t3 = ws.getCell(3, tc);
     t3.value = [desc, inf.unit ? `(${inf.unit})` : ''].filter(Boolean).join(' ');
     t3.font = { name: 'Calibri', size: 9, italic: true, color: { argb: HOUSE.ink } };
-    for (const r of [1, 2, 3]) ws.getRow(r).height = r === 2 ? 18 : undefined as never;
+    for (const r of [1, 2, 3]) ws.getRow(r).height = r === 1 ? 20 : undefined as never;
 
     if (inf.period) {
       // Row 4: the heads and the years, the opening column shown as "Opening".
@@ -268,7 +277,7 @@ export function blankNonFlowTotals(wb: ExcelJS.Workbook): void {
   const read = referencedCells(wb);
   const val = (c: ExcelJS.Cell): number | null => { const v = c.value as unknown; const n = isFormula(v) ? v.result : v; return typeof n === 'number' ? n : null; };
   const FLOW = /sqm sold|room nights/i;
-  const NOT_FLOW = /\(1 = yes\)|factor|opening|closing|balance|outstanding|year end|unsold|payable|receivable|unearned|velocity|occupancy|margin|rate\b|rent per sqm|per occupied|per available|\bADR\b|RevPAR|price|area let|lettable|\(sqm\)|year no|share of/i;
+  const NOT_FLOW = /\(1 = yes\)|factor|opening|closing|balance|outstanding|year end|unsold|payable|receivable|unearned|velocity|occupancy|margin|rate\b|rent per sqm|per occupied|per available|\bADR\b|RevPAR|price|area let|lettable|\(sqm\)|year no|share of|land under construction|land building|cash available|cumulative|cash after funding|cash before financing/i;
   for (const ws of wb.worksheets) {
     if (ws.name === 'Balance Sheet' || !isPeriodFramed(ws)) continue;
     let totalCol = 0, firstYear = 0;
@@ -289,6 +298,10 @@ export function blankNonFlowTotals(wb: ExcelJS.Workbook): void {
       const label = String(row.getCell(1).value ?? '');
       const years = yearCols.map((c) => val(row.getCell(c)));
       if (years.every((v) => v === null)) return; // a scalar: its value lives in the Total column
+      // A row of a table under its own heads (the partners: invested, share, IRR, MOIC) mixes formats across
+      // the year columns; its first figure is a value, not a year total (2026-11-17: "Invested" was blanked).
+      const fmts = new Set(yearCols.filter((c) => val(row.getCell(c)) !== null).map((c) => String(row.getCell(c).numFmt ?? '')));
+      if (fmts.size > 1) return;
       if (FLOW.test(label)) return;
       const fmt = String(row.getCell(yearCols[0]).numFmt ?? '');
       const pctOrFactor = fmt.includes('%') || fmt === '0.000' || /0\.00(?!0)[^,]*$/.test(fmt.replace(/_\).*$/, '')) && !/,,|,"/.test(fmt);

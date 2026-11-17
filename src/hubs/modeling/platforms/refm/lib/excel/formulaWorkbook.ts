@@ -34,6 +34,7 @@ import { buildModelWorkbook, enableIterativeCalc, houseContextOf, type BuildMode
 import { applyHouseStyle, timelinePhaseFormula } from './houseStyle';
 import { CellRegistry, setCellSink } from './cellRegistry';
 import { applyTabFrame, tilesInMillions, blankNonFlowTotals, type FrameMoves } from './tabFrame';
+import { dropInputGuards, simplifySumproducts, finalPasses } from './readability';
 import { inlineCells } from './relayout';
 import { settlePending } from './liveLayers/writer';
 import { stage1LandArea } from './liveLayers/stage1LandArea';
@@ -221,8 +222,13 @@ export function buildFormulaWorkbook(opts: BuildModelOptions): FormulaWorkbookRe
     // THE REGISTRY FOLLOWS ITS CELLS (2026-11-17, step 7): the frame moves rows and columns after every
     // layer, so every address is moved with it; a caller reading a key finds the cell where it now is.
     if (house.frame) { frame = applyTabFrame(wb, house.frame); registry.remap(frame.move); }
+    linkCoverHeadlines(wb, registry);
     tilesInMillions(wb);
     blankNonFlowTotals(wb);
+    // READS LIKE A HAND-BUILT MODEL (2026-11-17, founder): guards and conditional sums, then labels and formats.
+    dropInputGuards(wb);
+    simplifySumproducts(wb);
+    finalPasses(wb, house.scale);
   }
   return { wb, registry, status, pending, frame };
 }
@@ -289,9 +295,10 @@ function orderTabs(wb: ExcelJS.Workbook): void {
 export const LOOP_LINKS: ReadonlyArray<{ from: string; to: string; fromRow?: RegExp }> = [
   { from: 'Schedules', to: 'Financing' },
   { from: 'Capex', to: 'Financing' },
-  { from: 'Financing', to: 'P&L', fromRow: /: EBITDA \(the phase P&L\)$/ },
+  // The labels as built and as tidied for reading (readability.ts, 2026-11-17).
+  { from: 'Financing', to: 'P&L', fromRow: /(: EBITDA \(the phase P&L\)| EBITDA, from its P&L)$/ },
   // ZAKAT (2026-11-15, founder): worked out on the P&L; Financing reads the charge back for the cash.
-  { from: 'Financing', to: 'P&L', fromRow: / \(the P&L\)$/ },
+  { from: 'Financing', to: 'P&L', fromRow: /( \(the P&L\)|, from the P&L)$/ },
   // AND ONE MORE (2026-11-12, founder): Revenue's selling costs by sell line link the cells Capex charges
   // them in, so a selling cost is worked out once. Only those rows and their total may read Capex.
   { from: 'Revenue', to: 'Capex', fromRow: /: selling costs$|^Total selling costs$/ },
@@ -477,8 +484,8 @@ function writeLoopLinks(wb: ExcelJS.Workbook): void {
   const label = (sheet: string, row: number): string => String(wb.getWorksheet(sheet)?.getCell(row, 1).value ?? '').trim();
   const kinds: Array<[boolean, string]> = [
     [links.some((x) => x.to === 'Financing'), 'Capitalised interest: Schedules reads it from Financing, which solves the financing loop.'],
-    [links.some((x) => x.to === 'P&L' && /: EBITDA \(the phase P&L\)$/.test(label(x.from, x.row))), "Phase EBITDA: each phase's dividend cap on Financing reads that phase's EBITDA on the P&L."],
-    [links.some((x) => x.to === 'P&L' && / \(the P&L\)$/.test(label(x.from, x.row))), 'Zakat: worked out on the P&L; Financing reads the charge back for the cash.'],
+    [links.some((x) => x.to === 'P&L' && /(: EBITDA \(the phase P&L\)| EBITDA, from its P&L)$/.test(label(x.from, x.row))), "Phase EBITDA: each phase's dividend cap on Financing reads that phase's EBITDA on the P&L."],
+    [links.some((x) => x.to === 'P&L' && /( \(the P&L\)|, from the P&L)$/.test(label(x.from, x.row))), 'Zakat: worked out on the P&L; Financing reads the charge back for the cash.'],
     [links.some((x) => x.from === 'Revenue' && x.to === 'Capex'), 'Selling costs: Revenue links the cells Capex charges them in.'],
   ];
   let r = guide.rowCount + 2;
@@ -528,4 +535,31 @@ function inlineFinancingSettings(wb: ExcelJS.Workbook, registry: CellRegistry): 
     const [sheet, r] = k.split('!');
     wb.getWorksheet(sheet)!.getRow(Number(r)).eachCell({ includeEmpty: true }, (c) => { c.value = null; c.style = {}; });
   }
+}
+
+/**
+ * THE COVER'S HEADLINE FIGURES LINK RETURNS (2026-11-17): the gross development value and the total development
+ * cost from the development economics, the equity IRR and MOIC from the FCFE results row, so the Cover moves with
+ * the model. Each link keeps the platform's figure as its cached value. A key that is not on Returns leaves the
+ * value as written.
+ */
+function linkCoverHeadlines(wb: ExcelJS.Workbook, registry: CellRegistry): void {
+  const ret = wb.getWorksheet('Returns');
+  if (!ret) return;
+  const isF = (v: unknown): v is { formula: string; result?: unknown } => !!v && typeof v === 'object' && typeof (v as { formula?: unknown }).formula === 'string';
+  const firstFigure = (row: number): number | null => { let col: number | null = null; ret.getRow(row).eachCell({ includeEmpty: false }, (c, cc) => { if (col === null && cc > 1 && (typeof c.value === 'number' || isF(c.value))) col = cc; }); return col; };
+  const headCol = (row: number, word: string): number | null => { let col: number | null = null; ret.getRow(row - 1).eachCell({ includeEmpty: false }, (c, cc) => { if (col === null && c.value === word) col = cc; }); return col; };
+  const colL = (n: number): string => { let s = ''; while (n > 0) { const m = (n - 1) % 26; s = String.fromCharCode(65 + m) + s; n = Math.floor((n - 1) / 26); } return s; };
+  const link = (coverKey: string, row: number | undefined, col: number | null): void => {
+    const at = registry.get(coverKey);
+    if (!at || row === undefined || col === null) return;
+    const cell = wb.getWorksheet(at.sheet)?.getCell(at.row, at.col);
+    if (!cell) return;
+    const src = ret.getCell(row, col).value as unknown;
+    cell.value = { formula: `Returns!${colL(col)}${row}`, result: (isF(src) ? src.result : src) ?? 0 } as ExcelJS.CellValue;
+  };
+  const gdv = registry.get('ret|de|gdv')?.row, tdc = registry.get('ret|de|tdc')?.row, fe = registry.get('ret|h|fcfe')?.row;
+  if (gdv !== undefined) link('cover|gdv', gdv, firstFigure(gdv));
+  if (tdc !== undefined) link('cover|tdc', tdc, firstFigure(tdc));
+  if (fe !== undefined) { link('cover|irr', fe, headCol(fe, 'IRR')); link('cover|moic', fe, headCol(fe, 'MOIC')); }
 }

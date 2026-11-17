@@ -124,6 +124,8 @@ export function returnsPlan(state: FinancialsResolverState, snap: Snap, rs: RS, 
   const X = cfg.exitYearOffset;
   const booked = snap.disposal.booked;
   const fundOn = rs.waterfall.active;
+  // An existing position is built only where the project has one (2026-11-17, founder: off is not built).
+  const exOn = featureUsed(state as never, 'existing');
   const rows: RetRow[] = [];
   const refused: string[] = [];
   const years = snap.yearLabels;
@@ -212,7 +214,7 @@ export function returnsPlan(state: FinancialsResolverState, snap: Snap, rs: RS, 
   pRow('rs|ff:capex', 'Capex paid in cash', stream(bu.cfiPerPeriod), (E, s) => `${H(E, s)}*${E.x('cf|direct||Total capex paid in cash', s)}`, { indent: 1 });
   pRow('rs|ff:kind', 'Land contributed in kind', stream(bu.inKindLandPerPeriod), (E, s) => `-${H(E, s)}*${E.x('cx5:total:inkind', s)}`, { indent: 1 });
   pRow('rs|ff:pre', 'FCFF before the exit value', stream(bu.fcffSubtotalPerPeriod).map((v, s) => (s === 0 ? -(rs.buildup.existingPreCapexPerPeriod?.[0] ?? 0) : v)),
-    (E, s) => (s === 0 ? `-${E.ref('retin:hist')}` : `SUM(${E.s('rs|ff:cfo', s)}:${E.s('rs|ff:kind', s)})`), { from: 0, style: 'subtotal' });
+    (E, s) => (s === 0 ? (exOn ? `-${E.ref('retin:hist')}` : '0') : `SUM(${E.s('rs|ff:cfo', s)}:${E.s('rs|ff:kind', s)})`), { from: 0, style: 'subtotal' });
   pRow('rs|ff:tv', 'Terminal value (exit proceeds)', stream(bu.terminalEnterprisePerPeriod), (E, s) => E.loop('fnc:proceeds', s), { indent: 1 });
   pRow('rs|fcff', 'FCFF', stream(rs.fcffPerPeriod), (E, s) => `${E.s('rs|ff:pre', s)}+${E.s('rs|ff:tv', s)}`, { from: 0, style: 'total' });
   results('ret|h|fcff', 'Project returns (FCFF)', 'rs|fcff', rs.result.fcff);
@@ -233,7 +235,7 @@ export function returnsPlan(state: FinancialsResolverState, snap: Snap, rs: RS, 
   pRow('rs|fe:held', 'Cash held back this year', retained, (E, s) => `-${H(E, s)}*(${E.s('rs|level', s)}-${s === 1 ? '0' : E.s('rs|level', s - 1)})`, { indent: 1 });
   const fePre = stream(rs.fcfePerPeriod).map((v, s) => v - (bu.terminalEquityPerPeriod?.[s] ?? 0) - (s === X + 1 ? (level[X] ?? 0) : 0));
   pRow('rs|fe:pre', 'FCFE before the exit value', fePre,
-    (E, s) => (s === 0 ? `-(${E.ref('retin:hist')}-${E.ref('retin:debt')})` : `${E.s('rs|ff:pre', s)}+${E.s('rs|fe:debt', s)}+${E.s('rs|fe:int', s)}+${E.s('rs|fe:held', s)}`), { from: 0, style: 'subtotal' });
+    (E, s) => (s === 0 ? (exOn ? `-(${E.ref('retin:hist')}-${E.ref('retin:debt')})` : '0') : `${E.s('rs|ff:pre', s)}+${E.s('rs|fe:debt', s)}+${E.s('rs|fe:int', s)}+${E.s('rs|fe:held', s)}`), { from: 0, style: 'subtotal' });
   pRow('rs|fe:tv', 'Exit equity value', stream(bu.terminalEquityPerPeriod), (E, s) => `${E.ex(s)}*${E.d('ret|x|eq')}`, { indent: 1 });
   pRow('rs|fe:rel', 'Cash held back, released at the exit', [null, ...Array.from({ length: N }, (_, t) => (t === X ? (level[X] ?? 0) : 0))],
     (E, s) => `${E.ex(s)}*${E.s('rs|level', s)}`, { indent: 1 });
@@ -249,7 +251,7 @@ export function returnsPlan(state: FinancialsResolverState, snap: Snap, rs: RS, 
   pRow('rs|dd:tv', 'Exit equity not already paid as a dividend', stream(bu.terminalEquityDistributedPerPeriod),
     (E, s) => `IF(${E.ref('fin:in:divOn')}=1,0,${E.s('rs|fe:tv', s)})`, { indent: 1 });
   pRow('rs|ddm', 'Distributions, net cash flow to equity', stream(rs.dividendStreamPerPeriod),
-    (E, s) => (s === 0 ? `-(${E.ref('retin:hist')}-${E.ref('retin:debt')})` : `SUM(${E.s('rs|dd:cash', s)}:${E.s('rs|dd:tv', s)})`), { from: 0, style: 'total' });
+    (E, s) => (s === 0 ? (exOn ? `-(${E.ref('retin:hist')}-${E.ref('retin:debt')})` : '0') : `SUM(${E.s('rs|dd:cash', s)}:${E.s('rs|dd:tv', s)})`), { from: 0, style: 'total' });
   results('ret|h|ddm', fundOn ? 'Distribution returns, before the performance fee' : 'Distribution returns', 'rs|ddm', rs.result.dividends);
 
   if (fundOn) {
@@ -260,7 +262,7 @@ export function returnsPlan(state: FinancialsResolverState, snap: Snap, rs: RS, 
     const h = (E: REnv): string => `MAX(0,${E.ref('ft:Hurdle rate (preferred return)')})`;
     const pf = (E: REnv): string => `MAX(0,MIN(1,${E.ref('ft:Performance fee on the excess')}))`;
     pRow('rs|wf:drawn', 'Equity drawn', W(w.equityDrawnPerPeriod),
-      (E, s) => (s === 0 ? `MAX(0,${E.ref('retin:hist')}-${E.ref('retin:debt')})` : `MAX(0,-(${E.s('rs|dd:cash', s)}+${E.s('rs|dd:kind', s)}))+MAX(0,-${E.s('rs|dd:div', s)})`), { from: 0, indent: 1 });
+      (E, s) => (s === 0 ? (exOn ? `MAX(0,${E.ref('retin:hist')}-${E.ref('retin:debt')})` : '0') : `MAX(0,-(${E.s('rs|dd:cash', s)}+${E.s('rs|dd:kind', s)}))+MAX(0,-${E.s('rs|dd:div', s)})`), { from: 0, indent: 1 });
     pRow('rs|wf:gross', 'Distributions before the fee', W(w.distributionPerPeriod),
       (E, s) => (s === 0 ? '0' : `MAX(0,${E.s('rs|dd:div', s)})+MAX(0,${E.s('rs|dd:cash', s)}+${E.s('rs|dd:kind', s)})+MAX(0,${E.s('rs|dd:tv', s)})`), { from: 0, indent: 1 });
     pRow('rs|wf:bop', 'Unpaid hurdle, opening', unpaid.map((_, s) => (s === 0 ? 0 : unpaid[s - 1] ?? 0)), (E, s) => (s === 0 ? '0' : E.s('rs|wf:eop', s - 1)), { from: 0, indent: 1, total: 'none' });
@@ -287,11 +289,13 @@ export function returnsPlan(state: FinancialsResolverState, snap: Snap, rs: RS, 
     const pctOf = (v: number | undefined): number => (Number.isFinite(v) ? (v as number) / 100 : 0);
     const cashT = sumOf(stream(bu.equityCashPerPeriod).map((v) => -v)), kindT = sumOf(stream(bu.equityInKindPerPeriod).map((v) => -v));
     const exT = snap.financing.equity.totalExisting;
-    const typeRows: Array<[string, string, number, string, (q: typeof partners[number]) => number, Fx]> = [
+    const allTypeRows: Array<[string, string, number, string, (q: typeof partners[number]) => number, Fx]> = [
       ['cash', 'New cash equity', cashT, 'cash', (q) => pctOf(q.cashPct), (E) => `-SUM(${E.rngY('rs|dd:cash')})`],
       ['kind', 'In-kind equity (land)', kindT, 'kind', (q) => pctOf(q.inKindPct), (E) => `-SUM(${E.rngY('rs|dd:kind')})`],
       ['ex', 'Existing equity', exT, 'ex', (q) => pctOf(q.existingPct), (E) => E.ref('retin:equity')],
     ];
+    const typeRows = allTypeRows.filter(([id]) => id !== 'ex' || exOn);
+    const invIds = typeRows.map(([id]) => id);
     for (const [id, label, tot, sfx, share, ft] of typeRows) {
       rows.push({ key: `ret|pt|${id}`, label, kind: 'cells', cells: [{ col: D, v: tot, fmt: RF.money, f: ft },
         ...partners.map((q, j) => ({ col: pc(j), v: tot * share(q), fmt: RF.money, f: (E: REnv) => `${E.cell(`ret|pt|${id}`, D)}*${E.cell(`ret|pt|${id}:share`, pc(j))}` }))] });
@@ -299,9 +303,12 @@ export function returnsPlan(state: FinancialsResolverState, snap: Snap, rs: RS, 
         f: (E: REnv) => `MAX(0,MIN(1,${E.ref(`retin:share:${sfx}:${j}`)}))` })) });
     }
     const investedJ = partners.map((q) => cashT * pctOf(q.cashPct) + kindT * pctOf(q.inKindPct) + exT * pctOf(q.existingPct));
-    rows.push({ key: 'ret|pt|inv', label: 'Total invested', kind: 'cells', style: 'subtotal', cells: [{ col: D, v: cashT + kindT + exT, fmt: RF.money, f: (E) => `SUM(${E.cell('ret|pt|cash', D)},${E.cell('ret|pt|kind', D)},${E.cell('ret|pt|ex', D)})` },
-      ...partners.map((_q, j) => ({ col: pc(j), v: investedJ[j], fmt: RF.money, f: (E: REnv) => `SUM(${E.cell('ret|pt|cash', pc(j))},${E.cell('ret|pt|kind', pc(j))},${E.cell('ret|pt|ex', pc(j))})` }))] });
-    // Capital-years: each year's equity in, by the years it is held to the end of the axis.
+    rows.push({ key: 'ret|pt|inv', label: 'Total invested', kind: 'cells', style: 'subtotal', cells: [{ col: D, v: cashT + kindT + exT, fmt: RF.money, f: (E) => `SUM(${invIds.map((id) => E.cell(`ret|pt|${id}`, D)).join(',')})` },
+      ...partners.map((_q, j) => ({ col: pc(j), v: investedJ[j], fmt: RF.money, f: (E: REnv) => `SUM(${invIds.map((id) => E.cell(`ret|pt|${id}`, pc(j))).join(',')})` }))] });
+    // Capital-years: each year's equity in, by the years it is held to the end of the axis. Not built where every
+    // partner has an agreed share typed (2026-11-17, founder): the time-weighted share then decides nothing.
+    const allAgreed = ps.partners.length > 0 && ps.partners.every((q) => q.shareholdingIsManual === true);
+    if (!allAgreed) {
     const cashS = stream(bu.equityCashPerPeriod), kindS = stream(bu.equityInKindPerPeriod);
     const cy = (a: number[]): number => a.reduce((s2, v, s) => s2 + (s === 0 ? 0 : -v * (N - (s - 1))), 0);
     const cyC = cy(cashS), cyK = cy(kindS);
@@ -317,8 +324,9 @@ export function returnsPlan(state: FinancialsResolverState, snap: Snap, rs: RS, 
         f: (E: REnv) => `${E.cell('ret|pt|cy:cash', pc(j))}+${E.cell('ret|pt|cy:kind', pc(j))}` }))] });
     rows.push({ key: 'ret|pt|tw', label: 'Time-weighted share', kind: 'cells', cells: partners.map((_q, j) => ({ col: pc(j), v: ps.partners[j]?.weightedAvgShareholdingPct ?? 0, fmt: RF.pct,
       f: (E: REnv) => `IF(${E.cell('ret|pt|cy', D)}>0,${E.cell('ret|pt|cy', pc(j))}/${E.cell('ret|pt|cy', D)},IF(${E.cell('ret|pt|inv', D)}>0,${E.cell('ret|pt|inv', pc(j))}/${E.cell('ret|pt|inv', D)},0))` })) });
+    }
     rows.push({ key: 'ret|pt|share', label: 'Share used (the agreed share where one is typed)', kind: 'cells', style: 'subtotal', cells: partners.map((_q, j) => ({ col: pc(j), v: ps.partners[j]?.shareholdingPct ?? 0, fmt: RF.pct,
-      f: (E: REnv) => { const a = E.ref(`retin:agreed:${j}`); return `IF(ISNUMBER(${a}),MAX(0,${a}),${E.cell('ret|pt|tw', pc(j))})`; } })) });
+      f: (E: REnv) => { const a = E.ref(`retin:agreed:${j}`); return allAgreed ? a : `IF(ISNUMBER(${a}),${a},${E.cell('ret|pt|tw', pc(j))})`; } })) });
     // A FIXED SHARE OF A STREAM HAS THE STREAM'S IRR AND MOIC (2026-11-16, founder): each partner links the
     // equity returns above; only the distributions received are the partner's own figure.
     rows.push({ key: 'ret|#prcols', label: 'Partner', kind: 'cols', cols: [[D, 'Invested'], [D + 1, 'Share'], [D + 2, 'FCFE IRR'], [D + 3, 'FCFE MOIC'], [D + 4, 'Distribution IRR'], [D + 5, 'Distribution MOIC'], [D + 6, 'Distributions']] });
@@ -367,7 +375,10 @@ export function returnsPlan(state: FinancialsResolverState, snap: Snap, rs: RS, 
         { col: D + 2, v: e.totalFeeIncome, fmt: RF.money, f: (E) => `${E.cell(`ret|fe|${k}`, D)}+${E.cell(`ret|fe|${k}`, D + 1)}` },
       ] });
     });
-    rows.push({ key: 'ret|fe|un', label: 'Performance fee no earner takes', kind: 'cells', cells: [
+    // Not built where the shares assign the whole fee by set-up (2026-11-17, founder): none typed (the Fund
+    // Manager takes it all) or the typed shares add to 100% or more.
+    const perfSum = matrix.reduce((a, m) => a + Math.max(0, (m as { performanceFeePct?: number }).performanceFeePct ?? 0), 0);
+    if (!(perfSum === 0 || perfSum >= 1 - 1e-9)) rows.push({ key: 'ret|fe|un', label: 'Performance fee no earner takes', kind: 'cells', cells: [
       { col: D + 1, v: fe.unallocatedPerformanceFee, fmt: RF.money, f: (E) => `MAX(0,${E.d('rs|fee:perf')}-SUM(${fe.earners.map((_e, k) => E.cell(`ret|fe|${k}`, D + 1)).join(',')}))` },
       { col: D + 2, v: fe.unallocatedPerformanceFee, fmt: RF.money, f: (E) => E.cell('ret|fe|un', D + 1) },
     ] });

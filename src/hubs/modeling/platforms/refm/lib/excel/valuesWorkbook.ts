@@ -27,6 +27,7 @@ import { CellRegistry, setCellSink } from './cellRegistry';
 import { deleteRowAt } from './liveFrontMatter';
 import { applyHouseStyle } from './houseStyle';
 import { applyTabFrame, tilesInMillions, blankNonFlowTotals } from './tabFrame';
+import { finalPasses } from './readability';
 import { TAB_ORDER } from './formulaWorkbook';
 
 /** THE VALUES FILE'S TABS IN THE LIVE FILE'S ORDER (founder, 2026-11-15): Revenue before Capex and Financing. */
@@ -41,7 +42,8 @@ function orderTabs(wb: ExcelJS.Workbook): void {
 export const WORKING_ROWS: ReadonlyArray<RegExp> = [
   /^tl:flag:/, /^tl:ctr:/,                                   // Timeline: year flags and counters
   /^cxpp:/, /^cxw:/, /^cxwhead$/, /^cxbband:/, /^cxbw:/, /^cxhw:/, /^cxbs:/, /^cx:escf$/, // Capex: phase periods, spend shares (and their heads), plot weights, escalation factor
-  /^rev\|.+\|s\|.*: (velocity|pre-sales %|sales during operation %|sqm sold|sqm unsold at year end)$/, // Revenue: the sales path's workings
+  // Revenue: the sales path's workings (a line of one sub-unit names them without a prefix, 2026-11-17)
+  /^rev\|.+\|s\|(?:.*: )?(velocity|pre-sales %|sales during operation %|sqm sold|sqm unsold at year end)$/i,
   /^rev\|.+\|s\|Price indexation factor$/,
   /^rev\|.+\|o\|In operations \(1 = yes\)$/,
   /^ox\|.+\|(io|fac)$/,                                       // Opex: in operations, inflation factors (a line, a strip, HQ)
@@ -98,6 +100,9 @@ export function buildValuesWorkbook(opts: BuildModelOptions): ValuesWorkbookResu
     });
   }
   const dropped: ValuesWorkbookResult['dropped'] = [];
+  // Which tabs carry a figure in the Input column before any working row goes (the live file keeps the column there).
+  const keepInput = new Set<string>();
+  for (const ws of wb.worksheets) ws.eachRow((row, r) => { if (r >= 5) { const v = row.getCell(2).value as unknown; if (typeof v === 'number' || (!!v && typeof v === 'object' && 'formula' in (v as object))) keepInput.add(ws.name); } });
   for (const [sheet, rows] of drop) {
     const ws = wb.getWorksheet(sheet); if (!ws) continue;
     for (const r of [...rows.keys()].sort((x, y) => y - x)) {
@@ -114,9 +119,10 @@ export function buildValuesWorkbook(opts: BuildModelOptions): ValuesWorkbookResu
   const house = houseContextOf(wb);
   if (house) {
     applyHouseStyle(wb, house);
-    if (house.frame) applyTabFrame(wb, house.frame, { values: true });
+    if (house.frame) applyTabFrame(wb, house.frame, { values: true, keepInput });
     tilesInMillions(wb);
     blankNonFlowTotals(wb);
+    finalPasses(wb, house.scale);
   }
   orderTabs(wb);
   return { wb, dropped };

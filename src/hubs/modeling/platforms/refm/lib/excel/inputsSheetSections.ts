@@ -36,7 +36,7 @@ import { phaseHasModelCapex } from '@/src/core/calculations/modelCapex';
 import { hqOpexLinesInForce, normalizeOpexIndexation } from '@/src/core/calculations/opex';
 import { featureUsed, opexLineIsZero, escrowInForce, operatingReceivablesInForce } from './exportScope';
 import { hotelGuestsRead } from './buildModelWorkbook';
-import { capexCostType } from './capexCostType';
+import { capexCostType, costTypeWords } from './capexCostType';
 import { opexNeedsFactor } from './liveLayers/opexPlan';
 import { planRevenueLines, groupRevenueLines, lineForAsset, type RevenueLine } from '../revenueLines';
 import { revenueLineName } from '../reports/revenueOutputReports';
@@ -251,8 +251,8 @@ export function emitStandardsSection(c: SheetCursor, state: FinancialsResolverSt
     const cl = state.costLines.find((l) => l.name === label && l.method === 'percent_of_selected');
     if (!cl) return '';
     const kinds = new Set((cl.selectedLineIds ?? []).map((id) => state.costLines.find((x) => x.id === id)).filter((x): x is NonNullable<typeof x> => !!x).map((x) => capexCostType(x)));
-    const words = (['hard', 'soft', 'contingency', 'developerFee'] as const).filter((k) => kinds.has(k)).map((k) => (k === 'hard' ? 'hard costs' : k === 'soft' ? 'soft costs' : k === 'contingency' ? 'contingency' : 'developer fee'));
-    return words.length ? `% of ${words.join(', ').replace(/, ([^,]*)$/, ' and $1')}` : '';
+    const words = costTypeWords(kinds);
+    return words ? `% of ${words}` : '';
   };
   const standardsTable = (title: string, rows0: typeof v.construction, construction: boolean): void => {
     const rows = rows0.filter((row) => typeShown(row.assetTypeId));
@@ -635,7 +635,9 @@ export function emitReturnsSection(c: SheetCursor, state: FinancialsResolverStat
   kv(c, 'Exit Year', snap.projectStartYear + cfg.exitYearOffset, NUMFMT.year, stored.exitYearOffset !== undefined, 'ExitYear', undefined, 'inp=ret|Exit Year@4');
   kv(c, 'Terminal Value Method', TERMINAL_METHOD_LABELS[cfg.terminalMethod] ?? cfg.terminalMethod, '@', stored.terminalMethod !== undefined, undefined, undefined, isLiveLayout() ? 'ret:tvMethod' : undefined);
   if (cfg.terminalMethod === 'exit_multiple') kv(c, 'Exit Multiple (x stabilised NOI)', cfg.exitMultiple, NUMFMT.mult, stored.exitMultiple !== undefined, 'ExitMultiple', undefined, 'inp=ret|Exit Multiple (x stabilised NOI)@4');
-  if (cfg.terminalMethod === 'perpetuity' || cfg.terminalMethod === 'cap_rate') {
+  // GROWTH ONLY WHERE THE METHOD USES IT (2026-11-17, founder): a manual cap rate on income as stated reads no g.
+  const growthUnused = cfg.terminalMethod === 'cap_rate' && cfg.capRateSource === 'manual' && !cfg.applyGrowthToTerminal;
+  if ((cfg.terminalMethod === 'perpetuity' || cfg.terminalMethod === 'cap_rate') && !growthUnused) {
     const gRow = kv(c, 'Growth g (%)', cfg.perpetuityGrowth, NUMFMT.pct2, stored.perpetuityGrowth !== undefined, 'PerpetuityGrowth', undefined, 'inp=ret|Growth g (%)@4');
     if (isLiveLayout() && cfg.terminalMethod === 'cap_rate' && cfg.capRateSource === 'manual' && !cfg.applyGrowthToTerminal) registerCell(inertKey(INERT_INPUTS.growthG, c.sheetName, gRow, 2), c.ws, c.ws.getCell(gRow, 2));
   }
@@ -654,8 +656,10 @@ export function emitReturnsSection(c: SheetCursor, state: FinancialsResolverStat
   c.r += 1;
   if (!isLiveLayout()) return;
   // THE EXISTING POSITION AT THE MODEL START (live workbook, 2026-10-20): typed here, the Returns
-  // sheet reads them. Existing operations are not built live, so these are as exported.
-  {
+  // sheet reads them. Existing operations are not built live, so these are as exported. Only where the project
+  // has an existing position (2026-11-17, founder: off is not built).
+  const exOn = featureUsed(state as never, 'existing');
+  if (exOn) {
     const ex = snap.financing.existing;
     setSectionHeader(c.ws.getRow(c.r), 'Existing position at the model start', 2); c.r += 1;
     const one = (label: string, v: number, key: string): void => {
@@ -676,16 +680,15 @@ export function emitReturnsSection(c: SheetCursor, state: FinancialsResolverStat
   const ps = computeReturnsSnapshot(snap, state.project).partners.partners;
   const pct = (v: number | undefined): number => (Number.isFinite(v) ? (v as number) / 100 : 0);
   setSectionHeader(c.ws.getRow(c.r), 'Equity partners (each partner\'s share of each equity type; a blank Agreed % uses the time-weighted share)', 5); c.r += 1;
-  headers(c, ['Partner', 'New cash equity %', 'In-kind equity %', 'Existing equity %', 'Agreed % (override)']);
+  headers(c, ['Partner', 'New cash equity %', 'In-kind equity %', ...(exOn ? ['Existing equity %'] : []), 'Agreed % (override)']);
   effective.forEach((p, j) => {
     setLabel(c.ws.getCell(c.r, 1), p.name);
     setInput(c.ws.getCell(c.r, 2), pct(p.cashPct), NUMFMT.pct2);
     registerCell(`retin:share:cash:${j}`, c.ws, c.ws.getCell(c.r, 2));
     setInput(c.ws.getCell(c.r, 3), pct(p.inKindPct), NUMFMT.pct2);
     registerCell(`retin:share:kind:${j}`, c.ws, c.ws.getCell(c.r, 3));
-    setInput(c.ws.getCell(c.r, 4), pct(p.existingPct), NUMFMT.pct2);
-    registerCell(`retin:share:ex:${j}`, c.ws, c.ws.getCell(c.r, 4));
-    const ag = c.ws.getCell(c.r, 5);
+    if (exOn) { setInput(c.ws.getCell(c.r, 4), pct(p.existingPct), NUMFMT.pct2); registerCell(`retin:share:ex:${j}`, c.ws, c.ws.getCell(c.r, 4)); }
+    const ag = c.ws.getCell(c.r, exOn ? 5 : 4);
     if (ps[j]?.shareholdingIsManual) setInput(ag, ps[j].shareholdingPct, NUMFMT.pct2); else { markInput(ag); ag.numFmt = NUMFMT.pct2; }
     registerCell(`retin:agreed:${j}`, c.ws, ag);
     c.r += 1;

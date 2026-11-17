@@ -1449,6 +1449,41 @@ it means, one by one.**
 
 **Proof:** values Returns 133 rows; distributions 1,019.5m on Returns in both files; values-mode 97 / 0 on every set-up.
 
+### 3.44 The relayout moved every formula but not the conditional formats, so the Gantt went blank in Excel
+
+**Symptom (2026-11-17, the founder's final fix list):** "confirm the Gantt bars show in real Excel". They did not: the
+Timeline's development programme had no bars, while every formula on the tab was right and LibreOffice reported no
+error. Nothing in the proof looks at a fill.
+
+**Mechanism:** the tab frame (`tabFrame.ts`, step 2) moves rows through `relayout.ts`, which rewrites every formula,
+data validation, defined name and hyperlink, and moved each conditional format's RANGE, but not the formulas inside its
+rules. The Gantt rules kept testing `$H$12` and `E$17`, the rows the phase dates and the years had before the move.
+
+**Fix:** the relayout rewrites each rule's formulae like any other formula on the sheet. **A pass that rewrites
+references must list every place a reference can live: cells, validation, names, links AND conditional-format rules.**
+
+**Proof:** Excel's `DisplayFormat.Interior.Color` on Timeline rows 20 to 22: Phase 1 navy 2027 to 2030 and green from
+2031, Phase 2 navy 2028 to 2030, the project end in 2038.
+
+### 3.45 A rewritten formula lost its cached 0, and Excel's iteration turned it into a #VALUE! that never cleared
+
+**Symptom (2026-11-17):** after a last pass dropped MAX(0, ...) from formulas that only guarded an Inputs cell, real
+Excel showed 2,304 #VALUE! cells across Financing, Schedules, the statements and Returns. LibreOffice showed none, and
+every rewritten formula was correct.
+
+**Mechanism:** the pass wrote each formula back as `{ formula, result: v.result }`. ExcelJS reports a cached 0 as no
+result, so a cell whose value was zero went out with no cached value at all. Inside the financing loop Excel's iterative
+calculation reads a circular cell's cached value before recalculating it; an empty cached value reads as text, the
+arithmetic on it is #VALUE!, and in a loop that error feeds itself and never clears. LibreOffice recalculates the whole
+file from nothing, so it never sees it. The build already stores 0 for every formula without a result for exactly this
+reason; a pass after that step undid it.
+
+**Fix:** every pass that rewrites a formula keeps `result: v.result ?? 0`. Found by asking Excel for the error cell
+whose direct precedents are all clean (`DirectPrecedents`): Financing's zakat row reading a P&L cell with no cached
+value. **Any step after the build that rewrites a formula must keep a cached value, and only real Excel proves it.**
+
+**Proof:** the same build recalculated in real Excel: 0 error cells (was 2,304).
+
 ## 4. PDF export (pdf-lib)
 
 ### 4.1 PDF text is glyph ids, so a naive grep returns nothing

@@ -36,3 +36,13 @@ export function capexCostType(line: CostLine): CapexCostType {
   if (cat === 'developer-fee') return 'developerFee';
   return 'soft';
 }
+
+/**
+ * The cost types a percentage line charges on, in words and in the registry's order ("hard costs, soft costs
+ * and developer fee"), or '' when none (2026-11-17: one rule for the Inputs basis and the capex method table,
+ * which each restated the type list; verify-capex-stage-buckets E1).
+ */
+export function costTypeWords(kinds: ReadonlySet<CapexCostType>): string {
+  const words = CAPEX_COST_TYPES.filter((t) => kinds.has(t.id)).map((t) => t.label.toLowerCase());
+  return words.join(', ').replace(/, ([^,]*)$/, ' and $1');
+}

@@ -60,6 +60,7 @@ import { revenueLineName } from '../../reports/revenueOutputReports';
 import { resolveRowVelocity, occupancyAxis } from '../../revenue-resolvers';
 import { hasAnyDownpayment } from '@/src/core/calculations/revenue/cohortTerms';
 import type { Asset, Phase, SubUnit } from '../../state/module1-types';
+import { sellRowLabel } from './excelText';
 
 const REV = 'Revenue';
 const CHK = 'Checks';
@@ -158,8 +159,8 @@ export const stage3Revenue: LiveLayer = {
           const post = (v.post ?? []).map((x, i) => ((x ?? 0) > 0 ? i : -1)).filter((i) => i >= 0);
           if (pre.some((i) => post.includes(i))) refuse.push(`${name}: ${u.name} has a pre-sales and an operation velocity in the same year`);
           else if (pre.length && post.length && Math.min(...post) < Math.max(...pre)) refuse.push(`${name}: ${u.name} sells during operation before its last pre-sales year`);
-          shownOrZero(`${name} pre-sales velocity`, v.pre, off, O(l, 's', `${nm(u)}: velocity`));
-          shownOrZero(`${name} sales during operation`, v.post, off, O(l, 's', `${nm(u)}: velocity`));
+          shownOrZero(`${name} pre-sales velocity`, v.pre, off, O(l, 's', sellRowLabel(revRows(a).length, nm(u), 'velocity')));
+          shownOrZero(`${name} sales during operation`, v.post, off, O(l, 's', sellRowLabel(revRows(a).length, nm(u), 'velocity')));
           if (!has(`su:${u.id}:area`) || !has(`su:${u.id}:rate`)) refuse.push(`${name}: ${u.name}'s area or price is not on Inputs`);
         }
       } else if (l.form === 'operate') {
@@ -293,22 +294,24 @@ export const stage3Revenue: LiveLayer = {
       if (l.form === 'sell' && a.revenue?.sell) {
         const S = (label: string): string => O(l, 's', label);
         const area = (u: SubUnit): string => w.ref(`su:${u.id}:area`);
+        // The row labels the values builder writes (one sub-unit: no prefix, 2026-11-17).
+        const L = (u: SubUnit, what: string): string => sellRowLabel(units.length, nm(u), what);
         // Velocity in force: the pre-sales and operation grids on Inputs, at the Timeline's year numbers.
         for (const u of units) {
           const gPre = gridOf(`${l.key}|pre|${nm(u)}`), gPost = gridOf(`${l.key}|post|${nm(u)}`);
-          const kPre = S(`${nm(u)}: pre-sales %`), kPost = S(`${nm(u)}: sales during operation %`);
+          const kPre = S(L(u, 'pre-sales %')), kPost = S(L(u, 'sales during operation %'));
           if (has(kPre) && has(kPost)) {
             // One grid per row, the velocity their sum (2026-11-15: short formulas).
             row(kPre, (t) => (gPre ? atYear(gPre, ctr(p, 'con', t)) : '0'));
             row(kPost, (t) => (gPost ? atYear(gPost, ctr(p, 'ops', t)) : '0'));
-            row(S(`${nm(u)}: velocity`), (t) => `${P(kPre, t)}+${P(kPost, t)}`);
-          } else row(S(`${nm(u)}: velocity`), (t) => [gPre ? atYear(gPre, ctr(p, 'con', t)) : '', gPost ? atYear(gPost, ctr(p, 'ops', t)) : ''].filter(Boolean).join('+') || '0');
+            row(S(L(u, 'velocity')), (t) => `${P(kPre, t)}+${P(kPost, t)}`);
+          } else row(S(L(u, 'velocity')), (t) => [gPre ? atYear(gPre, ctr(p, 'con', t)) : '', gPost ? atYear(gPost, ctr(p, 'ops', t)) : ''].filter(Boolean).join('+') || '0');
         }
         // Sqm sold: the velocity share of the inventory, rounded to whole sqm, or exactly what is still
         // unsold once the share reaches it or the typed velocity reaches 100%. The one tolerance is the
         // engine's on the typed total (typed shares can add to 0.9999999999999999).
         for (const u of units) {
-          const vk = S(`${nm(u)}: velocity`), sk = S(`${nm(u)}: sqm sold`), uk = S(`${nm(u)}: sqm unsold at year end`);
+          const vk = S(L(u, 'velocity')), sk = S(L(u, 'sqm sold')), uk = S(L(u, 'sqm unsold at year end'));
           if (!has(vk) || !has(sk) || !has(uk)) continue;
           row(sk, (t) => {
             const v = P(vk, t), A_ = area(u), left = Prev(uk, t);
@@ -320,43 +323,48 @@ export const stage3Revenue: LiveLayer = {
         }
         const fk = S('Price indexation factor');
         row(fk, (t) => factorF(l, idx, t), 'none');
+        // Each sub-unit's price this year (its price on Inputs, indexed), then its sale value: sqm sold x that price.
         const suRev: number[] = [];
         for (const u of units) {
-          const rk = S(`${nm(u)}: revenue`);
-          if (!has(rk)) continue;
-          row(rk, (t) => `${P(S(`${nm(u)}: sqm sold`), t)}*${w.ref(`su:${u.id}:rate`)}*${P(fk, t)}`);
+          const pk = S(L(u, 'sale price per sqm (indexed)')), rk = S(L(u, 'sale value'));
+          if (!has(rk) || !has(pk)) continue;
+          row(pk, (t) => `${w.ref(`su:${u.id}:rate`)}*${P(fk, t)}`, 'none');
+          row(rk, (t) => `${P(S(L(u, 'sqm sold')), t)}*${P(pk, t)}`);
           suRev.push(rowOf(rk));
         }
         const preRev = S('Pre-sales revenue'), postRev = S('Sales during operation revenue');
         row(preRev, (t) => `${before(t)}*${sumRows(suRev, t)}`);
         row(postRev, (t) => `(1-${before(t)})*${sumRows(suRev, t)}`);
-        // Recognised: the pre-sales to date, in the handover year.
-        const recPre = O(l, 'r', 'Pre-sales revenue recognised in the handover year');
+        // Recognised: the pre-sales to date in the handover year, sales during operation as they are made.
+        const recPre = O(l, 'r', 'Pre-sales recognised at handover'), recPost = O(l, 'r', 'Sales during operation, as sold'), recTot = O(l, 'r', 'Revenue recognised');
         row(recPre, (t) => `${toDate(preRev, t)}*${handF(p, t)}`);
-        // Collections: one row per pre-sales year, its down % and instalment years beside it.
+        row(recPost, (t) => P(postRev, t));
+        row(recTot, (t) => `${P(recPre, t)}+${P(recPost, t)}`);
+        // THE PRE-SALES TERMS AS ROWS BY SALE YEAR (2026-11-17, founder): column j is the phase's j-th
+        // construction year. Its sale year is read from Timeline (the phase's start year + j - 1), so the table
+        // follows a phase moved in Excel (TRAPS 3.42); its down % links the Inputs cell of that construction
+        // year (the last one typed carries on), its instalment years and its pre-sales are worked out beside
+        // them, and each cohort row reads its own column. Nothing sits in the Total column but a total.
         const gDp = gridOf(`${l.key}|dp`);
+        const dpKeys = reg.keys().filter((k) => k.startsWith(`rxgrid|${l.key}|dp@`)).map((k) => ({ k, n: Number(k.slice(k.lastIndexOf('@') + 1)) })).sort((x, y) => x.n - y.n);
+        const kSy = O(l, 'c', 'Sale year'), kDp = O(l, 'c', 'Down %'), kIn = O(l, 'c', 'Instalment years'), kV = O(l, 'c', 'Pre-sales of the year');
+        const cohortKeys = Array.from({ length: N }, (_, s0) => O(l, 'c', `${snap.yearLabels[s0]} sales: cash collected`)).filter((k) => has(k));
+        const hy = TL(p, 'hy');
         const cohortRows: number[] = [];
-        // EACH ROW IS A CONSTRUCTION YEAR OF THE PHASE, NOT A CALENDAR COLUMN (2026-11-17, step 7). The rows are
-        // the phase's construction years (founder, 2026-11-15), so a row pinned to a calendar column lost the
-        // sales of a phase moved earlier: its first year had no row and was never collected. Row k now finds its
-        // sale year through the Timeline construction counter (= k), its Total is that year's pre-sales (the
-        // cohort's sale value, read by the instalments), and the instalment years run from the phase's start
-        // year + k - 1, all read from Timeline, so the rows follow the phase wherever it moves.
-        const ctrRow = w.addr(`tl:ctr:${p.id}:con`).row;
-        const ctrRange = `${w.refA({ sheet: 'Timeline', row: ctrRow, col: pc(0) }, REV)}:$${colLetter(pc(N - 1))}$${ctrRow}`;
-        for (let s = 0; s < N; s++) {
-          const ck = O(l, 'c', `${snap.yearLabels[s]} sales: cash collected`);
-          if (!has(ck)) continue;
-          const k = s - offsetAt(p) + 1;
-          const cr = rowOf(ck), sy = `(YEAR(${TL(p, 'cs')})${k > 1 ? `+${k - 1}` : ''})`;
-          const B = AR(cr, 2), C = AR(cr, 3), D = AR(cr, TOTAL_COL);
-          const dp = dpAt(gDp, String(k));
-          w.fA({ sheet: REV, row: cr, col: 2 }, `IF(${sy}>=${TL(p, 'hy')},1,${dp})`, { numFmt: NUMFMT.pct });
-          w.fA({ sheet: REV, row: cr, col: 3 }, `IF(${sy}>=${TL(p, 'hy')},0,MIN(INT(${IN(`rxin|${l.key}|inst`)}),${TL(p, 'hy')}-${sy}))`, { numFmt: NUMFMT.int });
-          row(ck, (t) => `${D}*IF(${ctr(p, 'con', t)}=${k},IF(${C}=0,1,${B}),IF(AND(${yr(t)}>${sy},${yr(t)}<=${sy}+${C}),(1-${B})/${C},0))`,
-            () => `SUMPRODUCT((${ctrRange}=${k})*${span(rowOf(preRev))})`);
-          w.fA({ sheet: REV, row: cr, col: 1 }, `${sy}&" sales: cash collected"`);
-          cohortRows.push(cr);
+        if (has(kSy) && has(kDp) && has(kIn) && has(kV)) {
+          cohortKeys.forEach((ck, j) => {
+            const c = pc(j);
+            const SY = AR(rowOf(kSy), c), B = AR(rowOf(kDp), c), C = AR(rowOf(kIn), c), V = AR(rowOf(kV), c);
+            w.fA({ sheet: REV, row: rowOf(kSy), col: c }, `YEAR(${TL(p, 'cs')})${j > 0 ? `+${j}` : ''}`, { numFmt: NUMFMT.year });
+            const dpCell = dpKeys.length ? w.ref((dpKeys.find((x) => x.n === j + 1) ?? dpKeys[dpKeys.length - 1]).k) : '0';
+            w.fA({ sheet: REV, row: rowOf(kDp), col: c }, `IF(${SY}>=${hy},1,${dpCell})`, { numFmt: NUMFMT.pct });
+            w.fA({ sheet: REV, row: rowOf(kIn), col: c }, `IF(${SY}>=${hy},0,MIN(INT(${IN(`rxin|${l.key}|inst`)}),${hy}-${SY}))`, { numFmt: NUMFMT.int });
+            w.fA({ sheet: REV, row: rowOf(kV), col: c }, `IFERROR(INDEX(${span(rowOf(preRev))},${SY}-${AR(3, pc(0))}+1),0)`);
+            const cr = rowOf(ck);
+            row(ck, (t) => `IF(${yr(t)}=${SY},IF(${C}=0,1,${B})*${V},IF(AND(${yr(t)}>${SY},${yr(t)}<=${SY}+${C}),(1-${B})*${V}/${C},0))`);
+            w.fA({ sheet: REV, row: cr, col: 1 }, `${SY}&" sales: cash collected"`);
+            cohortRows.push(cr);
+          });
         }
         const preCash = O(l, 'c', 'Pre-sales cash collected'), postCash = O(l, 'c', 'Sales during operation cash collected');
         row(preCash, (t) => sumRows(cohortRows, t));
@@ -375,11 +383,11 @@ export const stage3Revenue: LiveLayer = {
         claim(`rvc:${l.key}:cashPre`, preCash); claim(`rvc:${l.key}:recPre`, recPre);
         claim(`rvc:${l.key}:ar`, ar); claim(`rvc:${l.key}:ur`, ur);
         claim(`rvc:${l.key}:factor`, fk);
-        for (const u of units) { claim(`rvc:${l.key}:${u.id}:pre:area`, S(`${nm(u)}: sqm sold`)); claim(`rvc:${l.key}:${u.id}:pre:rev`, S(`${nm(u)}: revenue`)); }
+        for (const u of units) { claim(`rvc:${l.key}:${u.id}:pre:area`, S(L(u, 'sqm sold'))); claim(`rvc:${l.key}:${u.id}:pre:rev`, S(L(u, 'sale value'))); }
         // Checks: typed velocity inside the model years; pre-sales collected; the handover-year downpayment.
         checks.push(() => {
           for (const u of units) {
-            const key = `chk|vel|${l.key}|${nm(u)}`, vk = S(`${nm(u)}: velocity`);
+            const key = `chk|vel|${l.key}|${nm(u)}`, vk = S(L(u, 'velocity'));
             if (!has(key) || !has(vk)) continue;
             const grids = [gridOf(`${l.key}|pre|${nm(u)}`), gridOf(`${l.key}|post|${nm(u)}`)].filter((g): g is NonNullable<typeof g> => !!g);
             const res = w.addr(key);

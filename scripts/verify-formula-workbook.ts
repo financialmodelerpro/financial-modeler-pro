@@ -47,6 +47,7 @@ import type { LiveExportInputs } from './fixtures/liveExportInputs';
 import { applyHouseStyle } from '../src/hubs/modeling/platforms/refm/lib/excel/houseStyle';
 import { applyTabFrame } from '../src/hubs/modeling/platforms/refm/lib/excel/tabFrame';
 import { featureUsed } from '../src/hubs/modeling/platforms/refm/lib/excel/exportScope';
+import { finalPasses } from '../src/hubs/modeling/platforms/refm/lib/excel/readability';
 
 /**
  * THE PLATFORM TWIN IN THE LIVE FILE'S FRAME (2026-11-17, step 7). Since step 2 the live workbook ends
@@ -59,6 +60,8 @@ function framedPlain(o: Parameters<typeof buildModelWorkbook>[0], live?: ExcelJS
   const w = buildModelWorkbook({ ...o, liveLayout: true });
   const house = houseContextOf(w);
   if (house) { applyHouseStyle(w, house); if (house.frame) applyTabFrame(w, house.frame); }
+  // The last passes the live file ends with (2026-11-17): labels, formats and the Inputs bars, so labels pair.
+  if (house) finalPasses(w, house.scale);
   if (live) mirrorBlankTotals(w, live);
   return w;
 }
@@ -1047,7 +1050,9 @@ function formulaCells(wb: ExcelJS.Workbook): Map<string, { formula: string; resu
     // The allowed later-tab links (founder): capitalised interest, each phase's EBITDA and, since step 5
     // (2026-11-15), zakat, worked out on the P&L and read back by Financing's one "Zakat (the P&L)" row.
     check('A12h each phase dividend cap links to the phase P&L EBITDA, and only the cap rows and the one zakat row read the P&L',
-      capReads.length > 0 && [...capLabels].some((l) => /: EBITDA \(the phase P&L\)$/.test(l)) && [...capLabels].every((l) => /: EBITDA \(the phase P&L\)$/.test(l) || l === 'Zakat (the P&L)'), [...capLabels].join('; '));
+      // The labels as the reader sees them since 2026-11-17 (no explanation in brackets): "Phase 1 EBITDA, from its
+      // P&L" and "Zakat, from the P&L".
+      capReads.length > 0 && [...capLabels].some((l) => / EBITDA, from its P&L$/.test(l)) && [...capLabels].every((l) => / EBITDA, from its P&L$/.test(l) || l === 'Zakat, from the P&L'), [...capLabels].join('; '));
     const copy2 = buildModelWorkbook({ ...opts, liveLayout: true });
     copy2.getWorksheet('Financing')!.getCell(2, 9).value = { formula: "'P&L'!F20+1", result: 0 } as unknown as ExcelJS.CellValue;
     const p2 = exportShapeProblems(copy2);

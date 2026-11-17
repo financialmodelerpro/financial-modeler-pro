@@ -14,7 +14,7 @@
  */
 import type ExcelJS from 'exceljs';
 import { ARGB, BODY_SIZE, fillRange, setLabel, type DisplayScale } from './styles';
-import { notifyRowsDeleted, rowIsRegistered } from './cellRegistry';
+import { notifyRowsDeleted, rowIsRegistered, registerCell } from './cellRegistry';
 
 /** One line per tab: what it does, in plain English (2026-11-16, founder: export simplification step 6). */
 export const LIVE_TAB_GUIDE: Array<[string, string]> = [
@@ -24,7 +24,7 @@ export const LIVE_TAB_GUIDE: Array<[string, string]> = [
   ['Land & Area', "Each plot's value and its areas from the top down, merged by line; Capex and Revenue take their quantities here."],
   ['Revenue', 'One path per line: sales and collections for a sell line; occupancy, rate and revenue for a hotel or lease line.'],
   ['Capex', 'Each cost line per asset: rate x quantity x spend share x escalation, by year, with and without land.'],
-  ['Opex', 'Operating costs per line, inflated while the line operates, and the payables they leave.'],
+  ['Opex', 'Operating costs per hotel and lease line, by year of operation.'],
   ['Schedules', 'Fixed assets and depreciation per held asset, and cost of sales and inventory per sell line.'],
   ['Financing', 'The funding need, draws, interest, repayments, sweep, dividends and the exit; Excel iterates this loop.'],
   ['P&L', 'Revenue to EBITDA by line, then depreciation, interest, the gain on disposal and zakat; phases to EBITDA.'],
@@ -35,29 +35,107 @@ export const LIVE_TAB_GUIDE: Array<[string, string]> = [
   ['Checks', "The identities that prove the model holds together, and Revenue's own checks: OK holds, CHECK fails, NOTE advises."],
 ];
 
-/** The Cover: project name, date, currency, location and horizon. */
-export function buildLiveCover(ws: ExcelJS.Worksheet, d: { name: string; date: string; currency: string; location: string; horizon: string }): void {
-  ws.getColumn(1).width = 3; ws.getColumn(2).width = 60;
-  const t = ws.getCell('B2'); t.value = d.name || 'Untitled Project'; t.font = { name: 'Calibri', size: 20, bold: true, color: { argb: ARGB.navy } };
-  const s = ws.getCell('B3'); s.value = 'Real Estate Financial Model'; s.font = { name: 'Calibri', size: 12, color: { argb: ARGB.navyDark } };
-  const i = ws.getCell('B5'); i.value = [d.date, d.currency, d.location, d.horizon].filter(Boolean).join(' · '); i.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.navyDark } };
+export interface CoverData {
+  name: string;
+  modelType: string;
+  date: string;
+  currency: string;
+  /** "USD millions": the units the money figures are shown in. */
+  unit: string;
+  /** The money format of those units. */
+  moneyFmt: string;
+  location: string;
+  phases: string;
+  lines: string;
+  horizon: string;
+  exitYear: string;
+  workbook: string;
+  headlines: { gdv: number; tdc: number; irr: number | null; moic: number | null };
+  /** The tabs to link, each with its one line. */
+  nav: Array<[string, string]>;
+}
+
+/**
+ * THE COVER (2026-11-17, founder: modelled on the founder's own model's Cover, adapted to the user's project).
+ * A navy banner with the project and model type and the tagline, the FMP logo, "About this model" worked out
+ * from the project, the headline figures, a link to every tab with its one line, and a footer. No author bio:
+ * the model is the user's. The headline cells are registered (`cover|gdv` and so on) so the live workbook can
+ * link them to Returns.
+ */
+export function buildLiveCover(wb: ExcelJS.Workbook, ws: ExcelJS.Worksheet, d: CoverData, logoBase64?: string): void {
+  const NAVY = 'FF153D64', BAR = 'FF1B4F8A', LIGHT = 'FFDDE7F3', INK = 'FF000000';
+  [2.5, 3, 30, 30, 30, 30, 3].forEach((w, i) => { ws.getColumn(i + 1).width = w; });
+  ws.views = [{ showGridLines: false } as ExcelJS.WorksheetView];
+  const band = (r: number): void => { for (let c = 3; c <= 6; c++) ws.getCell(r, c).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: NAVY } }; };
+  band(2); band(3);
+  const t = ws.getCell('C2'); t.value = `${/^FMP\b/i.test(d.name) ? '' : 'FMP - '}${d.name || 'Untitled Project'}  |  ${d.modelType}`; t.font = { name: 'Calibri', size: 16, bold: true, color: { argb: 'FFFFFFFF' } };
+  const s = ws.getCell('C3'); s.value = 'Structured Modeling. Real-World Finance.'; s.font = { name: 'Calibri', size: 9, italic: true, color: { argb: LIGHT } };
+  ws.getRow(2).height = 26; ws.getRow(3).height = 16;
+  if (logoBase64) {
+    const id = wb.addImage({ base64: logoBase64, extension: 'png' });
+    ws.addImage(id, { tl: { col: 5.55, row: 4.2 }, ext: { width: 96, height: 96 } });
+  }
+  let r = 5;
+  const head = (text: string): void => { const c = ws.getCell(r, 3); c.value = text; c.font = { name: 'Calibri', size: 10, bold: true, color: { argb: BAR } }; r += 1; };
+  const pair = (label: string, value: string | number, fmt?: string, key?: string): void => {
+    const a = ws.getCell(r, 3); a.value = label; a.font = { name: 'Calibri', size: 9, color: { argb: INK } };
+    const b = ws.getCell(r, 4); b.value = value; b.font = { name: 'Calibri', size: 9, bold: true, color: { argb: INK } };
+    b.alignment = { horizontal: typeof value === 'number' ? 'right' : 'left' };
+    if (fmt) b.numFmt = fmt;
+    if (key) registerCell(key, ws, b);
+    r += 1;
+  };
+  head('About this model');
+  pair('Location', d.location || 'Not stated');
+  pair('Currency', d.currency);
+  pair('Phases', d.phases);
+  pair('Lines', d.lines);
+  pair('Horizon', d.horizon);
+  pair('Exit year', d.exitYear);
+  pair('Exported', d.date);
+  pair('Workbook', d.workbook);
+  r += 1;
+  head(`Key figures (${d.unit})`);
+  pair('Gross development value', d.headlines.gdv, d.moneyFmt, 'cover|gdv');
+  pair('Total development cost', d.headlines.tdc, d.moneyFmt, 'cover|tdc');
+  pair('Equity IRR', d.headlines.irr ?? 'n/a', '0.0%', 'cover|irr');
+  pair('Equity MOIC', d.headlines.moic ?? 'n/a', '0.00"x"', 'cover|moic');
+  r += 1;
+  head('Quick navigation');
+  for (const [tab, line] of d.nav) {
+    const a = ws.getCell(r, 3); a.value = { text: `-> Go to ${tab}`, hyperlink: `#'${tab.replace(/'/g, "''")}'!A1` } as ExcelJS.CellValue;
+    a.font = { name: 'Calibri', size: 9, color: { argb: BAR }, underline: true };
+    ws.mergeCells(r, 4, r, 6);
+    const b = ws.getCell(r, 4); b.value = line; b.font = { name: 'Calibri', size: 9, color: { argb: INK } }; b.alignment = { wrapText: true, vertical: 'top' };
+    ws.getRow(r).height = line.length > 95 ? 24 : 13;
+    r += 1;
+  }
+  r += 1;
+  band(r); band(r + 1);
+  const f1 = ws.getCell(r, 3); f1.value = 'Built with Financial Modeler Pro, financialmodelerpro.com'; f1.font = { name: 'Calibri', size: 9, bold: true, color: { argb: 'FFFFFFFF' } };
+  const f2 = ws.getCell(r + 1, 3); f2.value = 'The results depend on the inputs entered for this project: review them before relying on any figure.'; f2.font = { name: 'Calibri', size: 8, italic: true, color: { argb: LIGHT } };
+  ws.pageSetup = { ...ws.pageSetup, orientation: 'portrait', fitToPage: true, fitToWidth: 1, fitToHeight: 1 };
 }
 
 /** The Guide: the colour legend, then one paragraph per tab. The loop links follow (formulaWorkbook). */
 export function buildLiveGuide(ws: ExcelJS.Worksheet, markInput: (c: ExcelJS.Cell) => void, valuesFile = false): void {
   ws.getColumn(1).width = 3; ws.getColumn(2).width = 18; ws.getColumn(3).width = 100;
-  const t = ws.getCell('B2'); t.value = 'Guide'; t.font = { name: 'Calibri', size: 16, bold: true, color: { argb: ARGB.navy } };
+  const t = ws.getCell('B2'); t.value = 'Guide'; t.font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.navy } };
   let r = 4;
   const head = (text: string): void => { setLabel(ws.getCell(r, 2), text, { bold: true }); fillRange(ws, r, 2, r, 3, ARGB.subtotal); r += 1; };
+  // THE LEGEND (2026-11-17, founder): input, link from another tab, calculation, key total and check, each
+  // shown as it looks; one font size on the whole tab.
   head('Colours');
-  if (valuesFile) {
-    // THE VALUES FILE (2026-11-12): the same layout as the live workbook, the platform's numbers, no formulas.
-    { const c = ws.getCell(r, 2); c.value = 'Input'; markInput(c); ws.getCell(r, 3).value = 'A shaded cell is a value typed on the platform.'; r += 1; }
-    { const c = ws.getCell(r, 2); c.value = 'Figure'; c.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } }; ws.getCell(r, 3).value = 'Every other number is the platform\'s own result as of export. This file holds values, not formulas: change an input on the platform and export again.'; r += 1; }
-  } else {
-    { const c = ws.getCell(r, 2); c.value = 'Input'; markInput(c); ws.getCell(r, 3).value = 'A shaded cell is an input: type over it.'; r += 1; }
-    { const c = ws.getCell(r, 2); c.value = 'Formula'; c.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } }; ws.getCell(r, 3).value = 'Everything else is a formula over the inputs.'; r += 1; }
-  }
+  const swatch = (word: string, style: (c: ExcelJS.Cell) => void, text: string): void => {
+    const c = ws.getCell(r, 2); c.value = word; c.font = { name: 'Calibri', size: BODY_SIZE }; style(c);
+    const d = ws.getCell(r, 3); d.value = text; d.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } };
+    r += 1;
+  };
+  swatch('Input', (c) => markInput(c), valuesFile ? 'Blue on yellow: a value typed on the platform; change it there and export again.' : 'Blue on yellow: an input; type over it and every tab recalculates.');
+  swatch('Link', (c) => { c.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: 'FF2E8B3A' } }; }, valuesFile ? 'Green: a figure carried from another tab.' : 'Green: a cell that only reads another tab.');
+  swatch('Calculation', (c) => { c.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: 'FF000000' } }; }, valuesFile ? 'Black: the platform result as of export (this file holds values, not formulas).' : 'Black: a formula on this tab.');
+  swatch('KEY TOTAL', (c) => { c.font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: 'FF153D64' } }; c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDDE7F3' } }; }, 'Capitals, navy on light blue: a total the statements and returns are built on.');
+  swatch('Check', (c) => { c.font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.good } }; }, 'On the Checks tab: OK holds, CHECK fails, NOTE advises.');
   r += 1;
   head('The tabs');
   // The values file says what IT is: the tabs that talk of typing over an input or of Excel iterating.

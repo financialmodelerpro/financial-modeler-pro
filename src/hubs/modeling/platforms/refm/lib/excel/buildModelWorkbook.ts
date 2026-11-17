@@ -95,7 +95,7 @@ import {
 } from './styles';
 import { withResolvedAssetNames, assetLabel } from '@/src/core/calculations/assetName';
 // Module 2 and Module 3 mirror (addRevenue / addOpex).
-import { planRevenueLines, groupRevenueLines, lineForAsset, REVENUE_SECTIONS, REVENUE_SECTION_META, type RevenueLine } from '../revenueLines';
+import { planRevenueLines, groupRevenueLines, lineForAsset, revenueSection, REVENUE_SECTIONS, REVENUE_SECTION_META, type RevenueLine } from '../revenueLines';
 import { lineRevenueResults, resolveRowVelocity, resolveLinePace, expandIndexationToAxis, resolveSellConfig, resolveHospitalityConfig, resolveLeaseConfig, resolveAssetKeys } from '../revenue-resolvers';
 import { buildCostPerSqmReport, costPerSqmTables, amountUnit } from '../reports/costPerSqmReport';
 import { revenueLineName, buildProjectRevenueGroupedRows, PROJECT_REVENUE_TABLES, buildShareSoldRows, buildPrePostRows, buildRevenueScheduleFeeds, buildEscalatedPriceTable } from '../reports/revenueOutputReports';
@@ -119,15 +119,17 @@ import { computeFundingBasis } from '../reports/fundingBasis';
 import { buildPartiesTable, PARTIES_TITLE, PARTIES_EMPTY_TEXT } from '../reports/partiesReport';
 import type { Party } from '../parties';
 import { projectLocationLabel } from '@/src/core/countries';
-import { buildLiveCover, buildLiveGuide, liveUnitsLine, dropNoteRows, collapseSpaces, shortenTexts } from './liveFrontMatter';
-import { applyHouseStyle, phaseLabelsFor, type HouseContext } from './houseStyle';
+import { buildLiveCover, buildLiveGuide, liveUnitsLine, dropNoteRows, collapseSpaces, shortenTexts, LIVE_TAB_GUIDE } from './liveFrontMatter';
+import { FMP_LOGO_PNG_BASE64 } from './fmpLogo';
+import { applyHouseStyle, houseFormats, phaseLabelsFor, type HouseContext } from './houseStyle';
 import { modelTypeOf } from './tabFrame';
 import { curveGroups, landWindowCanon } from './liveLayers/capexSpread';
 import { opexNeedsFactor } from './liveLayers/opexPlan';
 import { escrowInForce, operatingReceivablesInForce, featureUsed } from './exportScope';
-import { capexCostType, CAPEX_COST_TYPES, type CapexCostType } from './capexCostType';
+import { capexCostType, costTypeWords, CAPEX_COST_TYPES, type CapexCostType } from './capexCostType';
+import { sellRowLabel } from './liveLayers/excelText';
 import { isExpensedAsIncurred } from '@/src/core/calculations/sellingExpense';
-import { notUsedLine } from './exportScope';
+import { notUsedLine, notUsedItems } from './exportScope';
 
 export interface BuildModelOptions {
   state: FinancialsResolverState;
@@ -346,11 +348,29 @@ function buildModelWorkbookInner(opts: BuildModelOptions): ExcelJS.Workbook {
       if (ws.name !== SHEETS.assumptions) dropNoteRows(ws, ws.name === SHEETS.timeline ? 14 : 5);
       if (ws.name !== SHEETS.summary) shortenTexts(ws);
     }
-    buildLiveCover(coverWs, {
-      name: opts.projectName, date: opts.dateLabel, currency: cur,
-      location: projectLocationLabel(opts.state.project.location, opts.state.project.country) || '',
-      horizon: `${snap.axisLength}-year horizon (${snap.projectStartYear} to ${snap.projectStartYear + snap.axisLength - 1})`,
-    });
+    {
+      // THE COVER, WORKED OUT FROM THE PROJECT (2026-11-17, founder).
+      const rsC = (() => { try { return computeReturnsSnapshot(snap, opts.state.project); } catch { return null; } })();
+      const cfgC = resolveReturnsConfig(opts.state.project, snap.axisLength);
+      const yr = (d?: string): number => (d ? new Date(d).getUTCFullYear() : snap.projectStartYear);
+      const phasesTxt = opts.state.phases.map((ph) => { const y0 = yr(ph.startDate); const cp = Math.max(1, ph.constructionPeriods ?? 1); return `${ph.name || 'Phase'}: built ${y0} to ${y0 + cp - 1}`; }).join('; ');
+      const linesC = planReportLines({ assets: opts.state.assets, phases: opts.state.phases, parcels: opts.state.parcels ?? [] });
+      const sections = [...new Set(opts.state.assets.filter((x) => x.visible !== false && x.isCompanion !== true).map((x) => revenueSection(x as never, opts.state.project as never)))];
+      const scaleWord = opts.displayScale === 'millions' ? ' millions' : opts.displayScale === 'thousands' ? ' thousands' : '';
+      const tabsHere = new Set(wb.worksheets.map((x) => x.name));
+      buildLiveCover(wb, coverWs, {
+        name: opts.projectName, modelType: modelTypeOf(projectCategories(opts.state)),
+        date: opts.dateLabel, currency: cur, unit: `${cur}${scaleWord}`, moneyFmt: houseFormats(opts.displayScale ?? 'full', defaultDecimals(opts.displayScale ?? 'full')).money(opts.displayScale === 'millions' ? 1 : 0),
+        location: projectLocationLabel(opts.state.project.location, opts.state.project.country) || '',
+        phases: `${opts.state.phases.length} (${phasesTxt})`,
+        lines: `${linesC.length} (${sections.join(', ')})`,
+        horizon: `${snap.axisLength} years, ${snap.projectStartYear} to ${snap.projectStartYear + snap.axisLength - 1}`,
+        exitYear: cfgC.terminalMethod === 'none' ? 'None (held to the end of the horizon)' : String(snap.projectStartYear + cfgC.exitYearOffset),
+        workbook: opts.valuesMode === true ? 'Values: the platform\'s figures as of export, no formulas' : 'Live: formulas; change a shaded input and it recalculates',
+        headlines: { gdv: rsC?.developmentEconomics.gdv ?? 0, tdc: rsC?.developmentEconomics.totalDevelopmentCost ?? 0, irr: rsC?.result.fcfe.irr ?? null, moic: rsC?.result.fcfe.moic ?? null },
+        nav: [['Guide', 'The colours of the model and what each tab holds'] as [string, string], ...LIVE_TAB_GUIDE.filter(([tab]) => tabsHere.has(tab)).map(([tab, line]) => [tab, line] as [string, string])],
+      }, FMP_LOGO_PNG_BASE64);
+    }
     buildLiveGuide(guideWs, markInput, opts.valuesMode === true);
     for (const ws of wb.worksheets) collapseSpaces(ws);
   } else {
@@ -468,19 +488,16 @@ function houseContextFor(opts: BuildModelOptions, snap: ReturnType<typeof comput
     scale, decimals: opts.displayDecimals ?? defaultDecimals(scale),
     currency: opts.state.project.currency ?? 'SAR',
     notUsedLine: notUsedLine(opts.state as never),
+    notUsedItems: notUsedItems(opts.state as never),
     phaseLabels: phaseLabelsFor(phases, snap.projectStartYear, N, cfg.terminalMethod !== 'none' ? cfg.exitYearOffset : null),
     frame: { projectName: opts.projectName || opts.state.project.name || 'Project', modelType: modelTypeOf(projectCategories(opts.state)) },
   };
 }
 
-/** The categories the project's visible assets fall in (their type's category, else their strategy's). */
+/** The categories the project's visible assets fall in, by the ONE filing rule (`revenueSection`, 2026-11-17:
+ *  the type list is read through the platform's rules only, verify-asset-type-standards A1). */
 function projectCategories(state: FinancialsResolverState): string[] {
-  const types = state.project.assetTypes ?? [];
-  const byStrategy: Record<string, string> = { sell: 'Residential', operate: 'Hospitality', lease: 'Retail' };
-  return state.assets.filter((a) => a.visible !== false && a.isCompanion !== true).map((a) => {
-    const t = types.find((x) => x.id === a.assetTypeId);
-    return t?.category || byStrategy[String(a.strategy ?? '').toLowerCase()] || 'Other';
-  });
+  return state.assets.filter((a) => a.visible !== false && a.isCompanion !== true).map((a) => revenueSection(a as never, state.project as never));
 }
 
 // Sheets that carry the shared 4-row frozen header (writeSheetHeader): repeat
@@ -1020,8 +1037,8 @@ function addAssumptions(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFin
     // A share of selected lines, in plain words: what kinds of cost it charges on (2026-11-15).
     const selectedBasis = (ids: readonly string[] | undefined): string => {
       const kinds = new Set((ids ?? []).map((id) => state.costLines.find((x) => x.id === id)).filter((x): x is NonNullable<typeof x> => !!x).map((x) => capexCostType(x)));
-      const words = (['hard', 'soft', 'contingency', 'developerFee'] as const).filter((k) => kinds.has(k)).map((k) => (k === 'hard' ? 'hard costs' : k === 'soft' ? 'soft costs' : k === 'contingency' ? 'contingency' : 'developer fee'));
-      return words.length ? `% of ${words.join(', ').replace(/, ([^,]*)$/, ' and $1')}` : '% of selected lines';
+      const words = costTypeWords(kinds);
+      return words ? `% of ${words}` : '% of selected lines';
     };
     for (const ia of capex.inputAssets) for (const ln of ia.lines) {
       const cl = state.costLines.find((x) => x.id === ln.id);
@@ -1847,7 +1864,8 @@ function addPhaseTimeline(ws: ExcelJS.Worksheet, snap: ReturnType<typeof compute
 function addPeriodFlags(ws: ExcelJS.Worksheet, snap: ReturnType<typeof computeFinancialsSnapshot>, state: FinancialsResolverState, N: number, r0: number): void {
   let r = r0;
   const last = lastActiveCol(N);
-  setSectionHeader(ws.getRow(r), 'Period flags (1 in the years named; the formulas on every later tab read these)', last, ARGB.sectionDark); r += 1;
+  // "3. Year flags" (2026-11-17, founder): the flag rows under their own section bar, numbered like the tab's others.
+  setSectionHeader(ws.getRow(r), 'Year flags', last, ARGB.accent); r += 1;
   const axis = snap.projectStartYear;
   const flagRow = (key: string, label: string, on: (t: number) => boolean): void => {
     setLabel(ws.getCell(r, LBL_COL), label);
@@ -2017,7 +2035,9 @@ function addLandArea(wb: ExcelJS.Workbook, state: FinancialsResolverState, refs:
       r += 1;
       // A RETAIL STRIP ON SEVERAL PLOTS (live layout, 2026-10-26): one row per plot under it, each
       // area x that plot's rate like every other row; the strip's row is their sum.
-      const pieces = isLiveLayout() ? tables.plots.flatMap((g) => g.retailPieces.filter((x) => x.name === a.name).map((x) => ({ g, x }))) : [];
+      // NO "FROM LAND" ROWS (2026-11-17, founder): the strip's row reads its plots directly (stage1LandArea),
+      // so the table is land by plot and land by line. The pieces stay listed only in the classic layout.
+      const pieces = isLiveLayout() ? [] as Array<{ g: (typeof tables.plots)[number]; x: (typeof tables.plots)[number]['retailPieces'][number] }> : [];
       if (pieces.length > 1) {
         for (const { g, x } of pieces) {
           const pa = state.parcels.find((q) => q.id === g.key);
@@ -2208,7 +2228,8 @@ function addCapex(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancial
   setColHeader(ws.getCell(4, C_LBL), 'Cost line', 'left');
   setColHeader(ws.getCell(4, C_UOM), live ? 'Rate' : 'Method', live ? 'right' : 'left');
   if (!live) setColHeader(ws.getCell(4, C_RATE), 'Rate', 'right');
-  setColHeader(ws.getCell(4, C_QTY), 'Quantity', 'right');
+  // The Quantity column names its units (2026-11-17, founder): an area, a count of slots, or money.
+  setColHeader(ws.getCell(4, C_QTY), live ? `Quantity (sqm, slots or ${state.project.currency ?? 'SAR'}${displayScale === 'millions' ? ' m' : displayScale === 'thousands' ? ' k' : ''})` : 'Quantity', 'right');
   setColHeader(ws.getCell(4, C_TOT), 'Total', 'right');
   setColHeader(ws.getCell(4, cChk), 'Check', 'center');
   for (let c = C_OPEN; c <= cLast; c++) {
@@ -2346,6 +2367,8 @@ function addCapex(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancial
       return `Even${multiPhase && ph ? `, ${ph.name}` : ''}, ${sp.win === 'plot' && a ? `${assetLabel(a, ctxNames)}, ` : ''}${win}`;
     };
     let r = 5;
+    // The escalation factor inside its own section (2026-11-17, founder).
+    setSectionHeader(ws.getRow(r), 'Cost escalation', cLast); r += 1;
     setLabel(ws.getCell(r, C_LBL), 'Cost escalation factor, by the year the money is spent', { bold: true });
     registerCell('cx:escf', ws, ws.getCell(r, C_LBL));
     for (let t = 0; t < N; t++) put(r, cP(t), facOf(t), FACTOR_FMT);
@@ -2424,12 +2447,13 @@ function addCapex(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancial
             if (!plotLn(wt.plot, lid)) continue;
             setLabel(ws.getCell(r, C_LBL), `Hard cost, ${plotName}: ${state.costLines.find((c) => c.id === lid)?.name ?? lid}`, { indent: 2 });
             registerCell(`${wt.key}|${lid}`, ws, ws.getCell(r, C_LBL));
-            put(r, C_TOT, plotLn(wt.plot, lid)?.amount ?? 0);
+            // A weight in the Input column, not under Total (2026-11-17, founder).
+            put(r, C_UOM, plotLn(wt.plot, lid)?.amount ?? 0);
             r += 1;
           }
           setLabel(ws.getCell(r, C_LBL), `Hard cost, ${plotName} (soft-cost weight)`, { indent: 1 });
           registerCell(wt.key, ws, ws.getCell(r, C_LBL));
-          put(r, C_TOT, hardOf.reduce((s, lid) => s + (plotLn(wt.plot, lid)?.amount ?? 0), 0));
+          put(r, C_UOM, hardOf.reduce((s, lid) => s + (plotLn(wt.plot, lid)?.amount ?? 0), 0));
           r += 1;
         }
         for (const b of ss) {
@@ -3689,7 +3713,10 @@ function addRevenue(ctx: EmitCtx): { revLinks: RevLinks; cosLinks: CosLinks } {
         if (line.form === 'sell' && res?.sell) {
           const r = res.sell;
           const idxAxis = expandIndexationToAxis(resolveSellConfig(a, state.project)?.indexation, a.revenue?.sell?.indexation?.growthPerPeriodByPhase, w.phaseOffset, N);
-          em.tableTitle('Sales');
+          // FOUR SUB-HEADINGS PER SELL LINE (2026-11-17, founder): area sold, price and sale value, cash
+          // collected, revenue recognised. A line of one sub-unit names its rows without a prefix.
+          const L = (u: SubUnit, what: string): string => sellRowLabel(units.length, nm(u), what);
+          em.tableTitle('Area sold');
           em.setRegTable('s');
           for (const u of units) {
             const v = resolveRowVelocity(a.revenue?.sell, u.id, p);
@@ -3698,40 +3725,53 @@ function addRevenue(ctx: EmitCtx): { revLinks: RevLinks; cosLinks: CosLinks } {
             const both = Array.from({ length: N }, (_, t) => Math.max(0, pre[t] ?? 0) + Math.max(0, post[t] ?? 0));
             // Each grid on its own row, the velocity their sum (2026-11-15: short formulas).
             const preV = Array.from({ length: N }, (_, t) => Math.max(0, pre[t] ?? 0)), postV = Array.from({ length: N }, (_, t) => Math.max(0, post[t] ?? 0));
-            em.periodRow(`${nm(u)}: pre-sales %`, preV, range(0, N - 1), NUMFMT.pct, { total: sumAll(preV) });
-            em.periodRow(`${nm(u)}: sales during operation %`, postV, range(0, N - 1), NUMFMT.pct, { total: sumAll(postV) });
-            em.periodRow(`${nm(u)}: velocity`, both, range(0, N - 1), NUMFMT.pct, { total: sumAll(both) });
+            em.periodRow(L(u, 'pre-sales %'), preV, range(0, N - 1), NUMFMT.pct, { total: sumAll(preV) });
+            em.periodRow(L(u, 'sales during operation %'), postV, range(0, N - 1), NUMFMT.pct, { total: sumAll(postV) });
+            em.periodRow(L(u, 'velocity'), both, range(0, N - 1), NUMFMT.pct, { total: sumAll(both) });
             const sold = add(per(r.presalesAreaPerPeriodPerSubUnit, u.id), per(r.postSalesAreaPerPeriodPerSubUnit, u.id));
-            em.moneyRow(`${nm(u)}: sqm sold`, sold, { indent: 1, numFmt: NUMFMT.int });
+            em.moneyRow(L(u, 'sqm sold'), sold, { indent: 1, numFmt: NUMFMT.int });
             // Unsold at the year end: the inventory in the opening column, less each year's sales.
             const area = computeSubUnitArea(u, a);
             let left = area;
-            em.moneyRow(`${nm(u)}: sqm unsold at year end`, sold.map((s) => (left -= s)), { indent: 1, numFmt: NUMFMT.int, prior: area, totalLast: true });
+            em.moneyRow(L(u, 'sqm unsold at year end'), sold.map((x) => (left -= x)), { indent: 1, numFmt: NUMFMT.int, prior: area, totalLast: true });
           }
+          em.tableTitle('Price and sale value');
+          em.setRegTable('s');
           const esc = buildEscalatedPriceTable(units, () => a, idxAxis, N, cur, (v) => String(v));
           em.periodRow('Price indexation factor', esc.factor, range(0, N - 1), FACTOR_FMT);
-          for (const u of units) em.moneyRow(`${nm(u)}: revenue`, add(per(r.presalesRevenuePerPeriodPerSubUnit, u.id), per(r.postSalesRevenuePerPeriodPerSubUnit, u.id)), { indent: 1 });
+          units.forEach((u, i) => {
+            em.periodRow(L(u, 'sale price per sqm (indexed)'), esc.rows[i]?.values ?? new Array<number>(N).fill(0), range(0, N - 1), NUMFMT.rate);
+            em.moneyRow(L(u, 'sale value'), add(per(r.presalesRevenuePerPeriodPerSubUnit, u.id), per(r.postSalesRevenuePerPeriodPerSubUnit, u.id)), { indent: 1 });
+          });
           em.moneyRow('Pre-sales revenue', padded(r.presalesRevenuePerPeriod), { indent: 1 });
           em.moneyRow('Sales during operation revenue', padded(r.postSalesRevenuePerPeriod), { indent: 1 });
-          em.tableTitle('Revenue recognised');
-          em.setRegTable('r');
-          em.moneyRow('Pre-sales revenue recognised in the handover year', padded(r.presalesRecognitionPerPeriod), { indent: 1 });
           em.tableTitle('Cash collected');
           em.setRegTable('c');
-          em.colHeaders([[LBL_COL, 'Pre-sales, by sale year', 'left'], [META_B, 'Down %', 'right'], [3, 'Instalment years', 'right']]);
-          // One row per model year (2026-10-27): a year with no pre-sales shows zero, so a phase
-          // lengthened in Excel still has a row for every year it now pre-sells in.
+          // THE PRE-SALES TERMS AS ROWS BY SALE YEAR (2026-11-17, founder): one column per construction year
+          // of the phase (Year 1 in the first year column), its sale year, down % and instalment years as rows
+          // and the year's pre-sales beside them; each cohort row then reads its own column. The live layer
+          // reads the sale year from Timeline, so the rows follow a phase moved in Excel (TRAPS 3.42).
           const inst = Math.max(0, Math.floor(buildSaleCohortTermsBlock(a, p, psy)?.instalmentYears ?? 0));
-          // A SALE YEAR THAT CAN HAVE PRE-SALES ONLY (2026-11-15, founder): the phase's construction years.
-          for (let s = 0; s < N; s++) {
-            if (!w.construction.includes(s)) continue;
-            const row = em.moneyRow(`${yl[s]} sales: cash collected`, padded(r.cashVintageMatrix[s]), { indent: 1 });
-            const dp = s >= w.handoverIdx ? 1 : (w.construction.includes(s) ? resolveCohortDownpayment(a.revenue?.sell?.downpaymentByPhase, state.project.saleCohortDefaults?.downpayment, s - w.phaseOffset).value : 0);
-            const b = ws.getCell(row, META_B); b.value = dp; b.numFmt = NUMFMT.pct; b.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } };
-            const c = ws.getCell(row, 3); c.value = s >= w.handoverIdx ? 0 : Math.min(inst, w.handoverIdx - s); c.numFmt = NUMFMT.int; c.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } };
+          const conYears = [...w.construction].sort((x, y) => x - y);
+          const cpN = conYears.length;
+          if (cpN) {
+            em.colHeaders([[LBL_COL, 'Pre-sales, by construction year', 'left'], ...conYears.map((_, j) => [OPEN_COL + 1 + j, `Year ${j + 1}`, 'right'] as [number, string, 'right'])]);
+            const atJ = (fn: (s: number) => number): number[] => Array.from({ length: N }, (_, j) => (j < cpN ? fn(conYears[j]) : 0));
+            const dpOf = (s0: number): number => (s0 >= w.handoverIdx ? 1 : resolveCohortDownpayment(a.revenue?.sell?.downpaymentByPhase, state.project.saleCohortDefaults?.downpayment, s0 - w.phaseOffset).value);
+            em.periodRow('Sale year', atJ((s0) => Number(yl[s0])), range(0, cpN - 1), NUMFMT.year);
+            em.periodRow('Down %', atJ(dpOf), range(0, cpN - 1), NUMFMT.pct);
+            em.periodRow('Instalment years', atJ((s0) => (s0 >= w.handoverIdx ? 0 : Math.min(inst, w.handoverIdx - s0))), range(0, cpN - 1), NUMFMT.int);
+            em.periodRow('Pre-sales of the year', atJ((s0) => padded(r.presalesRevenuePerPeriod)[s0] ?? 0), range(0, cpN - 1), NUMFMT.money);
+            em.gap();
           }
+          for (const s0 of conYears) em.moneyRow(`${yl[s0]} sales: cash collected`, padded(r.cashVintageMatrix[s0]), { indent: 1 });
           em.moneyRow('Pre-sales cash collected', padded(r.presalesCashPerPeriod), { indent: 1, style: 'subtotal' });
           em.moneyRow('Sales during operation cash collected', padded(r.postSalesCashPerPeriod), { indent: 1 });
+          em.tableTitle('Revenue recognised');
+          em.setRegTable('r');
+          em.moneyRow('Pre-sales recognised at handover', padded(r.presalesRecognitionPerPeriod), { indent: 1 });
+          em.moneyRow('Sales during operation, as sold', padded(r.postSalesRevenuePerPeriod), { indent: 1 });
+          em.moneyRow('Revenue recognised', add(padded(r.presalesRecognitionPerPeriod), padded(r.postSalesRevenuePerPeriod)), { style: 'subtotal' });
           em.tableTitle('Balances');
           em.setRegTable('b');
           em.moneyRow('Receivable at year end', buildAccountsReceivable(padded(r.presalesRevenuePerPeriod), padded(r.presalesCashPerPeriod), N).perPeriod, { indent: 1, totalLast: true });
@@ -4943,7 +4983,8 @@ function addFinancingLive(ctx: EmitCtx): FinLinks {
     else {
       const vals = row.values ?? [];
       for (let t = 0; t < N; t++) put(r, pcol(t), vals[t] ?? 0, fmt);
-      put(r, TOTAL_COL, row.balance ? (vals[N - 1] ?? 0) : vals.slice(0, N).reduce((s, v) => s + (v ?? 0), 0), fmt);
+      // A TOTAL ONLY FOR A FLOW (2026-11-17, founder): an area or a share has none, so no typed number sits there.
+      if (row.fmt !== 'int' && row.fmt !== 'pct') put(r, TOTAL_COL, row.balance ? (vals[N - 1] ?? 0) : vals.slice(0, N).reduce((s, v) => s + (v ?? 0), 0), fmt);
     }
     if (row.style === 'total') {
       fillRange(ws, r, 1, r, last, ARGB.navy);
@@ -6926,9 +6967,8 @@ function addScenarios(ctx: EmitCtx): void {
   for (let c = FIRST; c <= LAST; c++) ws.getColumn(c).width = 17;
   setTitle(ws.getCell('A1'), 'Scenarios', 16);
   setLabel(ws.getCell('A2'), 'The cases, the assumptions where a case differs from the Management Case, the comparison, and the platform\'s sensitivity grid and exit-year analysis.');
-  setColHeader(ws.getCell(3, LBL_COL), 'Line', 'left');
-  for (let c = 2; c <= LAST; c++) setColHeader(ws.getCell(3, c), '', 'right');
-  ws.views = [{ state: 'frozen', xSplit: 1, ySplit: 3, showGridLines: false } as ExcelJS.WorksheetView];
+  // No header row under the title (2026-11-17, founder: the stray "Line" went); each section has its own heads.
+  ws.views = [{ showGridLines: false } as ExcelJS.WorksheetView];
   let r = 5;
 
   const section = (text: string): void => { setSectionHeader(ws.getRow(r), text, LAST, ARGB.accent); r += 1; };

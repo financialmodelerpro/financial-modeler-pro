@@ -120,7 +120,7 @@ export function financingPlan(state: FinancialsResolverState, snap: Snap = compu
   title('fl:t:set', 'Settings in force (worked out from Inputs)');
   scalar('fl:lastCon', 'Last construction year', Y0 + cend - 1, 'year', 'The latest phase\'s start plus its construction years, less one');
   const dF = Math.max(0, fin.funding.debtPct ?? 0) / 100;
-  scalar('fl:dF', 'Debt share of the funding', dF, 'pct', 'Debt % over debt % plus equity % on Inputs; 70% where neither is typed, the platform\'s default');
+  scalar('fl:dF', 'Debt share of the funding', dF, 'pct', 'Debt % over debt % plus equity % on Inputs; 0 where neither is typed');
   scalar('fl:eF', 'Equity share of the funding', 1 - dF, 'pct', 'One less the debt share');
   if (method !== 3) {
     const pf = p.financing?.parcelFunding ?? [];
@@ -242,8 +242,12 @@ export function financingPlan(state: FinancialsResolverState, snap: Snap = compu
 
   // ── The funding need ──────────────────────────────────────────────────────
   title('fl:t:need', method === 3 ? 'The funding need (Method 3: the cash short of the minimum)' : 'Cash short of the minimum (sizes the interest drawn as debt)');
-  per('fl:open', 'Opening cash', sl(w.openingCashPerPeriod), 'The year before: cash after funding', { balance: true });
-  per('fl:avail', '= Cash before financing', sl(w.cashAvailableBeforeNewDebtPerPeriod), 'Opening cash plus operating cash, less capex, plus exit proceeds', { balance: true, style: 'subtotal' });
+  // THE FUNDING TEST ONLY WHILE CAPEX IS STILL TO BE PAID (2026-11-17, founder): 0 after the last capex year.
+  const capexS = sl(fin.capex.perPeriod.exclLandInKind);
+  let lastCx = -1; capexS.forEach((v, t) => { if (Math.abs(v ?? 0) > 0.005) lastCx = t; });
+  const inWin = (a: number[]): number[] => a.map((v, t) => (t <= lastCx ? v : 0));
+  per('fl:open', 'Opening cash', inWin(sl(w.openingCashPerPeriod)), 'The year before: cash after funding', { balance: true });
+  per('fl:avail', '= Cash before financing', inWin(sl(w.cashAvailableBeforeNewDebtPerPeriod)), 'Opening cash plus operating cash, less capex, plus exit proceeds', { balance: true, style: 'subtotal' });
   per('fl:need', 'Funding need: the cash short of the minimum, in a year capex is paid', sl(w.netCashRequiredPerPeriod), 'Minimum cash on Inputs less the cash before financing, where capex exceeds exit proceeds', { style: 'total' });
   if (feeOn && !feeByEquity && method === 3) per('fl:needExFee', 'Funding need with the fund fees left out (the fee base)', sl(w.feeBaseRequirementPerPeriod), 'As above, with the fees added back to the cash');
   if (method === 2) {
@@ -254,9 +258,9 @@ export function financingPlan(state: FinancialsResolverState, snap: Snap = compu
   per('fl:eqDraw', 'Equity drawn for the funding', sl(fin.equity.developmentPerPeriod), method === 3 ? 'The funding need x the equity share' : 'As the debt, at the equity share');
   if (feeByEquity) {
     per('fl:feeDraw', 'Equity drawn for the fund fees', sl(w.managementFeeEquityDrawPerPeriod), 'While capex is paid, as far as keeps cash at the minimum once the fees are paid');
-    per('fl:feePaid', '(-) Fund fees paid', neg(sl(w.fundFeesPerPeriod)), 'The fund fees, below: drawn from equity outside the funding need');
+    per('fl:feePaid', '(-) Fund fees paid', inWin(neg(sl(w.fundFeesPerPeriod))), 'The fund fees, below: drawn from equity outside the funding need');
   }
-  per('fl:after', 'Cash after funding, before interest', sl(w.closingCashAfterFundingPerPeriod), 'Cash before financing plus the funding need', { balance: true, style: 'subtotal' });
+  per('fl:after', 'Cash after funding, before interest', inWin(sl(w.closingCashAfterFundingPerPeriod)), 'Cash before financing plus the funding need', { balance: true, style: 'subtotal' });
   gapRow();
 
   // ── Each facility ─────────────────────────────────────────────────────────

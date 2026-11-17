@@ -20,11 +20,11 @@
  * No em dashes in this file.
  */
 import ExcelJS from 'exceljs';
-import { buildModelWorkbook } from '../src/hubs/modeling/platforms/refm/lib/excel/buildModelWorkbook';
+import { buildValuesWorkbook } from '../src/hubs/modeling/platforms/refm/lib/excel/valuesWorkbook';
 import { buildFormulaWorkbook } from '../src/hubs/modeling/platforms/refm/lib/excel/formulaWorkbook';
 import { ALLOWED_FILLS, type DisplayScale } from '../src/hubs/modeling/platforms/refm/lib/excel/styles';
 import { HOUSE, phaseLabelsFor, timelinePhaseFormula, titleCellOf } from '../src/hubs/modeling/platforms/refm/lib/excel/houseStyle';
-import { featureUsed, notUsedFeatures, notUsedLine, groupNeedsTotal, isZeroLine, type ScopeState } from '../src/hubs/modeling/platforms/refm/lib/excel/exportScope';
+import { featureUsed, notUsedFeatures, notUsedLine, notUsedItems, groupNeedsTotal, isZeroLine, type ScopeState } from '../src/hubs/modeling/platforms/refm/lib/excel/exportScope';
 import { loadLiveExportInputs } from './fixtures/liveExportInputs';
 
 let pass = 0; let fail = 0;
@@ -63,26 +63,36 @@ function scopeCases(): void {
 
 function workbookRules(label: string, wb: ExcelJS.Workbook, scale: DisplayScale, live: boolean): void {
   console.log(`B-D. ${label}`);
+  let periodTabs = 0;
   const badFill: string[] = [], noTitle: string[] = [], noBack: string[] = [], badBand: string[] = [], noPhase: string[] = [], badBar: string[] = [], badTotal: string[] = [], badInput: string[] = [], badPage: string[] = [], badMoney: string[] = [], badPct: string[] = [], scaledCount: string[] = [], blackLinks: string[] = [];
   for (const ws of wb.worksheets) {
     if (ws.pageSetup.orientation !== 'landscape' || ws.pageSetup.fitToWidth !== 1 || ws.views?.some((v) => v.showGridLines !== false)) badPage.push(ws.name);
     if (ws.name !== 'Cover') {
       const t = titleCellOf(ws);
-      if (!t || (t.font?.size ?? 0) !== 13 || t.font?.color?.argb !== HOUSE.band) noTitle.push(ws.name);
+      // THE TITLE BLOCK (2026-11-17, founder; re-aimed from "a 13pt navy title"): row 1 the model line, bold navy
+      // 14pt and not a link; row 2 the tab's name.
+      const tc = typeof ws.getCell(1, 1).value === 'string' ? 1 : 2; // the Guide is framed in column B
+      const t1 = ws.getCell(1, tc), t2 = ws.getCell(2, tc);
+      if (typeof t1.value !== 'string' || (t1.font?.size ?? 0) !== 14 || !t1.font?.bold || t1.font?.color?.argb !== HOUSE.band || t2.value !== ws.name || !t) noTitle.push(ws.name);
       let back = false;
       // The tab frame (step 2) puts the link beside the tab's name in row 2, as "<- Back to Cover".
       for (const rr of [1, 2]) ws.getRow(rr).eachCell((c) => { const v = c.value as { hyperlink?: string; text?: string } | null; if (v && typeof v === 'object' && v.hyperlink === "#'Cover'!A1" && /Back to Cover$/.test(v.text ?? '')) back = true; });
       if (!back) noBack.push(ws.name);
     }
-    const timed = ws.getCell(3, 6).numFmt === '"Dec "0';
+    // THE FRAME (step 2; re-aimed 2026-11-17: this read row 3, where no year has been since, so B4/B5 checked no tab
+    // and passed): the years are in row 4 under the navy band, each year's phase in row 5 under it.
+    let yc = 0; ws.getRow(4).eachCell((c, col) => { if (!yc && c.numFmt === '"Dec "0') yc = col; });
+    const timed = yc > 0;
     if (timed) {
-      if (fillOf(ws.getCell(3, 6)) !== HOUSE.band || fillOf(ws.getCell(4, 6)) !== HOUSE.band) badBand.push(ws.name);
-      const p = ws.getCell(2, 6).value as unknown;
+      periodTabs++;
+      if (fillOf(ws.getCell(4, yc)) !== HOUSE.band || fillOf(ws.getCell(4, 1)) !== HOUSE.band) badBand.push(ws.name);
+      const p = ws.getCell(5, yc).value as unknown;
       const txt = isFormula(p) ? p.result : p;
       let anyFormula = false;
-      ws.eachRow((row, r) => { if (r > 4) row.eachCell((c, col) => { if (col >= 5 && isFormula(c.value)) anyFormula = true; }); });
-      // A live tab with formulas links Timeline; a tab that is values by design keeps the label as a value.
-      if (typeof txt !== 'string' || !txt || (live && ws.name !== 'Timeline' && anyFormula !== (isFormula(p) && p.formula === 'Timeline!F$2'))) noPhase.push(`${ws.name} (${JSON.stringify(p)?.slice(0, 40)})`);
+      ws.eachRow((row, r) => { if (r > 5) row.eachCell((c, col) => { if (col >= yc && isFormula(c.value)) anyFormula = true; }); });
+      // A live tab with formulas links Timeline's phase row; a tab that is values by design keeps the label as a value.
+      const linked = isFormula(p) && /^Timeline![A-Z]{1,3}\$5$/.test(p.formula);
+      if (typeof txt !== 'string' || !txt || (live && ws.name !== 'Timeline' && anyFormula !== linked)) noPhase.push(`${ws.name} (${JSON.stringify(p)?.slice(0, 40)})`);
     }
     ws.eachRow((row, r) => {
       const a = row.getCell(1);
@@ -104,16 +114,18 @@ function workbookRules(label: string, wb: ExcelJS.Workbook, scale: DisplayScale,
         // A scaled format (trailing commas) is money, and money is in the chosen units only.
         if (/0,+_\)/.test(nf) && nf !== MONEY[scale]) badMoney.push(`${ws.name}!${c.address} ${nf}`);
         if (/%|"x"|^0\.0/.test(nf) && /0,/.test(nf)) scaledCount.push(`${ws.name}!${c.address} ${nf}`);
-        if (/%/.test(nf) && f !== HOUSE.input && nf !== '0.0%;(0.0%);"-"' && nf !== '@') badPct.push(`${ws.name}!${c.address} ${nf}`);
+        // A Capex curve's window total is its typed shares added (100), shown with a % sign (2026-11-17, founder).
+        const windowTotal = ws.name === 'Capex' && nf === '0.0"%";-0.0"%";"-"';
+        if (/%/.test(nf) && f !== HOUSE.input && nf !== '0.0%;(0.0%);"-"' && nf !== '@' && !windowTotal) badPct.push(`${ws.name}!${c.address} ${nf}`);
         if (live && isFormula(c.value) && /^-?(?:'(?:[^']|'')+'|[A-Za-z0-9_&.]+)!\$?[A-Z]{1,3}\$?\d+$/.test(c.value.formula) && !f && c.font?.color?.argb === HOUSE.calc) blackLinks.push(`${ws.name}!${c.address}`);
       });
     });
   }
   const s = (l: string[]): string => `${l.length}: ${l.slice(0, 5).join('; ')}`;
   check(`B1 ${label}: every fill is in the house palette`, !badFill.length, s(badFill));
-  check(`B2 ${label}: every tab opens with the 13pt navy title`, !noTitle.length, s(noTitle));
+  check(`B2 ${label}: every tab opens with the model line (14pt bold navy, not a link) and its own name under it`, !noTitle.length, s(noTitle));
   check(`B3 ${label}: every tab links Back to Cover`, !noBack.length, s(noBack));
-  check(`B4 ${label}: every period tab's band is #153D64`, !badBand.length, s(badBand));
+  check(`B4 ${label}: every period tab's band is #153D64 (${periodTabs} period tabs)`, !badBand.length && periodTabs >= 8, s(badBand));
   check(`B5 ${label}: every period tab names each year's phase above the band${live ? ', linked to Timeline' : ''}`, !noPhase.length, s(noPhase));
   check(`B6 ${label}: every section bar is numbered`, !badBar.length, s(badBar));
   check(`B7 ${label}: every key total is CAPS, navy on light blue, bordered above and below`, !badTotal.length, s(badTotal));
@@ -140,7 +152,9 @@ async function main(): Promise<void> {
   const common = { state: live.state, projectName: live.projectName, dateLabel: '12 November 2026', caseComparison: live.caseComparison ?? undefined, parties: live.parties as never, includeSensitivity: true };
   const byScale = new Map<DisplayScale, { values: Map<string, number>; live: Map<string, number> }>();
   for (const scale of ['full', 'thousands', 'millions'] as const) {
-    const v = buildModelWorkbook({ ...common, displayScale: scale });
+    // THE VALUES FILE AS SHIPPED (re-aimed 2026-11-17): the values workbook the platform exports, framed like the
+    // live one, not the classic layout no route ships any more.
+    const v = buildValuesWorkbook({ ...common, displayScale: scale }).wb;
     const l = buildFormulaWorkbook({ ...common, displayScale: scale }).wb;
     workbookRules(`values, ${scale}`, v, scale, false);
     workbookRules(`live, ${scale}`, l, scale, true);
@@ -159,9 +173,12 @@ async function main(): Promise<void> {
       rev.eachRow((row) => { const c = row.getCell(3); if (typeof c.value === 'number' || isFormula(c.value)) widest = Math.max(widest, shown(c)); else if (typeof c.value === 'string' && row.getCell(4).value != null) widest = Math.max(widest, c.value.length); });
       check('D3 Revenue column C is wide enough for what it holds (was 2 wide, cutting "10.00% 3")', !widest || (rev.getColumn(3).width ?? 0) >= widest + 2, `width ${rev.getColumn(3).width}, content ${widest}`);
       const inputs = l.getWorksheet('Inputs')!;
-      let line = '';
-      for (let r = 2; r <= 12; r++) { const v2 = inputs.getCell(r, 1).value; if (typeof v2 === 'string' && v2.startsWith('Not used in this project')) line = v2; }
-      check('D4 Inputs carries the one "Not used in this project" line', line === notUsedLine(live.state as never) && !!line, line || '(none)');
+      // ONE ITEM PER ROW (2026-11-17, founder; re-aimed from "the one line"): the heading, each item, then how to turn one on.
+      let head = 0, col = 0;
+      inputs.eachRow((row, r) => row.eachCell((c, cc) => { if (!head && c.value === 'Not used in this project') { head = r; col = cc; } }));
+      const items = head ? Array.from({ length: notUsedItems(live.state as never).length }, (_, i) => String(inputs.getCell(head + 1 + i, col).value ?? '')) : [];
+      const want = notUsedItems(live.state as never).map((t) => `- ${t}`);
+      check('D4 Inputs lists what is not used, one item per row, then how to turn it on', head > 0 && items.join('|') === want.join('|') && /Turn on in the platform/.test(String(inputs.getCell(head + 1 + want.length, col).value ?? '')) && !!notUsedLine(live.state as never), items.join('; ') || '(none)');
     }
   }
   console.log('E. Formatting only');

@@ -455,6 +455,8 @@ export const stage2Capex: LiveLayer = {
       if (!w.has(b.key)) return values(`the blended spend share of ${b.lid} on ${b.host} is not on the sheet`);
       blendRow(w.addr(b.key).row, b.plots, (id) => plotQty(plotLines.get(`${id}|${b.lid}`)!), () => b.lid);
     }
+    // THE PLOT WEIGHTS IN THE INPUT COLUMN (2026-11-17, founder): a weight is not a total, so it is not in Total.
+    const C_W = 2;
     for (const wt of blends.weights) {
       if (!w.has(wt.key)) return values('a plot\'s hard-cost weight is not on the sheet');
       // The plot's hard-cost money: each hard line's rate x the plot's quantity, spread and escalated, one row
@@ -464,19 +466,19 @@ export const stage2Capex: LiveLayer = {
         const pl = plotLines.get(`${wt.plot}|${lid}`);
         const pk = `${wt.key}|${lid}`;
         if (!w.has(pk)) continue;
-        if (!pl || pl.disabled) { w.f(pk, '0', { col: C_TOT }); partKeys.push(pk); continue; }
+        if (!pl || pl.disabled) { w.f(pk, '0', { col: C_W }); partKeys.push(pk); continue; }
         const sp = plan.plotLine.get(`${wt.plot}|${lid}`)!;
         const esc = sp.escalates ? `*SUMPRODUCT(${w.rangeA(CAPEX, spreadRow(wt.plot, lid), cP(0), cP(N - 1)).replace(/^'?Capex'?!/, '')},${w.rangeA(CAPEX, escRow, cP(0), cP(N - 1)).replace(/^'?Capex'?!/, '')})` : '';
-        w.f(pk, `${rateRef(pl)}*${plotQty(pl)}${esc}`, { col: C_TOT });
+        w.f(pk, `${rateRef(pl)}*${plotQty(pl)}${esc}`, { col: C_W });
         partKeys.push(pk);
       }
       const rs = partKeys.map((k) => w.addr(k).row).sort((a, b) => a - b);
-      const L = colOf(C_TOT);
-      w.f(wt.key, rs.length ? (rs.every((x, i) => i === 0 || x === rs[i - 1] + 1) ? `SUM(${L}$${rs[0]}:${L}$${rs[rs.length - 1]})` : rs.map((x) => `${L}$${x}`).join('+')) : '0', { col: C_TOT });
+      const L = colOf(C_W);
+      w.f(wt.key, rs.length ? (rs.every((x, i) => i === 0 || x === rs[i - 1] + 1) ? `SUM(${L}$${rs[0]}:${L}$${rs[rs.length - 1]})` : rs.map((x) => `${L}$${x}`).join('+')) : '0', { col: C_W });
     }
     for (const b of blends.soft) {
       if (!w.has(b.key)) return values(`the blended soft-cost share on ${b.host} is not on the sheet`);
-      const wRow = (id: string): string => A(w.addr(`cxhw:${b.host}:${id}`).row, C_TOT);
+      const wRow = (id: string): string => A(w.addr(`cxhw:${b.host}:${id}`).row, C_W);
       blendRow(w.addr(b.key).row, b.plots, wRow, () => b.lids[0]);
     }
 

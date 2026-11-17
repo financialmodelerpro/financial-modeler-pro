@@ -35,7 +35,9 @@ import { computeReturnsSnapshot } from '../src/hubs/modeling/platforms/refm/lib/
 import { buildCapexReport } from '../src/hubs/modeling/platforms/refm/lib/reports/capexReports';
 import { buildCaseYoYReport } from '../src/hubs/modeling/platforms/refm/lib/reports/caseYoYReport';
 import { planRevenueLines } from '../src/hubs/modeling/platforms/refm/lib/revenueLines';
-import { resolveAssetAreaMetrics } from '../src/core/calculations';
+import { expandIndexationToAxis, resolveSellConfig } from '../src/hubs/modeling/platforms/refm/lib/revenue-resolvers';
+import { buildEscalatedPriceTable } from '../src/hubs/modeling/platforms/refm/lib/reports/revenueOutputReports';
+import { resolveAssetAreaMetrics, isRevenueSubUnit } from '../src/core/calculations';
 import { computeReturnsSensitivity } from '../src/hubs/modeling/platforms/refm/lib/returns-resolvers';
 import { covenantSeries, evaluateCovenant } from '../src/hubs/modeling/platforms/refm/lib/covenants';
 import { DEFAULT_COVENANTS } from '../src/hubs/modeling/platforms/refm/lib/state/module1-types';
@@ -247,8 +249,24 @@ function probe(name: string, input: LiveExportInputs, state: Any, plant = false)
   const addUp = (rows: Array<readonly number[] | undefined>): number[] => { const acc = new Array<number>(N).fill(0); for (const s of rows) for (let t = 0; t < N; t++) acc[t] += s?.[t] ?? 0; return acc; };
   const asEarned = addUp(pls.filter((p) => visible.has(p.assetId) && p.strategy !== 'Sell').map((p) => p.revenuePerPeriod));
   const phaseOpex = state.phases.map((ph: Any) => addUp([...pls.filter((p) => visible.has(p.assetId) && p.strategy !== 'Sell' && phaseOf.get(p.assetId) === ph.id).map((p) => p.opexPerPeriod), snap.pl.sellingExpenseByPhase?.[ph.id]]));
+  // The indexed sale price per sqm each sell line prints (2026-11-17): the shared report builder over the
+  // engine's indexation (buildEscalatedPriceTable), as the Revenue tab builds it.
+  const priceRows: number[][] = [];
+  safe(() => {
+    for (const l of planRevenueLines(state.assets, state.subUnits, state.phases, state.project)) {
+      if (l.form !== 'sell') continue;
+      const a = l.members.find((m: Any) => (state.subUnits as Any[]).some((u) => u.assetId === m.id && isRevenueSubUnit(u))) as Any;
+      const ph = (state.phases as Any[]).find((p) => p.id === l.phaseId);
+      if (!a || !ph) continue;
+      const off = Math.max(0, new Date(ph.startDate).getUTCFullYear() - snap.projectStartYear);
+      const idxAxis = expandIndexationToAxis(resolveSellConfig(a, state.project)?.indexation, a.revenue?.sell?.indexation?.growthPerPeriodByPhase, off, N);
+      const units = (state.subUnits as Any[]).filter((u) => u.assetId === a.id && isRevenueSubUnit(u));
+      for (const row of buildEscalatedPriceTable(units, () => a, idxAxis, N, 'X', (v) => String(v)).rows) priceRows.push(row.values);
+    }
+    return true;
+  });
   // The model's own inputs too: a covenant threshold or a rate printed beside a result is typed, not worked out.
-  const cat = engineCatalog([snap, rs, capex, metrics, yoy, cov, sens, kpis, disp, fixedAssets, gap, state, covs, covEval, byType, revpar, [asEarned], phaseOpex], N, lines);
+  const cat = engineCatalog([snap, rs, capex, metrics, yoy, cov, sens, kpis, disp, fixedAssets, gap, state, covs, covEval, byType, revpar, [asEarned], phaseOpex, priceRows], N, lines);
   const unmatched: string[] = [];
   let rowsChecked = 0;
   for (const ws of wb.worksheets) {

@@ -31,6 +31,7 @@ import type ExcelJS from 'exceljs';
 import type { LayerContext, LiveLayer } from '../formulaWorkbook';
 import { LiveWriter } from './writer';
 import { PERIOD_COLS } from '../buildModelWorkbook';
+import { colLetter } from '../styles';
 import { terminalRefusal, terminalValueFormula } from './terminal';
 import { citReliefF, citPoolF, taxF } from './taxRule';
 import { withResolvedAssetNames } from '@/src/core/calculations/assetName';
@@ -191,7 +192,7 @@ export const stage6Loop: LiveLayer = {
     putS('fl:lastCon', phases.every((p) => has(`tl:phase:${p.id}:hy`)) ? `MAX(${phases.map((p) => w.ref(`tl:phase:${p.id}:hy`)).join(',')})` : `MAX(${phases.map((p) => `MAX(0,YEAR(${w.ref(`tl:phase:${p.id}:cs`)})-${psd()})+MAX(0,${w.ref(`tl:phase:${p.id}:cp`)})`).join(',')})+${psd()}-1`);
     const lastCon = (): string => T('fl:lastCon');
     const D = (): string => `MAX(0,N(${IN('fin:in:debt')}))`, E = (): string => `MAX(0,N(${IN('fin:in:equity')}))`;
-    putS('fl:dF', `IF(${D()}+${E()}>0,${D()}/(${D()}+${E()}),0.7)`);
+    putS('fl:dF', `IF(${D()}+${E()}>0,${D()}/(${D()}+${E()}),0)`); // no hidden default (2026-11-17): the engine reads a blank share as 0
     putS('fl:eF', `1-${T('fl:dF')}`);
     const dF = (): string => T('fl:dF'), eF = (): string => T('fl:eF');
     if (has('fl:landDebt')) {
@@ -308,8 +309,12 @@ export const stage6Loop: LiveLayer = {
     why('fl:opIn', CHAIN);
 
     // ── The funding need ─────────────────────────────────────────────────────
-    put('fl:open', (t) => `N(${P('fl:after', t, -1)})`, 'last');
-    put('fl:avail', (t) => `${P('fl:open', t)}+${P('fl:opIn', t)}-${P('fl:capex', t)}+${P('fl:proceeds', t)}`, 'last');
+    // THE FUNDING TEST ONLY WHILE CAPEX IS STILL TO BE PAID (2026-11-17, founder): each row of it is 0 once no
+    // capex is left (this year onward), so it reads blank after the build; inside the window the chain runs as before.
+    const cxRow = w.addr('fl:capex').row;
+    const win = (t: number, e: string): string => `IF(SUM(${P('fl:capex', t)}:$${colLetter(pc(N - 1))}$${cxRow})>0,${e},0)`;
+    put('fl:open', (t) => win(t, `N(${P('fl:after', t, -1)})`), 'last');
+    put('fl:avail', (t) => win(t, `${P('fl:open', t)}+${P('fl:opIn', t)}-${P('fl:capex', t)}+${P('fl:proceeds', t)}`), 'last');
     why('fl:avail', CHAIN);
     // A year needs funding only while capex (net of exit proceeds) is paid, to the cent.
     const spending = (t: number): string => `(ROUND(${P('fl:capex', t)}-${P('fl:proceeds', t)},2)>0)`;
@@ -334,8 +339,8 @@ export const stage6Loop: LiveLayer = {
     const fee = (t: number): string => (feeOn && has('fl:feeTot') ? P('fl:feeTot', t) : '0');
     // The fund fees drawn from equity: while capex is paid, as far as keeps cash at the minimum.
     put('fl:feeDraw', (t) => `IF(AND(${spending(t)},${fee(t)}>0),MIN(${fee(t)},MAX(0,${MIN()}-(${P('fl:avail', t)}+${P('fl:need', t)}-${fee(t)}))),0)`);
-    put('fl:feePaid', (t) => `-${fee(t)}`);
-    put('fl:after', (t) => `${P('fl:avail', t)}+${P('fl:need', t)}${byEq ? `+${P('fl:feeDraw', t)}+${P('fl:feePaid', t)}` : ''}`, 'last');
+    put('fl:feePaid', (t) => win(t, `-${fee(t)}`));
+    put('fl:after', (t) => win(t, `${P('fl:avail', t)}+${P('fl:need', t)}${byEq ? `+${P('fl:feeDraw', t)}+${P('fl:feePaid', t)}` : ''}`), 'last');
     why('fl:after', CHAIN);
     const head = (t: number): string => `MAX(0,${P('fl:after', t)}-${MIN()})`;
     // Construction running: a year up to the last construction year with capex in it.
@@ -488,7 +493,8 @@ export const stage6Loop: LiveLayer = {
 
     // ── The cash waterfall, the sweep and the dividends ──────────────────────
     put('fl:cwOpen', (t) => `N(${P('fl:close', t, -1)})`, 'last');
-    put('fl:cfo', (t) => (byEq ? `${P('fl:opIn', t)}+${P('fl:feePaid', t)}` : P('fl:opIn', t)));
+    // The fees paid read the fee total itself: the funding test's own row is blank after the build (2026-11-17).
+    put('fl:cfo', (t) => (byEq ? `${P('fl:opIn', t)}-${fee(t)}` : P('fl:opIn', t)));
     put('fl:cfiCapex', (t) => `-${P('fl:capex', t)}`);
     put('fl:cfiExit', (t) => (has('fl:proceeds') ? P('fl:proceeds', t) : '0'));
     put('fl:eqCash', (t) => `${P('fl:eqDraw', t)}${byEq ? `+${P('fl:feeDraw', t)}` : ''}`);

@@ -258,10 +258,7 @@ export function summaryPlan(state: FinancialsResolverState, snap: Snap, rs: RS):
   section('sum|#exit', 'Exit and cash');
   one('sum|tv', 'Terminal value (proceeds from disposal)', ex.terminalValue, (E) => E.tot('ret|x|tv'), RF.money, M);
   one('sum|gain', 'Gain on disposal', ex.gainOnDisposal, (E) => E.tot('pl|__all__||Gain on Disposal of Operating Assets'), RF.money, M);
-  one('sum|peakdebt', 'Peak debt', ex.peakDebt, (E) => `MAX(0,MAX(${E.rngY(bsTotalDebtKey(state))}))`, RF.money, M);
-  one('sum|cashlow', 'Cash low point', ex.cashLow, (E) => `MIN(${E.rngY('bs|__all__||Cash')})`, RF.money, M);
-  one('sum|cashlowyr', 'Year of the cash low point', ex.cashLowYear ?? 'n/a',
-    // No array formula (2026-11-04): the first year at the low point, through SUMPRODUCT.
-    (E) => `SUMPRODUCT(MIN(${E.yrRng()}+(${E.rngY('bs|__all__||Cash')}>MIN(${E.rngY('bs|__all__||Cash')})+0.5)*100000))`, RF.year);
+  one('sum|peakdebt', 'Peak debt', ex.peakDebt, (E) => `MAX(${E.rngY(bsTotalDebtKey(state))})`, RF.money, M);
+  // No cash low point or its year (2026-11-17, founder): the Balance Sheet shows cash by year.
   return rows;
 }

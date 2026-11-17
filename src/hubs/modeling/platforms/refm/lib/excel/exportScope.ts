@@ -19,6 +19,7 @@
  * No em dashes in this file.
  */
 import { hqOpexLinesInForce, type OpexLine } from '@/src/core/calculations/opex';
+import { getAssetPreCapexTotal } from '../state/module1-types'; // the ONE reader of the pre-capex split and its legacy total (verify-model-capex)
 
 export type ExportFeature = 'escrow' | 'hq' | 'payables' | 'receivables' | 'taxPayable' | 'existing' | 'statutoryReserve' | 'opexLines';
 
@@ -100,7 +101,7 @@ export function featureUsed(state: ScopeState, f: ExportFeature): boolean {
       return state.phases.some((ph) => ph.status === 'operational')
         || (state.financingTranches ?? []).some((t) => t.origin === 'existing' || pos(t.openingBalance))
         || pos(p.existingRetainedEarnings) || pos(p.historicalOpeningCash)
-        || assets.some((a) => pos(a.historicalPreCapexLand) || pos(a.historicalPreCapexBuilding) || pos(a.historicalPreCapex) || pos(a.historicalEquityAmount));
+        || assets.some((a) => pos(getAssetPreCapexTotal(a as never)) || pos(a.historicalEquityAmount));
     case 'statutoryReserve':
       return pos(p.statutoryReserve?.transferRate);
     case 'opexLines':
@@ -112,6 +113,16 @@ export function featureUsed(state: ScopeState, f: ExportFeature): boolean {
 /** Every feature this model does not use, in the order Inputs lists them. */
 export function notUsedFeatures(state: ScopeState): ExportFeature[] {
   return (Object.keys(FEATURE_WORDS) as ExportFeature[]).filter((f) => !featureUsed(state, f));
+}
+
+/** Short words for the Inputs list, one item per row (2026-11-17, founder). */
+const SHORT_WORDS: Record<ExportFeature, string> = {
+  escrow: 'Escrow', hq: 'HQ overheads', payables: 'Payables', receivables: 'Receivable days, hotel and lease',
+  taxPayable: 'Zakat or tax payable', existing: 'Existing position', statutoryReserve: 'Statutory reserve', opexLines: 'zero opex lines',
+};
+/** The features this model does not use, as the short list Inputs shows (the zero opex lines counted). */
+export function notUsedItems(state: ScopeState): string[] {
+  return notUsedFeatures(state).map((f) => (f === 'opexLines' ? `${zeroOpexLineCount(state)} ${SHORT_WORDS[f]}` : SHORT_WORDS[f]));
 }
 
 /** The one line on Inputs, or '' when everything is used. */

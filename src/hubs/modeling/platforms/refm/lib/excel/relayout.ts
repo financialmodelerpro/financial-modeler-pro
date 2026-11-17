@@ -146,7 +146,15 @@ export class Relayout {
       const nd: Record<string, DvModel> = {};
       for (const [k, v] of Object.entries(dv)) { const to = this.moveAddr(ws.name, k); if (to) nd[to] = v; }
       model.dataValidations = nd;
-      model.conditionalFormattings = (model.conditionalFormattings ?? []).map((cf) => ({ ...cf, ref: cf.ref.split(' ').map((x) => this.moveAddr(ws.name, x)).filter(Boolean).join(' ') })).filter((cf) => cf.ref);
+      // A conditional format's rules read cells too (the Timeline's Gantt bars read the phase dates and the
+      // year row): they move with them, or the bars test the rows that used to be there (2026-11-17).
+      model.conditionalFormattings = (model.conditionalFormattings ?? []).map((cf) => ({
+        ...cf,
+        ref: cf.ref.split(' ').map((x) => this.moveAddr(ws.name, x)).filter(Boolean).join(' '),
+        rules: Array.isArray((cf as { rules?: unknown }).rules)
+          ? ((cf as unknown as { rules: Array<{ formulae?: unknown[] }> }).rules).map((rl) => ({ ...rl, formulae: Array.isArray(rl.formulae) ? rl.formulae.map((f) => (typeof f === 'string' ? this.rewrite(f, ws.name, `${ws.name} conditional format`) : f)) : rl.formulae }))
+          : (cf as { rules?: unknown }).rules,
+      })).filter((cf) => cf.ref);
       (ws as unknown as { model: WsModel }).model = withMergeCells(model, ws);
     }
   }

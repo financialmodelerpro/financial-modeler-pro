@@ -64,6 +64,8 @@ export interface HouseContext {
   currency?: string;
   /** The "Not used in this project" line for Inputs ('' when everything is used). */
   notUsedLine: string;
+  /** The same, as a short list, one item per row (2026-11-17, founder). */
+  notUsedItems?: string[];
   /** The phase row above each period band: its label per model year (index 0 = the first model year). */
   phaseLabels: string[];
   /**
@@ -279,7 +281,8 @@ export function applyHouseStyle(wb: ExcelJS.Workbook, ctx: HouseContext): void {
     if (isCover) coverLinks(ws, wb);
     if (!isCover) titleBlock(ws, ctx);
     if (timed) phaseRow(ws, ctx);
-    if (ws.name === 'Inputs' && ctx.notUsedLine) notUsed(ws, ctx.notUsedLine);
+    if (ws.name === 'Inputs' && ctx.notUsedItems?.length) notUsedList(ws, ctx.notUsedItems);
+    else if (ws.name === 'Inputs' && ctx.notUsedLine) notUsed(ws, ctx.notUsedLine);
     widenCutColumns(ws);
 
     // ── Print and view: landscape, fit to width, no gridlines ───────────────────────
@@ -420,6 +423,21 @@ function coverLinks(ws: ExcelJS.Worksheet, wb: ExcelJS.Workbook): void {
     c.font = { name: 'Calibri', size: 9, underline: true, color: { argb: HOUSE.bar } };
     r += 1;
   }
+}
+
+/**
+ * "NOT USED IN THIS PROJECT" AS A SHORT LIST (2026-11-17, founder): one item per row, in column G beside the
+ * Project block (rows that use only A and B), then how to turn one on.
+ */
+function notUsedList(ws: ExcelJS.Worksheet, items: string[]): void {
+  let top = 3;
+  ws.eachRow({ includeEmpty: false }, (row, r) => { if (top === 3 && r >= 3 && textOf(row.getCell(1)).trim() === 'Project Name') top = r - 1; });
+  const col = 7;
+  const put = (r: number, text: string, f: Partial<ExcelJS.Font>): void => { const c = ws.getCell(r, col); c.value = text; c.font = { name: 'Calibri', size: 9, ...f } as ExcelJS.Font; };
+  put(top + 1, 'Not used in this project', { bold: true, color: { argb: HOUSE.bar } });
+  items.forEach((t, i) => put(top + 2 + i, `- ${t}`, { color: { argb: HOUSE.slate } }));
+  put(top + 2 + items.length, 'Turn on in the platform and re-export.', { italic: true, color: { argb: HOUSE.slate } });
+  if ((ws.getColumn(col).width ?? 0) < 30) ws.getColumn(col).width = 30;
 }
 
 function notUsed(ws: ExcelJS.Worksheet, text: string): void {
