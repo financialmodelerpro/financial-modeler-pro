@@ -77,9 +77,15 @@ const S = (a: readonly number[]): number => a.reduce((s, v) => s + (v ?? 0), 0);
   // that the loop mirrors the cit basis through the twin and the P&L builds no second relief.
   // RE-AIMED 2026-11-03: the loop reads the basis through financingPlan's ctx (`pc0.cit`) since
   // 2026-10-29; the rule is that the relief is built only under the cit flag, not the spelling of the test.
-  check('the live formula layer mirrors the cit basis: the financing loop builds the loss relief from the one formula twin, on the core 25% cap, and the P&L reads the loop\'s tax rather than building its own',
-    /if \((?:\w+\.)?cit\)[\s\S]{0,200}citReliefF\(/.test(L6) && /citReliefF\(/.test(L6) && /citPoolF\(/.test(L6) && /CIT_LOSS_RELIEF_CAP/.test(twin)
-      && !/citReliefF\(|citPoolF\(/.test(L5) && /'fnc:tax'/.test(L5)
+  // RE-AIMED 2026-11-17: since 2026-11-15 (founder, export simplification step 5) zakat and tax are WORKED OUT ON
+  // THE P&L and the financing loop reads the charge back (LOOP_LINKS "Zakat, from the P&L"), so the one builder
+  // moved. The rule is unchanged: the relief is built ONCE, through the one formula twin on the core cap, only
+  // under the cit flag (plPlan), and the other side builds none and reads the charge.
+  const plan = readFileSync(R + 'lib/excel/liveLayers/plPlan.ts', 'utf8');
+  check('the live formula layer mirrors the cit basis: the P&L builds the loss relief from the one formula twin, on the core 25% cap, only under the cit flag, and the financing loop reads the P&L\'s charge rather than building its own',
+    /citReliefF\(/.test(L5) && /citPoolF\(/.test(L5) && /CIT_LOSS_RELIEF_CAP/.test(twin)
+      && /if \(cit\) \{[\s\S]{0,200}kind: 'taxRel'/.test(plan)
+      && !/citReliefF\(|citPoolF\(/.test(L6) && /put\('fl:tax', \(t\) => \(has\(plTax\)/.test(L6)
       && !/basis === 'cit'\) refuse\.push/.test(L5));
 
   // Marina Gate: zakat, unchanged, and the sentence names its losses.
