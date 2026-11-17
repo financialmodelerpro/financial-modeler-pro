@@ -68,6 +68,8 @@ const ACCEPTED: Array<{ at: RegExp; cat?: RegExp; why: string; mode?: 'live' | '
   { at: /^Financing![G-S](41|43|74|86|104|106)\(ours (40|42|73|85|103|105)\)$/, cat: /^formula$/, why: 'the circularity switch cuts the financing loops (open fix 8, TRAPS 3.46)' },
   // Print set-up (2026-11-17, founder): the Cover on one page; the Guide fitted to the width on two pages.
   { at: /^(Cover|Guide)!print$/, cat: /^print$/, why: 'the Cover prints on one page and the Guide on two (founder)' },
+  // The Dashboard at a fixed scale, fit off, so Excel keeps its two manual breaks: three pages in real Excel (founder).
+  { at: /^Dashboard!print$/, cat: /^print$/, why: 'the Dashboard prints on three pages at a fixed scale (founder)' },
   // The export date on the Cover is the day the file is made.
   { at: /^Cover!D12$/, cat: /^value$/, why: 'the Cover states the day the file is exported', mayNotOccur: true },
   // 6. The Cover footer: the reference wrote it navy on its navy band, which cannot be read; ours is white and pale.

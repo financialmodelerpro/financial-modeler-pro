@@ -1019,7 +1019,23 @@ export function buildDashboard(wb: ExcelJS.Workbook, ctx: DashboardContext): { c
   for (let x = 1; x <= end; x++) if (!ws.getRow(x).height) ws.getRow(x).height = 13.5;
   put(end, 3, 'End of sheet', 'head'); fillRun(end, 3, 16, NAVY);
 
-  ws.pageSetup = { ...ws.pageSetup, orientation: 'landscape', paperSize: 9, fitToPage: true, fitToWidth: 1, fitToHeight: 0, printArea: `A1:Q${end}`, margins: { left: 0.4, right: 0.4, top: 0.5, bottom: 0.5, header: 0.5, footer: 0.5 } } as ExcelJS.PageSetup;
+  // THREE PRINTED PAGES IN REAL EXCEL (2026-11-17, founder). Fit-to-width put Excel at about 69%, where its printed
+  // rows (some 3 to 4% taller than their nominal height) pushed sections 4 to 10 onto a fourth page; and Excel
+  // ignores the manual breaks under "fit to N pages tall". So the scale is fixed, fit off: the largest whole percent
+  // at which the tallest of the three blocks (title to 3, 4 to 10, 11 to the end) and the width fit one A4 landscape
+  // page. The allowance is measured on the heights this file holds (an unset row counted at 15): block 2 of the
+  // reference project, 765pt here, fitted at 67% and split at 68%, so Excel prints it 0.6% to 2.1% taller; 1.5%. The
+  // width takes it too: A to Q (1,160pt here) fitted at 66% and split off column Q at 67% (0.9% to 2.4%). 66% here.
+  const PAGE_H = 595.28 - (0.5 + 0.5) * 72, PAGE_W = 841.89 - (0.4 + 0.4) * 72, EXCEL_ROWS = 1.015;
+  const rowPt = (x: number): number => ws!.getRow(x).height ?? 15;
+  const blockPt = (a: number, b: number): number => { let h = 0; for (let x = a; x <= b; x++) h += rowPt(x); return h; };
+  const tallest = Math.max(blockPt(1, p2 - 2), blockPt(p2 - 1, p3break), blockPt(p3break + 1, end));
+  let widthPt = 0;
+  for (let c = 1; c <= 17; c++) widthPt += Math.trunc((ws.getColumn(c).width ?? 8.43) * 7 + 5) * 0.75;
+  const scale = Math.max(10, Math.min(100, Math.floor(100 * Math.min(PAGE_H / (tallest * EXCEL_ROWS), PAGE_W / (widthPt * EXCEL_ROWS)))));
+  ws.pageSetup = { ...ws.pageSetup, orientation: 'landscape', paperSize: 9, fitToPage: false, scale, printArea: `A1:Q${end}`, margins: { left: 0.4, right: 0.4, top: 0.5, bottom: 0.5, header: 0.5, footer: 0.5 } } as ExcelJS.PageSetup;
+  delete (ws.pageSetup as { fitToWidth?: number }).fitToWidth;
+  delete (ws.pageSetup as { fitToHeight?: number }).fitToHeight;
   return { charts };
 }
 
