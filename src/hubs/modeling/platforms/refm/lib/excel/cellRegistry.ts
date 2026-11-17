@@ -84,6 +84,10 @@ export class CellRegistry {
   readonly shift = (sheet: string, atRow: number, count: number): void => {
     for (const a of this.map.values()) if (a.sheet === sheet && a.row >= atRow) a.row += count;
   };
+  /** Every address moved by `fn` (the tab frame, 2026-11-17); a cell the move drops keeps its old address. */
+  remap(fn: (sheet: string, row: number, col: number) => { r: number; c: number } | null): void {
+    for (const a of this.map.values()) { const m = fn(a.sheet, a.row, a.col); if (m) { a.row = m.r; a.col = m.c; } }
+  }
   get(key: string): CellAddr | undefined { return this.map.get(key); }
   /** The cell or a thrown error naming the missing key (a formula must never guess). */
   need(key: string): CellAddr {

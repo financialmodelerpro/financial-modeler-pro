@@ -20,6 +20,7 @@ import {
   buildGridContext, isPerPeriodLever, nonEconomicLeverReason,
   inactiveLeverReason, curatedDefaultFields, assumptionFor, groupAssumptionRows, leverNote,
   formatAssumptionValue, assumptionUnitSuffix, isAppliedValue,
+  type AssumptionFormat,
 } from '../cases/assumptionGrid';
 import { enumerateOverridableFields, getByPath, type OverridableField } from '../cases/applyOverrides';
 import type { HydrateSnapshot } from '../state/module1-store';
@@ -31,6 +32,10 @@ export interface AssumptionCell {
   text: string;
   /** True when this case overrides the field (the workbook bolds it). */
   overridden: boolean;
+  /** The stored value as a number, for a surface that prints numbers (the workbook); null when it is not numeric. */
+  value: number | null;
+  /** How the value is stored: a percentage as a fraction or a whole number, money, or a plain number. */
+  format: AssumptionFormat;
 }
 
 export interface AssumptionRow {
@@ -59,6 +64,13 @@ export interface AssumptionGrid {
 
 export const ASSUMPTIONS_EMPTY_NOTE =
   'No assumptions yet. Add one on the platform to start comparing values across cases.';
+
+/** A numeric assumption as a number; null for text, booleans and anything that is not a finite number. */
+function numericValue(v: unknown, format: AssumptionFormat): number | null {
+  if (format === 'text' || format === 'boolean') return null;
+  const n = typeof v === 'number' ? v : typeof v === 'string' && v.trim() !== '' ? Number(v) : NaN;
+  return Number.isFinite(n) ? n : null;
+}
 
 export function buildAssumptionGrid(input: CaseComparisonInput): AssumptionGrid {
   const base = input.baseModel as unknown as HydrateSnapshot;
@@ -111,6 +123,8 @@ export function buildAssumptionGrid(input: CaseComparisonInput): AssumptionGrid 
               caseId: c.id,
               text: `${formatAssumptionValue(value, row.descriptor.format)}${assumptionUnitSuffix(row.descriptor.format)}`,
               overridden: has && !c.isBase,
+              value: numericValue(value, row.descriptor.format),
+              format: row.descriptor.format,
             };
           }),
         };

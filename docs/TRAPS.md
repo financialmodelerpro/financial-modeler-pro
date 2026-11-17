@@ -1395,6 +1395,60 @@ rather than shipping a file Excel rejects; and a project with no assets is refus
 shell build now stops at "Land & Area!R20C2 calls SUM with nothing to add up". Opening a file in LibreOffice is not
 evidence that Excel will open it: test both.
 
+### 3.41 A last pass that moves cells left every address record behind, and the verifiers either read the neighbour or checked nothing
+
+**Symptom (2026-11-17, export simplification step 7):** the first full proof after steps 2 to 6 reported about 3,200 cells
+"differing" on every input change in real Excel, a C test typed into an unshaded cell, and `verify-values-mode` V5/V6
+passed while checking "0 rows". None of it was a model defect.
+
+**Mechanism:** step 2 added the tab frame (`tabFrame.ts`), a pass over the finished workbook that moves rows (the year band
+to row 4, a title block, runs of empty rows kept once) and columns (a tab with no Input column loses B), rewriting every
+formula through `relayout.ts`. Nothing else moved with it: the cell registry the build returns still held pre-frame
+addresses, the verifier's platform twin was unframed, and values-mode found its period tabs by a year header in row 3,
+which no longer existed, so it found no period tab and its checks ran over nothing and passed.
+
+**Fix:** `applyTabFrame` returns where it moved each cell (`FrameMoves`) and `buildFormulaWorkbook` remaps the registry
+(`CellRegistry.remap`); the verifier frames its twin the same way (`framedPlain`), pairs rows by label and keys the oracle
+at live addresses; values-mode reads each tab's geometry from its own row 4 and FAILS on zero rows checked. **A pass that
+moves cells must hand over its move, and a check that can count what it checked must fail on zero.**
+
+**Proof:** values-mode V5 435 rows, V6 91 figures; `verify-formula-workbook` A, B, D, E green, the C failures down to
+the off-feature tests (re-aimed onto copies) and one real defect (3.42).
+
+### 3.42 A row set chosen at export, keyed by calendar column, fell off a phase moved in Excel
+
+**Symptom (2026-11-17):** in real Excel, Phase 2 started a year earlier collected none of its first year's pre-sales:
+a receivable of 57.9m stayed open for ever, while the platform collected it.
+
+**Mechanism:** on 2026-11-15 the pre-sale cohort rows ("2028 sales: cash collected") were narrowed from one per model year
+to the phase's construction years, but each row stayed pinned to the calendar column of its year (`$G$4`). A phase moved
+earlier gained a construction year with no row.
+
+**Fix:** row k is the phase's k-th construction year: it finds its sale year through the Timeline construction counter
+(= k), its Total is that year's pre-sales (the cohort's sale value, which the instalments read) and its instalment years
+run from the phase's start year + k - 1 (`stage3Revenue.ts`). Every formula stays under 150 characters. **When a
+founder rule narrows a set of rows to "the years that apply", key each row by its place in that set, never by the
+column it happened to fall on at export.**
+
+**Proof:** `verify-formula-workbook` "start date of Phase 2 one year earlier": 2,996 cells move, Excel agrees on every
+one; the velocity, downpayment and instalment tests still agree.
+
+### 3.43 A prefix that meant "working rows" was reused for visible rows, and the values file dropped them
+
+**Symptom (2026-11-17):** the values workbook's Returns showed FCFF, FCFE and distribution IRR lines with no cash flow row
+above any of them (100 rows against the live file's 150). The headline check found distributions only on Financing and
+the Cash Flow.
+
+**Mechanism:** `valuesWorkbook.ts` drops working rows by registry key, and `^rs|` named "the stream workings". Step 6
+built the visible streams under `rs|` too, so the drop took them all. The per-step quick checks counted rows, which fell
+by a third without anyone reading why.
+
+**Fix:** only the flags and the cash-held workings are dropped (`/^rs|(hold|con|cxon|level|floor|close|debt)/`);
+values-mode V5 ties every kept row to an engine series. **A key prefix is a name, not a role: a drop list matches the rows
+it means, one by one.**
+
+**Proof:** values Returns 133 rows; distributions 1,019.5m on Returns in both files; values-mode 97 / 0 on every set-up.
+
 ## 4. PDF export (pdf-lib)
 
 ### 4.1 PDF text is glyph ids, so a naive grep returns nothing

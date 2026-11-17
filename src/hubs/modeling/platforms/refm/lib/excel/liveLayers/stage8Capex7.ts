@@ -128,26 +128,34 @@ export const stage8Capex7: LiveLayer = {
     }
     if (problems.length) { w.reset(); return kept([...new Set(problems)].slice(0, 4).join('; ')); }
 
-    // ── Writing: one row per line (2026-11-16, founder): NSA in B, then the cost per sqm of NSA on each
+    // ── Writing: one row per line (2026-11-16, founder): GFA in B (NSA since 2026-11-17 only for 7b), then the cost per sqm on each
     // cumulative base, each adding its own cost over the NSA to the base before it (short formulas). ──
     const at = (key: string, col: number) => ({ sheet: w.addr(key).sheet, row: w.addr(key).row, col });
-    const diff = (a: string, b: string): string => `IF(AND(ISNUMBER(${a}),ISNUMBER(${b})),${a}-${b},"n/a")`;
     for (const l of report.lines) {
       const f = figs.get(l.key)!;
       const k = `cx7a|${l.key}`;
       if (!has(k)) continue;
-      w.fA(at(k, 2), f.nsa.f);
-      const nsa = w.refA(at(k, 2));
-      w.fA(at(k, 3), `IF(${nsa}>0,(${f.construction.f})/${nsa},"n/a")`);
+      // COST PER SQM OF GFA (2026-11-17, founder, step 7): the platform's `bua` is the GFA a user reads.
+      w.fA(at(k, 2), f.bua.f);
+      const gfa = w.refA(at(k, 2));
+      w.fA(at(k, 3), `IF(${gfa}>0,(${f.construction.f})/${gfa},"n/a")`);
       const c1 = w.refA(at(k, 3));
-      w.fA(at(k, 4), `IF(ISNUMBER(${c1}),${c1}+${f.idc}/${nsa},"n/a")`);
+      w.fA(at(k, 4), `IF(ISNUMBER(${c1}),${c1}+${f.idc}/${gfa},"n/a")`);
       const c2 = w.refA(at(k, 4));
-      w.fA(at(k, 5), `IF(ISNUMBER(${c2}),${c2}+(${f.land.f})/${nsa},"n/a")`);
+      w.fA(at(k, 5), `IF(ISNUMBER(${c2}),${c2}+(${f.land.f})/${gfa},"n/a")`);
+      // The sale price stays against the cost per sqm of NSA: each margin takes its own cost over the
+      // NSA off the margin before it, so no formula restates another.
       const kb = `cx7b|${l.key}`;
       if (!l.sale || !has(kb)) continue;
-      w.fA(at(kb, 2), `IF(${f.sold}>0,${f.gdv}/${f.sold},"n/a")`);
-      const price = w.refA(at(kb, 2));
-      for (const col of [3, 4, 5]) w.fA(at(kb, col), diff(price, w.refA(at(k, col))));
+      w.fA(at(kb, 2), f.nsa.f);
+      const nsa = w.refA(at(kb, 2));
+      w.fA(at(kb, 3), `IF(${f.sold}>0,${f.gdv}/${f.sold},"n/a")`);
+      const price = w.refA(at(kb, 3));
+      w.fA(at(kb, 4), `IF(AND(ISNUMBER(${price}),${nsa}>0),${price}-(${f.construction.f})/${nsa},"n/a")`);
+      const m1 = w.refA(at(kb, 4));
+      w.fA(at(kb, 5), `IF(ISNUMBER(${m1}),${m1}-${f.idc}/${nsa},"n/a")`);
+      const m2 = w.refA(at(kb, 5));
+      w.fA(at(kb, 6), `IF(ISNUMBER(${m2}),${m2}-(${f.land.f})/${nsa},"n/a")`);
     }
     // Table 7 was the last part of the sheet that was values. The sheet is live unless
     // stage 2 left a cell waiting (its revenue-based lines, where Revenue is not live).

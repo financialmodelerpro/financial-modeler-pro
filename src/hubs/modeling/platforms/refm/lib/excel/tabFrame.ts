@@ -73,7 +73,19 @@ function rowEmpty(ws: ExcelJS.Worksheet, r: number): boolean {
   return !any;
 }
 
-export function applyTabFrame(wb: ExcelJS.Workbook, ctx: FrameContext, mode: { values?: boolean } = {}): void {
+/**
+ * Where the frame moved each cell (2026-11-17, step 7): `move` takes a cell from before the frame to where
+ * it is now (null when dropped), so a registry of addresses can follow its cells; `oldCol` takes a column
+ * of the framed sheet back to the column it had before (a tab that lost its Input column B).
+ */
+export interface FrameMoves {
+  move(sheet: string, r: number, c: number): { r: number; c: number } | null;
+  oldCol(sheet: string, c: number): number;
+  /** A column from before the frame to the column it is now (the dropped column B keeps its number). */
+  newCol(sheet: string, c: number): number;
+}
+
+export function applyTabFrame(wb: ExcelJS.Workbook, ctx: FrameContext, mode: { values?: boolean } = {}): FrameMoves {
   const plans = new Map<string, SheetPlan>();
   const info = new Map<string, { period: boolean; unit: string; titleCol: number; dropB: boolean; inputCol: boolean; xSplit: number; ySplit: number; print?: string }>();
   const timeline = wb.getWorksheet('Timeline');
@@ -160,7 +172,13 @@ export function applyTabFrame(wb: ExcelJS.Workbook, ctx: FrameContext, mode: { v
     }
   }
 
-  new Relayout(wb, plans).run();
+  const relayout = new Relayout(wb, plans);
+  relayout.run();
+  const moves: FrameMoves = {
+    move: (sheet, r, c) => relayout.moveCell(sheet, r, c),
+    oldCol: (sheet, c) => (info.get(sheet)?.dropB && c >= 2 ? c + 1 : c),
+    newCol: (sheet, c) => (info.get(sheet)?.dropB && c > 2 ? c - 1 : c),
+  };
 
   const line = `${/^FMP\b/i.test(ctx.projectName) ? '' : 'FMP - '}${ctx.projectName} | ${ctx.modelType}`;
   for (const ws of wb.worksheets) {
@@ -214,6 +232,7 @@ export function applyTabFrame(wb: ExcelJS.Workbook, ctx: FrameContext, mode: { v
       if (inf.print) ws.pageSetup = { ...ws.pageSetup, printTitlesRow: '1:3' };
     }
   }
+  return moves;
 }
 
 /**
@@ -225,7 +244,8 @@ export function tilesInMillions(wb: ExcelJS.Workbook): void {
   if (!ws) return;
   ws.eachRow({ includeEmpty: false }, (row, r) => {
     row.eachCell({ includeEmpty: false }, (cap, col) => {
-      if (typeof cap.value !== 'string' || cap.value !== cap.value.toUpperCase() || cap.value.length < 4) return;
+      // A tile caption starts with a letter: a column head such as "+ IDC" is upper case too (2026-11-17).
+      if (typeof cap.value !== 'string' || cap.value !== cap.value.toUpperCase() || cap.value.length < 4 || !/^[A-Z]/.test(cap.value)) return;
       if (fillOf(cap) !== HOUSE.bar) return;
       const v = ws.getCell(r + 1, col);
       const n = yearOf(v);

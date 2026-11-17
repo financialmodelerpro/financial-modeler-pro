@@ -33,7 +33,7 @@ import type ExcelJS from 'exceljs';
 import { buildModelWorkbook, enableIterativeCalc, houseContextOf, type BuildModelOptions } from './buildModelWorkbook';
 import { applyHouseStyle, timelinePhaseFormula } from './houseStyle';
 import { CellRegistry, setCellSink } from './cellRegistry';
-import { applyTabFrame, tilesInMillions, blankNonFlowTotals } from './tabFrame';
+import { applyTabFrame, tilesInMillions, blankNonFlowTotals, type FrameMoves } from './tabFrame';
 import { inlineCells } from './relayout';
 import { settlePending } from './liveLayers/writer';
 import { stage1LandArea } from './liveLayers/stage1LandArea';
@@ -113,6 +113,8 @@ export interface FormulaWorkbookResult {
   status: Map<string, { status: SheetStatus; note: string; formulas: number }>;
   /** Every live address whose value still waits for a later stage (see liveLayers/writer.ts). */
   pending: Set<string>;
+  /** Where the tab frame moved each cell (null when the build ran without the house style). */
+  frame: FrameMoves | null;
 }
 
 export function buildFormulaWorkbook(opts: BuildModelOptions): FormulaWorkbookResult {
@@ -207,6 +209,7 @@ export function buildFormulaWorkbook(opts: BuildModelOptions): FormulaWorkbookRe
   // after every layer and check, so the two files wear one look. The phase row over each period
   // band reads Timeline, whose own row is worked out from its flag rows.
   const house = houseContextOf(wb);
+  let frame: FrameMoves | null = null;
   if (house) {
     const rowOf = (k: string): number | null => registry.get(k)?.row ?? null;
     const ids = opts.state.phases.map((p) => p.id);
@@ -215,11 +218,13 @@ export function buildFormulaWorkbook(opts: BuildModelOptions): FormulaWorkbookRe
     const exit = house.phaseLabels.includes('Exit year') ? rowOf('tl:flag:exit') : null;
     const ok = con.length === ids.length && ops.length === ids.length;
     applyHouseStyle(wb, { ...house, timelinePhaseFormula: ok ? (col) => timelinePhaseFormula(col, { con, ops, exit }) : undefined });
-    if (house.frame) applyTabFrame(wb, house.frame);
+    // THE REGISTRY FOLLOWS ITS CELLS (2026-11-17, step 7): the frame moves rows and columns after every
+    // layer, so every address is moved with it; a caller reading a key finds the cell where it now is.
+    if (house.frame) { frame = applyTabFrame(wb, house.frame); registry.remap(frame.move); }
     tilesInMillions(wb);
     blankNonFlowTotals(wb);
   }
-  return { wb, registry, status, pending };
+  return { wb, registry, status, pending, frame };
 }
 
 /**

@@ -336,16 +336,25 @@ export const stage3Revenue: LiveLayer = {
         // Collections: one row per pre-sales year, its down % and instalment years beside it.
         const gDp = gridOf(`${l.key}|dp`);
         const cohortRows: number[] = [];
+        // EACH ROW IS A CONSTRUCTION YEAR OF THE PHASE, NOT A CALENDAR COLUMN (2026-11-17, step 7). The rows are
+        // the phase's construction years (founder, 2026-11-15), so a row pinned to a calendar column lost the
+        // sales of a phase moved earlier: its first year had no row and was never collected. Row k now finds its
+        // sale year through the Timeline construction counter (= k), its Total is that year's pre-sales (the
+        // cohort's sale value, read by the instalments), and the instalment years run from the phase's start
+        // year + k - 1, all read from Timeline, so the rows follow the phase wherever it moves.
+        const ctrRow = w.addr(`tl:ctr:${p.id}:con`).row;
+        const ctrRange = `${w.refA({ sheet: 'Timeline', row: ctrRow, col: pc(0) }, REV)}:$${colLetter(pc(N - 1))}$${ctrRow}`;
         for (let s = 0; s < N; s++) {
           const ck = O(l, 'c', `${snap.yearLabels[s]} sales: cash collected`);
           if (!has(ck)) continue;
-          const cr = rowOf(ck), sy = AR(3, pc(s));
-          const B = AR(cr, 2), C = AR(cr, 3);
-          const dp = dpAt(gDp, w.refA({ sheet: 'Timeline', row: w.addr(`tl:ctr:${p.id}:con`).row, col: pc(s) }, REV));
+          const k = s - offsetAt(p) + 1;
+          const cr = rowOf(ck), sy = `(YEAR(${TL(p, 'cs')})${k > 1 ? `+${k - 1}` : ''})`;
+          const B = AR(cr, 2), C = AR(cr, 3), D = AR(cr, TOTAL_COL);
+          const dp = dpAt(gDp, String(k));
           w.fA({ sheet: REV, row: cr, col: 2 }, `IF(${sy}>=${TL(p, 'hy')},1,${dp})`, { numFmt: NUMFMT.pct });
           w.fA({ sheet: REV, row: cr, col: 3 }, `IF(${sy}>=${TL(p, 'hy')},0,MIN(INT(${IN(`rxin|${l.key}|inst`)}),${TL(p, 'hy')}-${sy}))`, { numFmt: NUMFMT.int });
-          const pre = AR(rowOf(preRev), pc(s));
-          row(ck, (t) => `IF(${yr(t)}=${sy},IF(${C}=0,1,${B})*${pre},IF(AND(${yr(t)}>${sy},${yr(t)}<=${sy}+${C}),(1-${B})*${pre}/${C},0))`);
+          row(ck, (t) => `${D}*IF(${ctr(p, 'con', t)}=${k},IF(${C}=0,1,${B}),IF(AND(${yr(t)}>${sy},${yr(t)}<=${sy}+${C}),(1-${B})/${C},0))`,
+            () => `SUMPRODUCT((${ctrRange}=${k})*${span(rowOf(preRev))})`);
           w.fA({ sheet: REV, row: cr, col: 1 }, `${sy}&" sales: cash collected"`);
           cohortRows.push(cr);
         }

@@ -2619,15 +2619,19 @@ function addCapex(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancial
         sr += 1;
       }
     };
-    table7('Cost per sqm of NSA, by line', ['Line', 'NSA (sqm)', 'Construction', '+ IDC', '+ land'],
+    // COST PER SQM OF GFA (2026-11-17, founder, step 7). The platform's `bua` is the GFA a user reads
+    // (areaTiers, TRAPS 7.59). The sale price stays against the cost per sqm of NSA, the area it sells.
+    table7('Cost per sqm of GFA, by line', ['Line', 'GFA (sqm)', 'Construction', '+ IDC', '+ land'],
       lines7.map((l) => ({ key: `cx7a|${l.key}`, label: name7(l), cells: [
-        { v: l.area.nsa, fmt: NUMFMT.int },
-        { v: l.perSqm.construction.nsa, fmt: NUMFMT.rate },
-        { v: l.perSqm.withIdc.nsa, fmt: NUMFMT.rate },
-        { v: l.perSqm.withLand.nsa, fmt: NUMFMT.rate },
+        { v: l.area.bua, fmt: NUMFMT.int },
+        { v: l.perSqm.construction.bua, fmt: NUMFMT.rate },
+        { v: l.perSqm.withIdc.bua, fmt: NUMFMT.rate },
+        { v: l.perSqm.withLand.bua, fmt: NUMFMT.rate },
       ] })));
-    table7('Sale price against cost, per sqm of NSA (sell lines): the margin over each cost', ['Sell line', 'Sale price', 'Construction', '+ IDC', '+ land'],
+    C7.push(6);
+    table7('Sale price against cost, per sqm of NSA (sell lines): the margin over each cost', ['Sell line', 'NSA (sqm)', 'Sale price', 'Construction', '+ IDC', '+ land'],
       lines7.filter((l) => l.sale).map((l) => ({ key: `cx7b|${l.key}`, label: name7(l), cells: [
+        { v: l.area.nsa, fmt: NUMFMT.int },
         { v: l.sale!.realisedPrice, fmt: NUMFMT.rate },
         { v: l.sale!.marginAtRealised.construction, fmt: NUMFMT.rate },
         { v: l.sale!.marginAtRealised.withIdc, fmt: NUMFMT.rate },
@@ -6846,6 +6850,8 @@ function emitCaseComparison(a: {
   ws: ExcelJS.Worksheet; N: number; row: () => number; setRow: (r: number) => void;
   subTitle: (t: string) => void; note: (t: string) => void;
   report: CaseComparisonReport | null; currency: string; intro: string; title?: string;
+  /** The first value column (the Management Case); each scenario takes two, its value then its change. */
+  firstCol?: number;
 }): void {
   const { ws, report } = a;
   if (!report || report.columns.length === 0) {
@@ -6855,30 +6861,43 @@ function emitCaseComparison(a: {
   a.note(a.intro);
   const cols = report.columns;
   const baseCol = cols.find((c) => c.id === report.baseId) ?? cols[0];
-  const cPct = retPct, cMult = retMult, cMoney = retMoney(a.currency);
-  const fmtKpi = (v: number | null, kind: CaseKpiKind, nullLabel?: string): string => (v == null || !Number.isFinite(v) ? (nullLabel ?? 'n/a') : kind === 'pct' ? cPct(v) : kind === 'mult' ? cMult(v) : cMoney(v));
-  const fmtDelta = (v: number | null, base: number | null, kind: CaseKpiKind): string => {
-    if (v == null || base == null || !Number.isFinite(v) || !Number.isFinite(base)) return '';
-    const d = v - base; if (Math.abs(d) < 1e-9) return '0';
-    const sign = d > 0 ? '+' : '';
-    return kind === 'pct' ? `${sign}${(d * 100).toFixed(1)} pp` : kind === 'mult' ? `${sign}${d.toFixed(2)}x` : `${sign}${cMoney(d)}`;
+  const first = a.firstCol ?? OPEN_COL;
+  // NUMBERS, NOT TEXT (2026-11-17, founder, step 7): money in the download's units through the money
+  // format, a rate as a percentage, a multiple as a multiple; each scenario's change in its own column.
+  const fmtOf = (kind: CaseKpiKind): string => (kind === 'pct' ? NUMFMT.pct : kind === 'mult' ? NUMFMT.mult : NUMFMT.money);
+  const colsOf = (i: number): { value: number; change: number | null } => {
+    if (cols[i].id === report.baseId) return { value: first, change: null };
+    // The base takes one column; every other case takes a value column and a change column.
+    const before = cols.slice(0, i).reduce((s, c) => s + (c.id === report.baseId ? 1 : 2), 0);
+    return { value: first + before, change: first + before + 1 };
   };
   a.subTitle(a.title ?? 'Case Comparison, headline KPIs (delta vs Management base)');
   let r = a.row();
   setColHeader(ws.getCell(r, LBL_COL), 'Metric', 'left');
-  cols.forEach((c, i) => setColHeader(ws.getCell(r, OPEN_COL + i), `${c.role === 'base' ? '★' : '◆'} ${c.name}${c.isActive ? ' (active)' : ''}`, 'right'));
+  cols.forEach((c, i) => {
+    const at = colsOf(i);
+    setColHeader(ws.getCell(r, at.value), `${c.role === 'base' ? '★' : '◆'} ${c.name}${c.isActive ? ' (active)' : ''}`, 'right');
+    if (at.change !== null) setColHeader(ws.getCell(r, at.change), 'Change', 'right');
+  });
   r += 1;
   setLabel(ws.getCell(r, LBL_COL), '');
-  cols.forEach((c, i) => { const cell = ws.getCell(r, OPEN_COL + i); cell.value = caseOverridesNote(c); cell.numFmt = '@'; cell.alignment = { horizontal: 'right' }; cell.font = { name: 'Calibri', size: 8, italic: true, color: { argb: ARGB.navyDark } }; });
+  cols.forEach((c, i) => { const cell = ws.getCell(r, colsOf(i).value); cell.value = caseOverridesNote(c); cell.numFmt = '@'; cell.alignment = { horizontal: 'right' }; cell.font = { name: 'Calibri', size: 8, italic: true, color: { argb: ARGB.navyDark } }; });
   r += 1;
+  const put = (col: number, v: number | string, fmt: string, bold: boolean): void => {
+    const cell = ws.getCell(r, col);
+    cell.value = v; cell.numFmt = typeof v === 'string' ? '@' : fmt;
+    cell.alignment = { horizontal: 'right' };
+    cell.font = { name: 'Calibri', size: BODY_SIZE, bold, color: { argb: ARGB.formula } };
+  };
+  const finite = (v: number | null | undefined): v is number => v != null && Number.isFinite(v);
   for (const k of report.kpis) {
     setLabel(ws.getCell(r, LBL_COL), k.sub ? `${k.label} (${k.sub})` : k.label);
+    const base = baseCol.values[k.label] ?? null;
     cols.forEach((col, i) => {
       const v = col.values[k.label] ?? null;
-      let s = fmtKpi(v, k.kind, k.nullLabel);
-      if (col.id !== report.baseId) { const d = fmtDelta(v, baseCol.values[k.label] ?? null, k.kind); if (d) s += ` (${d})`; }
-      const cell = ws.getCell(r, OPEN_COL + i); cell.value = s; cell.numFmt = '@'; cell.alignment = { horizontal: 'right' };
-      cell.font = { name: 'Calibri', size: BODY_SIZE, bold: col.isActive, color: { argb: ARGB.formula } };
+      const at = colsOf(i);
+      put(at.value, finite(v) ? v : (k.nullLabel ?? 'n/a'), fmtOf(k.kind), col.isActive);
+      if (at.change !== null && finite(v) && finite(base)) put(at.change, Math.abs(v - base) < 1e-9 ? 0 : v - base, fmtOf(k.kind), false);
     });
     r += 1;
   }
@@ -6894,15 +6913,29 @@ function emitCaseComparison(a: {
 function addScenarios(ctx: EmitCtx): void {
   const { wb, snap, currency } = ctx;
   const N = snap.axisLength;
+  void N;
   const ws = wb.addWorksheet(SHEETS.scenarios, { properties: { tabColor: { argb: ARGB.navy } } });
-  writeSheetHeader(ws, snap, N, 'Scenarios', 'The cases, the assumptions where a case differs from the Management Case, the comparison, and the platform\'s sensitivity grid and exit-year analysis.', { label: 'Line', feeds: 'Every case is computed through the same engine as the platform (overrides applied to the Management base, then the financials and returns). The Management base is the reference column.' });
+  // A PLAIN HEADER ROW, NO YEAR BAND (2026-11-17, founder, step 7): the tab has no year columns.
+  // Column B carries an assumption's note; the values start at column C, each column wide enough for
+  // a full-unit amount, so nothing overlaps.
+  const FIRST = 3;
+  const caseCount = caseReportOf(ctx.caseComparison)?.columns.length ?? 1;
+  const LAST = FIRST + Math.max(6, 2 * caseCount - 2);
+  ws.getColumn(LBL_COL).width = 46;
+  ws.getColumn(META_B).width = 22;
+  for (let c = FIRST; c <= LAST; c++) ws.getColumn(c).width = 17;
+  setTitle(ws.getCell('A1'), 'Scenarios', 16);
+  setLabel(ws.getCell('A2'), 'The cases, the assumptions where a case differs from the Management Case, the comparison, and the platform\'s sensitivity grid and exit-year analysis.');
+  setColHeader(ws.getCell(3, LBL_COL), 'Line', 'left');
+  for (let c = 2; c <= LAST; c++) setColHeader(ws.getCell(3, c), '', 'right');
+  ws.views = [{ state: 'frozen', xSplit: 1, ySplit: 3, showGridLines: false } as ExcelJS.WorksheetView];
   let r = 5;
 
-  const section = (text: string): void => { setSectionHeader(ws.getRow(r), text, lastActiveCol(N), ARGB.accent); r += 1; };
+  const section = (text: string): void => { setSectionHeader(ws.getRow(r), text, LAST, ARGB.accent); r += 1; };
   const subTitle = (text: string): void => {
     setLabel(ws.getCell(r, LBL_COL), text, { bold: true });
-    fillRange(ws, r, 1, r, lastActiveCol(N), ARGB.subtotal);
-    for (let c = 1; c <= lastActiveCol(N); c++) ws.getCell(r, c).font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.navyDark } };
+    fillRange(ws, r, 1, r, LAST, ARGB.subtotal);
+    for (let c = 1; c <= LAST; c++) ws.getCell(r, c).font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.navyDark } };
     r += 1;
   };
   const note = (text: string): void => {
@@ -6919,7 +6952,7 @@ function addScenarios(ctx: EmitCtx): void {
   const cases = (): void => {
     // ── "Use scenarios?" ──
     setLabel(ws.getCell(r, LBL_COL), 'Use scenarios?', { bold: true });
-    { const c = ws.getCell(r, TOTAL_COL); c.value = useScenarios ? 'Yes' : 'No'; c.numFmt = '@'; c.alignment = { horizontal: 'right' }; markInput(c); }
+    { const c = ws.getCell(r, FIRST); c.value = useScenarios ? 'Yes' : 'No'; c.numFmt = '@'; c.alignment = { horizontal: 'right' }; markInput(c); }
     r += 1;
     note(useScenarios
       ? 'A scenario is the Management (base) case plus a few input overrides. The active case drives every module and the Returns tabs. The base model is never changed.'
@@ -6933,12 +6966,12 @@ function addScenarios(ctx: EmitCtx): void {
     }
     const cols = report.columns;
     setColHeader(ws.getCell(r, LBL_COL), 'Case', 'left');
-    ['Type', 'Active', 'Overrides'].forEach((h, i) => setColHeader(ws.getCell(r, OPEN_COL + i), h, 'right'));
+    ['Type', 'Active', 'Overrides'].forEach((h, i) => setColHeader(ws.getCell(r, FIRST + i), h, 'right'));
     r += 1;
     for (const c of cols) {
       setLabel(ws.getCell(r, LBL_COL), `${c.role === 'base' ? '★' : '◆'} ${c.name}`, { bold: c.isActive });
       [c.role === 'base' ? 'Management (base)' : 'Scenario', c.isActive ? 'ACTIVE' : '', c.role === 'base' ? 'base' : `${c.overrideCount} override${c.overrideCount === 1 ? '' : 's'}`].forEach((v, i) => {
-        const cell = ws.getCell(r, OPEN_COL + i); cell.value = v; cell.numFmt = '@'; cell.alignment = { horizontal: 'right' }; cell.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } };
+        const cell = ws.getCell(r, FIRST + i); cell.value = v; cell.numFmt = '@'; cell.alignment = { horizontal: 'right' }; cell.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } };
       });
       r += 1;
     }
@@ -6956,7 +6989,7 @@ function addScenarios(ctx: EmitCtx): void {
       } else {
         setColHeader(ws.getCell(r, LBL_COL), 'Assumption', 'left');
         setColHeader(ws.getCell(r, META_B), 'Note', 'left');
-        grid.columns.forEach((c, i) => setColHeader(ws.getCell(r, OPEN_COL + i), `${c.isBase ? '★' : '◆'} ${c.name}`, 'right'));
+        grid.columns.forEach((c, i) => setColHeader(ws.getCell(r, FIRST + i), `${c.isBase ? '★' : '◆'} ${c.name}`, 'right'));
         r += 1;
         for (const g of groups) {
           subTitle(g.label);
@@ -6966,10 +6999,18 @@ function addScenarios(ctx: EmitCtx): void {
               setLabel(ws.getCell(r, LBL_COL), row.label, { indent: row.indented ? 2 : 0 });
               if (row.note) setBasis(ws.getCell(r, META_B), row.note);
               row.cells.forEach((cell, i) => {
-                const c = ws.getCell(r, OPEN_COL + i);
-                c.value = cell.text; c.numFmt = '@'; c.alignment = { horizontal: 'right' };
-                markInput(c);
-                if (cell.overridden) c.font = { ...(c.font as object), bold: true };
+                const c = ws.getCell(r, FIRST + i);
+                // A NUMBER IN ITS OWN FORMAT (2026-11-17, founder, step 7): a percentage with one decimal,
+                // a rate per sqm or per key with none; text and switches stay text.
+                const v = cell.value;
+                if (v === null) { c.value = cell.text; c.numFmt = '@'; }
+                else if (cell.format === 'percent-fraction' || cell.format === 'percent-whole') { c.value = cell.format === 'percent-whole' ? v / 100 : v; c.numFmt = NUMFMT.pct; }
+                else if (cell.format === 'accounting' || Number.isInteger(v)) { c.value = v; c.numFmt = NUMFMT.int; }
+                else { c.value = v; c.numFmt = '#,##0.00'; }
+                c.alignment = { horizontal: 'right' };
+                // A case's value as the platform holds it, not a cell this file reads: no input shading
+                // (an input that no formula reads is a broken promise, verify-formula-workbook A11).
+                c.font = { name: 'Calibri', size: BODY_SIZE, bold: cell.overridden, color: { argb: ARGB.formula } };
               });
               r += 1;
             }
@@ -6980,8 +7021,8 @@ function addScenarios(ctx: EmitCtx): void {
     }
     // ── 3. Comparison ──
     section('3. Comparison');
-    emitCaseComparison({ ws, N, row: () => r, setRow: (x) => { r = x; }, subTitle, note, report, currency, title: 'Comparison',
-      intro: 'Every case computed through the full model. Money figures in millions. The figure in brackets under each scenario is the delta vs the Management Case.' });
+    emitCaseComparison({ ws, N, row: () => r, setRow: (x) => { r = x; }, subTitle, note, report, currency, title: 'Comparison', firstCol: FIRST,
+      intro: 'Every case computed through the full model. Money in the units of the download. Each scenario\'s Change column is its difference from the Management Case.' });
   };
   cases();
 
@@ -7012,11 +7053,11 @@ function addScenarios(ctx: EmitCtx): void {
       section('4. Sensitivity: equity IRR (FCFE)');
       italic();
       setColHeader(ws.getCell(r, LBL_COL), 'Operating cash change \\ exit cap rate', 'left');
-      xs.forEach((x, j) => setColHeader(ws.getCell(r, OPEN_COL + j), sensValueLabel('exit_cap_rate', x), 'right'));
+      xs.forEach((x, j) => setColHeader(ws.getCell(r, FIRST + j), sensValueLabel('exit_cap_rate', x), 'right'));
       r += 1;
       ys.forEach((y, i) => {
         setLabel(ws.getCell(r, LBL_COL), sensValueLabel('sales_price_pct', y), { bold: true });
-        xs.forEach((_x, j) => num(OPEN_COL + j, pctOrNa(grid!.irr[i]?.[j]), NUMFMT.pct2));
+        xs.forEach((_x, j) => num(FIRST + j, pctOrNa(grid!.irr[i]?.[j]), NUMFMT.pct2));
         r += 1;
       });
       r += 1;
@@ -7026,16 +7067,16 @@ function addScenarios(ctx: EmitCtx): void {
     section(`${ctx.includeSensitivity ? 5 : 4}. Exit-year analysis (selling at the end of each year)`);
     italic();
     setColHeader(ws.getCell(r, LBL_COL), 'Exit year', 'left');
-    ['Enterprise value', 'Equity value', 'Project IRR', 'Equity IRR', 'Equity MOIC', 'Selected'].forEach((h, i) => setColHeader(ws.getCell(r, OPEN_COL + i), h, 'right'));
+    ['Enterprise value', 'Equity value', 'Project IRR', 'Equity IRR', 'Equity MOIC', 'Selected'].forEach((h, i) => setColHeader(ws.getCell(r, FIRST + i), h, 'right'));
     r += 1;
     for (const x of [...rs.exitYears].sort((a, b) => a.exitIdx - b.exitIdx)) {
       setLabel(ws.getCell(r, LBL_COL), String(x.exitYearLabel), { bold: x.isSelected });
-      num(OPEN_COL, x.enterpriseValue, NUMFMT.money, x.isSelected);
-      num(OPEN_COL + 1, x.equityValue, NUMFMT.money, x.isSelected);
-      num(OPEN_COL + 2, pctOrNa(x.fcffIrr), NUMFMT.pct2, x.isSelected);
-      num(OPEN_COL + 3, pctOrNa(x.fcfeIrr), NUMFMT.pct2, x.isSelected);
-      num(OPEN_COL + 4, x.equityMoic, NUMFMT.mult, x.isSelected);
-      num(OPEN_COL + 5, x.isSelected ? 'Yes' : 'No', '@', x.isSelected);
+      num(FIRST, x.enterpriseValue, NUMFMT.money, x.isSelected);
+      num(FIRST + 1, x.equityValue, NUMFMT.money, x.isSelected);
+      num(FIRST + 2, pctOrNa(x.fcffIrr), NUMFMT.pct2, x.isSelected);
+      num(FIRST + 3, pctOrNa(x.fcfeIrr), NUMFMT.pct2, x.isSelected);
+      num(FIRST + 4, x.equityMoic, NUMFMT.mult, x.isSelected);
+      num(FIRST + 5, x.isSelected ? 'Yes' : 'No', '@', x.isSelected);
       r += 1;
     }
   }

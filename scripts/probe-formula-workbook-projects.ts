@@ -6,7 +6,8 @@
  * does): whether it builds, is refused (and why, in the user's words), each
  * sheet's status, formulas over 200 characters by sheet, and then the file
  * recalculated in headless LibreOffice and in real Excel: every error cell and
- * every status on the Checks tab.
+ * every status on the Checks tab. Since 2026-11-17 (export simplification step 7) it also builds
+ * the values workbook for each project and counts formulas over 150 characters (the rule since step 5).
  *
  * A probe, not a verifier: it reports, it does not gate. Run with credentials:
  *   npx tsx --env-file=.env.local scripts/probe-formula-workbook-projects.ts [--no-excel] [--no-libre] [--only <id>]
@@ -19,6 +20,7 @@ import { join, resolve } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import ExcelJS from 'exceljs';
 import { buildFormulaWorkbook, enableFormulaIteration } from '../src/hubs/modeling/platforms/refm/lib/excel/formulaWorkbook';
+import { generateValuesWorkbookBuffer } from '../src/hubs/modeling/platforms/refm/lib/excel/valuesWorkbook';
 import { liveWorkbookRefusal, emptyProjectRefusal } from '../src/hubs/modeling/platforms/refm/lib/excel/liveWorkbookAvailability';
 import { loadLiveExportInputs } from './fixtures/liveExportInputs';
 import { excelAvailable, recalcInExcel } from './excelRecalc';
@@ -29,7 +31,7 @@ const noLibre = args.includes('--no-libre');
 const only = args.includes('--only') ? args[args.indexOf('--only') + 1] : null;
 const OUT = resolve('.probe-live-workbooks');
 const SOFFICE = join(process.env.LOCALAPPDATA ?? '', 'LibreOfficeExtract', 'program', 'soffice.exe');
-const LONG = 200;
+const LONG = 150;
 
 function libreProfile(): string {
   const dir = join(OUT, 'lo-profile');
@@ -80,6 +82,13 @@ async function main(): Promise<void> {
     const nAssets = ((inputs.state as { assets?: Array<{ visible?: boolean }> }).assets ?? []).filter((a) => a.visible !== false).length;
     const empty = emptyProjectRefusal(nAssets);
     if (empty) console.log(`  Route decision: REFUSED (no assets) -> "${empty.message}"`);
+    // The values workbook: every project gets one, whatever the live build decides.
+    try {
+      const vb = await generateValuesWorkbookBuffer({ ...opts, displayScale: 'full', includeSensitivity: true } as Parameters<typeof generateValuesWorkbookBuffer>[0]);
+      const vwb = new ExcelJS.Workbook(); await vwb.xlsx.load(vb);
+      writeFileSync(join(OUT, `${p.name.replace(/[^a-z0-9]+/gi, '_').slice(0, 40)}_values.xlsx`), Buffer.from(vb));
+      console.log(`  Values workbook: builds, ${vwb.worksheets.length} tabs, ${vwb.worksheets.reduce((a, w) => a + w.actualRowCount, 0)} rows, ${Math.round(vb.byteLength / 1024)} KB`);
+    } catch (e) { console.log(`  Values workbook FAILED: ${(e as Error).message.slice(0, 300)}`); }
     let res;
     try { res = buildFormulaWorkbook(opts); } catch (e) { console.log(`  BUILD REFUSED BY ITS OWN CHECKS: ${(e as Error).message.slice(0, 300)}`); continue; }
     // The route's own order: an empty project first, then the build's financing status.

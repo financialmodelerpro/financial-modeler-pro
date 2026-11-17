@@ -26,7 +26,7 @@
  */
 import { writeFileSync, mkdirSync } from 'node:fs';
 import type ExcelJS from 'exceljs';
-import { buildModelWorkbook, PERIOD_COLS } from '../src/hubs/modeling/platforms/refm/lib/excel/buildModelWorkbook';
+import { buildModelWorkbook, PERIOD_COLS, houseContextOf } from '../src/hubs/modeling/platforms/refm/lib/excel/buildModelWorkbook';
 import { buildFormulaWorkbook, enableFormulaIteration, exportShapeProblems, backwardReads, deadSwitchCells, TAB_ORDER } from '../src/hubs/modeling/platforms/refm/lib/excel/formulaWorkbook';
 import { readCells, shadedCells, isShaded, isLegendSwatch, cellId, inputsUnreadProblems, receivableDaysProblems, DEAD_SWITCHES } from '../src/hubs/modeling/platforms/refm/lib/excel/liveLayers/inputAudit';
 import { loadLiveExportInputs } from './fixtures/liveExportInputs';
@@ -44,6 +44,44 @@ import { computeFinancialsSnapshot } from '../src/hubs/modeling/platforms/refm/l
 import { buildOperatingKpis } from '../src/hubs/modeling/platforms/refm/lib/reports/operatingKpis';
 import { DEFAULT_COVENANTS } from '../src/hubs/modeling/platforms/refm/lib/state/module1-types';
 import type { LiveExportInputs } from './fixtures/liveExportInputs';
+import { applyHouseStyle } from '../src/hubs/modeling/platforms/refm/lib/excel/houseStyle';
+import { applyTabFrame } from '../src/hubs/modeling/platforms/refm/lib/excel/tabFrame';
+import { featureUsed } from '../src/hubs/modeling/platforms/refm/lib/excel/exportScope';
+
+/**
+ * THE PLATFORM TWIN IN THE LIVE FILE'S FRAME (2026-11-17, step 7). Since step 2 the live workbook ends
+ * with the house style and the tab frame, which move rows (a title block, the year band to row 4, a run
+ * of empty rows kept once) and columns (a tab with no Input column loses B) after every layer. The twin
+ * gets the same two passes, so a live cell and the platform's figure sit at one address, as before
+ * step 2. (Without this the comparison read the cell beside or below: about 3,200 cells "differed".)
+ */
+function framedPlain(o: Parameters<typeof buildModelWorkbook>[0], live?: ExcelJS.Workbook): ExcelJS.Workbook {
+  const w = buildModelWorkbook({ ...o, liveLayout: true });
+  const house = houseContextOf(w);
+  if (house) { applyHouseStyle(w, house); if (house.frame) applyTabFrame(w, house.frame); }
+  if (live) mirrorBlankTotals(w, live);
+  return w;
+}
+/**
+ * A TOTAL ONLY FOR A FLOW (tabFrame `blankNonFlowTotals`, 2026-11-15, founder): the live file leaves the
+ * Total of a rate, a share or a balance blank, keeping one a formula reads. The twin has no formulas to
+ * tell it which, so it takes the live file's answer: a Total the live file left blank is blank on the twin.
+ */
+function mirrorBlankTotals(twin: ExcelJS.Workbook, live: ExcelJS.Workbook): void {
+  for (const lws of live.worksheets) {
+    const tws = twin.getWorksheet(lws.name); if (!tws) continue;
+    let totalCol = 0;
+    lws.getRow(4).eachCell((c, col) => { if (!totalCol && typeof c.value === 'string' && /^Total/.test(c.value)) totalCol = col; });
+    if (!totalCol) continue;
+    // Rows paired by label, as everywhere else (the live Financing drops rows the twin keeps).
+    for (const [lr, m] of mapRows(lws.name, tws, tws, lws, null)) {
+      if (lr <= 5 || m === undefined) continue;
+      const t = tws.findRow(m)?.findCell(totalCol);
+      const lv = lws.findRow(lr)?.findCell(totalCol)?.value;
+      if (t && typeof t.value === 'number' && (lv === null || lv === undefined)) t.value = null;
+    }
+  }
+}
 
 /** Every shaded cell no formula reads, or that is itself a formula (A11): a promise broken. */
 function deadOf(book: ExcelJS.Workbook): string[] {
@@ -86,7 +124,9 @@ function mapRows(sheet: string, basePws: ExcelJS.Worksheet, pertPws: ExcelJS.Wor
   const liveLabel = (r: number): string => {
     const v = liveWs.getCell(r, 1).value as unknown;
     if (v && typeof v === 'object' && 'formula' in (v as object) && rec) { const e = rec.cells.get(cellKey(sheet, r, 1)); return typeof e === 'string' ? e.trim() : ''; }
-    return text(basePws.getCell(r, 1).value);
+    // The live sheet's OWN label (2026-11-17): it read the platform copy's label at the same row number,
+    // which is only the same row while no layer has removed one (the live Financing drops its settings rows).
+    return text(liveWs.getCell(r, 1).value);
   };
   // THE LABEL SEQUENCES ARE ALIGNED, not counted: a longest common subsequence
   // (what a diff does), so a row that disappears in one table cannot pair a row
@@ -433,8 +473,13 @@ function perturbations(input: LiveExportInputs, reg: CellRegistry): Perturbation
   const fixed = (st.costLines as any[]).find((l) => l.windowFollowsConstruction === false && l.endPeriod >= l.startPeriod && firstInp(l.id) && l.startPeriod >= 1);
   if (fixed) {
     const v = fixed.endPeriod + 1;
+    // ONE ROW, EVERY LINE ON IT (2026-11-17, step 7): since step 2 a row is shared by the cost lines whose rule
+    // is the same (the cash and the in-kind land of a phase), so typing its window moves every line on it,
+    // and the platform edit does the same.
+    const at0 = reg.get(firstInp(fixed.id)!)!;
+    const onRow = new Set(reg.keys().filter((k) => k.startsWith('inpcx:') && reg.get(k)!.sheet === at0.sheet && reg.get(k)!.row === at0.row).map((k) => k.slice(k.lastIndexOf(':') + 1)));
     out.push({ movesRevenue: false, label: `a line's own window (${fixed.name}, ${fixed.phaseId}) one period longer`, cell: firstInp(fixed.id)!, value: v, col: 7,
-      edit: (s) => { (s.costLines as any[]).find((x) => x.id === fixed.id).endPeriod = v; } } as Perturbation);
+      edit: (s) => { for (const x of s.costLines as any[]) if (onRow.has(x.id)) x.endPeriod = v; } } as Perturbation);
   } else out.push({ label: "a line's own window", skip: 'no fixed window shown' });
 
   // ── STAGE 3, REVENUE ──
@@ -532,15 +577,28 @@ function perturbations(input: LiveExportInputs, reg: CellRegistry): Perturbation
     const ids = (l.members as any[]).map((m) => m.id);
     for (const q of s.assets as any[]) if (ids.includes(q.id) && q.revenue?.[form]) q.revenue[form][form === 'operate' ? 'dso' : 'arDays'] = d;
   };
+  // OFF IS NOT BUILT (step 2, 2026-11-12, founder): where the export collects on no days at all, there is
+  // no days cell, so each test runs on a copy collecting on a 30-day project DSO (re-aimed 2026-11-17).
+  const arOff = !featureUsed(st as never, 'receivables');
+  const dso30 = (s: Snap): void => { s.project.operatingAr = { ...(s.project.operatingAr ?? {}), dsoDays: 30 }; };
+  const both = (...fs: Array<(s: Snap) => void>) => (s: Snap): void => { for (const f of fs) f(s); };
+  const arKey = (l: any): string => `rxin|${l.key}|arDays`;
   if (hotL && arIn(hotL)) {
     out.push({ movesRevenue: false, label: 'hotel receivable days typed on Inputs (the line states none, so the project DSO until now) to 45', cell: arIn(hotL)!, col: 2, value: 45, edit: setDays(hotL, 'operate', 45) });
     out.push({ movesRevenue: false, label: 'hotel receivable days 60 to 90 (on a copy where the line states its own)', cell: arIn(hotL)!, col: 2, value: 90, edit: setDays(hotL, 'operate', 90), variant: setDays(hotL, 'operate', 60) });
+  } else if (hotL && arOff) {
+    out.push({ movesRevenue: false, label: 'hotel receivable days typed on Inputs to 45 (on a copy collecting on a 30-day project DSO)', cell: arKey(hotL), col: 2, value: 45, edit: both(dso30, setDays(hotL, 'operate', 45)), variant: dso30 });
+    out.push({ movesRevenue: false, label: 'hotel receivable days 60 to 90 (on a copy where the line states its own)', cell: arKey(hotL), col: 2, value: 90, edit: both(dso30, setDays(hotL, 'operate', 90)), variant: both(dso30, setDays(hotL, 'operate', 60)) });
   } else out.push({ label: 'hotel receivable days', skip: 'no hotel line with receivable days on Inputs' });
   const leaseAr = lines.find((l) => l.form === 'lease' && earner(l)?.revenue?.lease && arIn(l));
+  const leaseAny = lines.find((l) => l.form === 'lease' && earner(l)?.revenue?.lease);
   if (leaseAr) out.push({ movesRevenue: false, label: `lease receivable days typed on Inputs (${leaseAr.label}, the line states none) to 60`, cell: arIn(leaseAr)!, col: 2, value: 60, edit: setDays(leaseAr, 'lease', 60) });
+  else if (leaseAny && arOff) out.push({ movesRevenue: false, label: `lease receivable days typed on Inputs (${leaseAny.label}) to 60 (on a copy collecting on a 30-day project DSO)`, cell: arKey(leaseAny), col: 2, value: 60, edit: both(dso30, setDays(leaseAny, 'lease', 60)), variant: dso30 });
   else out.push({ label: 'lease receivable days', skip: 'no lease line with receivable days on Inputs' });
   const inc = opexLine(hotA, (l) => l.mode === 'pct_of_gop' && !l.disabled);
-  if (hotA && inc) out.push({ movesRevenue: false, label: `hotel opex, ${inc.l.name} (on GOP) ${inc.l.value} to ${inc.l.value + 0.08}`, cell: cardKey(hotA, inc.l.name), col: 5, value: inc.l.value + 0.08, edit: setLine(hotA.id, inc.i, inc.l.value + 0.08) });
+  // A ZERO LINE IS NOT BUILT (step 2): a line charging nothing on the export is tested on a copy charging 3%.
+  if (hotA && inc && inc.l.value !== 0) out.push({ movesRevenue: false, label: `hotel opex, ${inc.l.name} (on GOP) ${inc.l.value} to ${inc.l.value + 0.08}`, cell: cardKey(hotA, inc.l.name), col: 5, value: inc.l.value + 0.08, edit: setLine(hotA.id, inc.i, inc.l.value + 0.08) });
+  else if (hotA && inc) out.push({ movesRevenue: false, label: `hotel opex, ${inc.l.name} (on GOP) 0.03 to 0.11 (on a copy charging it; a zero line is not built)`, cell: cardKey(hotA, inc.l.name), col: 5, value: 0.11, edit: setLine(hotA.id, inc.i, 0.11), variant: setLine(hotA.id, inc.i, 0.03) });
   else out.push({ label: 'a hotel opex line on GOP', skip: 'none' });
   // PER KEY (2026-11-03, close-out): on a copy where a hotel line is charged per key, its rate moves the
   // line by the keys on Revenue, every year in operation, and Excel must follow it.
@@ -552,18 +610,21 @@ function perturbations(input: LiveExportInputs, reg: CellRegistry): Perturbation
   const leaseA = leaseL ? earner(leaseL) : undefined;
   const rm = opexLine(leaseA, (l) => l.mode === 'per_sqm_year' && l.useAssetDefault !== false && !l.disabled);
   if (leaseA && rm) {
-    out.push({ movesRevenue: false, label: `lease opex, ${rm.l.name} ${rm.l.value} to ${rm.l.value + 50} per sqm (inflated)`, cell: cardKey(leaseA, rm.l.name), col: 5, value: rm.l.value + 50, edit: setLine(leaseA.id, rm.i, rm.l.value + 50) });
+    if (rm.l.value !== 0) out.push({ movesRevenue: false, label: `lease opex, ${rm.l.name} ${rm.l.value} to ${rm.l.value + 50} per sqm (inflated)`, cell: cardKey(leaseA, rm.l.name), value: rm.l.value + 50, edit: setLine(leaseA.id, rm.i, rm.l.value + 50) });
+    else out.push({ movesRevenue: false, label: `lease opex, ${rm.l.name} 20 to 70 per sqm (inflated; on a copy charging it, a zero line is not built)`, cell: cardKey(leaseA, rm.l.name), value: 70, edit: setLine(leaseA.id, rm.i, 70), variant: setLine(leaseA.id, rm.i, 20) });
     const di = leaseA.opex?.defaultIndexation;
     if (di?.method && di.method !== 'none') {
       const r2 = (di.rate ?? 0) + 0.01;
-      out.push({ movesRevenue: false, label: 'lease asset inflation +1 point (on a copy where a per sqm line charges)', cell: `oxin|${leaseA.id}|rate`, col: 2, value: r2,
+      out.push({ movesRevenue: false, label: 'lease asset inflation +1 point (on a copy where a per sqm line charges)', cell: `oxin|${leaseA.id}|rate`, value: r2, // the registered cell (the rate is column 3 of the grouped table since step 3)
         edit: (s) => { const q = (s.assets as any[]).find((x) => x.id === leaseA.id); q.opex.defaultIndexation.rate = r2; q.opex.lines[rm.i].value = rm.l.value + 50; },
         variant: setLine(leaseA.id, rm.i, rm.l.value + 50) });
     }
   } else out.push({ label: 'a lease opex rate per sqm', skip: 'none' });
   const dflt = st.project.opexAp?.defaultApDays ?? 0;
-  out.push({ movesRevenue: false, label: `project default DPO ${dflt} to ${dflt + 45} days`, cell: 'oxin|dpo|default', col: 2, value: dflt + 45,
-    edit: (s) => { s.project.opexAp = { ...(s.project.opexAp ?? {}), defaultApDays: dflt + 45 }; } });
+  const dpo = (d: number) => (s: Snap): void => { s.project.opexAp = { ...(s.project.opexAp ?? {}), defaultApDays: d }; };
+  // Payables off on the export are not built (step 2): the test runs on a copy paying at 30 days.
+  if (featureUsed(st as never, 'payables')) out.push({ movesRevenue: false, label: `project default DPO ${dflt} to ${dflt + 45} days`, cell: 'oxin|dpo|default', col: 2, value: dflt + 45, edit: dpo(dflt + 45) });
+  else out.push({ movesRevenue: false, label: 'project default DPO 30 to 75 days (on a copy with payables; off on the export, so not built)', cell: 'oxin|dpo|default', col: 2, value: 75, edit: dpo(75), variant: dpo(30) });
 
   // P&L (stage 5): the tax rate, which strikes tax on profit before tax less the gain.
   const taxRate = st.project.tax?.rate ?? 0;
@@ -584,8 +645,8 @@ function perturbations(input: LiveExportInputs, reg: CellRegistry): Perturbation
   if ((st.project.tax?.paymentDays ?? 0) === 0) {
     const lag = (d: number) => (s: Snap): void => { s.project.tax = { ...(s.project.tax ?? {}), paymentDays: d }; };
     out.push({ movesRevenue: false, label: 'tax payment 90 to 180 days after the year end (on a copy that pays late)', cell: 'project:taxDays', value: 180, edit: lag(180), variant: lag(90) });
-    // The payable is always worked out (2026-11-03), so the days are live on the export itself.
-    out.push({ movesRevenue: false, label: 'zakat payment 0 to 90 days after the year end (the export itself)', cell: 'project:taxDays', value: 90, edit: lag(90) });
+    // REMOVED 2026-11-17: "zakat payment 0 to 90 days (the export itself)". Since step 2 a payable at 0 days is
+    // off and not built, so the export has no days cell; the copy above (90 to 180) proves the same wiring.
   }
   // The statutory reserve cap is always read (2026-11-03): on a copy transferring 10% of profit
   // after tax with no cap, a 5% cap of share capital binds the reserve.
@@ -632,7 +693,11 @@ function perturbations(input: LiveExportInputs, reg: CellRegistry): Perturbation
   if (held === 0 && reg.get('escin|pct')) {
     out.push({ movesRevenue: false, label: 'escrow held on pre-sales cash 0% to 20% (rows the statements print only while non-zero)', cell: 'escin|pct', col: 2, value: 0.2,
       edit: (s) => { s.project.escrow = { ...(s.project.escrow ?? {}), heldPct: 0.2 }; } });
-  } else out.push({ label: 'escrow held from zero', skip: held ? 'escrow already held' : 'no escrow inputs on the Revenue sheet' });
+  } else if (held === 0) {
+    // Escrow at 0% is off and not built (step 2): the test runs on a copy holding 10%.
+    const esc = (p: number) => (s: Snap): void => { s.project.escrow = { ...(s.project.escrow ?? {}), heldPct: p }; };
+    out.push({ movesRevenue: false, label: 'escrow held on pre-sales cash 10% to 20% (on a copy that holds escrow; off on the export, so not built)', cell: 'escin|pct', col: 2, value: 0.2, edit: esc(0.2), variant: esc(0.1) });
+  } else out.push({ label: 'escrow held from zero', skip: 'escrow already held' });
 
   // Schedules (stage 4): a held line's useful life, and the project DSO.
   const lifeHost = hotA ?? leaseA;
@@ -644,10 +709,12 @@ function perturbations(input: LiveExportInputs, reg: CellRegistry): Perturbation
       edit: (s) => { for (const q of s.assets as any[]) if (lineIds.includes(q.id)) q.usefulLifeYears = life; } });
   } else out.push({ label: 'useful life of a held line', skip: 'no held line on the inputs table' });
   const dso = st.project.operatingAr?.dsoDays ?? 0;
-  out.push({ movesRevenue: false, label: `operating receivables DSO ${dso} to ${dso + 30} days`, cell: 'project:dso', value: dso + 30,
-    // 2026-10-25 (re-aimed again): each line's own days are their own input now, so the project
-    // DSO moves the lines that state none (0 or blank), exactly as on the platform.
-    edit: (s) => { s.project.operatingAr = { ...(s.project.operatingAr ?? {}), dsoDays: dso + 30 }; } });
+  const dsoTo = (d: number) => (s: Snap): void => { s.project.operatingAr = { ...(s.project.operatingAr ?? {}), dsoDays: d }; };
+  // 2026-10-25 (re-aimed again): each line's own days are their own input now, so the project
+  // DSO moves the lines that state none (0 or blank), exactly as on the platform. Receivables off on the
+  // export are not built (step 2): the test then runs on a copy collecting at 30 days.
+  if (!arOff) out.push({ movesRevenue: false, label: `operating receivables DSO ${dso} to ${dso + 30} days`, cell: 'project:dso', value: dso + 30, edit: dsoTo(dso + 30) });
+  else out.push({ movesRevenue: false, label: 'operating receivables DSO 30 to 60 days (on a copy collecting at 30 days; off on the export, so not built)', cell: 'project:dso', value: 60, edit: dsoTo(60), variant: dsoTo(30) });
 
   // Returns (stage 7): the exit cap rate (the terminal value, the disposal, every
   // stream, the sensitivity), the hurdle (the waterfall and the net returns), a
@@ -934,15 +1001,15 @@ function formulaCells(wb: ExcelJS.Workbook): Map<string, { formula: string; resu
   console.log('=== A. Offline ===');
   // The platform twin in the LIVE LAYOUT (2026-10-14): the rows the formula export adds (zero lines,
   // timing flags) carry their platform values there, at the addresses the live workbook uses.
-  const plain = buildModelWorkbook({ ...opts, liveLayout: true });
+  const { wb, registry, status, pending: buildPending, frame: liveFrame } = buildFormulaWorkbook(opts);
+  const plain = framedPlain(opts, wb);
   const oracle = numbers(plain);
-  const { wb, registry, status, pending: buildPending } = buildFormulaWorkbook(opts);
   // A VALUE THE BUILD PROVED UNREAD IS REMOVED FROM INPUTS (2026-10-25, stage 9), on purpose: it is no
   // figure of the platform's live model, so it leaves the comparison, and A12q proves each one was unread.
   const removedInputs = registry.keys().filter((k) => k.startsWith('inputs-removed:')).map((k) => registry.need(k));
   const built = numbers(wb);
   const formulas = formulaCells(wb);
-  const plainAgain = numbers(buildModelWorkbook({ ...opts, liveLayout: true }));
+  const plainAgain = numbers(framedPlain(opts, wb));
   let differs = 0;
   for (const [k, n] of oracle) if (plainAgain.get(k)?.v !== n.v) differs++;
   check('A1 the hardcoded export is unchanged and deterministic (built twice, every number equal)', differs === 0 && plainAgain.size === oracle.size, `${differs} differ`);
@@ -977,8 +1044,10 @@ function formulaCells(wb: ExcelJS.Workbook): Map<string, { formula: string; resu
     // Financing row that is not a cap row reading the P&L is still caught.
     const capReads = backwardReads(wb).filter((x) => x.from === 'Financing' && x.to === 'P&L');
     const capLabels = new Set(capReads.map((x) => String(wb.getWorksheet('Financing')!.getCell(x.row, 1).value ?? '').trim()));
-    check('A12h each phase dividend cap links to the phase P&L EBITDA, and only the cap rows read the P&L',
-      capReads.length > 0 && [...capLabels].every((l) => /: EBITDA \(the phase P&L\)$/.test(l)), [...capLabels].join('; '));
+    // The allowed later-tab links (founder): capitalised interest, each phase's EBITDA and, since step 5
+    // (2026-11-15), zakat, worked out on the P&L and read back by Financing's one "Zakat (the P&L)" row.
+    check('A12h each phase dividend cap links to the phase P&L EBITDA, and only the cap rows and the one zakat row read the P&L',
+      capReads.length > 0 && [...capLabels].some((l) => /: EBITDA \(the phase P&L\)$/.test(l)) && [...capLabels].every((l) => /: EBITDA \(the phase P&L\)$/.test(l) || l === 'Zakat (the P&L)'), [...capLabels].join('; '));
     const copy2 = buildModelWorkbook({ ...opts, liveLayout: true });
     copy2.getWorksheet('Financing')!.getCell(2, 9).value = { formula: "'P&L'!F20+1", result: 0 } as unknown as ExcelJS.CellValue;
     const p2 = exportShapeProblems(copy2);
@@ -1007,7 +1076,13 @@ function formulaCells(wb: ExcelJS.Workbook): Map<string, { formula: string; resu
       const gridKeys = registry.keys().filter((k) => k.startsWith('rxgrid|'));
       const isOpsGrid = (k: string): boolean => /\|(post\|[^@]*|occ)@\d+$/.test(k);
       const headOf = (k: string): string => { const a = registry.need(k); return String(inp.getCell(a.row - 1, a.col).value ?? ''); };
-      const wrongHead = gridKeys.filter((k) => !(isOpsGrid(k) ? /^Ops year \d+$/ : /^Year \d+$/).test(headOf(k)));
+      // The lease lines share ONE table since step 3 (2026-11-15, founder): a column per line, a row per
+      // operating year, so the year is in the row's label ("Occupancy, ops year 3") and must be the key's.
+      const rowHead = (k: string): string => { const a = registry.need(k); return String(inp.getCell(a.row, 1).value ?? ''); };
+      const keyYear = (k: string): string => /@(\d+)$/.exec(k)?.[1] ?? '';
+      const headOk = (k: string): boolean => (isOpsGrid(k) ? /^Ops year \d+$/ : /^Year \d+$/).test(headOf(k))
+        || new RegExp(`, ${isOpsGrid(k) ? 'ops ' : ''}year ${keyYear(k)}$`, 'i').test(rowHead(k));
+      const wrongHead = gridKeys.filter((k) => !headOk(k));
       const opsRows = new Set(gridKeys.filter(isOpsGrid).map((k) => registry.need(k).row)), conRows = new Set(gridKeys.filter((k) => !isOpsGrid(k)).map((k) => registry.need(k).row));
       check(`A12m construction grids are keyed by construction year (${conRows.size}) and operating grids by operating year (${opsRows.size}), never a calendar year`,
         opsRows.size > 0 && conRows.size > 0 && calendarLabels.length === 0 && wrongHead.length === 0, [...calendarLabels, ...wrongHead.map((k) => `${k}: "${headOf(k)}"`)].slice(0, 4).join('; '));
@@ -1044,7 +1119,10 @@ function formulaCells(wb: ExcelJS.Workbook): Map<string, { formula: string; resu
       // it, so the days are read on Revenue and reach Schedules through it.
       const revReads = arCells.filter((a) => readsIn(wb, 'Revenue', refOf(a)));
       const unreached = receivableDaysProblems(wb, arCells, true);
-      check(`A12r every hotel and lease line's receivable days (${arCells.length}) are on no allowance, are read on Revenue and drive its receivable on the Balance Sheet`, arCells.length > 0 && arAllowed.length === 0 && revReads.length === arCells.length && unreached.length === 0, `allowed ${arAllowed.length}, read on Revenue ${revReads.length}, not reaching the Balance Sheet ${unreached.length}`);
+      // OFF IS NOT BUILT (step 2, 2026-11-12, founder): with no receivable days anywhere there is no days cell
+      // at all, and that absence is what is asserted; with days typed, the wiring is.
+      if (!featureUsed(input.state as never, 'receivables')) check('A12r receivables are off on this model, so no receivable days cell is built', arCells.length === 0, `${arCells.length} built`);
+      else check(`A12r every hotel and lease line's receivable days (${arCells.length}) are on no allowance, are read on Revenue and drive its receivable on the Balance Sheet`, arCells.length > 0 && arAllowed.length === 0 && revReads.length === arCells.length && unreached.length === 0, `allowed ${arAllowed.length}, read on Revenue ${revReads.length}, not reaching the Balance Sheet ${unreached.length}`);
       if (arCells.length) {
         const cut = buildFormulaWorkbook(opts).wb;
         const a = arCells[0], ref = refOf(a);
@@ -1086,13 +1164,37 @@ function formulaCells(wb: ExcelJS.Workbook): Map<string, { formula: string; resu
   const longLive = overLong(wb);
   check(`A2b no formula exceeds Excel's ${EXCEL_FORMULA_LIMIT}-character limit`, longLive.length === 0, longLive.slice(0, 5).join(', '));
   let untouchedDiff = 0, cacheDiff = 0; const cacheBad: string[] = [];
-  for (const [k, n] of oracle) {
+  // ROWS PAIRED BY WHAT THEY ARE (2026-11-17, step 7), as the B comparison pairs them: a row the live file
+  // removes after the build (the Financing settings, step 4) has no live twin and is not compared; every
+  // other platform row is compared with the live row carrying its label.
+  const liveRowOf = new Map<string, Map<number, number>>();
+  for (const lws of wb.worksheets) {
+    const pws = plain.getWorksheet(lws.name); if (!pws) continue;
+    const inv = new Map<number, number>();
+    for (const [lr, pr] of mapRows(lws.name, pws, pws, lws, null)) if (pr !== undefined && !inv.has(pr)) inv.set(pr, lr);
+    liveRowOf.set(lws.name, inv);
+  }
+  const unpairedButPresent: string[] = [];
+  // The oracle at LIVE addresses (row paired by label; `prow` the platform row), which B compares.
+  const oracleLive = new Map<string, Num & { prow: number }>();
+  const liveLabels = new Map(wb.worksheets.map((lws) => [lws.name, new Set((lws.getColumn(1).values as unknown[]).map((v) => (typeof v === 'string' ? v.trim() : '')).filter(Boolean))]));
+  for (const [, n] of oracle) {
+    const lr = liveRowOf.get(n.sheet)?.get(n.row);
+    if (lr === undefined) {
+      // Skipped only when the live tab has no row with that label at all.
+      const lab = plain.getWorksheet(n.sheet)?.getCell(n.row, 1).value;
+      if (typeof lab === 'string' && lab.trim() && liveLabels.get(n.sheet)?.has(lab.trim())) unpairedButPresent.push(`${n.sheet}!R${n.row} ${lab.trim().slice(0, 40)}`);
+      continue;
+    }
+    const k = cellKey(n.sheet, lr, n.col);
+    oracleLive.set(k, { ...n, key: k, row: lr, prow: n.row });
     const b = built.get(k);
     // ExcelJS writes no cached value for a result of 0 (it copies only truthy fields),
     // and the file recalculates on load, so a missing cache over a platform 0 is equal.
     if (formulas.has(k)) { if (!b && n.v === 0) continue; if (!b || Math.abs(b.v - n.v) > tolFor(n.sheet, n.v, rowPeak(plain, n.sheet, n.row))) { cacheDiff++; if (cacheBad.length < 5) cacheBad.push(`${k}: cached ${b?.v} vs platform ${n.v}`); } }
     else if (!b || b.v !== n.v) untouchedDiff++;
   }
+  check('A3a a platform row goes uncompared only when the live tab has no row of that label', unpairedButPresent.length === 0, [...new Set(unpairedButPresent)].slice(0, 6).join('; '));
   check('A3 every cell no layer touched is exactly the hardcoded value', untouchedDiff === 0, `${untouchedDiff} differ`);
   check('A4 every formula caches the platform value', cacheDiff === 0, cacheBad.join('; '));
   const claims: string[] = [];
@@ -1151,7 +1253,18 @@ function formulaCells(wb: ExcelJS.Workbook): Map<string, { formula: string; resu
     const notes = (): number => { let n = 0; wb.worksheets.forEach((ws) => ws.eachRow((row) => row.eachCell((c) => { const t = (c.note as unknown as { texts?: Array<{ text: string }> } | undefined)?.texts?.map((x) => x.text).join('') ?? ''; if (t.startsWith('Fixed at export')) n++; }))); return n; };
     const fixedNotes = notes();
     const shadedFixed = shadedCells(wb).filter((s) => { const t = (wb.getWorksheet(s.sheet)!.getCell(s.row, s.col).note as unknown as { texts?: Array<{ text: string }> } | undefined)?.texts?.map((x) => x.text).join('') ?? ''; return t.startsWith('Fixed at export'); });
-    check(`A11b every fixed-at-export cell (${fixedNotes}) is unshaded`, fixedNotes > 0 && shadedFixed.length === 0, shadedFixed.slice(0, 4).map((s) => `${s.sheet}!R${s.row}C${s.col}`).join(', '));
+    // Off and zero items are not built (step 2, 2026-11-12, founder), so a model may have NO fixed-at-export
+    // cell (Marina Gate has none since). The rule is then proved on a copy: a shaded cell given the note
+    // must be caught (re-aimed 2026-11-17 from "at least one exists").
+    check(`A11b every fixed-at-export cell (${fixedNotes}) is unshaded`, shadedFixed.length === 0, shadedFixed.slice(0, 4).map((s) => `${s.sheet}!R${s.row}C${s.col}`).join(', '));
+    {
+      const { wb: fx } = buildFormulaWorkbook(opts);
+      const s0 = shadedCells(fx)[0];
+      if (s0) fx.getWorksheet(s0.sheet)!.getCell(s0.row, s0.col).note = { texts: [{ text: 'Fixed at export: planted by the verifier' }] } as unknown as ExcelJS.Comment;
+      // The same reading of the note as the check above.
+      const hit = s0 ? shadedCells(fx).filter((s) => { const t = (fx.getWorksheet(s.sheet)!.getCell(s.row, s.col).note as unknown as { texts?: Array<{ text: string }> } | undefined)?.texts?.map((x) => x.text).join('') ?? ''; return t.startsWith('Fixed at export'); }) : [];
+      check('A11b2 the fixed-at-export rule fires: a shaded cell carrying the note, in a copy, is caught at exactly that cell', !!s0 && hit.length === 1 && hit[0].sheet === s0.sheet && hit[0].row === s0.row, s0 ? `${hit.length} caught` : 'no shaded cell');
+    }
     // THE GUARD FIRES: shade one unshaded number no formula reads, in a copy, and it must be caught there.
     // The shading is the input fill the build uses (ARGB.inputFill), never a copied colour: the house style
     // moved it to the founder's yellow on 2026-11-12, and a literal left here planted a fill nothing reads.
@@ -1224,13 +1337,13 @@ function formulaCells(wb: ExcelJS.Workbook): Map<string, { formula: string; resu
     check('B1 Excel opened the file with iterative calculation on', rec.calc.iteration === true);
     const perSheet = new Map<string, { compared: number; bad: string[] }>();
     let errors = 0; const errList: string[] = [];
-    for (const [k, n] of oracle) {
+    for (const [k, n] of oracleLive) {
       const e = rec.cells.get(k);
       const ps = perSheet.get(n.sheet) ?? { compared: 0, bad: [] }; perSheet.set(n.sheet, ps);
       ps.compared++;
       if (e === undefined) { ps.bad.push(`${k}: missing in Excel (platform ${n.v})`); continue; }
       if (typeof e !== 'number') { ps.bad.push(`${k}: Excel ${JSON.stringify(e)} vs platform ${n.v}`); continue; }
-      if (Math.abs(e - n.v) > tolFor(n.sheet, n.v, rowPeak(plain, n.sheet, n.row))) ps.bad.push(`${k}: Excel ${e} vs platform ${n.v} (diff ${(e - n.v).toPrecision(4)})`);
+      if (Math.abs(e - n.v) > tolFor(n.sheet, n.v, rowPeak(plain, n.sheet, n.prow))) ps.bad.push(`${k}: Excel ${e} vs platform ${n.v} (diff ${(e - n.v).toPrecision(4)})`);
     }
     for (const [k, e] of rec.cells) if (typeof e === 'object') { errors++; if (errList.length < 5) errList.push(`${k}: Excel error ${e.error}`); }
     check('B2 no cell recalculates to an Excel error', errors === 0, errList.join('; '));
@@ -1261,7 +1374,7 @@ function formulaCells(wb: ExcelJS.Workbook): Map<string, { formula: string; resu
         const v = cell.value as unknown as { formula?: string; result?: unknown } | null;
         if (!v || typeof v !== 'object' || typeof v.formula !== 'string') return;
         const k = cellKey(ws.name, r, c);
-        if (oracle.has(k)) return;
+        if (oracleLive.has(k)) return;
         const e = rec.cells.get(k);
         if (typeof v.result !== 'number' || typeof e !== 'number') return;
         n++;
@@ -1278,14 +1391,14 @@ function formulaCells(wb: ExcelJS.Workbook): Map<string, { formula: string; resu
       // A figure on a sheet that is VALUES (not yet live, or values by design), so nothing
       // live reads it and exactly one cell can move. Checks went live 2026-09-28, which
       // left Scenarios as the sheet no formula reads.
-      const victim = [...oracle.values()].find((n) => ['values', 'values-by-design'].includes(status.get(n.sheet)?.status ?? '') && Math.abs(n.v) > 1000);
+      const victim = [...oracleLive.values()].find((n) => ['values', 'values-by-design'].includes(status.get(n.sheet)?.status ?? '') && Math.abs(n.v) > 1000);
       if (!victim) { check('B0 the comparison fires: no figure is left that nothing live reads, so the sabotage has nowhere to go', false); throw new Error('B0 has no victim'); }
       const { wb: bad } = buildFormulaWorkbook(opts);
       bad.getWorksheet(victim.sheet)!.getCell(victim.row, victim.col).value = victim.v + 1;
       const badPath = `exports/${input.projectName} - Live Model (sabotaged copy).xlsx`;
       writeFileSync(badPath, Buffer.from(await enableFormulaIteration((await bad.xlsx.writeBuffer()) as ArrayBuffer)));
       const r2 = recalcInExcel(badPath);
-      const caught = [...oracle].filter(([k, n]) => { const e = r2.cells.get(k); return typeof e !== 'number' || Math.abs(e - n.v) > tolFor(n.sheet, n.v, rowPeak(plain, n.sheet, n.row)); }).map(([k]) => k);
+      const caught = [...oracleLive].filter(([k, n]) => { const e = r2.cells.get(k); return typeof e !== 'number' || Math.abs(e - n.v) > tolFor(n.sheet, n.v, rowPeak(plain, n.sheet, n.prow)); }).map(([k]) => k);
       check('B0 the comparison fires: a copy with one figure off by 1 is caught at exactly that cell', caught.length === 1 && caught[0] === victim.key, caught.slice(0, 3).join(', '));
       const { unlinkSync } = await import('node:fs'); unlinkSync(badPath);
     }
@@ -1295,7 +1408,7 @@ function formulaCells(wb: ExcelJS.Workbook): Map<string, { formula: string; resu
     console.log('\n=== C. Real Excel, after an input changes ===');
     // --no-c skips the input changes, for iterating on B; the committed proof runs them.
     if (process.argv.includes('--no-c')) check('C skipped by --no-c (iteration only; never a proof)', false);
-    const liveResult = { wb, registry, plain, path, opts, pending: buildPending };
+    const liveResult = { wb, registry, plain, path, opts, pending: buildPending, frame: liveFrame };
     // --only <text> runs the input changes whose label contains the text, for iterating;
     // like --no-c it is never a proof, so it reports itself as a failure.
     const onlyAt = process.argv.indexOf('--only'), only = onlyAt > 0 ? process.argv[onlyAt + 1] ?? '' : '';
@@ -1323,7 +1436,7 @@ function formulaCells(wb: ExcelJS.Workbook): Map<string, { formula: string; resu
         const longV = overLong(built.wb);
         if (longV.length) { check(`C ${pt.label}: the test copy has no formula over Excel's limit`, false, longV.slice(0, 5).join(', ')); continue; }
         writeFileSync(vPath, Buffer.from(await enableFormulaIteration((await built.wb.xlsx.writeBuffer()) as ArrayBuffer)));
-        base = { wb: built.wb, registry: built.registry, plain: buildModelWorkbook({ ...vOpts, liveLayout: true }), path: vPath, opts: vOpts, pending: built.pending };
+        base = { wb: built.wb, registry: built.registry, plain: framedPlain(vOpts, built.wb), path: vPath, opts: vOpts, pending: built.pending, frame: built.frame };
         const untouched = compareLive(base.plain, base.plain, base.wb, recalcInExcel(vPath));
         check(`C ${pt.label}: the test copy recalculates to the platform before the change`, untouched.bad.length === 0 && untouched.layout.length === 0, untouched.bad.slice(0, 6).map((x) => x.msg).join('\n        '));
       }
@@ -1331,13 +1444,15 @@ function formulaCells(wb: ExcelJS.Workbook): Map<string, { formula: string; resu
       pt.variant?.(snap);
       pt.edit(snap);
       const pOpts = { ...opts, state: platformAfterEdit(snap as never) as typeof input.state };
-      const pPlain = buildModelWorkbook({ ...pOpts, liveLayout: true });
+      const pPlain = framedPlain(pOpts, base.wb);
       // (2026-10-25: no "years moved since export" cell any more: the Inputs grids are keyed by
       // phase year, so a moved phase carries its typed years with it and nothing is relative to the export.)
       // A TEST WHOSE TARGET IS GONE FAILS (2026-11-03): it never passes by typing into nothing.
       if (!base.registry.get(pt.cell)) { check(`C ${pt.label}: the cell it types into (${pt.cell}) is on the workbook`, false, 'no such registered cell'); continue; }
       const a0 = base.registry.need(pt.cell);
-      const aMod = { ...a0, col: pt.col ?? a0.col };
+      // A test names its column in the build's own geometry; the frame may have moved it (a tab with no
+      // Input column lost B, 2026-11-15), so it is moved with it (2026-11-17).
+      const aMod = { ...a0, col: pt.col !== undefined ? (base.frame ? base.frame.newCol(a0.sheet, pt.col) : pt.col) : a0.col };
       // INPUTS IS THE ONE PLACE A USER TYPES (stage9InputLinks, 2026-09-28): where the
       // module cell is now an echo of Inputs, the test types into the Inputs cell, the
       // door a user uses, converting a model-year index to its calendar year.
@@ -1397,17 +1512,22 @@ function formulaCells(wb: ExcelJS.Workbook): Map<string, { formula: string; resu
     console.log('\n=== E. Real Excel, a balance typed over ===');
     {
       // The cash tie went (2026-11-03): the live Balance Sheet links the Cash Flow's cash, so it could not fail.
-      const ids = ['Balance sheet balances (Assets = L + E)', 'Direct cash flow == Indirect cash flow'];
+      // Re-aimed 2026-11-17: the indirect method left the live Cash Flow in step 5 (2026-11-15, founder), and
+      // its check with it; the identity that must stay OK is now the phase EBITDA reconciliation, which reads
+      // the P&L and never the balance sheet's cash.
+      const ids = ['Balance sheet balances (Assets = L + E)', 'Phase EBITDA reconciles to project EBITDA'];
       const statusOf = (r: ReturnType<typeof recalcInExcel>, label: string): unknown => { const a = registry.need(`chk|id|${label}`); return r.cells.get(cellKey(a.sheet, a.row, a.col - 1)); };
       const liveIds = ids.filter((l) => { const a = registry.need(`chk|id|${l}`); return formulas.has(cellKey(a.sheet, a.row, a.col - 1)); });
       check('E0 every identity on the Checks sheet is live', liveIds.length === ids.length, ids.filter((l) => !liveIds.includes(l)).join(', '));
       check('E1 before the edit every identity reads OK', ids.every((l) => statusOf(rec, l) === 'OK'), ids.map((l) => `${l}: ${String(statusOf(rec, l))}`).join('; '));
       const cash = registry.need('bs|__all__||Cash');
-      const col = PERIOD_COLS.OPEN_COL + 1 + 3; // the fourth year
+      // The fourth year, read from the tab's own year band (row 4 since the frame of step 2; B dropped where it had no input).
+      let firstYearCol = 0; wb.getWorksheet(cash.sheet)!.getRow(4).eachCell((c, cc) => { if (!firstYearCol && c.numFmt === '"Dec "0') firstYearCol = cc; });
+      const col = firstYearCol + 3;
       const was = rec.cells.get(cellKey(cash.sheet, cash.row, col));
       const re = recalcInExcel(path, [{ ref: `${cash.sheet}!${colLetterOf(col)}${cash.row}`, value: (typeof was === 'number' ? was : 0) + 1_000_000 }]);
       const want: Record<string, string> = { [ids[0]]: 'CHECK', [ids[1]]: 'OK' };
-      check('E2 after it the balance check reads CHECK, and Direct = Indirect still reads OK', ids.every((l) => statusOf(re, l) === want[l]), ids.map((l) => `${l}: ${String(statusOf(re, l))}`).join('; '));
+      check('E2 after it the balance check reads CHECK, and the phase EBITDA reconciliation still reads OK', ids.every((l) => statusOf(re, l) === want[l]), ids.map((l) => `${l}: ${String(statusOf(re, l))}`).join('; '));
     }
   }
 

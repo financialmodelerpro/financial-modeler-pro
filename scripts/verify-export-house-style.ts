@@ -49,7 +49,8 @@ function scopeCases(): void {
   check('A5 an existing position: an operational phase, an existing loan or opening cash', !featureUsed(base, 'existing')
     && featureUsed({ ...base, phases: [{ status: 'operational' }] }, 'existing')
     && featureUsed({ ...base, financingTranches: [{ origin: 'existing' }] }, 'existing') && featureUsed(on({ historicalOpeningCash: 1 }), 'existing'));
-  const used: ScopeState = { project: { escrow: { heldPct: 0.05 }, opexAp: { defaultApDays: 30 }, statutoryReserve: { transferRate: 0.1 }, hqOpex: { lines: [{ value: 1 }] } }, phases: [{ status: 'operational' }], assets: [{ opex: { lines: [{ value: 3 }] } }] };
+  // Every feature the builder knows (receivables and the tax payable joined the list after step 1, 2026-11-17).
+  const used: ScopeState = { project: { escrow: { heldPct: 0.05 }, opexAp: { defaultApDays: 30 }, statutoryReserve: { transferRate: 0.1 }, hqOpex: { lines: [{ value: 1 }] }, operatingAr: { dsoDays: 30 }, tax: { paymentDays: 90 } } as ScopeState['project'], phases: [{ status: 'operational' }], assets: [{ opex: { lines: [{ value: 3 }] } }] };
   check('A6 a model using everything carries no Inputs line', notUsedLine(used) === '' && notUsedFeatures(used).length === 0);
   const line = notUsedLine(base);
   check('A7 the Inputs line names what is off and says how to turn it on', line.startsWith('Not used in this project: ') && line.includes('escrow') && line.includes('HQ') && line.endsWith('Turn on in the platform and re-export.'), line);
@@ -69,7 +70,8 @@ function workbookRules(label: string, wb: ExcelJS.Workbook, scale: DisplayScale,
       const t = titleCellOf(ws);
       if (!t || (t.font?.size ?? 0) !== 13 || t.font?.color?.argb !== HOUSE.band) noTitle.push(ws.name);
       let back = false;
-      ws.getRow(1).eachCell((c) => { const v = c.value as { hyperlink?: string; text?: string } | null; if (v && typeof v === 'object' && v.hyperlink === "#'Cover'!A1" && v.text === 'Back to Cover') back = true; });
+      // The tab frame (step 2) puts the link beside the tab's name in row 2, as "<- Back to Cover".
+      for (const rr of [1, 2]) ws.getRow(rr).eachCell((c) => { const v = c.value as { hyperlink?: string; text?: string } | null; if (v && typeof v === 'object' && v.hyperlink === "#'Cover'!A1" && /Back to Cover$/.test(v.text ?? '')) back = true; });
       if (!back) noBack.push(ws.name);
     }
     const timed = ws.getCell(3, 6).numFmt === '"Dec "0';
@@ -152,7 +154,9 @@ async function main(): Promise<void> {
       check('D2 the live Cover links every tab', !missing.length, missing.join(', '));
       const rev = l.getWorksheet('Revenue')!;
       let widest = 0;
-      rev.eachRow((row) => { const c = row.getCell(3); if (typeof c.value === 'number' || isFormula(c.value)) widest = Math.max(widest, 9); else if (typeof c.value === 'string' && row.getCell(4).value != null) widest = Math.max(widest, c.value.length); });
+      // A number is as wide as it SHOWS (2026-11-17): a full-unit sale value is 13 characters, not 9.
+      const shown = (c: Cell): number => { const v2 = c.value as unknown; const n = isFormula(v2) ? v2.result : v2; if (typeof n !== 'number') return 9; const nf = String(c.numFmt ?? ''); if (/%/.test(nf)) return 6; const m = /0(?:.(0+))?(,*)(?:_|;|$)/.exec(nf.split(';')[0] ?? ''); return (Math.abs(n) / 1000 ** (m?.[2]?.length ?? 0)).toLocaleString('en-US', { minimumFractionDigits: m?.[1]?.length ?? 0, maximumFractionDigits: m?.[1]?.length ?? 0 }).length; };
+      rev.eachRow((row) => { const c = row.getCell(3); if (typeof c.value === 'number' || isFormula(c.value)) widest = Math.max(widest, shown(c)); else if (typeof c.value === 'string' && row.getCell(4).value != null) widest = Math.max(widest, c.value.length); });
       check('D3 Revenue column C is wide enough for what it holds (was 2 wide, cutting "10.00% 3")', !widest || (rev.getColumn(3).width ?? 0) >= widest + 2, `width ${rev.getColumn(3).width}, content ${widest}`);
       const inputs = l.getWorksheet('Inputs')!;
       let line = '';

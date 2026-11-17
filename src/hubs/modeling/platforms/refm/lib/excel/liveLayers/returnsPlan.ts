@@ -25,6 +25,7 @@ import { DEFAULT_COVENANTS, type CostLine, type Phase } from '../../state/module
 import { isLandValueLine, computePhaseTimeline } from '@/src/core/calculations';
 import { bsTotalDebtKey } from './bsPlan';
 import { featureUsed } from '../exportScope';
+import { planReportLines, lineOfAsset } from '../../reports/lineRows';
 
 type Snap = ReturnType<typeof computeFinancialsSnapshot>;
 type RS = ReturnType<typeof computeReturnsSnapshot>;
@@ -412,7 +413,8 @@ export function returnsPlan(state: FinancialsResolverState, snap: Snap, rs: RS, 
       ['ret|su|debtCapex', 'Debt drawn for capex', su.newDebtCapex, (E) => `${win(E, cf('Debt drawn'))}-${win(E, 'fnc:main:idcdraw')}`, true],
       ['ret|su|debtInt', 'Debt drawn for capitalised interest', su.newDebtInterest, (E) => win(E, 'fnc:main:idcdraw'), true],
       ['ret|su|open', 'Cash held at the model start', su.openingCash, (E) => E.xA(cf('Opening cash'), 1), existing],
-      ['ret|Customer Collections / Pre-Sales', 'Customer collections during construction (net of escrow)', su.customerCollections, collected, true],
+      // "Net of escrow" only where escrow is held (2026-11-17, founder, step 7).
+      ['ret|Customer Collections / Pre-Sales', `Customer collections during construction${featureUsed(state as never, 'escrow') ? ' (net of escrow)' : ''}`, su.customerCollections, collected, true],
       ['ret|su|proceeds', 'Disposal proceeds during construction', su.disposalProceeds, (E) => win(E, cf('Proceeds from Disposal of Operating Assets')), true],
     ];
     const use: Array<[string, string, number, Fx, boolean]> = [
@@ -468,10 +470,28 @@ export function returnsPlan(state: FinancialsResolverState, snap: Snap, rs: RS, 
     head('ret|#yoc', 'Yield on cost and development spread');
     const heldIds = [...snap.perAssetPL.values()].filter((q) => q.strategy === 'Operate' || q.strategy === 'Lease').map((q) => q.assetId);
     const heldCost = m.yieldOnCost ? rs.stabilisedNOI / m.yieldOnCost : 0;
-    heldIds.forEach((id, i) => one(`rm|heldcost:${i}`, `Held cost, ${state.assets.find((a) => a.id === id)?.name ?? id}`, Math.max(0, (snap.perAssetCF.get(id)?.capexPerPeriod ?? []).reduce((a, b) => a + (b ?? 0), 0)),
-      (E) => { const ks = KEYS.cxc(E).filter((k) => k.startsWith(`cxc:${id}:`)); return ks.length ? `MAX(0,${ks.map((k) => `SUM(${E.xr(k)})`).join('+')})` : '0'; }, RF.money, { indent: 2 }));
+    // ONE ROW PER LINE, NAMED ONE WAY (2026-11-17, founder, step 7): "[Line], Phase N", never a plot
+    // ("Land 3") and never the retired Asset.name. A line's plots add into its one row.
+    const multiPhase = phases.length > 1;
+    const heldLines: Array<{ label: string; ids: string[] }> = [];
+    {
+      const lines = planReportLines({ assets: state.assets, phases: state.phases, parcels: state.parcels ?? [] });
+      const byKey = new Map<string, { label: string; ids: string[] }>();
+      for (const id of heldIds) {
+        const line = lineOfAsset(lines, id);
+        const key = line?.key ?? id;
+        if (!byKey.has(key)) {
+          const bare = line ? line.label.replace(new RegExp(`^${line.phaseName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')},\\s*`), '') : id;
+          const g = { label: line && multiPhase && line.phaseName ? `${bare}, ${line.phaseName}` : bare, ids: [] as string[] };
+          byKey.set(key, g); heldLines.push(g);
+        }
+        byKey.get(key)!.ids.push(id);
+      }
+    }
+    heldLines.forEach((g, i) => one(`rm|heldcost:${i}`, `Held cost, ${g.label}`, Math.max(0, g.ids.reduce((s, id) => s + (snap.perAssetCF.get(id)?.capexPerPeriod ?? []).reduce((a, b) => a + (b ?? 0), 0), 0)),
+      (E) => { const ks = KEYS.cxc(E).filter((k) => g.ids.some((id) => k.startsWith(`cxc:${id}:`))); return ks.length ? `MAX(0,${ks.map((k) => `SUM(${E.xr(k)})`).join('+')})` : '0'; }, RF.money, { indent: 2 }));
     one('rm|heldcost', 'Held assets\' cost (hotel and lease lines, land included)', heldCost,
-      (E) => heldIds.map((_id, i) => E.d(`rm|heldcost:${i}`)).join('+') || '0', RF.money, { indent: 1 });
+      (E) => heldLines.map((_g, i) => E.d(`rm|heldcost:${i}`)).join('+') || '0', RF.money, { indent: 1 });
     one('rm|yoc', 'Yield on cost (income capitalised over the held cost)', m.yieldOnCost ?? 'n/a', (E) => `IF(${E.d('rm|heldcost')}>0,${E.d('ret|x|inc')}/${E.d('rm|heldcost')},"n/a")`, RF.pct);
     one('rm|cap', 'Cap rate at exit', m.capRateAtExit ?? 'n/a', (E) => `IF(${E.d('ret|x|tv')}>0,${E.d('ret|x|inc')}/${E.d('ret|x|tv')},"n/a")`, RF.pct);
     one('rm|spread', 'Development spread (yield on cost less cap rate)', m.developmentSpread ?? 'n/a', (E) => `IF(AND(ISNUMBER(${E.d('rm|yoc')}),ISNUMBER(${E.d('rm|cap')})),${E.d('rm|yoc')}-${E.d('rm|cap')},"n/a")`, RF.pct);

@@ -46,7 +46,10 @@ export const WORKING_ROWS: ReadonlyArray<RegExp> = [
   /^rev\|.+\|o\|In operations \(1 = yes\)$/,
   /^ox\|.+\|(io|fac)$/,                                       // Opex: in operations, inflation factors (a line, a strip, HQ)
   // (2026-11-15) The life and the first depreciation year are now single values in the Input column: shown.
-  /^rs\|/,                                                    // Returns: the stream workings and sensitivity streams
+  // Returns: the year flags and the cash-held workings only (2026-11-17, step 7). Step 6 put the visible
+  // streams (FCFF, FCFE, distributions, the fee waterfall, fee income) under `rs|` too, and a blanket `^rs\|`
+  // took every cash flow row off the values file's Returns, leaving its IRR lines with nothing above them.
+  /^rs\|(hold|con|cxon|level|floor|close|debt)(\||$)/,
   /^fl:sqmActive$/,                                           // Financing: land under construction (a working of the land split)
   // Financing: the settings block (2026-11-15, founder: the live file links Inputs and Land & Area directly).
   /^fl:tr:[^:]+:(rate|td)$/, /^fl:idcLand:/, /^fl:idcShare:/, /^fl:sqmTot$/,

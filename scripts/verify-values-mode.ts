@@ -19,6 +19,11 @@
  *      of two rows that are themselves the engine's. A row that is none of these is a figure the
  *      builder worked out by itself, which a values file must not show.
  *
+ * THE FRAME (2026-11-17, step 7): since step 2 the years are in row 4 (the phase in row 5) and a tab with
+ * no Input column has its years one column to the left, so every position is read from the tab's own
+ * row 4 (`geomOf`). Until this change V5 and V6 checked "0 rows": they had stopped running when the
+ * frame moved, and passed. Each now FAILS on zero rows checked.
+ *
  * Run: npx tsx --env-file=.env.local scripts/verify-values-mode.ts
  * No em dashes in this file.
  */
@@ -113,14 +118,27 @@ function engineCatalog(roots: unknown[], N: number, lineGroups: string[][]): Set
  * sale-year table's "Down %") keeps its rows period rows.
  */
 const fillOf = (c: ExcelJS.Cell): string | undefined => (c.fill as { fgColor?: { argb?: string } } | undefined)?.fgColor?.argb;
+/** A period tab's columns, from its own row 4: the first year, the opening column (if any) and the Total column. */
+interface Geom { first: number; open: number | null; total: number | null }
+function geomOf(ws: ExcelJS.Worksheet | undefined): Geom | null {
+  if (!ws) return null;
+  let first = 0, open: number | null = null, total: number | null = null;
+  ws.getRow(4).eachCell((c, col) => {
+    if (c.numFmt === '"Dec "0' && (!first || col < first)) first = col;
+    if (c.numFmt === '"Opening"') open = col;
+    if (typeof c.value === 'string' && /^Total/.test(c.value) && total === null) total = col;
+  });
+  return first ? { first, open, total } : null;
+}
 const bar0 = (row: ExcelJS.Row): boolean => fillOf(row.getCell(1)) === 'FF1B4F8A';
 function tableRowsOf(ws: ExcelJS.Worksheet): Set<number> {
   const out = new Set<number>();
+  const g = geomOf(ws); if (!g) return out;
   let inTable = false, blank = 0;
   ws.eachRow({ includeEmpty: true }, (row, r) => {
-    if (r <= 4) return;
+    if (r <= 5) return;
     let texts = 0, textRight = false, any = false;
-    row.eachCell((c, col) => { any = true; if (typeof c.value === 'string' && c.value) { texts++; if (col >= 6) textRight = true; } });
+    row.eachCell((c, col) => { any = true; if (typeof c.value === 'string' && c.value) { texts++; if (col >= g.first) textRight = true; } });
     // Words in the year columns (a status, a covenant's "Breach") make it a table row, never a year series.
     const statusRow = !bar0(row) && textRight && !(texts >= 2 && [...Array(row.cellCount).keys()].every((i) => typeof row.getCell(i + 1).value !== 'number'));
     if (statusRow) { out.add(r); return; }
@@ -136,14 +154,14 @@ function tableRowsOf(ws: ExcelJS.Worksheet): Set<number> {
 
 function periodRows(ws: ExcelJS.Worksheet, N: number): Map<number, { f: number[]; e: number[] }> {
   const out = new Map<number, { f: number[]; e: number[] }>();
-  if (ws.getCell(3, 6).numFmt !== '"Dec "0') return out;
+  const g = geomOf(ws); if (!g) return out;
   const tables = tableRowsOf(ws);
   ws.eachRow((row, r) => {
-    if (r <= 4 || tables.has(r)) return;
+    if (r <= 5 || tables.has(r)) return;
     const f: number[] = []; let any = false;
-    for (let c = 6; c < 6 + N; c++) { const n = num(row.getCell(c).value); if (n !== null) any = true; f.push(n ?? 0); }
+    for (let c = g.first; c < g.first + N; c++) { const n = num(row.getCell(c).value); if (n !== null) any = true; f.push(n ?? 0); }
     if (!any) return;
-    const e0 = num(row.getCell(5).value) ?? 0;
+    const e0 = g.open ? num(row.getCell(g.open).value) ?? 0 : 0;
     out.set(r, { f, e: [e0, ...f] });
   });
   return out;
@@ -155,11 +173,12 @@ function tiesOf(wb: ExcelJS.Workbook, snap: Any): { rev: boolean; pat: boolean; 
   const pl = wb.getWorksheet('P&L'), cf = wb.getWorksheet('Cash Flow'), bs = wb.getWorksheet('Balance Sheet');
   const rev = find(pl, /^total revenue$/i), pat = find(pl, /^profit after (zakat|tax)/i), close = find(cf, /^closing cash/i), chk = find(bs, /check|difference/i);
   const hasAssets = sum(snap.pl.totalRevenuePerPeriod) !== 0 || sum(snap.pl.patPerPeriod) !== 0;
-  let worst = 0; if (chk > 0) for (let c = 6; c < 6 + N; c++) worst = Math.max(worst, Math.abs(num(bs!.getCell(chk, c).value) ?? 0));
+  const gp = geomOf(pl), gc = geomOf(cf), gb = geomOf(bs);
+  let worst = 0; if (chk > 0 && gb) for (let c = gb.first; c < gb.first + N; c++) worst = Math.max(worst, Math.abs(num(bs!.getCell(chk, c).value) ?? 0));
   return {
-    rev: rev > 0 && Math.abs((num(pl!.getCell(rev, 4).value) ?? NaN) - sum(snap.pl.totalRevenuePerPeriod)) < 1,
-    pat: !hasAssets || (pat > 0 && Math.abs((num(pl!.getCell(pat, 4).value) ?? NaN) - sum(snap.pl.patPerPeriod)) < 1),
-    cash: close > 0 && Math.abs((num(cf!.getCell(close, 6 + N - 1).value) ?? NaN) - (snap.directCF.closingCashPerPeriod[N - 1] ?? 0)) < 1,
+    rev: rev > 0 && !!gp?.total && Math.abs((num(pl!.getCell(rev, gp.total).value) ?? NaN) - sum(snap.pl.totalRevenuePerPeriod)) < 1,
+    pat: !hasAssets || (pat > 0 && !!gp?.total && Math.abs((num(pl!.getCell(pat, gp.total).value) ?? NaN) - sum(snap.pl.patPerPeriod)) < 1),
+    cash: close > 0 && !!gc && Math.abs((num(cf!.getCell(close, gc.first + N - 1).value) ?? NaN) - (snap.directCF.closingCashPerPeriod[N - 1] ?? 0)) < 1,
     bs: chk > 0 && worst < 1,
   };
 }
@@ -177,13 +196,19 @@ function probe(name: string, input: LiveExportInputs, state: Any, plant = false)
   let planted = '';
   if (plant) {
     const ws = wb.getWorksheet('Opex')!;
-    ws.eachRow((row, r) => { if (planted || r <= 4 || row.getCell(1).font?.bold) return; for (let col = 6; col <= 30 && !planted; col++) { const c = row.getCell(col); if (typeof c.value === "number" && c.value > 1000) { c.value = c.value * 1.01; planted = `Opex!R${r}`; } } });
+    const g0 = geomOf(ws)!;
+    ws.eachRow((row, r) => { if (planted || r <= 5 || row.getCell(1).font?.bold) return; for (let col = g0.first; col <= 30 && !planted; col++) { const c = row.getCell(col); if (typeof c.value === "number" && c.value > 1000) { c.value = c.value * 1.01; planted = `Opex!R${r}`; } } });
   }
   check(`V1 ${name}: the values file builds`, true);
   let formulas = 0; const working: string[] = [];
+  const N0 = snap.axisLength;
   for (const ws of wb.worksheets) ws.eachRow((row, r) => {
     row.eachCell((c) => { if (isF(c.value)) formulas++; });
-    if (ws.name !== 'Guide' && ws.name !== 'Inputs' && WORKING_LABEL.test(lbl(ws, r))) working.push(`${ws.name}!A${r} ${lbl(ws, r)}`);
+    // The depreciation start year is one figure in the Input column since 2026-11-15 (founder), not a row
+    // across the years: a working row is one that runs across the years.
+    const g3 = geomOf(ws);
+    const acrossYears = !!g3 && [...Array(N0).keys()].some((t) => num(row.getCell(g3.first + t).value) !== null);
+    if (ws.name !== 'Guide' && ws.name !== 'Inputs' && WORKING_LABEL.test(lbl(ws, r)) && (acrossYears || !/^Depreciation starts/.test(lbl(ws, r)))) working.push(`${ws.name}!A${r} ${lbl(ws, r)}`);
   });
   check(`V2 ${name}: no formula`, formulas === 0, `${formulas}`);
   check(`V3 ${name}: no working row the engine has no figure for`, !working.length, working.slice(0, 5).join('; '));
@@ -213,8 +238,17 @@ function probe(name: string, input: LiveExportInputs, state: Any, plant = false)
   // The covenants the Returns tab evaluates: the project's own thresholds or the platform defaults, and each one's evaluation.
   const covs = (state.project.covenants ?? DEFAULT_COVENANTS) as Any[];
   const covEval = rs ? safe(() => { const ci = reMetricCovenantInputs(rs as Any, snap.bs.debtOutstandingPerPeriod); return covs.map((c) => evaluateCovenant(c, ci)); }) : null;
+  // Two additions of engine series by line the tabs print (2026-11-17, step 7, found once V5 ran again):
+  // the hotel and lease lines' revenue in one "collected as earned" row, and a phase's opex (its hotel and
+  // lease lines) with its own selling expense, the phase P&L's one operating cost row.
+  const pls = [...snap.perAssetPL.values()] as Any[];
+  const visible = new Set(state.assets.filter((a: Any) => a.visible !== false).map((a: Any) => a.id));
+  const phaseOf = new Map(state.assets.map((a: Any) => [a.id, a.phaseId]));
+  const addUp = (rows: Array<readonly number[] | undefined>): number[] => { const acc = new Array<number>(N).fill(0); for (const s of rows) for (let t = 0; t < N; t++) acc[t] += s?.[t] ?? 0; return acc; };
+  const asEarned = addUp(pls.filter((p) => visible.has(p.assetId) && p.strategy !== 'Sell').map((p) => p.revenuePerPeriod));
+  const phaseOpex = state.phases.map((ph: Any) => addUp([...pls.filter((p) => visible.has(p.assetId) && p.strategy !== 'Sell' && phaseOf.get(p.assetId) === ph.id).map((p) => p.opexPerPeriod), snap.pl.sellingExpenseByPhase?.[ph.id]]));
   // The model's own inputs too: a covenant threshold or a rate printed beside a result is typed, not worked out.
-  const cat = engineCatalog([snap, rs, capex, metrics, yoy, cov, sens, kpis, disp, fixedAssets, gap, state, covs, covEval, byType, revpar], N, lines);
+  const cat = engineCatalog([snap, rs, capex, metrics, yoy, cov, sens, kpis, disp, fixedAssets, gap, state, covs, covEval, byType, revpar, [asEarned], phaseOpex], N, lines);
   const unmatched: string[] = [];
   let rowsChecked = 0;
   for (const ws of wb.worksheets) {
@@ -250,7 +284,7 @@ function probe(name: string, input: LiveExportInputs, state: Any, plant = false)
         }
         // A block total: the line items (not bold) since the section's bar, added.
         if (!hit) {
-          let top = r - 1; while (top > 4 && !(fillOf(ws.getCell(top, 1)) === 'FF1B4F8A' && !rows.has(top))) top--;
+          let top = r - 1; while (top > 5 && !(fillOf(ws.getCell(top, 1)) === 'FF1B4F8A' && !rows.has(top))) top--;
           const acc = new Array<number>(N).fill(0);
           for (const x of order) if (x > top && x < r && !ws.getCell(x, 1).font?.bold) rows.get(x)!.f.forEach((y, i) => (acc[i] += y));
           if (keyOf(acc) === k || keyOf(acc.map((x) => -x)) === k) hit = true;
@@ -304,7 +338,7 @@ function probe(name: string, input: LiveExportInputs, state: Any, plant = false)
   const badCells: string[] = [];
   let cellsChecked = 0;
   for (const ws of wb.worksheets) {
-    if (ws.name === 'Timeline' || ws.getCell(3, 6).numFmt !== '"Dec "0') continue;
+    if (ws.name === 'Timeline' || !geomOf(ws)) continue;
     const tables = [...tableRowsOf(ws)].sort((a, b) => a - b);
     for (const r of tables) {
       ws.getRow(r).eachCell((c, col) => {
@@ -317,9 +351,9 @@ function probe(name: string, input: LiveExportInputs, state: Any, plant = false)
       });
     }
   }
-  check(`V6 ${name}: every figure in a table is an engine value or its column's total (${cellsChecked} figures)`, !badCells.length, `${badCells.length} not: ${badCells.slice(0, Number(process.env.SHOW ?? 25)).join(' | ')}`);
+  check(`V6 ${name}: every figure in a table is an engine value or its column's total (${cellsChecked} figures)`, !badCells.length && cellsChecked > 0, `${badCells.length} not: ${badCells.slice(0, Number(process.env.SHOW ?? 25)).join(' | ')}`);
   if (plant) { check(`V7 ${name}: a figure changed by 1% in a copy is caught at exactly its row (${planted})`, !!planted && unmatched.length === 1 && unmatched[0].startsWith(`${planted} `), unmatched.slice(0, 3).join(' | ')); return; }
-  check(`V5 ${name}: every period row is the engine's (${rowsChecked} rows)`, !unmatched.length, `${unmatched.length} not: ${unmatched.slice(0, Number(process.env.SHOW ?? 25)).join(' | ')}`);
+  check(`V5 ${name}: every period row is the engine's (${rowsChecked} rows)`, !unmatched.length && rowsChecked > 0, `${unmatched.length} not: ${unmatched.slice(0, Number(process.env.SHOW ?? 25)).join(' | ')}`);
 }
 
 async function main(): Promise<void> {

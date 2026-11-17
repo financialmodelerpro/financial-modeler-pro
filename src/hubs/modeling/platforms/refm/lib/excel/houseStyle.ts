@@ -154,7 +154,12 @@ export function applyHouseStyle(wb: ExcelJS.Workbook, ctx: HouseContext): void {
         let between = false;
         for (let rr = b.r + 1; rr < kids[0]; rr++) { ws.getRow(rr).eachCell({ includeEmpty: false }, (c) => { if (c.value !== null && c.value !== undefined && c.value !== '') between = true; }); }
         if (between) return;
+        const kidText = stripNumber(textOf(ws.getCell(kids[0], 1))).trim();
+        const barText = stripNumber(textOf(ws.getCell(b.r, 1))).trim();
         ws.getRow(kids[0]).eachCell({ includeEmpty: true }, (c) => { c.value = null; clearFill(c); });
+        // A LINK TO THE CLEARED ROW LANDS ON ITS SECTION BAR (2026-11-17, step 7): the tab's own jump links
+        // and the Cover's section links pointed at the blank row left behind.
+        retargetLinks(wb, ws.name, kids[0], b.r, kidText, barText);
       });
     }
     ws.eachRow({ includeEmpty: false }, (row, r) => {
@@ -438,17 +443,48 @@ function notUsed(ws: ExcelJS.Worksheet, text: string): void {
  * "10.00% 3" and a cut "Down %" head). A column narrower than what it holds, in a row that is
  * not a section bar, is widened to fit, up to 30.
  */
+/** Every internal link to `sheet`!A`from` (on any tab) now goes to A`to`, its words renamed from the old row's to the new. */
+function retargetLinks(wb: ExcelJS.Workbook, sheet: string, from: number, to: number, oldName: string, newName: string): void {
+  const q = `'${sheet.replace(/'/g, "''")}'`;
+  const targets = new Set([`#${q}!A${from}`, `#${sheet}!A${from}`]);
+  for (const ws of wb.worksheets) ws.eachRow({ includeEmpty: false }, (row) => row.eachCell({ includeEmpty: false }, (c) => {
+    const v = c.value as { text?: string; hyperlink?: string } | null;
+    // The link is named for where it now lands.
+    if (v && typeof v === 'object' && typeof v.hyperlink === 'string' && targets.has(v.hyperlink)) c.value = { ...v, text: oldName && newName ? String(v.text ?? '').replace(oldName, newName) : v.text, hyperlink: `#${q}!A${to}` } as ExcelJS.CellValue;
+  }));
+}
+
+/**
+ * How many characters a number takes in its format (2026-11-17, step 7): a full-unit amount such as
+ * 1,058,174,503 is 13 wide and was counted as 9, so Revenue's sale value column showed "####".
+ */
+function shownWidth(c: Cell): number {
+  const v = c.value as unknown;
+  const n = isFormula(v) ? v.result : v;
+  if (typeof n !== 'number' || !Number.isFinite(n)) return 9;
+  const nf = String(c.numFmt ?? '');
+  if (nf.includes('%')) return 8;
+  if (nf.includes('"x"')) return 7;
+  const m = /0(?:\.(0+))?(,*)(?:_|;|$)/.exec(nf.split(';')[0] ?? '');
+  const dec = m?.[1]?.length ?? 0;
+  const commas = m?.[2]?.length ?? 0;
+  const s = (Math.abs(n) / 1000 ** commas).toLocaleString('en-US', { minimumFractionDigits: dec, maximumFractionDigits: dec });
+  return s.length + 2;
+}
+
 function widenCutColumns(ws: ExcelJS.Worksheet): void {
   const need = new Map<number, number>();
   ws.eachRow({ includeEmpty: false }, (row) => {
-    if (BAR_FILLS.has(fillOf(row.getCell(1)) ?? '') || fillOf(row.getCell(1)) === HOUSE.bar) return;
+    // A section bar (one text across a filled row) spills by design; a table's head row is measured.
+    let cells = 0; row.eachCell({ includeEmpty: false }, (c) => { if (c.value !== null && c.value !== undefined && c.value !== '') cells++; });
+    if ((BAR_FILLS.has(fillOf(row.getCell(1)) ?? '') || fillOf(row.getCell(1)) === HOUSE.bar) && cells <= 1) return;
     row.eachCell({ includeEmpty: false }, (c, col) => {
       if (col === 1 || col > 4) return;
       if (c.isMerged && c.master.address !== c.address) return;
       const v = c.value as unknown;
       let len = 0;
       if (typeof v === 'string') len = v.length;
-      else if (typeof v === 'number' || isFormula(v)) len = 9;
+      else if (typeof v === 'number' || isFormula(v)) len = shownWidth(c) - 2;
       else if (v && typeof v === 'object' && 'text' in (v as object)) len = String((v as { text: string }).text).length;
       if (!len) return;
       // A label left of empty cells may spill over them; only a value with a neighbour to its right is cut.

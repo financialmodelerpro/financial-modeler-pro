@@ -277,7 +277,9 @@ async function main(): Promise<void> {
   // ── Consolidated Inputs tab carries the grouped dividers ────────────────────
   const inp = wb.getWorksheet('Inputs')!;
   // 2026-09-17: the Assets table carries the platform's Table 2 title.
-  for (const re of [/^Project$/, /^Phases$/, /^Assets by plot, what you enter$/, /^Capex cost lines/, /^Financing settings$/, /Financing facilities/]) check(`Inputs divider present: ${re.source}`, rowByLabel(inp, re) > 0);
+  // ONE BAR PER SECTION ON INPUTS (house style, 2026-11-15, founder): a lone sub-section straight under its
+  // section bar goes, so "Capex cost lines" is carried by the "CAPEX INPUTS" bar (re-aimed 2026-11-17).
+  for (const re of [/^Project$/, /^Phases$/, /^Assets by plot, what you enter$/, /^(Capex cost lines|CAPEX INPUTS$)/, /^Financing settings$/, /Financing facilities/]) check(`Inputs divider present: ${re.source}`, rowByLabel(inp, re) > 0);
   // Raw financing scalars live under the Financing divider (once), not Project.
   check('Financing settings divider holds the raw financing scalars', rowByLabel(inp, /^Funding method$/) > rowByLabel(inp, /^Financing settings$/) && rowByLabel(inp, /^Debt share$/) > rowByLabel(inp, /^Financing settings$/));
   check('Inputs title says Inputs', /Inputs/.test(labelOf(inp, 1)));
@@ -468,7 +470,8 @@ async function main(): Promise<void> {
     let head = -1; const parts = new Set<string>();
     ws.eachRow((row, R) => {
       const a = row.getCell(1);
-      const navyBand = (a.fill as any)?.fgColor?.argb === ARGB.navy;
+      // On Inputs a sub-section is a bold navy heading, not a band (house style, 2026-11-15, founder).
+      const navyBand = (a.fill as any)?.fgColor?.argb === ARGB.navy || (name === 'Inputs' && !!a.font?.bold && a.font?.color?.argb === 'FF1B4F8A');
       if (head < 0 && navyBand && /How this tab is calculated/i.test(cellText(a.value))) head = R;
       if (head > 0 && R > head) { const t = cellText(a.value); if (t === 'Inputs' || t === 'Calculation' || t === 'Feeds') parts.add(t); }
     });
@@ -579,24 +582,34 @@ async function main(): Promise<void> {
   const wbS = buildModelWorkbook({ state, projectName: 'X', dateLabel: 'd', caseComparison: { baseModel: state, cases: cmpCases as any, activeCaseId: 'base' } });
   const scn = wbS.getWorksheet('Scenarios')!;
   const s6 = (re: RegExp): number => rowByLabel(scn, re);
-  check('Scenarios mirrors Module 6 sections in order (1. Cases -> 2. Assumptions by case -> 3. Comparison -> 4. Year-on-Year Impact)',
-    s6(/^1\. Cases$/) > 0 && s6(/^2\. Assumptions by case$/) > s6(/^1\. Cases$/) && s6(/^3\. Comparison$/) > s6(/^2\. Assumptions by case$/) && s6(/^4\. Year-on-Year Impact$/) > s6(/^3\. Comparison$/));
+  // STEP 6 (2026-11-16, founder): no Year-on-Year Impact; the platform's exit-year analysis follows the comparison.
+  check('Scenarios sections in order (1. Cases -> 2. Assumptions by case -> 3. Comparison), and no Year-on-Year Impact',
+    s6(/^1\. Cases$/) > 0 && s6(/^2\. Assumptions by case$/) > s6(/^1\. Cases$/) && s6(/^3\. Comparison$/) > s6(/^2\. Assumptions by case$/) && s6(/Year-on-Year Impact/) < 0);
   check('Scenarios lists every case (Management + the scenario)', s6(/^★ Management$/) > s6(/^1\. Cases$/) && s6(/^◆ Downside$/) > s6(/^1\. Cases$/));
   check('Scenarios assumptions grid carries the overridden field', s6(/^Assumption$/) > s6(/^2\. Assumptions by case$/) && s6(/tax/i) > s6(/^2\. Assumptions by case$/) && s6(/tax/i) < s6(/^3\. Comparison$/));
-  // With ZERO overrides the curated key drivers still show their Management
-  // values, as on the screen (they used to vanish with the year-on-year blocks).
+  // ONLY THE ASSUMPTIONS A CASE CHANGES (step 6, 2026-11-16, founder): with ZERO overrides there is no
+  // assumption row and the section says so (re-aimed 2026-11-17 from "the curated drivers still show").
   const wbZ = buildModelWorkbook({ state, projectName: 'X', dateLabel: 'd', caseComparison: { baseModel: state, cases: [cmpCases[0], { ...cmpCases[1], overrides: {} }] as any, activeCaseId: 'base' } });
   const scnZ = wbZ.getWorksheet('Scenarios')!;
-  check('Scenarios assumptions grid shows the curated drivers with zero overrides', (() => {
-    const hdr = rowByLabel(scnZ, /^Assumption$/), r3 = rowByLabel(scnZ, /^3\. Comparison$/);
-    return hdr > rowByLabel(scnZ, /^2\. Assumptions by case$/) && r3 > hdr + 2;
+  check('Scenarios assumptions: with zero overrides no assumption row, and the section says no case differs', (() => {
+    const hdr = rowByLabel(scnZ, /^Assumption$/), said = rowByLabel(scnZ, /^No case differs from the Management Case/);
+    return hdr < 0 && said > rowByLabel(scnZ, /^2\. Assumptions by case$/) && said < rowByLabel(scnZ, /^3\. Comparison$/);
   })());
   check('Scenarios comparison matrix carries headline KPIs (Equity IRR)', s6(/^Comparison$/) > s6(/^3\. Comparison$/) && s6(/^Equity IRR \(FCFE\)$/) > 0);
-  check('Scenarios Year-on-Year Impact renders each case row and the delta row', (() => {
-    const r4 = s6(/^4\. Year-on-Year Impact$/); let base = -1, sc = -1, delta = -1;
-    scn.eachRow((_r, R) => { if (R <= r4) return; const l = labelOf(scn, R); if (base < 0 && l === '★ Management') base = R; if (sc < 0 && l === `◆ ${yoyAloneLabel('Downside')}`) sc = R; /* re-aimed 2026-10-05: a case row is that case with ONE driver applied (item 28) */ if (delta < 0 && l === 'Downside delta vs Management') delta = R; });
-    return r4 > 0 && base > r4 && sc > base && delta > sc;
+  // THE COMPARISON IS NUMBERS (step 7, 2026-11-17, founder): each case a number in its own format, and each
+  // scenario's change in its own column headed "Change", equal to the scenario less the Management Case.
+  // Replaces the Year-on-Year Impact check (that section was removed in step 6).
+  check('Scenarios comparison: numbers, and each scenario has its own Change column (scenario less Management)', (() => {
+    const head = s6(/^Metric$/), irr = s6(/^Equity IRR \(FCFE\)$/);
+    if (head < 0 || irr < 0) return false;
+    const heads: string[] = []; scn.getRow(head).eachCell((c, col) => { heads[col] = String(c.value ?? ''); });
+    const mg = heads.findIndex((h) => /^★ Management/.test(h ?? '')), dn = heads.findIndex((h) => /^◆ Downside/.test(h ?? ''));
+    const v = (col: number): unknown => scn.getCell(irr, col).value;
+    return mg > 1 && dn > mg && heads[dn + 1] === 'Change' && typeof v(mg) === 'number' && typeof v(dn) === 'number'
+      && Math.abs((v(dn + 1) as number) - ((v(dn) as number) - (v(mg) as number))) < 1e-9;
   })());
+  check('Scenarios has no year band (a plain header row: no period-end year over any column)', (() => { let years = 0; scn.getRow(3).eachCell((c) => { if (c.numFmt === '"Dec "0') years++; }); scn.getRow(4).eachCell((c) => { if (c.numFmt === '"Dec "0') years++; }); return years === 0; })());
+  void yoyAloneLabel;
   // The Scenarios tab stays hardcoded (no formula cells) at both display scales.
   let scnFormulas = 0; for (const w of wbS.worksheets) w.eachRow((row) => row.eachCell((c) => { if (isFormula(c.value)) scnFormulas++; }));
   check('Scenarios workbook is also fully hardcoded (zero formula cells)', scnFormulas === 0, `formulaCells=${scnFormulas}`);

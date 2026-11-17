@@ -81,6 +81,12 @@ export class Relayout {
     const b = one(y); return b ? `${a}:${b}` : null;
   }
 
+  /** Where an old cell is after the move (unchanged on a sheet with no plan); null when it is dropped. */
+  moveCell(sheet: string, r: number, c: number): At | null {
+    const plan = this.plans.get(sheet);
+    return plan ? plan.map(r, c) : { r, c };
+  }
+
   run(): void {
     const wb = this.wb;
     // Defined names first (their ranges name a sheet).

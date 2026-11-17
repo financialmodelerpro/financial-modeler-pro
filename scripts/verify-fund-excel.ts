@@ -183,8 +183,10 @@ async function main(): Promise<void> {
   // disagreeing with the screen, which is the defect this pair guards against.
   {
     const labels = wbOff.worksheets.flatMap((ws) => allLabels(ws).map((x) => x.label.trim()));
+    // ONE BAR PER SECTION ON INPUTS (house style, 2026-11-15, founder): the lone "Fund terms" sub-section is
+    // carried by its section bar, "FUND INPUTS" (re-aimed 2026-11-17). The toggle row itself must be there.
     check('fund OFF: the Fund Terms section still shows its toggle',
-      labels.includes('Fund terms') && labels.includes('Fund layer enabled'));
+      (labels.includes('Fund terms') || labels.some((l) => /^(\d+\.\s+)?FUND INPUTS$/.test(l))) && labels.includes('Fund layer enabled'));
   }
   check('fund OFF: P&L has no Total Fund Management Fee row', rowOf(wbOff.getWorksheet('P&L')!, 'Total Fund Management Fee') < 0);
   check('fund OFF: P&L has no Fund Fee Basis block', rowOf(wbOff.getWorksheet('P&L')!, 'Fund Fee Basis') < 0);

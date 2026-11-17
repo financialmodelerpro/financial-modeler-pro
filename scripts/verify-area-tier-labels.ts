@@ -32,7 +32,7 @@ import { buildOverviewReport } from '../src/hubs/modeling/platforms/refm/lib/rep
 import { buildCostPerSqmReport, AREA_BASES } from '../src/hubs/modeling/platforms/refm/lib/reports/costPerSqmReport';
 import { buildICReportModel } from '../src/hubs/modeling/platforms/refm/lib/reports/icReport';
 import { METRIC_KEYS, resolveMetric, type DeckFmt } from '../src/hubs/modeling/platforms/refm/lib/reports/deck/bindings';
-import { buildModelWorkbook } from '../src/hubs/modeling/platforms/refm/lib/excel/buildModelWorkbook';
+// (buildModelWorkbook no longer read here: the registry describes the framed live workbook, 2026-11-17.)
 import { buildFormulaWorkbook } from '../src/hubs/modeling/platforms/refm/lib/excel/formulaWorkbook';
 import { generateProjectPdf, generateSummaryPdf } from '../src/hubs/modeling/platforms/refm/lib/pdf/generateProjectPdf';
 import { buildIdcAllocationTables } from '../src/hubs/modeling/platforms/refm/lib/reports/financingReports';
@@ -85,14 +85,22 @@ const tierOfWord = (label: string): 'bua' | 'gfa' | null => (/\bBUA\b/.test(labe
 
   // ── C. The workbook, by the words in its cells ────────────────────────────────
   const opts = { state: input.state, projectName: input.projectName, dateLabel: 'verify', caseComparison: input.caseComparison, parties: input.parties, includeSensitivity: true } as any;
-  const plain = quiet(() => buildModelWorkbook(opts));
-  const { registry } = quiet(() => buildFormulaWorkbook(opts));
-  const cellAt = (key: string): unknown => { const a = registry.need(key); return plain.getWorksheet(a.sheet)!.getCell(a.row, a.col).value; };
+  // RE-AIMED 2026-11-17 (step 7): the registry follows the tab frame, so it is read against the framed live
+  // workbook it describes, each formula cell by its cached platform value. (A label column never moves; a
+  // Summary figure is in column B on every build.)
+  const fw = quiet(() => buildFormulaWorkbook(opts));
+  const registry = fw.registry;
+  const live = fw.wb;
+  const valOf = (v: unknown): unknown => (v && typeof v === 'object' && 'result' in (v as object) ? (v as { result: unknown }).result : v);
   // RE-AIMED 2026-11-03: the live Summary prints numbers, each beside its own label (summaryPlan).
-  const live = quiet(() => buildModelWorkbook({ ...opts, liveLayout: true }));
-  const liveAt = (key: string, col: number): unknown => { const x = registry.need(key); return live.getWorksheet(x.sheet)!.getCell(x.row, col).value; };
+  const liveAt = (key: string, col: number): unknown => { const x = registry.need(key); return valOf(live.getWorksheet(x.sheet)!.getCell(x.row, col).value); };
   const lbl = (key: string): string => String(liveAt(key, 1));
-  check('C1 the Summary prints GFA beside the words Total GFA', /^Total GFA/.test(lbl('sum|gfa')) && near(Number(liveAt('sum|gfa', 2)), GFA), `${lbl('sum|gfa')}: ${String(liveAt('sum|gfa', 2))}`);
+  // RE-AIMED 2026-11-17: step 6 took the Summary's own Total GFA row out (the asset type table's GFA column
+  // carries it), so the figure checked is that column's Total, under its head "GFA (sqm)".
+  const tyHead = registry.need('sum|#typecols'), tyTot = registry.need('sum|ty|total');
+  let gfaCol = 0; live.getWorksheet(tyHead.sheet)!.getRow(tyHead.row).eachCell((c, col) => { if (c.value === 'GFA (sqm)') gfaCol = col; });
+  const tyGfa = gfaCol ? Number(valOf(live.getWorksheet(tyTot.sheet)!.getCell(tyTot.row, gfaCol).value)) : NaN;
+  check('C1 the Summary prints GFA under the head GFA (sqm), on the asset type table\'s Total row', gfaCol > 0 && near(tyGfa, GFA), `column ${gfaCol}: ${tyGfa}`);
   check('C2 and BUA beside the word BUA', /BUA/.test(lbl('sum|bua')) && near(Number(liveAt('sum|bua', 2)), BUA), `${lbl('sum|bua')}: ${String(liveAt('sum|bua', 2))}`);
   check('C3 its plot ratio is GFA over land', /^Plot ratio/.test(lbl('sum|ratio')) && Math.abs(Number(liveAt('sum|ratio', 2)) - GFA / LAND) < 1e-9, `${lbl('sum|ratio')}: ${String(liveAt('sum|ratio', 2))}`);
   // Land & Area: every column headed Total GFA or Total BUA, on the plots' total row.
@@ -111,7 +119,7 @@ const tierOfWord = (label: string): 'bua' | 'gfa' | null => (/\bBUA\b/.test(labe
       const v = String(c.value ?? '');
       if (!/^(Total (GFA|BUA)|NSA or GLA) \(sqm\)$/.test(v)) return;
       heads++;
-      if (!near(Number(la.getCell(totRow, col).value), laWant(v))) laBad.push(`${key} ${v} = ${la.getCell(totRow, col).value}`);
+      if (!near(Number(valOf(la.getCell(totRow, col).value)), laWant(v))) laBad.push(`${key} ${v} = ${String(valOf(la.getCell(totRow, col).value))}`);
     });
   }
   check('C4 Land & Area: on both tables, the columns headed NSA, Total GFA and Total BUA total to their tier', heads >= 6 && laBad.length === 0,
