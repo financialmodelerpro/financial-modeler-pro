@@ -48,6 +48,9 @@ import { applyHouseStyle } from '../src/hubs/modeling/platforms/refm/lib/excel/h
 import { applyTabFrame } from '../src/hubs/modeling/platforms/refm/lib/excel/tabFrame';
 import { featureUsed } from '../src/hubs/modeling/platforms/refm/lib/excel/exportScope';
 import { finalPasses } from '../src/hubs/modeling/platforms/refm/lib/excel/readability';
+import { applyReferenceLayout } from '../src/hubs/modeling/platforms/refm/lib/excel/referenceLayout';
+import { buildFrontTabs } from '../src/hubs/modeling/platforms/refm/lib/excel/referenceFront';
+import { addRiskTriggers } from '../src/hubs/modeling/platforms/refm/lib/excel/dashboard';
 
 /**
  * THE PLATFORM TWIN IN THE LIVE FILE'S FRAME (2026-11-17, step 7). Since step 2 the live workbook ends
@@ -56,12 +59,20 @@ import { finalPasses } from '../src/hubs/modeling/platforms/refm/lib/excel/reada
  * gets the same two passes, so a live cell and the platform's figure sit at one address, as before
  * step 2. (Without this the comparison read the cell beside or below: about 3,200 cells "differed".)
  */
+/** The reference layout's label column (2026-11-17): a line's words are in C on every laid-out tab. */
+const LC = 3;
 function framedPlain(o: Parameters<typeof buildModelWorkbook>[0], live?: ExcelJS.Workbook): ExcelJS.Workbook {
   const w = buildModelWorkbook({ ...o, liveLayout: true });
   const house = houseContextOf(w);
   if (house) { applyHouseStyle(w, house); if (house.frame) applyTabFrame(w, house.frame); }
   // The last passes the live file ends with (2026-11-17): labels, formats and the Inputs bars, so labels pair.
   if (house) finalPasses(w, house.scale);
+  // THE REFERENCE LAYOUT AND THE FRONT TABS (2026-11-17, founder): the twin ends as the live file does, so a cell
+  // and its platform figure still sit at one address (Inputs' risk triggers and switch, columns A and B, the bars,
+  // the Dashboard in place of the Summary).
+  if (house) { addRiskTriggers(w); applyReferenceLayout(w, { mirror: live }); buildFrontTabs(w, { valuesOutput: false, scale: house.scale }); }
+  // The twin stands for the hardcoded figures: its front tabs hold their values (the live file's are formulas over them).
+  for (const ws of w.worksheets) ws.eachRow((row) => row.eachCell((c) => { const v = c.value as { formula?: string; result?: unknown } | null; if (v && typeof v === 'object' && typeof v.formula === 'string') c.value = (v.result !== null && typeof v.result === 'object' ? null : v.result ?? null) as ExcelJS.CellValue; }));
   if (live) mirrorBlankTotals(w, live);
   return w;
 }
@@ -125,11 +136,11 @@ function mapRows(sheet: string, basePws: ExcelJS.Worksheet, pertPws: ExcelJS.Wor
     return typeof x === 'string' ? x.trim() : '';
   };
   const liveLabel = (r: number): string => {
-    const v = liveWs.getCell(r, 1).value as unknown;
-    if (v && typeof v === 'object' && 'formula' in (v as object) && rec) { const e = rec.cells.get(cellKey(sheet, r, 1)); return typeof e === 'string' ? e.trim() : ''; }
+    const v = liveWs.getCell(r, LC).value as unknown;
+    if (v && typeof v === 'object' && 'formula' in (v as object) && rec) { const e = rec.cells.get(cellKey(sheet, r, LC)); return typeof e === 'string' ? e.trim() : ''; }
     // The live sheet's OWN label (2026-11-17): it read the platform copy's label at the same row number,
     // which is only the same row while no layer has removed one (the live Financing drops its settings rows).
-    return text(liveWs.getCell(r, 1).value);
+    return text(liveWs.getCell(r, LC).value);
   };
   // THE LABEL SEQUENCES ARE ALIGNED, not counted: a longest common subsequence
   // (what a diff does), so a row that disappears in one table cannot pair a row
@@ -143,7 +154,7 @@ function mapRows(sheet: string, basePws: ExcelJS.Worksheet, pertPws: ExcelJS.Wor
   const L: Array<{ r: number; l: string }> = [];
   for (let r = 1; r <= basePws.rowCount; r++) { const l = liveLabel(r); if (l) L.push({ r, l: key(l) }); }
   const P: Array<{ r: number; l: string }> = [];
-  for (let r = 1; r <= pertPws.rowCount; r++) { const l = text(pertPws.getCell(r, 1).value); if (l) P.push({ r, l: key(l) }); }
+  for (let r = 1; r <= pertPws.rowCount; r++) { const l = text(pertPws.getCell(r, LC).value); if (l) P.push({ r, l: key(l) }); }
   const n = L.length, m = P.length;
   const dp: Uint16Array[] = Array.from({ length: n + 1 }, () => new Uint16Array(m + 1));
   for (let i = n - 1; i >= 0; i--) for (let j = m - 1; j >= 0; j--) {
@@ -175,6 +186,12 @@ function mapRows(sheet: string, basePws: ExcelJS.Worksheet, pertPws: ExcelJS.Wor
  *  date serial, blank against blank. A cell whose row the platform no longer
  *  prints after the change, or which it prints blank, is LAYOUT (the live
  *  workbook keeps its exported layout) and is counted, never compared as zero. */
+/** The Dashboard's scenarios and sensitivity block (platform results): the row of its "Scenarios (platform results)" bar. */
+function scenarioBlockStart(ws: ExcelJS.Worksheet): number {
+  let at = Number.POSITIVE_INFINITY;
+  ws.eachRow((row, r) => row.eachCell((c) => { if (typeof c.value === 'string' && /Scenarios \(platform results\)$/.test(c.value)) at = Math.min(at, r); }));
+  return at;
+}
 function compareLive(basePlain: ExcelJS.Workbook, pertPlain: ExcelJS.Workbook, wb: ExcelJS.Workbook, rec: ReturnType<typeof recalcInExcel>): { bad: Array<{ addr: string; kind: 'number' | 'text'; msg: string }>; layout: string[] } {
   const bad: Array<{ addr: string; kind: 'number' | 'text'; msg: string }> = [];
   const layout: string[] = [];
@@ -192,6 +209,17 @@ function compareLive(basePlain: ExcelJS.Workbook, pertPlain: ExcelJS.Workbook, w
       // A module cell that ECHOES an Inputs cell (stage9InputLinks) is an input shown twice,
       // laid out where it was at export; it is compared at its Inputs door, not here.
       if (isInputsEcho(ws.name, String((v as { formula: string }).formula))) return;
+      // THE DASHBOARD'S ECHOES (2026-11-17): a Dashboard cell that reads only Inputs or the Scenarios tab shows a typed
+      // input as typed (a grid summarised in words: the platform re-keys the grid when a phase moves, the typed
+      // cells do not move) or a platform result by design (the Scenarios tab, re-exported to refresh). It has no
+      // calculation of its own to prove; a Dashboard cell that reads any calculation tab is compared like any other.
+      if (ws.name === 'Dashboard') {
+        const tabs = [...String((v as { formula: string }).formula).matchAll(/(?:'((?:[^']|'')+)'|(?<![A-Za-z0-9_.])([A-Za-z_][A-Za-z0-9_.]*))!/g)].map((m) => m[1] ?? m[2]);
+        if (tabs.length && tabs.every((t) => t === 'Inputs' || t === 'Scenarios')) return;
+        // A risk flag's status and the year table's cells over such cells follow them (the sensitivity heat map, the case
+        // columns): a cell reading only Dashboard cells in the scenarios and sensitivity block is the same echo.
+        if (!tabs.length && r >= scenarioBlockStart(ws)) return;
+      }
       const addr = cellKey(ws.name, r, c);
       const e = rec.cells.get(addr);
       const m = rows.get(r);
@@ -967,6 +995,8 @@ function numbers(wb: ExcelJS.Workbook): Map<string, Num> {
   const out = new Map<string, Num>();
   for (const ws of wb.worksheets) {
     ws.eachRow((row, r) => row.eachCell((cell, c) => {
+      // A cell a merge covers repeats its first cell's value in ExcelJS, and holds nothing in Excel.
+      if (isMergedSlave(cell)) return;
       const raw = cell.value as unknown;
       const v = typeof raw === 'number' ? raw
         : raw && typeof raw === 'object' && 'result' in (raw as object) && typeof (raw as { result: unknown }).result === 'number' ? (raw as { result: number }).result
@@ -1046,7 +1076,7 @@ function formulaCells(wb: ExcelJS.Workbook): Map<string, { formula: string; resu
     // The dividend cap's allowance is ROW-SCOPED (2026-10-25): the cap rows read the P&L, and a
     // Financing row that is not a cap row reading the P&L is still caught.
     const capReads = backwardReads(wb).filter((x) => x.from === 'Financing' && x.to === 'P&L');
-    const capLabels = new Set(capReads.map((x) => String(wb.getWorksheet('Financing')!.getCell(x.row, 1).value ?? '').trim()));
+    const capLabels = new Set(capReads.map((x) => String(wb.getWorksheet('Financing')!.getCell(x.row, LC).value ?? '').trim()));
     // The allowed later-tab links (founder): capitalised interest, each phase's EBITDA and, since step 5
     // (2026-11-15), zakat, worked out on the P&L and read back by Financing's one "Zakat (the P&L)" row.
     check('A12h each phase dividend cap links to the phase P&L EBITDA, and only the cap rows and the one zakat row read the P&L',
@@ -1073,7 +1103,7 @@ function formulaCells(wb: ExcelJS.Workbook): Map<string, { formula: string; resu
       // No grid is laid out by calendar year, and nothing shifts typed years after a move.
       const inp = wb.getWorksheet('Inputs')!;
       const calendarLabels: string[] = [];
-      inp.eachRow((row, r) => { const a = String(row.getCell(1).value ?? ''); if (/(velocity|Sales During Operation|Occupancy ramp|Sale cohort terms)/i.test(a) && /\b20\d\d\b/.test(a)) calendarLabels.push(`A${r} ${a}`); });
+      inp.eachRow((row, r) => { const a = String(row.getCell(LC).value ?? ''); if (/(velocity|Sales During Operation|Occupancy ramp|Sale cohort terms)/i.test(a) && /\b20\d\d\b/.test(a)) calendarLabels.push(`A${r} ${a}`); });
       // THE GRIDS ARE KEYED THE WAY THE PLATFORM STORES THEM (2026-10-26, founder): a construction grid
       // (pre-sales, downpayment) by construction year, an operating grid (sales during operation,
       // occupancy) by operating year, so a longer build moves the operating grids with the opening.
@@ -1083,7 +1113,7 @@ function formulaCells(wb: ExcelJS.Workbook): Map<string, { formula: string; resu
       const headOf = (k: string): string => { const a = registry.need(k); return String(inp.getCell(a.row - 1, a.col).value ?? ''); };
       // The lease lines share ONE table since step 3 (2026-11-15, founder): a column per line, a row per
       // operating year, so the year is in the row's label ("Occupancy, ops year 3") and must be the key's.
-      const rowHead = (k: string): string => { const a = registry.need(k); return String(inp.getCell(a.row, 1).value ?? ''); };
+      const rowHead = (k: string): string => { const a = registry.need(k); return String(inp.getCell(a.row, LC).value ?? ''); };
       const keyYear = (k: string): string => /@(\d+)$/.exec(k)?.[1] ?? '';
       const headOk = (k: string): boolean => (isOpsGrid(k) ? /^Ops year \d+$/ : /^Year \d+$/).test(headOf(k))
         || new RegExp(`, ${isOpsGrid(k) ? 'ops ' : ''}year ${keyYear(k)}$`, 'i').test(rowHead(k));
@@ -1153,7 +1183,8 @@ function formulaCells(wb: ExcelJS.Workbook): Map<string, { formula: string; resu
     // ONE PERIOD, ONE COLUMN: every live period tab's year and index header reads the Timeline's same column.
     const unlinked: string[] = [];
     for (const [name, st] of status) {
-      if (!(st.status === 'live' || st.status === 'partial') || name === 'Timeline') continue;
+      // The Summary is replaced by the Dashboard (2026-11-17): a tab the file no longer has is not checked here.
+      if (!(st.status === 'live' || st.status === 'partial') || name === 'Timeline' || !wb.getWorksheet(name)) continue;
       const ws = wb.getWorksheet(name)!;
       const yr = ws.getCell(3, PERIOD_COLS.OPEN_COL).value as unknown;
       const plainYr = plain.getWorksheet(name)?.getCell(3, PERIOD_COLS.OPEN_COL).numFmt;
@@ -1187,7 +1218,7 @@ function formulaCells(wb: ExcelJS.Workbook): Map<string, { formula: string; resu
     const lr = liveRowOf.get(n.sheet)?.get(n.row);
     if (lr === undefined) {
       // Skipped only when the live tab has no row with that label at all.
-      const lab = plain.getWorksheet(n.sheet)?.getCell(n.row, 1).value;
+      const lab = plain.getWorksheet(n.sheet)?.getCell(n.row, LC).value;
       if (typeof lab === 'string' && lab.trim() && liveLabels.get(n.sheet)?.has(lab.trim())) unpairedButPresent.push(`${n.sheet}!R${n.row} ${lab.trim().slice(0, 40)}`);
       continue;
     }
@@ -1220,21 +1251,29 @@ function formulaCells(wb: ExcelJS.Workbook): Map<string, { formula: string; resu
   // and the rows split into helper rows stay short.
   {
     const arrayLookups: string[] = [], long: string[] = [], inputsFormulas: string[] = [];
+    let proseFormulas = 0;
     for (const ws of wb.worksheets) ws.eachRow((row, r) => row.eachCell((c, col) => {
       const v = c.value as { formula?: string } | null;
       if (!v || typeof v !== 'object' || typeof v.formula !== 'string') return;
       if (/MATCH\(TRUE/.test(v.formula) || /(MAX|MIN)\(INDEX\(/.test(v.formula) || /INDEX\(--/.test(v.formula)) arrayLookups.push(`${ws.name}!${c.address}`);
-      // EVERY TAB (2026-11-07, founder): nothing in the workbook is over 200 characters.
-      if (v.formula.length > 200) long.push(`${ws.name}!${c.address} (${v.formula.length})`);
+      // EVERY TAB (2026-11-07, founder): nothing in the workbook is over 200 characters. NAMED EXCEPTION (2026-11-17,
+      // founder's reference): the Dashboard's and the Guide's sentences, text formulas the reference itself writes at
+      // up to 537 characters (the key messages, the checks bar, the Guide's purpose and time frame). A figure's
+      // formula on any tab, and any formula on a calculation tab, still may not exceed 200.
+      const prose = (ws.name === 'Dashboard' || ws.name === 'Guide') && typeof (v as { result?: unknown }).result === 'string';
+      if (isMergedSlave(c)) return;
+      if (prose && v.formula.length > 200) proseFormulas++;
+      if (v.formula.length > 200 && !prose) long.push(`${ws.name}!${c.address} (${v.formula.length})`);
       if (ws.name === 'Inputs') inputsFormulas.push(`Inputs!${c.address}`);
       void r; void col;
     }));
     check('A14a no formula relies on array evaluation outside SUMPRODUCT (no MATCH(TRUE, ...), MAX(INDEX(...)) or INDEX(--...))', arrayLookups.length === 0, arrayLookups.slice(0, 6).join(', '));
     check('A14b Inputs holds typed values only (the combined interest rate is worked out on Financing)', inputsFormulas.length === 0, inputsFormulas.slice(0, 6).join(', '));
-    check('A14c no formula on any tab is over 200 characters (helper rows and cells carry the long ones)', long.length === 0, `${long.length} over: ${long.slice(0, 6).join(', ')}`);
+    check("A14c0 the prose allowance is the front tabs' sentences only (a handful of text formulas over 200)", proseFormulas > 0 && proseFormulas <= 12, String(proseFormulas));
+    check("A14c no formula on any tab is over 200 characters but the front tabs' sentences (helper rows and cells carry the long ones)", long.length === 0, `${long.length} over: ${long.slice(0, 6).join(', ')}`);
     const plWs = wb.getWorksheet('P&L');
     let ebitAt = 0, ebitdaAt = 0, pbtAt = 0;
-    plWs?.eachRow((row, r) => { const l = String(row.getCell(1).value ?? ''); if (!ebitdaAt && /^EBITDA$/.test(l)) ebitdaAt = r; if (!ebitAt && /^EBIT$/.test(l)) ebitAt = r; if (!pbtAt && /before (zakat|tax)/i.test(l)) pbtAt = r; });
+    plWs?.eachRow((row, r) => { const l = String(row.getCell(LC).value ?? ''); if (!ebitdaAt && /^EBITDA$/.test(l)) ebitdaAt = r; if (!ebitAt && /^EBIT$/.test(l)) ebitAt = r; if (!pbtAt && /before (zakat|tax)/i.test(l)) pbtAt = r; });
     check('A14d the P&L strikes EBIT after depreciation and before interest', ebitdaAt > 0 && ebitAt > ebitdaAt && pbtAt > ebitAt, `EBITDA ${ebitdaAt}, EBIT ${ebitAt}, PBT ${pbtAt}`);
   }
   // A merged block reads and writes its master, so a relabel per cell stacked the status

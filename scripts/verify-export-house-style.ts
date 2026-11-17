@@ -63,7 +63,7 @@ function scopeCases(): void {
 
 function workbookRules(label: string, wb: ExcelJS.Workbook, scale: DisplayScale, live: boolean): void {
   console.log(`B-D. ${label}`);
-  let periodTabs = 0;
+  let periodTabs = 0, sectionBars = 0, keyTotals = 0;
   const badFill: string[] = [], noTitle: string[] = [], noBack: string[] = [], badBand: string[] = [], noPhase: string[] = [], badBar: string[] = [], badTotal: string[] = [], badInput: string[] = [], badPage: string[] = [], badMoney: string[] = [], badPct: string[] = [], scaledCount: string[] = [], blackLinks: string[] = [];
   for (const ws of wb.worksheets) {
     if (ws.pageSetup.orientation !== 'landscape' || ws.pageSetup.fitToWidth !== 1 || ws.views?.some((v) => v.showGridLines !== false)) badPage.push(ws.name);
@@ -71,9 +71,12 @@ function workbookRules(label: string, wb: ExcelJS.Workbook, scale: DisplayScale,
       const t = titleCellOf(ws);
       // THE TITLE BLOCK (2026-11-17, founder; re-aimed from "a 13pt navy title"): row 1 the model line, bold navy
       // 14pt and not a link; row 2 the tab's name.
-      const tc = typeof ws.getCell(1, 1).value === 'string' ? 1 : 2; // the Guide is framed in column B
+      // THE REFERENCE LAYOUT (2026-11-17, founder): the title block is in column B on every tab; the Guide and the
+      // Dashboard read the model line off the Cover (=Cover!C2), so its value is the formula's result.
+      const tc = 2;
       const t1 = ws.getCell(1, tc), t2 = ws.getCell(2, tc);
-      if (typeof t1.value !== 'string' || (t1.font?.size ?? 0) !== 14 || !t1.font?.bold || t1.font?.color?.argb !== HOUSE.band || t2.value !== ws.name || !t) noTitle.push(ws.name);
+      const t1v = isFormula(t1.value) ? (t1.value as { result?: unknown }).result : t1.value;
+      if (typeof t1v !== 'string' || !t1v || (t1.font?.size ?? 0) !== 14 || !t1.font?.bold || String(t1.font?.color?.argb ?? '').slice(-6) !== HOUSE.band.slice(-6) || t2.value !== ws.name || !t) noTitle.push(ws.name);
       let back = false;
       // The tab frame (step 2) puts the link beside the tab's name in row 2, as "<- Back to Cover".
       for (const rr of [1, 2]) ws.getRow(rr).eachCell((c) => { const v = c.value as { hyperlink?: string; text?: string } | null; if (v && typeof v === 'object' && v.hyperlink === "#'Cover'!A1" && /Back to Cover$/.test(v.text ?? '')) back = true; });
@@ -85,7 +88,8 @@ function workbookRules(label: string, wb: ExcelJS.Workbook, scale: DisplayScale,
     const timed = yc > 0;
     if (timed) {
       periodTabs++;
-      if (fillOf(ws.getCell(4, yc)) !== HOUSE.band || fillOf(ws.getCell(4, 1)) !== HOUSE.band) badBand.push(ws.name);
+      // The band runs from the label column (C, the reference layout) across the years.
+      if (fillOf(ws.getCell(4, yc)) !== HOUSE.band || fillOf(ws.getCell(4, 3)) !== HOUSE.band) badBand.push(ws.name);
       const p = ws.getCell(5, yc).value as unknown;
       const txt = isFormula(p) ? p.result : p;
       let anyFormula = false;
@@ -94,21 +98,29 @@ function workbookRules(label: string, wb: ExcelJS.Workbook, scale: DisplayScale,
       const linked = isFormula(p) && /^Timeline![A-Z]{1,3}\$5$/.test(p.formula);
       if (typeof txt !== 'string' || !txt || (live && ws.name !== 'Timeline' && anyFormula !== linked)) noPhase.push(`${ws.name} (${JSON.stringify(p)?.slice(0, 40)})`);
     }
+    // THE REFERENCE LAYOUT (2026-11-17): a section bar's text and the first cell of its fill are in B, a line's label
+    // (a total's capitals) in C. These checks read column A until then, where nothing is now: they would pass on
+    // nothing. The Dashboard, the Guide and the Cover are laid out by hand (dashboard.ts, referenceFront.ts).
+    const front = ws.name === 'Dashboard' || ws.name === 'Guide' || ws.name === 'Cover';
     ws.eachRow((row, r) => {
-      const a = row.getCell(1);
-      row.eachCell({ includeEmpty: true }, (c) => { const f = fillOf(c); if (f && !ALLOWED_FILLS.has(f) && f !== 'FFF1F3F7') badFill.push(`${ws.name}!${c.address} ${f}`); });
-      if (r >= 3 && fillOf(a) === HOUSE.bar && typeof a.value === 'string' && ws.name !== 'Cover') {
-        let figures = 0, texts = 0; row.eachCell((c, col) => { if (col >= 2 && (typeof c.value === 'number' || isFormula(c.value))) figures++; if (typeof c.value === 'string' && c.value) texts++; });
+      const a = row.getCell(2), lab = row.getCell(3);
+      // The reference's Dashboard bands its table rows in F2F5F9 (2026-11-17, founder's reference).
+      row.eachCell({ includeEmpty: true }, (c) => { const f = fillOf(c); if (f && !ALLOWED_FILLS.has(f) && f !== 'FFF1F3F7' && !(ws.name === 'Dashboard' && f === 'FFF2F5F9')) badFill.push(`${ws.name}!${c.address} ${f}`); });
+      if (r >= 3 && fillOf(a) === HOUSE.bar && typeof a.value === 'string' && !front) {
+        sectionBars++;
+        let figures = 0, texts = 0; row.eachCell((c, col) => { if (col >= 3 && (typeof c.value === 'number' || isFormula(c.value))) figures++; if (typeof c.value === 'string' && c.value) texts++; });
         // A row with several headings is a table's column head, not a section bar.
-        if (!figures && texts === 1 && !/^\d+(\.\d+)?\.? /.test(a.value) && !(timed && r <= 4) && a.font?.color?.argb === HOUSE.white && a.font?.bold && !(row.getCell(2).fill && fillOf(row.getCell(2)) === HOUSE.bar && row.getCell(2).value)) badBar.push(`${ws.name}!A${r} ${a.value.slice(0, 30)}`);
+        if (!figures && texts === 1 && !/^\d+(\.\d+)?\.? /.test(a.value) && !(timed && r <= 4) && a.font?.color?.argb === HOUSE.white && a.font?.bold && !(row.getCell(2).fill && fillOf(row.getCell(2)) === HOUSE.bar && row.getCell(2).value)) badBar.push(`${ws.name}!B${r} ${a.value.slice(0, 30)}`);
       }
-      if (fillOf(a) === HOUSE.total && typeof a.value === 'string' && a.font?.bold) {
-        let figures = 0; row.eachCell((c, col) => { if (col >= 2 && (typeof c.value === 'number' || isFormula(c.value))) figures++; });
-        if (figures && (a.value !== a.value.toUpperCase() || a.border?.top?.style !== 'thin' || a.border?.bottom?.style !== 'thin' || a.font?.color?.argb !== HOUSE.band)) badTotal.push(`${ws.name}!A${r} ${a.value.slice(0, 30)}`);
+      if (!front && fillOf(lab) === HOUSE.total && typeof lab.value === 'string' && lab.font?.bold) {
+        keyTotals++;
+        let figures = 0; row.eachCell((c, col) => { if (col >= 4 && (typeof c.value === 'number' || isFormula(c.value))) figures++; });
+        if (figures && (lab.value !== lab.value.toUpperCase() || lab.border?.top?.style !== 'thin' || lab.border?.bottom?.style !== 'thin' || lab.font?.color?.argb !== HOUSE.band)) badTotal.push(`${ws.name}!C${r} ${lab.value.slice(0, 30)}`);
       }
       row.eachCell({ includeEmpty: false }, (c) => {
         const f = fillOf(c);
-        if (f === HOUSE.input && (c.font?.color?.argb !== HOUSE.inputText || c.border?.top?.style !== 'dotted')) badInput.push(`${ws.name}!${c.address}`);
+        // The Guide's input swatch is a sample of the look, not an input.
+        if (f === HOUSE.input && ws.name !== 'Guide' && (c.font?.color?.argb !== HOUSE.inputText || c.border?.top?.style !== 'dotted')) badInput.push(`${ws.name}!${c.address}`);
         const nf = c.numFmt ?? '';
         if (/_\(\*/.test(nf)) badMoney.push(`${ws.name}!${c.address} ${nf}`);
         // A scaled format (trailing commas) is money, and money is in the chosen units only.
@@ -116,13 +128,16 @@ function workbookRules(label: string, wb: ExcelJS.Workbook, scale: DisplayScale,
         if (/%|"x"|^0\.0/.test(nf) && /0,/.test(nf)) scaledCount.push(`${ws.name}!${c.address} ${nf}`);
         // A Capex curve's window total is its typed shares added (100), shown with a % sign (2026-11-17, founder).
         const windowTotal = ws.name === 'Capex' && nf === '0.0"%";-0.0"%";"-"';
-        if (/%/.test(nf) && f !== HOUSE.input && nf !== '0.0%;(0.0%);"-"' && nf !== '@' && !windowTotal) badPct.push(`${ws.name}!${c.address} ${nf}`);
+        // The Dashboard's tiles and sensitivity heads read 0.0% (the reference's), one decimal too.
+        if (/%/.test(nf) && f !== HOUSE.input && nf !== '0.0%;(0.0%);"-"' && nf !== '@' && !windowTotal && !(ws.name === 'Dashboard' && nf === '0.0%')) badPct.push(`${ws.name}!${c.address} ${nf}`);
         if (live && isFormula(c.value) && /^-?(?:'(?:[^']|'')+'|[A-Za-z0-9_&.]+)!\$?[A-Z]{1,3}\$?\d+$/.test(c.value.formula) && !f && c.font?.color?.argb === HOUSE.calc) blackLinks.push(`${ws.name}!${c.address}`);
       });
     });
   }
   const s = (l: string[]): string => `${l.length}: ${l.slice(0, 5).join('; ')}`;
   check(`B1 ${label}: every fill is in the house palette`, !badFill.length, s(badFill));
+  // The bar and key total checks read the cells they mean (they read column A until 2026-11-17, empty since).
+  check(`B0 ${label}: the bar and key total checks found their rows (${sectionBars} bars, ${keyTotals} key totals)`, sectionBars >= 30 && keyTotals >= 5);
   check(`B2 ${label}: every tab opens with the model line (14pt bold navy, not a link) and its own name under it`, !noTitle.length, s(noTitle));
   check(`B3 ${label}: every tab links Back to Cover`, !noBack.length, s(noBack));
   check(`B4 ${label}: every period tab's band is #153D64 (${periodTabs} period tabs)`, !badBand.length && periodTabs >= 8, s(badBand));

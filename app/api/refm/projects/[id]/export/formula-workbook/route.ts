@@ -1,15 +1,15 @@
 /**
  * /api/refm/projects/[id]/export/formula-workbook (2026-09-27)
  *
- * THE FORMULA-LINKED WORKBOOK, BUILT ON THE SERVER, FOR ONE ACCOUNT WHILE IT
- * IS BEING BUILT (founder's decision). See lib/excel/formulaExportAccess.ts.
+ * THE FORMULA-LINKED (LIVE) WORKBOOK, BUILT ON THE SERVER, A BETA FOR THE PLANS THAT
+ * CARRY excel_formula (2026-11-17, founder: Pro and Firm; Trial excluded). See
+ * lib/excel/formulaExportAccess.ts.
  *
- *   GET  -> { allowed }: whether the Export dialog shows the option. Answers
- *           false for everybody but the preview account, and reveals nothing
- *           about the project.
+ *   GET  -> { allowed }: whether the Export dialog shows the option: the
+ *           caller's plan entitlement, and nothing about the project.
  *   POST -> the .xlsx for a SAVED version (the latest when none is named).
  *           Refused (404, the same answer as a project that is not there)
- *           for any other account BEFORE any project data is read.
+ *           for a plan without the entitlement BEFORE any project data is read.
  *
  * A PROJECT THE LIVE WORKBOOK CANNOT MODEL IS REFUSED IN WORDS (2026-11-07): 422 with
  * code 'live_workbook_unavailable' and a plain message; the Export dialog shows it with
@@ -38,17 +38,17 @@ export const maxDuration = 120;
 const notFound = () => NextResponse.json({ error: 'Not found' }, { status: 404 });
 
 export async function GET() {
-  let userId: string | null = null;
-  try { ({ userId } = await getRefmUserContext()); } catch { userId = null; }
-  return NextResponse.json({ allowed: await formulaExportAllowed(userId) });
+  let userId: string | null = null, isAdmin = false;
+  try { ({ userId, isAdmin } = await getRefmUserContext()); } catch { userId = null; }
+  return NextResponse.json({ allowed: await formulaExportAllowed(userId, isAdmin) });
 }
 
 export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   let userId: string | null = null, isAdmin = false;
   try { ({ userId, isAdmin } = await getRefmUserContext()); } catch { userId = null; }
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  // THE PREVIEW GATE COMES FIRST: nothing about the project is read for anyone else.
-  if (!(await formulaExportAllowed(userId))) return notFound();
+  // THE ENTITLEMENT COMES FIRST: nothing about the project is read for a plan without it.
+  if (!(await formulaExportAllowed(userId, isAdmin))) return notFound();
 
   const { id: projectId } = await ctx.params;
   const gate = await resolveUserGate(userId, { sessionIsAdmin: isAdmin });

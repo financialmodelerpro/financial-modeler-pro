@@ -92,17 +92,16 @@ const tierOfWord = (label: string): 'bua' | 'gfa' | null => (/\bBUA\b/.test(labe
   const registry = fw.registry;
   const live = fw.wb;
   const valOf = (v: unknown): unknown => (v && typeof v === 'object' && 'result' in (v as object) ? (v as { result: unknown }).result : v);
-  // RE-AIMED 2026-11-03: the live Summary prints numbers, each beside its own label (summaryPlan).
-  const liveAt = (key: string, col: number): unknown => { const x = registry.need(key); return valOf(live.getWorksheet(x.sheet)!.getCell(x.row, col).value); };
-  const lbl = (key: string): string => String(liveAt(key, 1));
-  // RE-AIMED 2026-11-17: step 6 took the Summary's own Total GFA row out (the asset type table's GFA column
-  // carries it), so the figure checked is that column's Total, under its head "GFA (sqm)".
-  const tyHead = registry.need('sum|#typecols'), tyTot = registry.need('sum|ty|total');
-  let gfaCol = 0; live.getWorksheet(tyHead.sheet)!.getRow(tyHead.row).eachCell((c, col) => { if (c.value === 'GFA (sqm)') gfaCol = col; });
-  const tyGfa = gfaCol ? Number(valOf(live.getWorksheet(tyTot.sheet)!.getCell(tyTot.row, gfaCol).value)) : NaN;
-  check('C1 the Summary prints GFA under the head GFA (sqm), on the asset type table\'s Total row', gfaCol > 0 && near(tyGfa, GFA), `column ${gfaCol}: ${tyGfa}`);
-  check('C2 and BUA beside the word BUA', /BUA/.test(lbl('sum|bua')) && near(Number(liveAt('sum|bua', 2)), BUA), `${lbl('sum|bua')}: ${String(liveAt('sum|bua', 2))}`);
-  check('C3 its plot ratio is GFA over land', /^Plot ratio/.test(lbl('sum|ratio')) && Math.abs(Number(liveAt('sum|ratio', 2)) - GFA / LAND) < 1e-9, `${lbl('sum|ratio')}: ${String(liveAt('sum|ratio', 2))}`);
+  // RE-AIMED 2026-11-17 (founder: the Dashboard replaces the Summary). The Dashboard's "Project at a glance" prints
+  // the scheme by its words: Total GFA, the plot ratio (GFA over land) and the NSA, each value beside its label (C,
+  // value in D). The Dashboard prints no BUA; Land & Area does (C4).
+  const dash = live.getWorksheet('Dashboard')!;
+  const dashAt = (label: string): number => { let v = NaN; dash.eachRow((row) => { if (row.getCell(3).value === label) v = Number(valOf(row.getCell(4).value)); }); return v; };
+  const dGfa = dashAt('Total GFA'), dRatio = dashAt('Plot ratio (GFA / land)'), dNsa = dashAt('Saleable and leasable area (NSA)');
+  check('C1 the Dashboard prints GFA beside the words Total GFA', near(dGfa, GFA), String(dGfa));
+  check('C2 and the NSA beside the words saleable and leasable area (NSA)', near(dNsa, NSA), String(dNsa));
+  check('C3 its plot ratio is GFA over land', Math.abs(dRatio - GFA / LAND) < 1e-9, String(dRatio));
+  void BUA;
   // Land & Area: every column headed Total GFA or Total BUA, on the plots' total row.
   // RE-AIMED 2026-11-03: the registry's rows are the live layout's, so the sheet is the live layout's too.
   const la = live.getWorksheet('Land & Area')!;

@@ -312,9 +312,9 @@ export default function ExportModal({
   const [reportKind, setReportKind] = useState<'full' | 'summary' | 'excel' | 'excel-live'>('full');
   /** Both Excel kinds share the scale, case and section controls. */
   const excelKind = reportKind === 'excel' || reportKind === 'excel-live';
-  // THE FORMULA-LINKED WORKBOOK IS A PREVIEW FOR ONE ACCOUNT (2026-09-27). The
-  // SERVER decides, on every open; this only mirrors its answer, and the route
-  // that builds the file refuses anyone else whatever this says.
+  // THE LIVE WORKBOOK IS A BETA FOR THE PLANS THAT CARRY excel_formula (2026-11-17,
+  // founder: Pro and Firm). The SERVER decides, on every open; this only mirrors its
+  // answer, and the route that builds the file refuses anyone else whatever this says.
   const [formulaAllowed, setFormulaAllowed] = useState(false);
   useEffect(() => {
     if (!open || !projectId) { setFormulaAllowed(false); return; }
@@ -639,8 +639,13 @@ export default function ExportModal({
               >
                 <span style={{ fontSize: 22 }}>🧮</span>
                 <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--color-heading)' }}>Excel Model, live formulas (preview)</div>
-                  <div style={{ fontSize: 11, color: 'var(--color-muted)', marginTop: 2 }}>Visible to your account only while it is built. Sheets made live so far recalculate from their inputs; the rest are platform values and say so.</div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--color-heading)', display: 'flex', alignItems: 'center', gap: 8 }}>
+                    Live workbook
+                    <span data-testid="export-live-beta" style={{ fontSize: 10, fontWeight: 700, color: 'var(--color-primary)', border: '1px solid var(--color-primary)', borderRadius: 4, padding: '1px 6px' }}>Beta</span>
+                  </div>
+                  <div style={{ fontSize: 11, color: 'var(--color-muted)', marginTop: 2 }}>The same model with live Excel formulas: change a shaded input and every tab recalculates. Built from a saved version.{' '}
+                    <a data-testid="export-live-report" href="https://financialmodelerpro.com/contact" target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} style={{ color: 'var(--color-primary)', textDecoration: 'underline' }}>Report an issue</a>
+                  </div>
                 </div>
                 <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-heading)', border: '1px solid var(--color-border)', padding: '5px 12px', borderRadius: 6 }}>Continue</span>
               </button>
@@ -652,7 +657,7 @@ export default function ExportModal({
           <div style={{ padding: '12px 16px 16px', display: 'flex', flexDirection: 'column', gap: 6 }}>
             <div style={{ fontSize: 11, color: 'var(--color-muted)', padding: '0 2px 4px' }}>
               {reportKind === 'excel-live'
-                ? 'PREVIEW, visible to your account only. The live Excel model: the same tabs as the Excel model, with the sheets built so far recalculating from their inputs in Excel (each sheet says whether it is live). It is built on the server from a SAVED version (the latest when the working draft is selected). Pick the scale, case and version below.'
+                ? 'Live workbook (Beta): the same tabs, layout and figures as the Excel model, with live formulas, so a change to a shaded input recalculates every tab in Excel. It is built on the server from a SAVED version (the latest when the working draft is selected). Pick the scale, case and version below.'
                 : excelKind
                 ? 'The Excel model is a hardcoded mirror of the platform: one consolidated Inputs tab plus a tab per module (Timeline, Land & Area, Capex, Revenue, Cost of Sales, Opex, Financing, P&L, Cash Flow, Balance Sheet, Returns, Scenarios, Checks). The statement tabs default to the Management case; the Scenarios tab always compares every case (pick a different case below). Every figure is the platform-computed value written as a constant; editing a cell does not recalculate, re-export after changing inputs. Pick the scale and version below.'
                 : reportKind === 'summary'

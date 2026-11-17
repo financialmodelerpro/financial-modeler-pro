@@ -174,6 +174,12 @@ export interface BuildModelOptions {
    * `liveLayout`. Set only by `buildValuesWorkbook`.
    */
   valuesMode?: boolean;
+  /**
+   * THE LIVE LAYOUT, FROZEN TO VALUES (2026-11-17, founder): the live workbook built in full, then every formula
+   * replaced by its value (valuesWorkbook.ts `frozenLiveWorkbook`). The build is the live one; only the words that
+   * describe the file (the Cover's "About this model", the Guide's "Before you start") say it holds values.
+   */
+  valuesOutput?: boolean;
 }
 
 export interface ExcelPartSelection { inputs?: boolean; outputs?: boolean; schedules?: boolean }
@@ -214,7 +220,7 @@ const SHEET_PART: Record<string, SheetPart> = {
  *  unticked category (formulas stay intact; only visibility changes). No-op when
  *  parts is undefined. Cover + Checks always stay visible, so Excel always has at
  *  least one visible sheet. */
-function applyPartVisibility(wb: ExcelJS.Workbook, parts?: ExcelPartSelection): void {
+export function applyPartVisibility(wb: ExcelJS.Workbook, parts?: ExcelPartSelection): void {
   if (!parts) return;
   const on = (p: SheetPart): boolean =>
     p === 'always' ? true : p === 'inputs' ? parts.inputs !== false : p === 'schedules' ? parts.schedules !== false : parts.outputs !== false;
@@ -1711,7 +1717,9 @@ function addPhaseTimeline(ws: ExcelJS.Worksheet, snap: ReturnType<typeof compute
   // read of "2027-01-01" is December 2026 anywhere west of UTC, which moved the
   // dated schedule and every Gantt bar a year.
   const yr = (d: string): number => utcYear(d, snap.projectStartYear);
-  const fmtDate = (d: string): string => utcMonthYear(d);
+  // THE LIVE LAYOUT HOLDS A DATE AS A DATE (2026-11-17): an Excel serial under "mmm yyyy", so the values file (the live
+  // file frozen) carries real dates, not the words "Jan 2027".
+  const fmtDate = (d: string): string | number => (isLiveLayout() ? Math.round((Date.parse(`${String(d).slice(0, 10)}T00:00:00Z`) - Date.UTC(1899, 11, 30)) / 86_400_000) : utcMonthYear(d));
 
   const lines = phases.map((p) => ({ phase: p, tl: computePhaseTimeline(p, project) }));
   const projTl = computeProjectTimeline(project, phases);
@@ -1752,6 +1760,7 @@ function addPhaseTimeline(ws: ExcelJS.Worksheet, snap: ReturnType<typeof compute
     ];
     for (const [c, v] of cells) {
       const cell = ws.getCell(r, c); cell.value = v;
+      if (typeof v === 'number') cell.numFmt = 'mmm yyyy';
       cell.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } };
       cell.alignment = { horizontal: 'right' };
     }
@@ -1782,11 +1791,12 @@ function addPhaseTimeline(ws: ExcelJS.Worksheet, snap: ReturnType<typeof compute
     n.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } }; n.alignment = { horizontal: 'left' };
     registerCell('tl:project:count', ws, n);
   } else setLabel(ws.getCell(r, 2), `${phases.length} phase${phases.length === 1 ? '' : 's'}`);
-  const envelope: Array<[number, string]> = [[3, fmtDate(projTl.startDate)], [6, fmtDate(projTl.endDate)]];
+  const envelope: Array<[number, string | number]> = [[3, fmtDate(projTl.startDate)], [6, fmtDate(projTl.endDate)]];
   registerCell('tl:project:start', ws, ws.getCell(r, 3));
   registerCell('tl:project:end', ws, ws.getCell(r, 6));
   for (const [c, v] of envelope) {
     const cell = ws.getCell(r, c); cell.value = v;
+    if (typeof v === 'number') cell.numFmt = 'mmm yyyy';
     cell.font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.formula } };
     cell.alignment = { horizontal: 'right' };
   }

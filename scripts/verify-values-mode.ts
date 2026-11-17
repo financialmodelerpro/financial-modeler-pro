@@ -24,12 +24,25 @@
  * row 4 (`geomOf`). Until this change V5 and V6 checked "0 rows": they had stopped running when the
  * frame moved, and passed. Each now FAILS on zero rows checked.
  *
+ * THE SHIPPED VALUES FILE IS THE LIVE FILE FROZEN (2026-11-17, founder: "same tabs, layout, styles, sections, Dashboard,
+ * Guide and Cover as the live file; the only difference: values instead of formulas"). Where the live workbook builds,
+ * the platform ships it with every formula replaced by its value; where it does not (a project with no asset, a
+ * set-up it refuses), the platform ships the values mode below. So:
+ *   F1 the shipped file builds on every probe; F2 it holds no formula; F3 it is the frozen live file exactly when the
+ *      live workbook builds, cell for cell (every value equals the live file's value or formula result), and the
+ *      values mode otherwise.
+ * V1 to V7 keep proving the VALUES MODE itself (buildValuesModeWorkbook), on every set-up, against the engine. The
+ * reference layout (2026-11-17) puts a line's label in column C and a bar's text in column B: the label, bar and bold
+ * reads follow it (`LABEL_COL`, `BAR_COL`).
+ *
  * Run: npx tsx --env-file=.env.local scripts/verify-values-mode.ts
  * No em dashes in this file.
  */
 import ExcelJS from 'exceljs';
 import { createClient } from '@supabase/supabase-js';
-import { buildValuesWorkbook } from '../src/hubs/modeling/platforms/refm/lib/excel/valuesWorkbook';
+import { buildValuesWorkbook, buildValuesModeWorkbook } from '../src/hubs/modeling/platforms/refm/lib/excel/valuesWorkbook';
+import { buildFormulaWorkbook } from '../src/hubs/modeling/platforms/refm/lib/excel/formulaWorkbook';
+import { liveWorkbookRefusal } from '../src/hubs/modeling/platforms/refm/lib/excel/liveWorkbookAvailability';
 import { computeFinancialsSnapshot, computeFundingGap } from '../src/hubs/modeling/platforms/refm/lib/financials-resolvers';
 import { computeReturnsSnapshot } from '../src/hubs/modeling/platforms/refm/lib/returns-resolvers';
 import { buildCapexReport } from '../src/hubs/modeling/platforms/refm/lib/reports/capexReports';
@@ -59,7 +72,9 @@ const isF = (v: unknown): v is { formula: string; result?: unknown } => !!v && t
 const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 const R2 = (x: number): number => Math.round(x * 100) / 100;
 const keyOf = (a: number[]): string => a.map((x) => R2(x)).join(',');
-const lbl = (ws: ExcelJS.Worksheet, r: number): string => { const v = ws.getCell(r, 1).value as unknown; return typeof v === 'string' ? v.replace(/^\d+\.(\d+)?\s+/, '') : ''; };
+/** The reference layout: a line's label in C, a section bar's text (and its fill's first cell) in B. */
+const LABEL_COL = 3, BAR_COL = 2;
+const lbl = (ws: ExcelJS.Worksheet, r: number): string => { const v = (ws.getCell(r, LABEL_COL).value ?? ws.getCell(r, BAR_COL).value) as unknown; return typeof v === 'string' ? v.replace(/^\d+\.(\d+)?\s+/, '') : ''; };
 const sum = (a: number[] | undefined): number => (a ?? []).reduce((s, v) => s + (v ?? 0), 0);
 
 /** Every numeric series the engine produces, both signs, axis-aligned (and with an opening in front). */
@@ -132,7 +147,7 @@ function geomOf(ws: ExcelJS.Worksheet | undefined): Geom | null {
   });
   return first ? { first, open, total } : null;
 }
-const bar0 = (row: ExcelJS.Row): boolean => fillOf(row.getCell(1)) === 'FF1B4F8A';
+const bar0 = (row: ExcelJS.Row): boolean => fillOf(row.getCell(BAR_COL)) === 'FF1B4F8A';
 function tableRowsOf(ws: ExcelJS.Worksheet): Set<number> {
   const out = new Set<number>();
   const g = geomOf(ws); if (!g) return out;
@@ -144,7 +159,7 @@ function tableRowsOf(ws: ExcelJS.Worksheet): Set<number> {
     // Words in the year columns (a status, a covenant's "Breach") make it a table row, never a year series.
     const statusRow = !bar0(row) && textRight && !(texts >= 2 && [...Array(row.cellCount).keys()].every((i) => typeof row.getCell(i + 1).value !== 'number'));
     if (statusRow) { out.add(r); return; }
-    const bar = fillOf(row.getCell(1)) === 'FF1B4F8A' && texts === 1;
+    const bar = fillOf(row.getCell(BAR_COL)) === 'FF1B4F8A' && texts === 1;
     if (!any) { if (++blank >= 1) inTable = false; return; }
     blank = 0;
     if (bar) { inTable = false; return; }
@@ -192,14 +207,43 @@ function probe(name: string, input: LiveExportInputs, state: Any, plant = false)
   let snap: Any;
   try { snap = computeFinancialsSnapshot(state); } catch (e) { check(`${name}: the engine runs`, false, (e as Error).message); return; }
   const opts = { state, projectName: input.projectName, dateLabel: 'd', caseComparison: input.caseComparison ?? undefined, parties: input.parties, includeSensitivity: true };
+  // F: THE FILE THE PLATFORM SHIPS (the live file frozen where it builds, the values mode otherwise).
+  if (!plant) {
+    let shipped: ReturnType<typeof buildValuesWorkbook> | null = null;
+    try { shipped = buildValuesWorkbook(opts); } catch (e) { check(`F1 ${name}: the shipped values file builds`, false, (e as Error).message.slice(0, 200)); }
+    if (shipped) {
+      check(`F1 ${name}: the shipped values file builds`, true);
+      let fx = 0; for (const ws of shipped.wb.worksheets) ws.eachRow((row) => row.eachCell((c) => { if (isF(c.value)) fx++; }));
+      check(`F2 ${name}: the shipped file holds no formula`, fx === 0, `${fx}`);
+      let live: ExcelJS.Workbook | null = null;
+      try { const r = buildFormulaWorkbook({ ...opts, valuesOutput: true }); if (!liveWorkbookRefusal(r.status)) live = r.wb; } catch { live = null; }
+      if (!live) check(`F3 ${name}: the live workbook does not build here, and the shipped file is the values mode`, shipped.source === 'values', String(shipped.source));
+      else {
+        const diffs: string[] = []; let cells = 0;
+        for (const ws of live.worksheets) {
+          const o = shipped.wb.getWorksheet(ws.name);
+          if (!o) { diffs.push(`${ws.name} missing`); continue; }
+          ws.eachRow((row, r) => row.eachCell((c, col) => {
+            const v = c.value as unknown;
+            const want = isF(v) ? (v.result !== null && typeof v.result === 'object' ? null : v.result ?? null) : v;
+            const got = o.getCell(r, col).value as unknown;
+            cells++;
+            const same = typeof want === 'number' && typeof got === 'number' ? Math.abs(want - got) <= 1e-9 * Math.max(1, Math.abs(want)) : JSON.stringify(want) === JSON.stringify(got);
+            if (!same && diffs.length < 6) diffs.push(`${ws.name}!${c.address}`);
+          }));
+        }
+        check(`F3 ${name}: the shipped file is the live file frozen, cell for cell (${cells} cells)`, shipped.source === 'live' && !diffs.length && cells > 1000, `${shipped.source}; ${diffs.join(', ')}`);
+      }
+    }
+  }
   let wb: ExcelJS.Workbook;
-  try { wb = buildValuesWorkbook(opts).wb; } catch (e) { check(`V1 ${name}: the values file builds`, false, (e as Error).message.slice(0, 200)); return; }
+  try { wb = buildValuesModeWorkbook(opts).wb; } catch (e) { check(`V1 ${name}: the values file builds`, false, (e as Error).message.slice(0, 200)); return; }
   // THE CHECK FIRES (V7): a copy with one engine figure changed by 1% must be caught at exactly that row.
   let planted = '';
   if (plant) {
     const ws = wb.getWorksheet('Opex')!;
     const g0 = geomOf(ws)!;
-    ws.eachRow((row, r) => { if (planted || r <= 5 || row.getCell(1).font?.bold) return; for (let col = g0.first; col <= 30 && !planted; col++) { const c = row.getCell(col); if (typeof c.value === "number" && c.value > 1000) { c.value = c.value * 1.01; planted = `Opex!R${r}`; } } });
+    ws.eachRow((row, r) => { if (planted || r <= 6 || row.getCell(LABEL_COL).font?.bold) return; for (let col = g0.first; col <= 30 && !planted; col++) { const c = row.getCell(col); if (typeof c.value === "number" && c.value > 1000) { c.value = c.value * 1.01; planted = `Opex!R${r}`; } } });
   }
   check(`V1 ${name}: the values file builds`, true);
   let formulas = 0; const working: string[] = [];
@@ -302,9 +346,9 @@ function probe(name: string, input: LiveExportInputs, state: Any, plant = false)
         }
         // A block total: the line items (not bold) since the section's bar, added.
         if (!hit) {
-          let top = r - 1; while (top > 5 && !(fillOf(ws.getCell(top, 1)) === 'FF1B4F8A' && !rows.has(top))) top--;
+          let top = r - 1; while (top > 5 && !(fillOf(ws.getCell(top, BAR_COL)) === 'FF1B4F8A' && !rows.has(top))) top--;
           const acc = new Array<number>(N).fill(0);
-          for (const x of order) if (x > top && x < r && !ws.getCell(x, 1).font?.bold) rows.get(x)!.f.forEach((y, i) => (acc[i] += y));
+          for (const x of order) if (x > top && x < r && !ws.getCell(x, LABEL_COL).font?.bold) rows.get(x)!.f.forEach((y, i) => (acc[i] += y));
           if (keyOf(acc) === k || keyOf(acc.map((x) => -x)) === k) hit = true;
         }
         // Every figure on the row an engine value (a single-year figure: a disposal at the exit, a grid of returns).

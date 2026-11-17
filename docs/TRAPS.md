@@ -1484,6 +1484,30 @@ value. **Any step after the build that rewrites a formula must keep a cached val
 
 **Proof:** the same build recalculated in real Excel: 0 error cells (was 2,304).
 
+### 3.46 A live workbook opened with no stored values filled its financing loops with #VALUE! that never cleared
+
+**Symptom (2026-11-17):** the founder asked for the live file to be opened in real Excel with every stored value taken
+out and recalculated from nothing. It came back with 2,517 error cells (Schedules, Financing, the statements, Returns,
+the Dashboard), and four further full recalculations left every one of them. The same file with its stored values
+showed none, and LibreOffice (which recalculates from scratch its own way) showed none.
+
+**Mechanism:** inside iterative calculation Excel reads a formula cell it has not worked out yet as empty TEXT, not
+zero. The first pass through a loop does arithmetic on that text and gets #VALUE!, and once an error is inside a
+circular chain it feeds itself: Excel stops iterating because no figure is moving, with the errors still there. Wrapping
+the cross-tab links in N() was not enough, because the loops also read rows below them on the same tab. Excel listed the
+loops when asked with iteration off: interest (the debt, capitalised interest and cost of sales), the fund fees (the fee
+base is the equity, the equity funds the fees), the cash sweep (the sweep sets the debt repaid at the exit, which sets
+the cash the sweep takes from), and the zakat and phase EBITDA read back from the P&L.
+
+**Fix:** a circularity switch on Inputs (section "Calculation settings", 1 = on) that every loop-closing cell reads,
+IF(switch=1, ..., 0): interest charged, the sweep, total fund fees, and the Financing cells that read the P&L back. At 0
+Excel reports no circular reference at all, so every cell takes a figure; back at 1 the loops iterate from those
+figures. The Guide (section 3) says when to use it.
+
+**Proof:** `verify-export-vs-reference` D: the live file with every stored value stripped and the switch saved at 0,
+opened in real Excel, switched to 1 and recalculated: 0 error cells, and every figure (5,158 compared) within 2.4e-7 of
+the platform's stored value. **A file that only ever opens with its stored values hides this; test the cold start.**
+
 ## 4. PDF export (pdf-lib)
 
 ### 4.1 PDF text is glyph ids, so a naive grep returns nothing

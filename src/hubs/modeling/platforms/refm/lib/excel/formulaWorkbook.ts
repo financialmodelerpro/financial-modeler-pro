@@ -33,6 +33,9 @@ import type ExcelJS from 'exceljs';
 import { buildModelWorkbook, enableIterativeCalc, houseContextOf, type BuildModelOptions } from './buildModelWorkbook';
 import { applyHouseStyle, timelinePhaseFormula } from './houseStyle';
 import { CellRegistry, setCellSink } from './cellRegistry';
+import { applyReferenceLayout, composeMoves } from './referenceLayout';
+import { buildFrontTabs } from './referenceFront';
+import { addRiskTriggers, addDashboardCharts, type ChartSpec } from './dashboard';
 import { applyTabFrame, tilesInMillions, blankNonFlowTotals, type FrameMoves } from './tabFrame';
 import { dropInputGuards, simplifySumproducts, finalPasses } from './readability';
 import { inlineCells } from './relayout';
@@ -116,6 +119,8 @@ export interface FormulaWorkbookResult {
   pending: Set<string>;
   /** Where the tab frame moved each cell (null when the build ran without the house style). */
   frame: FrameMoves | null;
+  /** The Dashboard's charts, put into the package after it is written (ExcelJS writes none). */
+  charts: ChartSpec[];
 }
 
 export function buildFormulaWorkbook(opts: BuildModelOptions): FormulaWorkbookResult {
@@ -211,6 +216,7 @@ export function buildFormulaWorkbook(opts: BuildModelOptions): FormulaWorkbookRe
   // band reads Timeline, whose own row is worked out from its flag rows.
   const house = houseContextOf(wb);
   let frame: FrameMoves | null = null;
+  let charts: ChartSpec[] = [];
   if (house) {
     const rowOf = (k: string): number | null => registry.get(k)?.row ?? null;
     const ids = opts.state.phases.map((p) => p.id);
@@ -229,8 +235,16 @@ export function buildFormulaWorkbook(opts: BuildModelOptions): FormulaWorkbookRe
     dropInputGuards(wb);
     simplifySumproducts(wb);
     finalPasses(wb, house.scale);
+    // THE REFERENCE LAYOUT (2026-11-17, founder): columns A and B narrow, numbered bars, End of sheet; the registry
+    // and the frame's moves follow it.
+    addRiskTriggers(wb);
+    const refMoves = applyReferenceLayout(wb);
+    registry.remap(refMoves.move);
+    frame = frame ? composeMoves(frame, refMoves) : refMoves;
+    // THE FRONT TABS (2026-11-17, founder): the Guide, the Dashboard in place of the Summary, the Cover's navigation.
+    charts = buildFrontTabs(wb, { valuesOutput: !!opts.valuesOutput, scale: house.scale }).charts;
   }
-  return { wb, registry, status, pending, frame };
+  return { wb, registry, status, pending, frame, charts };
 }
 
 /**
@@ -273,7 +287,7 @@ function applyInputValidation(wb: ExcelJS.Workbook, ws: ExcelJS.Worksheet, regis
  * Capex (selling costs charge on it) and Financing after Schedules (the solve's
  * tax reads depreciation). The front tabs, Scenarios and Checks keep their places.
  */
-export const TAB_ORDER = ['Cover', 'Guide', 'Summary', 'Inputs', 'Timeline', 'Land & Area', 'Revenue', 'Capex', 'Opex', 'Schedules', 'Financing', 'P&L', 'Cash Flow', 'Balance Sheet', 'Returns', 'Scenarios', 'Checks'];
+export const TAB_ORDER = ['Cover', 'Guide', 'Dashboard', 'Summary', 'Inputs', 'Timeline', 'Land & Area', 'Revenue', 'Capex', 'Opex', 'Schedules', 'Financing', 'P&L', 'Cash Flow', 'Balance Sheet', 'Returns', 'Scenarios', 'Checks'];
 function orderTabs(wb: ExcelJS.Workbook): void {
   const rest = wb.worksheets.filter((ws) => !TAB_ORDER.includes(ws.name));
   let n = 0;
@@ -303,7 +317,8 @@ export const LOOP_LINKS: ReadonlyArray<{ from: string; to: string; fromRow?: Reg
   // them in, so a selling cost is worked out once. Only those rows and their total may read Capex.
   { from: 'Revenue', to: 'Capex', fromRow: /: selling costs$|^Total selling costs$/ },
 ];
-const rowLabel = (wb: ExcelJS.Workbook, sheet: string, row: number): string => String(wb.getWorksheet(sheet)?.getCell(row, 1).value ?? '').trim();
+/** A row's label: column A before the reference layout, column C after it (2026-11-17). */
+const rowLabel = (wb: ExcelJS.Workbook, sheet: string, row: number): string => { const ws = wb.getWorksheet(sheet); const a = ws?.getCell(row, 1).value, c = ws?.getCell(row, 3).value; return String((typeof a === 'string' && a.trim() ? a : c) ?? '').trim(); };
 const isLoopLink = (wb: ExcelJS.Workbook, b: { from: string; to: string; row: number }): boolean =>
   LOOP_LINKS.some((x) => x.from === b.from && x.to === b.to && (!x.fromRow || x.fromRow.test(rowLabel(wb, b.from, b.row))));
 
@@ -316,7 +331,8 @@ const isLoopLink = (wb: ExcelJS.Workbook, b: { from: string; to: string; row: nu
 export function exportShapeProblems(wb: ExcelJS.Workbook): string[] {
   const out: string[] = [];
   const names = new Set(wb.worksheets.map((ws) => ws.name));
-  const re = /(?:'((?:[^']|'')+)'|([A-Za-z0-9_&.]+))!/g;
+  // An unquoted tab name has no & in it (Excel quotes 'P&L'), so "text"&Inputs!D6 reads Inputs (2026-11-17).
+  const re = /(?:'((?:[^']|'')+)'|(?<![A-Za-z0-9_.])([A-Za-z_][A-Za-z0-9_.]*))!/g;
   for (const ws of wb.worksheets) {
     if (ws.state !== 'visible' && ws.state !== undefined) out.push(`the tab "${ws.name}" is hidden`);
     for (let r = 1; r <= ws.rowCount; r++) if (ws.getRow(r).hidden) out.push(`${ws.name} row ${r} is hidden`);
@@ -379,8 +395,8 @@ export async function generateLiveWorkbook(opts: BuildModelOptions): Promise<
   }
   const refusal = liveWorkbookRefusal(res.status);
   if (refusal) return { ok: false, message: refusal.message, detail: res.status.get('Financing')?.note ?? '' };
-  const buf = await res.wb.xlsx.writeBuffer();
-  return { ok: true, buffer: await enableFormulaIteration(buf as ArrayBuffer) };
+  const buf = await addDashboardCharts((await res.wb.xlsx.writeBuffer()) as ArrayBuffer, res.charts);
+  return { ok: true, buffer: await enableFormulaIteration(buf) };
 }
 
 // ── Honest labelling ─────────────────────────────────────────────────────────
@@ -441,7 +457,7 @@ function relabel(wb: ExcelJS.Workbook, status: FormulaWorkbookResult['status']):
 }
 
 /** The tabs a formula may only read forward from, in the flow (front matter and Checks read everything). */
-const FLOW = TAB_ORDER.filter((n) => !['Cover', 'Guide', 'Summary', 'Scenarios', 'Checks'].includes(n));
+const FLOW = TAB_ORDER.filter((n) => !['Cover', 'Guide', 'Dashboard', 'Summary', 'Scenarios', 'Checks'].includes(n));
 
 /**
  * EVERY FORMULA THAT READS A LATER TAB (2026-10-15), by row: a flow tab reading a tab after it, or a

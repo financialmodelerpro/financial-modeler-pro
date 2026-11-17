@@ -19,16 +19,27 @@
  *
  * It exports for EVERY project and set-up: nothing here refuses.
  *
+ * THE LIVE FILE, FROZEN (2026-11-17, founder: "same tabs, tab order, layout, styles, sections, Dashboard, Guide and
+ * Cover as the live file; the only difference: values instead of formulas"). Where the live workbook builds and is
+ * not refused, the values file IS that workbook with every formula replaced by the value it holds (the engine's
+ * figure the builder printed, which the real-Excel proof shows each formula gives back), so the two files cannot
+ * differ in a row, a style or a word. A project the live workbook refuses (no asset, a set-up it does not model)
+ * falls back to the values mode below, which builds for every project.
+ *
  * No em dashes in this file.
  */
 import type ExcelJS from 'exceljs';
-import { buildModelWorkbook, houseContextOf, enableIterativeCalc, type BuildModelOptions } from './buildModelWorkbook';
+import { buildModelWorkbook, houseContextOf, enableIterativeCalc, applyPartVisibility, type BuildModelOptions } from './buildModelWorkbook';
 import { CellRegistry, setCellSink } from './cellRegistry';
 import { deleteRowAt } from './liveFrontMatter';
 import { applyHouseStyle } from './houseStyle';
+import { applyReferenceLayout } from './referenceLayout';
 import { applyTabFrame, tilesInMillions, blankNonFlowTotals } from './tabFrame';
 import { finalPasses } from './readability';
-import { TAB_ORDER } from './formulaWorkbook';
+import { TAB_ORDER, buildFormulaWorkbook } from './formulaWorkbook';
+import { emptyProjectRefusal, liveWorkbookRefusal } from './liveWorkbookAvailability';
+import { addDashboardCharts, addRiskTriggers, type ChartSpec } from './dashboard';
+import { buildFrontTabs } from './referenceFront';
 
 /** THE VALUES FILE'S TABS IN THE LIVE FILE'S ORDER (founder, 2026-11-15): Revenue before Capex and Financing. */
 function orderTabs(wb: ExcelJS.Workbook): void {
@@ -70,9 +81,45 @@ export const WORKING_ROWS: ReadonlyArray<RegExp> = [
 /** A calculation tab's yes / no flags and year counters, by their words. */
 export const WORKING_LABELS = /\(1 = yes\)$|^Operating year \(any phase operating\)$|year number$/;
 
-export interface ValuesWorkbookResult { wb: ExcelJS.Workbook; dropped: Array<{ sheet: string; key: string; label: string }> }
+export interface ValuesWorkbookResult { wb: ExcelJS.Workbook; dropped: Array<{ sheet: string; key: string; label: string }>; source?: 'live' | 'values'; charts?: ChartSpec[] }
+
+/**
+ * The live workbook with every formula frozen to the value it holds, or null when the live workbook does not build
+ * for this project (no asset, a refusal, a failed check), in which case the values mode builds the file.
+ */
+export function frozenLiveWorkbook(opts: BuildModelOptions): { wb: ExcelJS.Workbook; charts: ChartSpec[] } | null {
+  const assets = (opts.state as { assets?: Array<{ visible?: boolean }> }).assets ?? [];
+  if (emptyProjectRefusal(assets.filter((a) => a.visible !== false).length)) return null;
+  let wb: ExcelJS.Workbook, charts: ChartSpec[];
+  try {
+    const res = buildFormulaWorkbook({ ...opts, valuesOutput: true });
+    if (liveWorkbookRefusal(res.status)) return null;
+    wb = res.wb; charts = res.charts;
+  } catch {
+    return null;
+  }
+  for (const ws of wb.worksheets) ws.eachRow((row) => row.eachCell((c) => {
+    const v = c.value as unknown as { formula?: string; result?: unknown } | null;
+    if (!v || typeof v !== 'object' || typeof v.formula !== 'string') return;
+    const r = v.result;
+    c.value = (r !== null && typeof r === 'object' ? null : r ?? null) as ExcelJS.CellValue;
+  }));
+  applyPartVisibility(wb, opts.parts);
+  return { wb, charts };
+}
 
 export function buildValuesWorkbook(opts: BuildModelOptions): ValuesWorkbookResult {
+  const frozen = frozenLiveWorkbook(opts);
+  if (frozen) return { wb: frozen.wb, dropped: [], source: 'live', charts: frozen.charts };
+  return buildValuesModeWorkbook(opts);
+}
+
+/**
+ * THE VALUES MODE, the file for a project the live workbook does not build for (and the engine-tie proof of
+ * verify-values-mode): the live layout's rows with the engine's numbers, laid out as the live file is, with the same
+ * front tabs (the Dashboard, the Guide, the Cover's navigation).
+ */
+export function buildValuesModeWorkbook(opts: BuildModelOptions): ValuesWorkbookResult {
   const registry = new CellRegistry();
   setCellSink(registry.sink, registry.shift);
   let wb: ExcelJS.Workbook;
@@ -123,9 +170,21 @@ export function buildValuesWorkbook(opts: BuildModelOptions): ValuesWorkbookResu
     tilesInMillions(wb);
     blankNonFlowTotals(wb);
     finalPasses(wb, house.scale);
+    addRiskTriggers(wb);
+    applyReferenceLayout(wb);
   }
   orderTabs(wb);
-  return { wb, dropped };
+  let charts: ChartSpec[] = [];
+  if (house) {
+    charts = buildFrontTabs(wb, { valuesOutput: true, scale: house.scale, emptyDashboardIfUnreadable: true }).charts;
+    // The front tabs are built as formulas over the figures; a values file holds their values.
+    for (const ws of wb.worksheets) ws.eachRow((row) => row.eachCell((c) => {
+      const v = c.value as unknown as { formula?: string; result?: unknown } | null;
+      if (v && typeof v === 'object' && typeof v.formula === 'string') c.value = (v.result !== null && typeof v.result === 'object' ? null : v.result ?? null) as ExcelJS.CellValue;
+    }));
+  }
+  orderTabs(wb);
+  return { wb, dropped, source: 'values', charts };
 }
 
 /** A heading (a filled bar, or a bold label with no figure) with no figure under it before the next heading goes. */
@@ -150,7 +209,7 @@ function dropEmptyHeadings(ws: ExcelJS.Worksheet): void {
 
 /** The values workbook as a file: the one door the Export dialog's values download calls. */
 export async function generateValuesWorkbookBuffer(opts: BuildModelOptions): Promise<ArrayBuffer> {
-  const { wb } = buildValuesWorkbook(opts);
-  const buf = await wb.xlsx.writeBuffer();
-  return enableIterativeCalc(buf as ArrayBuffer);
+  const { wb, charts } = buildValuesWorkbook(opts);
+  const buf = await addDashboardCharts((await wb.xlsx.writeBuffer()) as ArrayBuffer, charts ?? []);
+  return enableIterativeCalc(buf);
 }

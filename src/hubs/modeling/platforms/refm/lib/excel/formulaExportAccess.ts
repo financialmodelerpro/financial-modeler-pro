@@ -1,45 +1,32 @@
 /**
- * formulaExportAccess.ts (2026-09-27), SERVER ONLY.
+ * formulaExportAccess.ts (2026-09-27; opened as a Beta 2026-11-17), SERVER ONLY.
  *
- * WHO MAY EXPORT THE FORMULA-LINKED WORKBOOK WHILE IT IS BEING BUILT.
+ * WHO MAY EXPORT THE FORMULA-LINKED (LIVE) WORKBOOK.
  *
- * The founder's decision: while the live workbook is built in stages, only the
- * founder's own account sees the option or can obtain the file. The rule is
- * enforced HERE, on the server, by the route that builds the file (the
- * workbook is built server side for exactly this reason, so its code never
- * reaches another user's browser); the Export dialog only asks this route
- * whether to show the option, and a request from anyone else is refused even
- * if they find the URL.
+ * 2026-11-17, founder: "The live workbook download is gated by featureAllowed('excel_formula'): Pro and Firm only,
+ * Trial excluded." The one-account preview list is deleted, as this file said it would be when the workbook was
+ * opened up: the decision is the plan entitlement, read through the same live gate every other export uses
+ * (`resolveUserGate`, which reads the live users row, never the session token). An admin passes through the gate's
+ * full access, as everywhere else. Which plans carry `excel_formula` is data (`plan_permissions`, migration 257,
+ * and the admin Plan Builder), not code.
  *
- * The account is matched on the LIVE users row's email, never on the session
- * token, so a stale or forged claim cannot pass it.
- *
- * WHEN IT IS OPENED UP (the founder will say so), this becomes a plan
- * entitlement like the other exports: `featureAllowed(gate, 'excel_formula')`
- * (the feature key already exists and is `included: false` on every plan),
- * and the preview list below is deleted, not extended.
+ * The rule is enforced HERE, on the server, by the route that builds the live file; the Export dialog only asks the
+ * route whether to show the option, and a request from anyone else is refused even if they find the URL.
  *
  * No em dashes in this file.
  */
-import { getServerClient } from '@/src/core/db/supabase';
+import { resolveUserGate } from '@/src/shared/entitlements/resolveUser';
+import { featureAllowed } from '@/src/shared/entitlements/gate';
 
-/** The accounts that may use the preview, by email. Compared case-insensitively. */
-export const FORMULA_EXPORT_PREVIEW_EMAILS: readonly string[] = ['meetahmadch@gmail.com'];
+/** The entitlement that opens the live workbook. */
+export const FORMULA_EXPORT_FEATURE = 'excel_formula';
 
-/** The pure decision, so a verifier can run it without a database. */
-export function formulaExportAllowedFor(email: string | null | undefined): boolean {
-  if (!email) return false;
-  const e = email.trim().toLowerCase();
-  return FORMULA_EXPORT_PREVIEW_EMAILS.some((x) => x.toLowerCase() === e);
-}
-
-/** Reads the caller's email from the live users row. Any failure REFUSES. */
-export async function formulaExportAllowed(userId: string | null | undefined): Promise<boolean> {
+/** Whether the caller's plan opens the live workbook. Any failure REFUSES. */
+export async function formulaExportAllowed(userId: string | null | undefined, sessionIsAdmin = false): Promise<boolean> {
   if (!userId) return false;
   try {
-    const { data, error } = await getServerClient().from('users').select('email').eq('id', userId).maybeSingle();
-    if (error || !data) return false;
-    return formulaExportAllowedFor((data as { email?: string | null }).email);
+    const gate = await resolveUserGate(userId, { sessionIsAdmin });
+    return featureAllowed(gate, FORMULA_EXPORT_FEATURE);
   } catch {
     return false;
   }
