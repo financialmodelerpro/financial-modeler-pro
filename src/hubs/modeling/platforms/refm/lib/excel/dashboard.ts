@@ -606,7 +606,7 @@ export function buildDashboard(wb: ExcelJS.Workbook, ctx: DashboardContext): { c
     ] } as never);
   });
   const riskNote = riskBar + 2 + risks.length;
-  put(riskNote, 7, 'Triggers are inputs: set them on Inputs (Dashboard risk triggers) to the committee\'s own limits.', 'note');
+  put(riskNote, 7, 'Triggers are inputs: set them on Project Inputs (Dashboard and model settings) to the committee\'s own limits.', 'note');
   for (let r = top + 2; r <= Math.max(assumEnd, riskNote); r++) if (!ws.getRow(r).height) ws.getRow(r).height = 13.5;
 
   // ── Page 2 ──

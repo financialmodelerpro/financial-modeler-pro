@@ -4100,7 +4100,7 @@ function renderPlaceholderModule(ctx: Ctx, m: ModuleConfig): void {
   }
 }
 
-function renderModule(ctx: Ctx, moduleLabel: string, items: ModuleContent, sel: ModuleSectionSelection, fmt: Fmt, selectedTabs?: string[]): void {
+function renderModule(ctx: Ctx, moduleLabel: string, items: ModuleContent, sel: ModuleSectionSelection, fmt: Fmt, selectedTabs?: string[], inputsLabel = PART_LABEL.inputs): void {
   // Group by tab (stable order), keeping only selected parts (and, when given,
   // only the selected tabs).
   const order: string[] = [];
@@ -4123,7 +4123,7 @@ function renderModule(ctx: Ctx, moduleLabel: string, items: ModuleContent, sel: 
     for (const part of ['inputs', 'outputs', 'schedules'] as PartKind[]) {
       const partItems = tabItems.filter((i) => i.part === part);
       for (const ti of partItems) {
-        if (ti.part !== curPart) { drawPartHeader(ctx, PART_LABEL[part], part === 'inputs' ? 'Shaded cells are model inputs / assumptions' : undefined); curPart = ti.part; }
+        if (ti.part !== curPart) { drawPartHeader(ctx, part === 'inputs' ? inputsLabel : PART_LABEL[part], part === 'inputs' ? 'Shaded cells are model inputs / assumptions' : undefined); curPart = ti.part; }
         drawItem(ctx, ti.item, fmt, ti.part === 'inputs');
       }
     }
@@ -4457,7 +4457,9 @@ export async function generateProjectPdf(opts: GenerateProjectPdfOptions): Promi
   for (const { m, content } of planned) {
     if (!content) { beginModule(m); renderPlaceholderModule(ctx, m); ctx.nav.current = null; continue; }
     beginModule(m);
-    renderModule(ctx, `Module ${m.num}: ${m.longLabel}`, content, sel[m.key] ?? {}, fmt, opts.moduleTabs?.[m.key]);
+    // TWO INPUT TABS (2026-11-18, founder item 5): each module's inputs are headed by the workbook tab that holds them.
+    const inputsLabel = m.key === 'module2' || m.key === 'module3' ? 'Operating Inputs' : 'Project Inputs';
+    renderModule(ctx, `Module ${m.num}: ${m.longLabel}`, content, sel[m.key] ?? {}, fmt, opts.moduleTabs?.[m.key], inputsLabel);
     ctx.nav.current = null;
   }
 

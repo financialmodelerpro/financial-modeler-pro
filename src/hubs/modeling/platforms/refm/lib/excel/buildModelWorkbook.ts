@@ -201,6 +201,8 @@ const SHEET_PART: Record<string, SheetPart> = {
   [SHEETS.cover]: 'always',
   [SHEETS.summary]: 'always',
   [SHEETS.assumptions]: 'inputs',
+  'Project Inputs': 'inputs',
+  'Operating Inputs': 'inputs',
   [SHEETS.timeline]: 'inputs',
   [SHEETS.landArea]: 'inputs',
   [SHEETS.capex]: 'schedules',

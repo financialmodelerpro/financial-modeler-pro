@@ -88,6 +88,10 @@ export class CellRegistry {
   remap(fn: (sheet: string, row: number, col: number) => { r: number; c: number } | null): void {
     for (const a of this.map.values()) { const m = fn(a.sheet, a.row, a.col); if (m) { a.row = m.r; a.col = m.c; } }
   }
+  /** A move that can change the tab (the Inputs split, 2026-11-18). */
+  relocate(fn: (sheet: string, row: number, col: number) => { sheet: string; r: number; c: number } | null): void {
+    for (const a of this.map.values()) { const m = fn(a.sheet, a.row, a.col); if (m) { a.sheet = m.sheet; a.row = m.r; a.col = m.c; } }
+  }
   get(key: string): CellAddr | undefined { return this.map.get(key); }
   /** The cell or a thrown error naming the missing key (a formula must never guess). */
   need(key: string): CellAddr {

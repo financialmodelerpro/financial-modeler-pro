@@ -15,6 +15,7 @@
 import type ExcelJS from 'exceljs';
 import { FormulaEvaluator, workbookReader } from './formulaEval';
 import { buildDashboard, type ChartSpec } from './dashboard';
+import { splitInputs, PROJECT_INPUTS, type SplitResult } from './splitInputs';
 
 const NAVY = 'FF153D64', BAR = 'FF1B4F8A', INK = 'FF2A3440', GREY = 'FF6B7785', WHITE = 'FFFFFFFF', LINK = 'FF0563C1';
 
@@ -22,6 +23,8 @@ const NAVY = 'FF153D64', BAR = 'FF1B4F8A', INK = 'FF2A3440', GREY = 'FF6B7785', 
 export const TAB_LINES: ReadonlyArray<[string, string]> = [
   ['Dashboard', 'The investment case on three pages: headline returns, key messages, assumptions, risk flags, economics, funding, scenarios and charts.'],
   ['Inputs', "Every number you can change, in the platform's module order."],
+  ['Project Inputs', 'Every project input: timeline, land and plots, types and build rates, costs and phasing, funding, %TAX% and depreciation, exit and fund terms.'],
+  ['Operating Inputs', 'Every operating input: residential sales, hospitality and retail operations, working capital.'],
   ['Timeline', "Model years, each phase's dates, the programme bar and the year flags every tab reads."],
   ['Land & Area', 'Land, plots and the area chain: GFA, NSA, units, keys and parking for each plot and line.'],
   ['Revenue', 'Sales and collections for each sell line; occupancy, rate and revenue for the hotel and lease lines; selling costs.'],
@@ -59,7 +62,7 @@ function taxWord(wb: ExcelJS.Workbook): 'zakat' | 'tax' {
   return zakat ? 'zakat' : 'tax';
 }
 function currencyOf(wb: ExcelJS.Workbook): string {
-  const ws = wb.getWorksheet('Inputs');
+  const ws = wb.getWorksheet('Inputs') ?? wb.getWorksheet(PROJECT_INPUTS);
   let ccy = 'USD';
   ws?.eachRow((row) => { if (txt(row.getCell(3)) === 'Currency' && typeof row.getCell(4).value === 'string') ccy = String(row.getCell(4).value); });
   return ccy;
@@ -75,7 +78,7 @@ function freshSheet(wb: ExcelJS.Workbook, name: string, replaces?: string): Exce
   return ws;
 }
 
-export function buildFrontTabs(wb: ExcelJS.Workbook, ctx: FrontContext): { charts: ChartSpec[] } {
+export function buildFrontTabs(wb: ExcelJS.Workbook, ctx: FrontContext): { charts: ChartSpec[]; split: SplitResult | null } {
   const tax = taxWord(wb);
   const ccy = currencyOf(wb);
   // NOTHING READS THE SUMMARY: it goes, the Dashboard takes its place.
@@ -87,16 +90,37 @@ export function buildFrontTabs(wb: ExcelJS.Workbook, ctx: FrontContext): { chart
     }));
   }
   freshSheet(wb, 'Dashboard', 'Summary');
-  buildGuide(freshSheet(wb, 'Guide'), wb, ctx, tax);
   let charts: ChartSpec[] = [];
   try { charts = buildDashboard(wb, { currency: ccy, scale: ctx.scale }).charts; }
   catch (e) {
     if (!ctx.emptyDashboardIfUnreadable) throw e;
     emptyDashboard(freshSheet(wb, 'Dashboard'));
   }
+  // TWO INPUT TABS (2026-11-18, founder item 5): the Dashboard is built on Inputs and follows its cells; the Guide
+  // and the Cover are built after, on the two tabs.
+  const split = splitInputs(wb);
+  buildGuide(freshSheet(wb, 'Guide'), wb, ctx, tax);
+  if (split) renameInputsInProse(wb.getWorksheet('Guide'));
   restyleCover(wb, tax);
   for (const name of ['Cover', 'Guide', 'Dashboard']) { const ws = wb.getWorksheet(name); if (ws) plainMergedCells(ws); }
-  return { charts };
+  return { charts, split };
+}
+
+/** The Guide's sentences name the two input tabs once Inputs is split (2026-11-18). */
+function renameInputsInProse(ws: ExcelJS.Worksheet | undefined): void {
+  if (!ws) return;
+  const swaps: Array<[RegExp, string]> = [
+    [/yellow cells on Inputs/g, 'yellow cells on Project Inputs and Operating Inputs'],
+    [/^Inputs {2}->/g, 'Project Inputs, Operating Inputs  ->'],
+    [/terms on Inputs/g, 'terms on Operating Inputs'],
+    [/covenant on Inputs/g, 'covenant on Project Inputs'],
+    [/on Inputs/g, 'on Project Inputs'],
+  ];
+  ws.eachRow((row) => row.eachCell((c) => {
+    if (typeof c.value !== 'string') return;
+    let s = c.value; for (const [re, to] of swaps) s = s.replace(re, to);
+    if (s !== c.value) c.value = s;
+  }));
 }
 
 /**
@@ -180,13 +204,14 @@ function buildGuide(ws: ExcelJS.Worksheet, wb: ExcelJS.Workbook, ctx: FrontConte
   r++;
 
   bar('What this model does');
-  const inputs = wb.getWorksheet('Inputs')!;
+  const inputs = (wb.getWorksheet('Inputs') ?? wb.getWorksheet(PROJECT_INPUTS))!;
+  const INP = inputs.name === 'Inputs' ? 'Inputs' : `'${inputs.name}'`;
   let nameRow = 0, locRow = 0;
   inputs.eachRow((row, rr) => { const t = txt(row.getCell(3)); if (t === 'Project Name' && !nameRow) nameRow = rr; if (t === 'Location' && !locRow) locRow = rr; });
   const tl = wb.getWorksheet('Timeline')!;
   let fy = 0, ly = 0, ny = 0;
   tl.eachRow((row, rr) => { const t = txt(row.getCell(3)); if (t === 'First model year') fy = rr; if (t === 'Last model year') ly = rr; if (t === 'Model years') ny = rr; });
-  line('Purpose', { formula: `"A development, sales, operating, financing and exit model for "&Inputs!$D$${nameRow}&" in "&Inputs!$D$${locRow}&", built on Financial Modeler Pro and exported with ${ctx.valuesOutput ? 'its values' : 'live formulas'}."` }, { height: 27 });
+  line('Purpose', { formula: `"A development, sales, operating, financing and exit model for "&${INP}!$D$${nameRow}&" in "&${INP}!$D$${locRow}&", built on Financial Modeler Pro and exported with ${ctx.valuesOutput ? 'its values' : 'live formulas'}."` }, { height: 27 });
   line('Time frame', { formula: `"Annual model, "&Timeline!$F$${fy}&" to "&Timeline!$F$${ly}&" ("&Timeline!$F$${ny}&" years), one column per year ending in December. The Opening column holds balances before the first year."` }, { height: 27 });
   line('Scheme', 'Land and plots, then GFA, NSA, units and keys for each line; each line is sold, operated (hotel) or leased (retail).');
   line('Methods', `Area chain from land, off-plan sales with instalments and revenue at handover, hotel P&L to EBITDA, leasing to NOI, cost-based capex with spend curves, funding sized on the cash short of the minimum, a cash sweep, ${tax}, and an exit at a cap rate.`, { height: 27 });

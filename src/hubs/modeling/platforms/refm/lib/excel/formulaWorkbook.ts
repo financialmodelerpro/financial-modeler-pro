@@ -242,7 +242,10 @@ export function buildFormulaWorkbook(opts: BuildModelOptions): FormulaWorkbookRe
     registry.remap(refMoves.move);
     frame = frame ? composeMoves(frame, refMoves) : refMoves;
     // THE FRONT TABS (2026-11-17, founder): the Guide, the Dashboard in place of the Summary, the Cover's navigation.
-    charts = buildFrontTabs(wb, { valuesOutput: !!opts.valuesOutput, scale: house.scale }).charts;
+    const front = buildFrontTabs(wb, { valuesOutput: !!opts.valuesOutput, scale: house.scale });
+    charts = front.charts;
+    // The Inputs split moves cells between tabs; the registry follows.
+    if (front.split) registry.relocate(front.split.move);
   }
   return { wb, registry, status, pending, frame, charts };
 }
@@ -287,7 +290,7 @@ function applyInputValidation(wb: ExcelJS.Workbook, ws: ExcelJS.Worksheet, regis
  * Capex (selling costs charge on it) and Financing after Schedules (the solve's
  * tax reads depreciation). The front tabs, Scenarios and Checks keep their places.
  */
-export const TAB_ORDER = ['Cover', 'Guide', 'Dashboard', 'Summary', 'Inputs', 'Timeline', 'Land & Area', 'Revenue', 'Capex', 'Opex', 'Schedules', 'Financing', 'P&L', 'Cash Flow', 'Balance Sheet', 'Returns', 'Scenarios', 'Checks'];
+export const TAB_ORDER = ['Cover', 'Guide', 'Dashboard', 'Summary', 'Inputs', 'Project Inputs', 'Operating Inputs', 'Timeline', 'Land & Area', 'Revenue', 'Capex', 'Opex', 'Schedules', 'Financing', 'P&L', 'Cash Flow', 'Balance Sheet', 'Returns', 'Scenarios', 'Checks'];
 function orderTabs(wb: ExcelJS.Workbook): void {
   const rest = wb.worksheets.filter((ws) => !TAB_ORDER.includes(ws.name));
   let n = 0;

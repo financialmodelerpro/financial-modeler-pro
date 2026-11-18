@@ -212,7 +212,9 @@ export function buildValuesModeWorkbook(opts: BuildModelOptions): ValuesWorkbook
   orderTabs(wb);
   let charts: ChartSpec[] = [];
   if (house) {
-    charts = buildFrontTabs(wb, { valuesOutput: true, scale: house.scale, emptyDashboardIfUnreadable: true }).charts;
+    const front = buildFrontTabs(wb, { valuesOutput: true, scale: house.scale, emptyDashboardIfUnreadable: true });
+    charts = front.charts;
+    if (front.split) registry.relocate(front.split.move);
     // The front tabs are built as formulas over the figures; a values file holds their values.
     freezeFormulas(wb);
   }
