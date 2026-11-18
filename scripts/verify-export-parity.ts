@@ -34,6 +34,41 @@ import { getFinancialLabels, defaultTerminologyForCountry } from '../src/core/ca
 import { formatAccounting } from '../src/core/formatters';
 import { resolveFundTerms, FEE_BASE_LABELS } from '../src/hubs/modeling/platforms/refm/lib/fundTerms';
 import { IDC_INTEREST_METHOD_LABELS, resolveIdcInterestMethod } from '../src/hubs/modeling/platforms/refm/lib/state/module1-types';
+import { execFileSync } from 'node:child_process';
+import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
+
+/**
+ * THE LIVE FILE RECALCULATED EQUALS WHAT IT STORES (2026-11-18, founder): the values file is the live file frozen,
+ * so a stored figure the formulas do not give back is a published series the engine got wrong. Recalculate every
+ * formula in headless LibreOffice and count the cells whose result differs from the stored value.
+ */
+const SOFFICE = join(process.env.LOCALAPPDATA ?? '', 'LibreOfficeExtract', 'program', 'soffice.exe');
+async function libreDiff(buf: Buffer | ArrayBuffer, stored: ExcelJS.Workbook, tag: string): Promise<{ compared: number; diffs: string[]; errors: string[] } | null> {
+  if (!existsSync(SOFFICE)) return null;
+  const dir = resolve('exports', '.parity'); const outDir = join(dir, 'out'); const prof = join(dir, 'profile', 'user');
+  rmSync(outDir, { recursive: true, force: true }); mkdirSync(outDir, { recursive: true }); mkdirSync(prof, { recursive: true });
+  writeFileSync(join(prof, 'registrymodifications.xcu'), '<?xml version="1.0" encoding="UTF-8"?><oor:items xmlns:oor="http://openoffice.org/2001/registry" xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"><item oor:path="/org.openoffice.Office.Calc/Formula/Load"><prop oor:name="OOXMLRecalcMode" oor:op="fuse"><value>0</value></prop></item><item oor:path="/org.openoffice.Office.Calc/Formula/Load"><prop oor:name="ODFRecalcMode" oor:op="fuse"><value>0</value></prop></item></oor:items>');
+  const src = join(dir, `${tag}.xlsx`);
+  writeFileSync(src, Buffer.from(buf as ArrayBuffer));
+  execFileSync(SOFFICE, [`-env:UserInstallation=file:///${join(dir, 'profile').replace(/\\/g, '/')}`, '--headless', '--norestore', '--calc', '--convert-to', 'xlsx', '--outdir', outDir, src], { timeout: 900_000, stdio: 'pipe' });
+  const wb = await loadWb(await (await import('node:fs/promises')).readFile(join(outDir, `${tag}.xlsx`)));
+  let compared = 0; const diffs: string[] = []; const errors: string[] = [];
+  for (const ws of stored.worksheets) {
+    const re = wb.getWorksheet(ws.name);
+    ws.eachRow((row) => row.eachCell((c) => {
+      const v = c.value as { formula?: string; result?: unknown } | null;
+      if (!v || typeof v !== 'object' || !('formula' in v) || typeof v.result !== 'number') return;
+      const r = re?.getCell(c.address).value as { result?: unknown } | number | null | undefined;
+      const x = r && typeof r === 'object' && 'result' in r ? r.result : r;
+      if (x && typeof x === 'object' && 'error' in (x as object)) { errors.push(`${ws.name}!${c.address}`); return; }
+      if (typeof x !== 'number') return;
+      compared++;
+      if (Math.abs(x - v.result) > 1e-6 * Math.max(1, Math.abs(v.result))) diffs.push(`${ws.name}!${c.address} stored ${v.result} recalculated ${x}`);
+    }));
+  }
+  return { compared, diffs, errors };
+}
 
 let passed = 0, failed = 0;
 
@@ -133,6 +168,11 @@ async function runVersion(inp: LiveExportInputs, title: string): Promise<void> {
   const built = await generateLiveWorkbook(common);
   if (!built.ok) { check('the live workbook builds', false, `${built.message} ${built.detail}`); return; }
   const live = await loadWb(built.buffer);
+  {
+    const d = await libreDiff(built.buffer, live, title.replace(/[^A-Za-z0-9]+/g, '_').slice(0, 40));
+    if (!d) check('R1 LibreOffice is available to recalculate the live file', false, SOFFICE);
+    else check(`R1 the live file recalculated in LibreOffice gives back every stored figure (${d.compared} cells, ${d.diffs.length} differ, ${d.errors.length} errors)`, d.compared > 1000 && d.diffs.length === 0 && d.errors.length === 0, [...d.errors.slice(0, 5), ...d.diffs.slice(0, 15)].join('\n'));
+  }
   const vals = await loadWb(await generateValuesWorkbookBuffer(common));
   const pdfBytes = await generateProjectPdf({ state, projectName: inp.projectName, versionLabel: inp.versionLabel, versionComment: inp.versionComment, dateLabel: 'parity', selectedModuleKeys: ['module1', 'module2', 'module3', 'module4', 'module5', 'module6'], caseComparison: inp.caseComparison, displayScale: 'millions' } as never);
   const pdfRaw = pdfText(pdfBytes instanceof Uint8Array ? pdfBytes : new Uint8Array(pdfBytes as ArrayBuffer));

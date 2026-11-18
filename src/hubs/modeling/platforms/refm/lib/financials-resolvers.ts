@@ -3431,7 +3431,11 @@ export function computeFinancialsSnapshot(
       // enter the funding, so the real facility IS fee-free; deficit-funded fees do, so a shadow
       // facility on the fee-free draws carries the IDC at the facilities' share-weighted rate.
       let totalFacility: number;
-      if ((state.project.fundTerms?.managementFeeFunding ?? 'deficit') === 'equity') {
+      // THE SHADOW FACILITY ON EVERY METHOD 3 MODEL (2026-11-18): the fee-free draws and the interest on them with
+      // no sweep, whichever way the fees are funded. The real facility moves with the sweep, which reads this
+      // year's cash after the fees and the zakat, so a one-off fee charged on it closed a loop as soon as a phase
+      // built after another had started to operate. The shadow reads only capex and operating cash.
+      if (!m3 && (state.project.fundTerms?.managementFeeFunding ?? 'deficit') === 'equity') {
         // THE DEVELOPMENT FACILITIES ONLY (2026-11-18): an existing loan is not a facility the fund arranges, as on
         // the deficit path below and in the live workbook (which sums the non-existing facilities' rows).
         totalFacility = 0;

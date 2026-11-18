@@ -726,3 +726,18 @@ export function planTypeMassingWriteBack(
   }
   return next ? { values: next, changed: true, written } : { values: values ?? {}, changed: false, written };
 }
+
+/**
+ * THE ASSET TYPES A PROJECT USES (2026-11-18, founder: "don't export an asset type no asset uses"): the type of
+ * every visible asset, plus the type the retail parking ratio is read from, only where a retail strip exists to
+ * read it. The one rule the live Inputs tab and the PDF list types by.
+ */
+export function usedAssetTypeIds(project: RetailSlotProject, assets: ReadonlyArray<{ visible?: boolean; assetTypeId?: string; isCompanion?: boolean; companionType?: string }>): Set<string> {
+  const visible = assets.filter((a) => a.visible !== false);
+  const used = new Set<string>(visible.map((a) => normaliseAssetTypeId(a.assetTypeId ?? '')).filter(Boolean));
+  if (visible.some((a) => a.isCompanion === true && a.companionType === 'retail')) {
+    const slot = resolveRetailSlotTypeId(project, visible as never);
+    if (slot) used.add(slot);
+  }
+  return used;
+}

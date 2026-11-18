@@ -353,10 +353,14 @@ export const stage6Loop: LiveLayer = {
     put('fl:debtDraw', (t) => `${drawBase(t)}*${dF()}${METHOD === 1 ? `+${P('fl:landCash', t)}*${T('fl:landDebt')}` : ''}`);
     put('fl:eqDraw', (t) => `${drawBase(t)}*${eF()}${METHOD === 1 ? `+${P('fl:landCash', t)}*(1-${T('fl:landDebt')})` : ''}`);
     // The fund fees drawn from equity (2026-11-18): the whole fee in a year construction runs.
-    put('fl:feeDraw', (t) => `IF(AND(${Y(t)}<=${lastCon()},${P('fl:capex', t)}+${P('fl:inKind', t)}>0),${fee(t)},0)`);
-    put('fl:after', (t) => win(t, `${P('fl:avail', t)}+${P('fl:need', t)}`), 'last');
     // Construction running: a year up to the last construction year with capex in it.
-    const running = (t: number): string => `AND(${Y(t)}<=${lastCon()},${P('fl:capex', t)}+${P('fl:inKind', t)}>0)`;
+    // A PHASE'S OWN CONSTRUCTION YEARS (2026-11-18, the engine's rule): some phase is building that year
+    // (Timeline's construction flags) and capex is spent; a gap year paying only a commission is not construction.
+    const conFlags = state.phases.filter((ph) => ph.status !== 'operational').map((ph) => `tl:flag:${ph.id}:con`).filter(has);
+    const building = (t: number): string => (conFlags.length ? `,(${conFlags.map((k) => P(k, t)).join('+')})>0` : '');
+    const running = (t: number): string => `AND(${Y(t)}<=${lastCon()}${building(t)},${P('fl:capex', t)}+${P('fl:inKind', t)}>0)`;
+    put('fl:feeDraw', (t) => `IF(${running(t)},${fee(t)},0)`);
+    put('fl:after', (t) => win(t, `${P('fl:avail', t)}+${P('fl:need', t)}`), 'last');
 
     // ── Each facility ────────────────────────────────────────────────────────
     const shareOf = (f: Fac): string => (f.isEx ? '0' : anyShareTyped && has(`tr:${f.t.id}:share`) ? `MAX(0,N(${w.ref(`tr:${f.t.id}:share`)}))` : newCount === 1 ? '' : String(1 / newCount));
@@ -464,8 +468,11 @@ export const stage6Loop: LiveLayer = {
       const as = lineAssets[i];
       const sq = byLine && has(`fl:sqmLine:${i}`) ? T(`fl:sqmLine:${i}`) : as.map(sqm).join('+') || '0';
       const flag = (t: number): string => (as[0] ? conFlag(as[0], t) : '0');
-      if (has(`fl:idcShare:${i}`)) put(k, (t) => `${P('fl:idcBasis', t)}*${P(`fl:idcShare:${i}`, t)}`);
-      else put(k, (t) => `IF(${P('fl:idcBasis', t)}=0,0,IF(${P('fl:sqmActive', t)}>0,${flag(t)}*${P('fl:idcBasis', t)}*(${sq})/${P('fl:sqmActive', t)},IF(${T('fl:sqmTot')}>0,${P('fl:idcBasis', t)}*(${sq})/${T('fl:sqmTot')},0)))`);
+      // A LINE WITH NO SHARE THIS YEAR NEVER READS THE YEAR'S INTEREST (2026-11-18): a line already built is a
+      // precedent of nothing the facility does later, so overlapping phases cannot close a loop through it.
+      if (has(`fl:idcShare:${i}`)) put(k, (t) => `IF(${P(`fl:idcShare:${i}`, t)}=0,0,${P('fl:idcBasis', t)}*${P(`fl:idcShare:${i}`, t)})`);
+      // A line not building while another builds reads nothing of the year's interest (2026-11-18, the same rule).
+      else put(k, (t) => `IF(AND(${P('fl:sqmActive', t)}>0,${flag(t)}=0),0,IF(${P('fl:idcBasis', t)}=0,0,IF(${P('fl:sqmActive', t)}>0,${flag(t)}*${P('fl:idcBasis', t)}*(${sq})/${P('fl:sqmActive', t)},IF(${T('fl:sqmTot')}>0,${P('fl:idcBasis', t)}*(${sq})/${T('fl:sqmTot')},0))))`);
       for (const id of l.assetIds) w.claim(`fnc:main:idc:${id}`, FIN, w.addr(k).row, 1);
     });
     const idcPre = (t: number): string => `MAX(0,${P('schv:__project__:idcNbv', t, -1)}+${P('schv:__project__:idcAdd', t)}-${P('schv:__project__:idcDep', t)})`;
@@ -500,13 +507,15 @@ export const stage6Loop: LiveLayer = {
       putS('fl:feeTdc', `SUM(${rowRange('cx2:total')})${lessComm}`);
       putS('fl:feeDsc', `${dF()}*(SUM(${rowRange('fl:capex')})${lessComm})`);
       if (has('fl:xIdc')) {
+        // The fee-free need (2026-11-18): its own row on the deficit path; on the equity path the funding need IS fee-free.
+        const needK = has('fl:needExFee') ? 'fl:needExFee' : 'fl:need';
         const newT = tranches.filter((t) => t.origin !== 'existing');
         const shares = newT.map((t) => (anyShareTyped && has(`tr:${t.id}:share`) ? `MAX(0,N(${w.ref(`tr:${t.id}:share`)}))` : String(1 / Math.max(1, newT.length))));
         putS('fl:xRate', `IF((${shares.join('+')})>0,(${newT.map((t, j) => `${shares[j]}*${T(`fl:tr:${t.id}:rate`)}`).join('+')})/(${shares.join('+')}),0)`);
         const excl = has('fl:idcExcl') ? T('fl:idcExcl') : '0';
-        put('fl:xIdc', (t) => `IF(${running(t)},${T('fl:xRate')}*(N(${P('fl:xBal', t, -1)})+${P('fl:needExFee', t)}*${dF()}/2)/(1-(1-${excl})*${T('fl:xRate')}/2),0)`);
-        put('fl:xBal', (t) => `N(${P('fl:xBal', t, -1)})+${P('fl:needExFee', t)}*${dF()}+${P('fl:xIdc', t)}`, 'last');
-        putS('fl:feeFac', `SUM(${rowRange('fl:needExFee')})*${dF()}+SUM(${rowRange('fl:xIdc')})`);
+        put('fl:xIdc', (t) => `IF(${running(t)},${T('fl:xRate')}*(N(${P('fl:xBal', t, -1)})+${P(needK, t)}*${dF()}/2)/(1-(1-${excl})*${T('fl:xRate')}/2),0)`);
+        put('fl:xBal', (t) => `N(${P('fl:xBal', t, -1)})+${P(needK, t)}*${dF()}+${P('fl:xIdc', t)}`, 'last');
+        putS('fl:feeFac', `SUM(${rowRange(needK)})*${dF()}+SUM(${rowRange('fl:xIdc')})`);
       } else {
         putS('fl:feeFac', fac.filter((f) => !f.isEx).map((f) => `SUM(${rowRange(f.draw)})+SUM(${rowRange(f.idc)})`).join('+') || '0');
       }

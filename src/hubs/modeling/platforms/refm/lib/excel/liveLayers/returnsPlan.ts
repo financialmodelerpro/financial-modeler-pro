@@ -445,13 +445,21 @@ export function returnsPlan(state: FinancialsResolverState, snap: Snap, rs: RS, 
     const su = rs.sourcesUses;
     head('ret|#su', 'Sources and uses of capital, over construction');
     const L = years.indexOf(su.constructionEndYear);
-    pRow('rs|con', 'In the construction window (1 up to the last capex year)', [null, ...Array.from({ length: N }, (_, t) => (t <= L ? 1 : 0))],
+    pRow('rs|con', 'In the construction window (1 up to the last construction year)', [null, ...Array.from({ length: N }, (_, t) => (t <= L ? 1 : 0))],
       (E, s) => `IF(${E.yr(s)}<=${E.d('ret|su|end')},1,0)`, { total: 'none', fmt: RF.int });
     // NO ARRAY FORMULA (2026-11-04, founder): MAX(INDEX(...,0)) read #VALUE! outside Excel. A 1/0 row says
     // which years spend capex (cash or in kind), and the end is the largest of that row times the year.
-    const capexOn = [null, ...Array.from({ length: N }, (_, t) => (Math.abs(stream(bu.cfiPerPeriod)[t + 1] ?? 0) + Math.abs(stream(bu.inKindLandPerPeriod)[t + 1] ?? 0) > 0.5 ? 1 : 0))];
-    pRow('rs|cxon', 'Capex spent (1 = yes)', capexOn, (E, s) => `IF(ABS(${E.s('rs|ff:capex', s)})+ABS(${E.s('rs|ff:kind', s)})>0.5,1,0)`, { total: 'none', fmt: RF.int });
-    one('ret|su|end', 'Construction window ends (the last capex year)', su.constructionEndYear,
+    // A CONSTRUCTION YEAR THAT BUILDS (2026-11-18, founder): up to Financing's last construction year (Timeline) and
+    // spending, the engine's idcPeriodMask; a commission paid as units sell after it no longer stretches the window.
+    const mask = snap.financing.idcPeriodMask ?? [];
+    const capexOn = [null, ...Array.from({ length: N }, (_, t) => (mask[t] ? 1 : 0))];
+    const conKeys = (E: REnv): string[] => state.phases.filter((ph) => ph.status !== 'operational').map((ph) => `tl:flag:${ph.id}:con`).filter((k) => E.has(k));
+    pRow('rs|cxon', 'Construction year with spend (1 = yes)', capexOn, (E, s) => {
+      const ks = conKeys(E);
+      const bld = ks.length ? `,(${ks.map((k) => E.x(k, s)).join('+')})>0` : '';
+      return `IF(AND(ABS(${E.s('rs|ff:capex', s)})+ABS(${E.s('rs|ff:kind', s)})>0.5${bld}),1,0)`;
+    }, { total: 'none', fmt: RF.int });
+    one('ret|su|end', 'Construction window ends (the last construction year)', su.constructionEndYear,
       (E) => `SUMPRODUCT(MAX(${E.rngY('rs|cxon')}*${E.yrRng()}))`, RF.year);
     rows.push({ key: 'ret|#sucols', label: '', kind: 'cols', cols: [[D, 'Amount'], [D + 1, '% of total']] });
     const win = (E: REnv, key: string): string => `SUMPRODUCT(${E.rngY('rs|con')},${E.xr(key)})`;
@@ -478,8 +486,9 @@ export function returnsPlan(state: FinancialsResolverState, snap: Snap, rs: RS, 
     ];
     const use: Array<[string, string, number, Fx, boolean]> = [
       ['ret|su|existing', 'Development in place at the model start', su.existingInvestment, (E) => E.ref('retin:hist'), existing],
-      ['ret|Land', 'Land (cash and in kind)', su.land, (E) => landKeysOf(E).map((k) => `SUM(${E.xr(k)})`).join('+') || '0', true],
-      ['ret|Construction & Infrastructure', 'Construction', su.construction, (E) => `SUM(${E.xr('fnc:capexall')})-${E.d('ret|Land')}`, true],
+      // OVER THE WINDOW (2026-11-18), as the engine sums them: a cost paid after the last construction year is not a use.
+      ['ret|Land', 'Land (cash and in kind)', su.land, (E) => landKeysOf(E).map((k) => win(E, k)).join('+') || '0', true],
+      ['ret|Construction & Infrastructure', 'Construction', su.construction, (E) => `${win(E, 'fnc:capexall')}-${E.d('ret|Land')}`, true],
       ['ret|su|interest', 'Interest paid during construction', su.interestPaid, (E) => `-${win(E, cf('Interest paid'))}`, true],
       ['ret|su|opcost', 'Operating costs paid during construction', su.operatingCosts, (E) => `${collected(E)}-${win(E, cf('Cash Flow from Operations'))}`, true],
       ['ret|su|repaid', 'Debt repaid during construction', su.debtRepaid, (E) => `-${win(E, cf('Debt repaid'))}`, true],

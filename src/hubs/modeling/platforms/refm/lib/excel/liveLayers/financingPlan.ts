@@ -360,7 +360,7 @@ export function financingPlan(state: FinancialsResolverState, snap: Snap = compu
     scalar('fl:feeFund', '= Fund size (debt + equity funding need)', ff.fundSize.amount, 'money', fundTerms.fundSizeOverride ? 'The fund size typed on Inputs' : 'The two rows above');
     scalar('fl:feeTdc', 'Total development cost (excl. IDC)', ff.totalDevelopmentCost, 'money', 'Capex Table 2: all capex including land, less the sales commission; no capitalised interest');
     scalar('fl:feeDsc', 'Debt share x cash development cost', ff.debtShareCashCost, 'money', 'The debt share x the capex paid in cash, less the sales commission');
-    if (method === 3 && !feeByEquity) {
+    if (method === 3) {
       // THE SHADOW FACILITY (2026-11-18): the fee-free draws and the interest capitalised on them.
       let wS = 0, rS = 0;
       for (const t of tranches) { if (t.origin === 'existing') continue; const sh = fin.shares.get(t.id) ?? 0; wS += sh; rS += sh * effectiveTrancheRatePct(t) / 100; }
@@ -373,7 +373,7 @@ export function financingPlan(state: FinancialsResolverState, snap: Snap = compu
       per('fl:xIdc', 'Capitalised interest on the fee-free debt', xIdc, 'In a year construction runs: the rate x (last year\'s balance + the fee-free debt drawn / 2), by the IDC method');
       per('fl:xBal', 'Fee-free debt balance (construction)', xBal, 'Last year\'s balance plus the fee-free debt drawn and its capitalised interest', { balance: true });
     }
-    scalar('fl:feeFac', 'Total facility (capex debt + IDC)', ff.totalFacility, 'money', method === 3 && !feeByEquity ? 'The fee-free debt drawn plus its capitalised interest' : 'Every new loan\'s capex drawdown plus its interest drawn as debt');
+    scalar('fl:feeFac', 'Total facility (capex debt + IDC)', ff.totalFacility, 'money', method === 3 ? 'The fee-free debt drawn plus its capitalised interest' : 'Every new loan\'s capex drawdown plus its interest drawn as debt');
     per('fl:feeEtd', 'Equity to date (cash equity for capex plus land in kind)', sl(ff.equityToDatePerPeriod), 'Cumulative capex equity of the fee-free funding plus land in kind, up to the exit');
     scalar('fl:feeEtdPeak', 'Equity to date, at its peak', Math.max(0, ...sl(ff.equityToDatePerPeriod)), 'money', 'The largest balance above');
     FUND_FEE_SPECS.forEach((spec, i) => {

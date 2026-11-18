@@ -86,7 +86,10 @@ export function buildOpexReport(snap: OpexReportSnap, state: OpexReportState, op
     ];
     const ix = normalizeOpexIndexation(a.opex?.defaultIndexation);
     if ((ix.method ?? 'none') !== 'none') {
-      const idx = { ...ix, startYear: Math.max(ix.startYear ?? 0, start) };
+      // FROM THE FIRST MODEL YEAR (2026-11-18, assetOpex.ts): today's money, the stored start year (0 = the first
+      // model year), no longer the later of it and the operations start.
+      const idx = { ...ix, startYear: Math.max(0, ix.startYear ?? 0) };
+      void start;
       out.push({ label: 'Inflation factor while operating', values: inOps.map((on, t) => (on ? applyIndexation(1, t, idx) : 0)), indent: 1, valueKind: 'rate', totalOverride: '' });
     }
     return out;

@@ -1676,7 +1676,10 @@ function buildModule1(
 
   // ── TAB 4: ASSET TYPES & STANDARDS ────────────────────────────────────────
   {
-    const v = buildStandardsView(viewState);
+    const v0 = buildStandardsView(viewState);
+    // ONLY THE TYPES THE PROJECT USES (2026-11-18, usedAssetTypeIds), as the workbook lists them.
+    const used = usedAssetTypeIds(state.project, state.assets as never);
+    const v = { ...v0, types: v0.types.filter((t) => t.id === undefined || used.has(normaliseAssetTypeId(t.id))) };
     if (v.types.length === 0) {
       items.push(tItem(M1_TABS.standards, 'inputs', { type: 'paragraph', text: 'No asset types in this project.' }));
     } else {
@@ -2449,6 +2452,7 @@ import { METRIC_CAPTIONS, METRIC_LABELS, capRateAtExitCaption, exitYearAnalysisN
 import { projectLocationLabel } from '@/src/core/countries';
 import { resolvePhasingSource } from '@/src/core/calculations/capexPhasing';
 import { resolveCatalogId } from '../state/costCatalog';
+import { usedAssetTypeIds, normaliseAssetTypeId } from '../state/assetTypeStandards';
 
 /** A builder row, with the two number kinds M4Row has no word for. */
 type ScreenRow = M4Row & { fmt?: 'factor' | 'dec2' };

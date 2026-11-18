@@ -1127,8 +1127,14 @@ function addAssumptions(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFin
           if (ln.isPercent) setInput(ws.getCell(`C${r}`), ln.rate / 100, NUMFMT.pct2); else setInput(ws.getCell(`C${r}`), ln.rate, NUMFMT.rate);
         }
         setLabel(ws.getCell(`D${r}`), ln.stage);
-        setLabel(ws.getCell(`E${r}`), ln.phasing === 'phase_aligned' ? 'Phase aligned' : ln.phasing === 'even' ? 'Even' : String(ln.phasing ?? ''));
-        if (rep.winKind === 'cons') setLabel(ws.getCell(`F${r}`), 'Construction years');
+        // A SELLING COST'S OWN TIMING (2026-11-18): the commission follows its terms, marketing the sale year.
+        const clT = state.costLines.find((c) => c.id === ln.id);
+        const ovT = state.costOverrides.find((o) => o.assetId === rep.ia.assetId && o.lineId === ln.id);
+        const srcT = clT ? resolvePhasingSource(clT, ovT) : undefined;
+        const timingText = srcT === 'commission_terms' ? 'Per commission terms (section 8.5)' : srcT === 'sales' ? 'As units are sold' : undefined;
+        setLabel(ws.getCell(`E${r}`), timingText ?? (ln.phasing === 'phase_aligned' ? 'Phase aligned' : ln.phasing === 'even' ? 'Even' : String(ln.phasing ?? '')));
+        if (timingText && rep.winKind === 'cons') { /* the terms say when, not the construction years */ }
+        else if (rep.winKind === 'cons') setLabel(ws.getCell(`F${r}`), 'Construction years');
         else if (rep.winKind === 'land') setLabel(ws.getCell(`F${r}`), 'Land cash timing');
         else if (rep.winKind === 'line' && ids.every((id) => winWritten.has(id))) { /* typed on the line's first row */ }
         else {
@@ -3852,7 +3858,14 @@ function addRevenue(ctx: EmitCtx): { revLinks: RevLinks; cosLinks: CosLinks } {
         // (revenue less the rise in that receivable): the rule Schedules and the Balance Sheet read.
         const opCashRows = (earner: Asset, rev: number[]): number[] => {
           if (!recOn) return rev;
-          const ar = buildAccountsReceivableDSO({ revenuePerPeriod: rev, dsoDays: lineReceivableDays(earner, state.project), daysPerYear: Math.max(1, state.project.operatingAr?.daysPerYear ?? 365), axisLength: N });
+          // THE ENGINE'S OWN SERIES (2026-11-18): each plot's receivable and cash collected as the engine settled
+          // them (the exit collects the receivable), summed over the line, never worked out a second time here.
+          const ids = ((line as { members?: Asset[] }).members ?? [earner]).map((m) => m.id);
+          const pcf = (snap as { perAssetCF?: Map<string, { receivablePerPeriod?: number[]; revenueReceivedPerPeriod?: number[] }> }).perAssetCF;
+          const engine = ids.every((id) => pcf?.get(id)?.receivablePerPeriod);
+          const ar = engine
+            ? { perPeriod: range(0, N - 1).map((t) => ids.reduce((s, id) => s + (pcf!.get(id)!.receivablePerPeriod![t] ?? 0), 0)), cashReceivedPerPeriod: range(0, N - 1).map((t) => ids.reduce((s, id) => s + (pcf!.get(id)!.revenueReceivedPerPeriod![t] ?? 0), 0)) }
+            : buildAccountsReceivableDSO({ revenuePerPeriod: rev, dsoDays: lineReceivableDays(earner, state.project), daysPerYear: Math.max(1, state.project.operatingAr?.daysPerYear ?? 365), axisLength: N });
           em.moneyRow('Receivable at year end', ar.perPeriod, { indent: 1, totalLast: true });
           em.moneyRow('Cash collected', ar.cashReceivedPerPeriod, { style: 'subtotal' });
           return ar.cashReceivedPerPeriod;

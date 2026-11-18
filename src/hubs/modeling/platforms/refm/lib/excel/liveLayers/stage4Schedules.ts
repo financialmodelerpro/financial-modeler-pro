@@ -175,11 +175,16 @@ export const stage4Schedules: LiveLayer = {
       // worked out in the formula, so no row repeats the start year).
       const startR = `(${idxR}+(${first}-${idxR})*(${idxR}<${first}))`;
       // Each year's additions depreciate from their start year, over the life.
+      // TO DATE ONLY (2026-11-18): an addition starts no earlier than its own year, so a later year never counts
+      // now; reading only the years up to this one keeps every later year's capitalised interest out of its precedents.
       const dep = (addKeys: string[]) => (t: number): string => {
-        const adds = addKeys.filter(has).map((k) => rng(k));
+        const adds = addKeys.filter(has).map((k) => { const a = w.addr(k); return w.rangeA(a.sheet, a.row, pc(0), pc(t)); });
         const sum = adds.length > 1 ? `(${adds.join('+')})` : adds[0];
-        return `${upto(t)}IF(${life}>0,SUMPRODUCT((${sum}>0)*${sum}*(${startR}<=${idxNow(t)})*(${startR}+MAX(1,INT(${life}))>${idxNow(t)}))/MAX(1,${life}),0)`;
+        const idxT = w.rangeA('Timeline', 4, pc(0), pc(t));
+        const startT = `(${idxT}+(${first}-${idxT})*(${idxT}<${first}))`;
+        return `${upto(t)}IF(${life}>0,SUMPRODUCT((${sum}>0)*${sum}*(${startT}<=${idxNow(t)})*(${startT}+MAX(1,INT(${life}))>${idxNow(t)}))/MAX(1,${life}),0)`;
       };
+      void startR;
       // The asset's rows on Capex: Table 4 (excluding all land) is what depreciates, Table 2 less it is its land.
       const keys = l.memberIds.flatMap((id) => w.reg.keys().filter((k) => k.startsWith(`cxc:${id}:`) && k.split(':').length === 3));
       const landKeys = keys.filter((k) => isLandValueLine(costLineOf(k.split(':')[2])));
@@ -204,10 +209,15 @@ export const stage4Schedules: LiveLayer = {
       const late = flows.some((k) => { const r = w.addr(k).row; for (let t = 0; t < N; t++) { const v = Number(w.platformValue({ sheet: SCH, row: r, col: pc(t) }) ?? 0); if (v !== 0 && t + 1 >= Number(w.platformValue({ sheet: SCH, row: w.addr(hk).row, col: META_B }) ?? 0)) return true; } return false; });
       const simple = has(onK) && !late;
       if (simple) row(onK, (t) => `${upto(t)}IF(${life}>0,(${idxNow(t)}>=${first})*(${idxNow(t)}<${first}+MAX(1,INT(${life}))),0)`, 'none');
-      const before0 = (ks: string[]): string => ks.filter(has).map((k) => `SUMIF(${idxR},"<"&${first},${rng(k)})`).join('+') || '0';
+      // TO DATE ONLY (2026-11-18): a year that depreciates reads the additions of the years up to itself, never a
+      // later year. A year depreciating has started (first <= now), so nothing later is ever in the sum; reading
+      // the whole row made every later year's capitalised interest a precedent, which with overlapping phases
+      // (one operating while the next builds) closed a loop through the zakat and the sweep.
+      const before0 = (ks: string[], t: number): string => ks.filter(has).map((k) => { const a = w.addr(k); return `SUMIF(${w.rangeA('Timeline', 4, pc(0), pc(t))},"<"&${first},${w.rangeA(a.sheet, a.row, pc(0), pc(t))})`; }).join('+') || '0';
+      void idxR;
       // A YEAR THAT DOES NOT DEPRECIATE NEVER READS THE BASE (2026-11-18): the base holds later years'
       // capitalised interest, which reads the debt the sweep sets from this year's cash, after this year's zakat.
-      const simpleDep = (ks: string[]) => (t: number): string => `IF(${p(onK, t)}=0,0,(${before0(ks)})/MAX(1,${life})*${p(onK, t)})`;
+      const simpleDep = (ks: string[]) => (t: number): string => `IF(${p(onK, t)}=0,0,(${before0(ks, t)})/MAX(1,${life})*${p(onK, t)})`;
       row(K('dep'), (t) => `-${simple ? simpleDep(flows)(t) : dep(flows)(t)}`, 'sum');
       const before = (t: number): string => `${p(K('open'), t)}+${p(K('capAdd'), t)}${withIdc ? `+${p(K('idcAdd'), t)}` : ''}+${p(K('dep'), t)}`;
       row(K('disp'), (t) => `-${exit(t)}*(${before(t)})`, 'sum');

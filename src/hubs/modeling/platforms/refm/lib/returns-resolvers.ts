@@ -754,8 +754,12 @@ export function computeReturnsSnapshot(snap: ProjectFinancialsSnapshot, project:
   // SOURCES AND USES OVER THE CONSTRUCTION PERIOD (2026-11-03, founder): the window runs to the last
   // year any capex is spent (cash or land in kind, so it covers every construction year that builds), and every figure is a sum of the direct
   // cash flow over it, so the totals meet by the cash identity.
+  // THE LAST CONSTRUCTION YEAR (2026-11-18, founder): the Timeline's construction years that build (the engine's
+  // idcPeriodMask), not the last year with capex cash, which a commission paid as units sell stretched to 2034.
+  // A model with no construction year keeps the last capex year.
   const capexPer = dcf.capexPerPeriod.slice(0, N).map((v, t) => Math.abs(v ?? 0) + Math.abs(dcf.equityInKindDrawdownPerPeriod?.[t] ?? 0));
-  const lastCapexIdx = capexPer.reduce((m, v, t) => (Math.abs(v ?? 0) > 0.5 ? t : m), -1);
+  const lastConIdx = (snap.financing.idcPeriodMask ?? []).slice(0, N).reduce((m, on, t) => (on ? t : m), -1);
+  const lastCapexIdx = lastConIdx >= 0 ? lastConIdx : capexPer.reduce((m, v, t) => (Math.abs(v ?? 0) > 0.5 ? t : m), -1);
   const L = Math.min(N - 1, Math.max(0, lastCapexIdx));
   const upToL = (arr: readonly number[] | undefined): number => (arr ?? []).slice(0, L + 1).reduce((s2, v) => s2 + (v ?? 0), 0);
   const collectedL = upToL(dcf.revenueReceivedPerPeriod) + upToL(dcf.escrowHeldPerPeriod) + upToL(dcf.escrowReleasePerPeriod);
@@ -771,8 +775,10 @@ export function computeReturnsSnapshot(snap: ProjectFinancialsSnapshot, project:
     customerCollections: collectedL,
     disposalProceeds: upToL(dcf.proceedsFromDisposalPerPeriod),
     existingInvestment: existingPreCapex,
-    land: fin.capex.totals.inclAllLand - fin.capex.totals.exclAllLand,
-    construction: fin.capex.totals.exclAllLand,
+    // OVER THE WINDOW (2026-11-18), like every other figure: a cost paid after the last construction year (a
+    // commission paid as units sell) is not a use of the construction funding.
+    land: upToL(fin.capex.perPeriod.inclAllLand.map((v, t) => (v ?? 0) - (fin.capex.perPeriod.exclAllLand[t] ?? 0))),
+    construction: upToL(fin.capex.perPeriod.exclAllLand),
     interestPaid: -upToL(dcf.interestPaidPerPeriod),
     operatingCosts: collectedL - upToL(dcf.cashFromOperationsPerPeriod),
     debtRepaid: -upToL(dcf.debtRepaymentPerPeriod),

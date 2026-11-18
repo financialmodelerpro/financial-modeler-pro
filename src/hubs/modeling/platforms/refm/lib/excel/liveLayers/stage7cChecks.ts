@@ -123,14 +123,16 @@ export const stage7cChecks: LiveLayer = {
     // liabilities in any year from the exit year (Timeline's exit flag) on, against the peak total assets.
     {
       const key = `chk|id|${EXIT_CLOSE_CHECK_LABEL}`;
-      const A = liveRow('bs|__all__||TOTAL ASSETS'), L = liveRow('bs|__all__||TOTAL LIABILITIES'), X = liveRow('tl:flag:exit');
-      if (has(key) && A && L && X) {
+      const A = liveRow('bs|__all__||TOTAL ASSETS'), L = liveRow('bs|__all__||TOTAL LIABILITIES'), X = liveRow('tl:flag:exit'), U = liveRow('tl:flag:upto');
+      if (has(key) && A && L && X && U) {
         const res = w.addr(key);
-        const bsA = w.addr('bs|__all__||TOTAL ASSETS');
-        const yrs = w.rangeA(bsA.sheet, 3, pc(0), pc(N - 1));
-        const from = `(${yrs}>=SUMPRODUCT(${X},${yrs}))`;
-        w.reset(); w.fA({ ...res, col: res.col + HI_OFFSET }, `SUMPRODUCT(MAX(${from}*ABS(${A})))`);
-        w.reset(); w.fA({ ...res, col: res.col + HI_OFFSET + 1 }, `SUMPRODUCT(MAX(${from}*ABS(${L})))`);
+        // The years from the exit on: not before it (1 - up to the exit) plus the exit year itself, Timeline's flags.
+        const from = `(1-${U}+${X})`;
+        // No ABS over a range (Excel shrinks it to one cell outside an array formula): the larger of the largest and
+        // minus the smallest, as the other checks read their rows.
+        const big = (R: string): string => `MAX(SUMPRODUCT(MAX(${from}*${R})),SUMPRODUCT(MAX(-${from}*${R})))`;
+        w.reset(); w.fA({ ...res, col: res.col + HI_OFFSET }, big(A));
+        w.reset(); w.fA({ ...res, col: res.col + HI_OFFSET + 1 }, big(L));
         const hi = w.refA({ ...res, col: res.col + HI_OFFSET }, CHK), lo = w.refA({ ...res, col: res.col + HI_OFFSET + 1 }, CHK);
         w.reset(); w.fA(res, `MAX(${hi},${lo})`);
         w.reset(); w.fA({ ...res, col: res.col + 1 }, `MAX(MAX(${A}),-MIN(${A}))`);

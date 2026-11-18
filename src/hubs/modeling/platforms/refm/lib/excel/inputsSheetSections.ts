@@ -31,7 +31,7 @@ import {
 } from '../../components/modules/_shared/assetInputsView';
 import { registerCell } from './cellRegistry';
 import { INERT_INPUTS, inertKey } from './liveLayers/inputAudit';
-import { normaliseAssetTypeId, resolveRetailSlotTypeId } from '../state/assetTypeStandards';
+import { normaliseAssetTypeId, resolveRetailSlotTypeId, usedAssetTypeIds } from '../state/assetTypeStandards';
 import { phaseHasModelCapex } from '@/src/core/calculations/modelCapex';
 import { hqOpexLinesInForce, normalizeOpexIndexation } from '@/src/core/calculations/opex';
 import { featureUsed, opexLineIsZero, escrowInForce, operatingReceivablesInForce } from './exportScope';
@@ -203,8 +203,9 @@ export function emitStandardsSection(c: SheetCursor, state: FinancialsResolverSt
   // asset is of (and not the type the retail parking ratio is read from) is read by nothing.
   const live = isLiveLayout();
   const visibleAssets = state.assets.filter((a) => a.visible !== false);
-  const usedTypes = new Set<string>(visibleAssets.map((a) => normaliseAssetTypeId(a.assetTypeId ?? '')).filter(Boolean));
-  { const slot = resolveRetailSlotTypeId(state.project, visibleAssets); if (slot) usedTypes.add(slot); }
+  // The retail parking type only where a retail strip reads it (2026-11-18, usedAssetTypeIds).
+  const usedTypes = usedAssetTypeIds(state.project, visibleAssets as never);
+  void resolveRetailSlotTypeId;
   const typeShown = (id: string | undefined): boolean => !live || id === undefined || usedTypes.has(normaliseAssetTypeId(id));
   const types = v.types.filter((t) => typeShown(t.id));
   setSectionHeader(c.ws.getRow(c.r), 'Asset types and values', 10); c.r += 1;

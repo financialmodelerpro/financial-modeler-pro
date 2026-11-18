@@ -149,7 +149,18 @@ export function computeFinancingResult(ctx: FinancingContext): FinancingComputat
   // there is no circularity: IDC asks whether capex is happening, it does not
   // size it. Land in-kind is included because a period in which the land is
   // contributed is still a period in which the project is being built.
-  const constructionSpendByPeriod = capex.perPeriod.inclAllLand.slice();
+  // ONLY A PHASE'S OWN CONSTRUCTION YEARS (2026-11-18): a year in which no phase builds (a gap between phases)
+  // is not construction even when a cost is still being paid (a commission paid as units sell). Counting it
+  // capitalised that year's interest onto a finished line, whose cost of sales then read interest set by the
+  // year's zakat and sweep: a loop in the live workbook, and a wrong classification in the engine.
+  const inConstruction = capex.perPeriod.inclAllLand.map(() => false);
+  for (const ph of ctx.phases) {
+    if (ph.status === 'operational') continue;
+    const o = axis.phaseOffsets.get(ph.id) ?? 0;
+    const cpEff = Math.max(0, (ph.constructionPeriods ?? 0) - (ph.overlapPeriods ?? 0));
+    for (let i = Math.max(0, o); i < o + cpEff && i < inConstruction.length; i++) inConstruction[i] = true;
+  }
+  const constructionSpendByPeriod = capex.perPeriod.inclAllLand.map((v, i) => (inConstruction[i] ? v : 0));
 
   const computed = new Map<string, FacilityResult>();
   for (const t of trancheOrder) {
