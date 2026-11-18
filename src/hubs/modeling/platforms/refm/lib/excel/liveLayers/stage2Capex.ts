@@ -378,13 +378,18 @@ export const stage2Capex: LiveLayer = {
       } else if (sp.kind === 'curve') {
         // The plot's typed curve inside the window, over its total there (even where it is zero).
         const cv = w.addr(`inpcurve:${sp.assetId}`).row;
-        const rng = w.rangeA(INPUTS, cv, 2, 2 + N);
-        const at = (k: string): string => `INDEX(${rng},1,${k})`;
-        w.fA({ sheet: CAPEX, row: r, col: C_WIN }, `${p0 ? `(${B}<=0)*${at('1')}+` : ''}SUM(${at(`MAX(1,${B})+1`)}:${at(`MAX(${B},${C})+1`)})`);
+        // The grid starts at year 1 unless a curve holds a year 0 (2026-11-18): k is a period, 0 being year 0.
+        const hasP0 = w.has('inpcurve:p0');
+        const rng = w.rangeA(INPUTS, cv, 2, hasP0 ? 2 + N : 1 + N);
+        const at = (k: string): string => `INDEX(${rng},1,${k}${hasP0 ? '+1' : ''})`;
+        const y0 = hasP0 ? `INDEX(${rng},1,1)` : '0';
+        // The builder printed this total in percent points; the curve is a share now (2026-11-18), so is its total.
+        const printed = w.platformValue({ sheet: CAPEX, row: r, col: C_WIN });
+        w.fA({ sheet: CAPEX, row: r, col: C_WIN }, `${p0 && hasP0 ? `(${B}<=0)*${y0}+` : ''}SUM(${at(`MAX(1,${B})`)}:${at(`MAX(${B},${C})`)})`, typeof printed === 'number' ? { cached: printed / 100 } : {});
         const W = A(r, C_WIN);
         for (let t = 0; t < N; t++) {
           const c = cP(t);
-          w.fA({ sheet: CAPEX, row: r, col: c }, `IF(${W}>0,(${p0 ? `${z0(c)}*(${B}<=0)*${at('1')}+` : ''}IF(${inWin(c)},${at(`${i1(c)}+1`)},0))/${W},${even(c)})`);
+          w.fA({ sheet: CAPEX, row: r, col: c }, `IF(${W}>0,(${p0 && hasP0 ? `${z0(c)}*(${B}<=0)*${y0}+` : ''}IF(${inWin(c)},${at(`${i1(c)}`)},0))/${W},${even(c)})`);
         }
       } else {
         // The line's sales collections inside the phase's years, over their total there.

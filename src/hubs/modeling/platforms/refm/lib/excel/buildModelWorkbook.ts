@@ -1137,7 +1137,7 @@ function addAssumptions(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFin
         const clT = state.costLines.find((c) => c.id === ln.id);
         const ovT = state.costOverrides.find((o) => o.assetId === rep.ia.assetId && o.lineId === ln.id);
         const srcT = clT ? resolvePhasingSource(clT, ovT) : undefined;
-        const timingText = srcT === 'commission_terms' ? 'Per commission terms (section 8.5)' : srcT === 'sales' ? 'As units are sold' : undefined;
+        const timingText = srcT === 'commission_terms' ? 'Per commission terms, Operating Inputs' : srcT === 'sales' ? 'As units are sold' : undefined;
         setLabel(ws.getCell(`E${r}`), timingText ?? (ln.phasing === 'phase_aligned' ? 'Phase aligned' : ln.phasing === 'even' ? 'Even' : String(ln.phasing ?? '')));
         if (timingText && rep.winKind === 'cons') { /* the terms say when, not the construction years */ }
         else if (rep.winKind === 'cons') setLabel(ws.getCell(`F${r}`), 'Construction years');
@@ -1271,30 +1271,45 @@ function addAssumptions(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFin
   if (curved.length) {
     // AS MANY PERIODS AS THE MODEL HAS YEARS (2026-10-27): a phase that builds longer reads the
     // periods it needs; a period the platform does not store is blank (the platform reads 0).
+    // CONSTRUCTION PHASING AS THE TRAINING MODEL HAS IT (2026-11-18, founder item 5): % of cost by construction
+    // year 1 to N, stored as a share (the reader divides by the window's total, so no number moves), every cell
+    // filled, no year 0 column unless a curve holds one, a Check that the row adds to 100%, Applies to in codes.
+    const hasP0 = curved.some((a) => ((a.capexPhasing?.distribution ?? [])[0] ?? 0) !== 0);
     const typedL = Math.max(...curved.map((a) => (a.capexPhasing?.distribution ?? []).length));
-    const L = Math.max(typedL, snap.axisLength + 1);
-    setSectionHeader(ws.getRow(r), 'Plot spend curves (typed by phase period; period 0 is the year before the phase starts)', Math.max(9, L + 1)); r += 1;
-    setColHeader(ws.getCell(`A${r}`), 'Curve, for', 'left');
-    for (let i = 0; i < L; i++) setColHeader(ws.getCell(r, 2 + i), `P${i}`, 'right');
+    const maxCp = Math.max(1, ...state.phases.map((ph) => ph.constructionPeriods ?? 0));
+    const shown = Math.max(typedL - 1, maxCp);
+    const cols = (hasP0 ? 1 : 0) + shown;
+    const lastP = 1 + cols;
+    setSectionHeader(ws.getRow(r), 'Construction phasing: % of cost by construction year (year 1 is each phase\'s first construction year)', Math.max(9, lastP + 2)); r += 1;
+    setColHeader(ws.getCell(`A${r}`), 'Spend curve', 'left');
+    for (let i = 0; i < cols; i++) setColHeader(ws.getCell(r, 2 + i), `Year ${hasP0 ? i : i + 1}`, 'right');
+    setColHeader(ws.getCell(r, lastP + 1), 'Check', 'right');
+    setColHeader(ws.getCell(r, lastP + 2), 'Applies to', 'left');
     r += 1;
+    if (hasP0) registerCell('inpcurve:p0', ws, ws.getCell(r - 1, 2));
     // ONE ROW PER CURVE (2026-11-15, founder): assets typing the same curve share its row (curveGroups).
     const groupsC = curveGroups(state);
+    let k = 0;
     for (const a of curved) {
       const ids = groupsC.get(a.id);
       if (!ids) continue;
-      const nm = ids.map((id) => state.assets.find((x) => x.id === id)).filter((x): x is Asset => !!x).map((x) => assetLabel(x, { parcels: state.parcels, phases: state.phases }).replace(/\bPhase (\d+)/g, 'P$1'));
-      setLabel(ws.getCell(`A${r}`), nm.join('; '), { indent: 1 });
-      ws.getCell(`A${r}`).alignment = { wrapText: true, vertical: 'top', indent: 1 };
+      const nm = ids.map((id) => state.assets.find((x) => x.id === id)).filter((x): x is Asset => !!x).map((x) => {
+        const ph = state.phases.findIndex((p) => p.id === x.phaseId);
+        return `P${ph + 1} ${String(x.type ?? '').trim() || assetLabel(x, { parcels: state.parcels, phases: state.phases })}`;
+      });
+      setLabel(ws.getCell(`A${r}`), `Curve ${++k}`, { indent: 1 });
       for (const id of ids) registerCell(`inpcurve:${id}`, ws, ws.getCell(`A${r}`));
       const dist = a.capexPhasing?.distribution ?? [];
-      for (let i = 0; i < L; i++) {
-        const cell = ws.getCell(r, 2 + i);
-        if (i < dist.length) setInput(cell, Math.max(0, dist[i] ?? 0), NUMFMT.rate);
-        else { markInput(cell); cell.numFmt = NUMFMT.rate; }
-      }
+      const total = dist.reduce((s, v) => s + Math.max(0, v ?? 0), 0);
+      for (let i = 0; i < cols; i++) setInput(ws.getCell(r, 2 + i), Math.max(0, dist[hasP0 ? i : i + 1] ?? 0) / 100, '0.0%');
+      const rng = `B${r}:${colLetter(lastP)}${r}`;
+      setFormula(ws.getCell(r, lastP + 1), fcell(`IF(ABS(SUM(${rng})-1)<0.0005,"OK","FIX")`, Math.abs(total - 100) < 0.05 ? 'OK' : 'FIX'), '@');
+      ws.getCell(r, lastP + 1).alignment = { horizontal: 'right' };
+      setLabel(ws.getCell(r, lastP + 2), [...new Set(nm)].join(', '));
       r += 1;
     }
-    r += 1;
+    setNote(ws.getCell(`A${r}`), 'A cost line spends on its plot\'s curve inside its own window; a line with its own timing is in the cost table above.');
+    r += 2;
   }
 
   const fundTermsOn = resolveFundTerms(p).enabled;

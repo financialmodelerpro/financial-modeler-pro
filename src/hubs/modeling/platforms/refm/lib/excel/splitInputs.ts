@@ -108,6 +108,39 @@ export function splitInputs(wb: ExcelJS.Workbook): SplitResult | null {
   src.eachRow((row) => row.eachCell((c) => { if (/zakat/i.test(txt(c))) zakat = true; }));
   const { titleRows, blocks, endRow, barRows } = readBlocks(src);
 
+  // TIMING EXCEPTIONS ONLY (2026-11-18, founder item 5): the cost-line table keeps a line only when it holds an input
+  // (its own window, a rate) or a formula reads it; a line that follows its phase is the default and goes.
+  const read = new Set<string>();
+  const scan = (f: string, own: string): void => {
+    f.split(/("(?:[^"]|"")*")/).forEach((seg, i) => {
+      if (i % 2 === 1) return;
+      for (const m of seg.matchAll(REF)) {
+        if ((m[1] ? unquote(m[1].slice(0, -1)) : own) !== SRC) continue;
+        const r1 = Number(m[5]), r2 = m[9] ? Number(m[9]) : r1;
+        for (let r = r1; r <= r2; r++) read.add(String(r));
+      }
+    });
+  };
+  for (const ws of wb.worksheets) ws.eachRow((row) => row.eachCell((c) => { const v = c.value as { formula?: string } | null; if (v && typeof v === 'object' && typeof v.formula === 'string') scan(v.formula, ws.name); }));
+  for (const n of (wb.definedNames as unknown as { model: Array<{ ranges: string[] }> }).model) for (const rg of n.ranges) scan(rg, '');
+  let exceptionHead = 0;
+  for (const b of blocks) {
+    if (!b.section.toLowerCase().startsWith('capex')) continue;
+    const head = b.rows.find((r) => txt(src.getCell(r, 3)) === 'Cost line');
+    if (!head) continue;
+    let inTable = false;
+    b.rows = b.rows.filter((r) => {
+      if (r === head) { inTable = true; return true; }
+      if (!inTable) return true;
+      const row = src.getRow(r);
+      let blank = true, keep = false;
+      row.eachCell((c) => { if (c.value !== null && c.value !== '') blank = false; if (fillOf(c) === 'FFFFF2CC') keep = true; });
+      if (blank || [2, 3].some((k) => BAR === fillOf(row.getCell(k)))) { inTable = false; return true; }
+      return keep || read.has(String(r));
+    });
+    exceptionHead = head;
+  }
+
   // ── The new layout: groups in each tab's order ──────────────────────────────
   const groups = new Map<string, Group>();
   for (const b of blocks) {
@@ -274,6 +307,7 @@ export function splitInputs(wb: ExcelJS.Workbook): SplitResult | null {
     const ws = out.get(p.sheet)!;
     put(ws, p.from, p.to, p.sheet);
     if (p.heading) ws.getCell(p.to, 3).value = p.heading;
+    if (p.from === exceptionHead) ws.getCell(p.to, 3).value = 'Timing exceptions (a line not on its phase curve)';
   }
   for (const b of barsOut) {
     const ws = out.get(b.sheet)!;
@@ -302,5 +336,70 @@ export function splitInputs(wb: ExcelJS.Workbook): SplitResult | null {
     const ws = out.get(refs[0].sheet)!;
     ws.addConditionalFormatting({ ref: refs.filter((x) => x.sheet === refs[0].sheet).map((x) => x.ref).join(' '), rules: cf.rules.map((rl) => ({ ...rl, formulae: Array.isArray(rl.formulae) ? rl.formulae.map((f) => (typeof f === 'string' ? rewrite(f, SRC, 'Inputs conditional format') : f)) : rl.formulae })) } as never);
   }
+  for (const ws of out.values()) formatInputTab(ws);
   return { move: (sheet, r, c) => (sheet === SRC ? move(r, c) : null) };
+}
+
+// ── THE TRAINING LOOK ON BOTH INPUT TABS (2026-11-18, founder item 5, formatting) ─────────────────────────
+const WIDTHS: Record<string, number[]> = {
+  // A, B, then C onwards; every later column to T is 13.
+  [PROJECT_INPUTS]: [1.5, 1.5, 52, 14, 22, 11],
+  [OPERATING_INPUTS]: [1.5, 1.5, 52, 16, 15, 13, 11],
+};
+const INPUT_FILL = 'FFFFF2CC', INPUT_TEXT = 'FF0000FF', NOTE = 'FF5A6675';
+const BANDS = new Set([BAR, 'FF153D64']);
+const dotted = { style: 'dotted' as const };
+
+/**
+ * Inputs blue on yellow with a dotted box; formulas black with no fill or border; a percentage 0.0% centred, an
+ * amount #,##0 right, a year 0 right, text centred; a typed zero shows as 0 or 0.0%, never "-"; notes grey
+ * italic; no wrapped cells; bars, table heads and End of sheet across the full width.
+ */
+export function formatInputTab(ws: ExcelJS.Worksheet): void {
+  const widths = WIDTHS[ws.name]; if (!widths) return;
+  let lastCol = 20;
+  ws.eachRow((row) => row.eachCell({ includeEmpty: false }, (c) => { if (c.value !== null && c.value !== undefined && c.value !== '') lastCol = Math.max(lastCol, Number(c.col)); }));
+  for (let k = 1; k <= lastCol; k++) ws.getColumn(k).width = widths[k - 1] ?? 13;
+  ws.eachRow((row, r) => {
+    const band = [2, 3].map((k) => fillOf(row.getCell(k))).find((f) => f && BANDS.has(f));
+    row.eachCell({ includeEmpty: true }, (c) => {
+      if (c.alignment?.wrapText) c.alignment = { ...c.alignment, wrapText: false };
+      // A table head fits its column on one line.
+      if (band) { if (typeof c.value === 'string' && Number(c.col) >= 4) c.alignment = { ...(c.alignment ?? {}), shrinkToFit: true, wrapText: false }; return; }
+      const v = c.value as unknown;
+      const isF = !!v && typeof v === 'object' && typeof (v as { formula?: unknown }).formula === 'string';
+      const val = isF ? (v as { result?: unknown }).result : v;
+      const nf = String(c.numFmt ?? '');
+      if (fillOf(c) === INPUT_FILL && !isF) {
+        c.font = { name: 'Calibri', size: 9, bold: c.font?.bold, color: { argb: INPUT_TEXT } };
+        c.border = { top: dotted, bottom: dotted, left: dotted, right: dotted };
+        const al = (h: 'center' | 'right' | 'left'): void => { c.alignment = { ...(c.alignment ?? {}), horizontal: h, wrapText: false }; };
+        // Text centred where it fits its column; a longer text starts at the left so none of it is cut.
+        if (typeof val === 'string' || nf === '@') { al(String(val ?? '').length <= (ws.getColumn(Number(c.col)).width ?? 13) ? 'center' : 'left'); return; }
+        if (typeof val !== 'number') { al('center'); return; }
+        if (nf.includes('%')) { c.numFmt = Math.abs(Math.round(val * 1000) - val * 1000) > 1e-6 ? '0.00%' : '0.0%'; al('center'); return; }
+        if (nf === '0' && Number.isInteger(val) && val >= 1900 && val <= 2200) { al('right'); return; }
+        if (/^0\.0+$/.test(nf) || /"x"/.test(nf)) { c.numFmt = '0.00'; al('right'); return; }
+        if (/^0\.000/.test(nf) || /^dd|yy/.test(nf)) { al('right'); return; }
+        c.numFmt = /#,##0\.00/.test(nf) ? '#,##0.00;(#,##0.00);0.00' : '#,##0;(#,##0);0';
+        al('right');
+        return;
+      }
+      if (isF && r > 3) {
+        c.font = { name: 'Calibri', size: c.font?.size ?? 9, bold: c.font?.bold, italic: c.font?.italic, color: { argb: 'FF000000' } };
+        c.fill = { type: 'pattern', pattern: 'none' } as ExcelJS.Fill;
+        c.border = {};
+        return;
+      }
+      // A note: grey italic.
+      const col = c.font?.color?.argb;
+      if (r > 3 && typeof val === 'string' && (col === NOTE || col === 'FF6B7785') && !fillOf(c)) c.font = { name: 'Calibri', size: 9, italic: true, color: { argb: NOTE } };
+    });
+    if (band) {
+      const fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: band } } as ExcelJS.Fill;
+      const from = fillOf(row.getCell(2)) === band ? 2 : 3;
+      for (let k = from; k <= lastCol; k++) { const c = row.getCell(k); if (!fillOf(c)) c.fill = fill; }
+    }
+    if (r > 3 && row.height && row.height > 15) row.height = 15;
+  });
 }
