@@ -764,6 +764,12 @@ export interface Project {
    * When set, it drives EVERY phase. When unset, the engine falls back to the
    * legacy per-phase Phase.dividendPolicy (back-compat for older snapshots).
    */
+  /**
+   * WHO EARNS THE SALES COMMISSION (2026-11-18, founder): each party (by refm_parties id, the name
+   * kept as a snapshot) or 'third_party', a WHOLE-percent share adding to 100. Absent or empty: 100%
+   * to the Developer. Read for "Who gets what" only; the commission itself is a cost line.
+   */
+  commissionSplit?: Array<{ partyId: string; partyName: string; sharePct: number }>;
   dividendPolicy?: {
     enabled?: boolean;
     payoutRatio?: number;
@@ -3928,12 +3934,13 @@ export function makeDefaultCostLines(
     // phasing follows collections. It used to spread across the back half of
     // the construction window, which is the wrong shape for a sales cost.
     {
-      id: id('commission'), phaseId, name: 'Commission',
-      method: 'percent_of_selected', value: 4,
+      // A SHARE OF THE SALE VALUE (2026-11-18): it was 4% of selected lines with none selected,
+      // which charges exactly zero (measured); a stated rate now charges what it says.
+      id: id('commission'), phaseId, name: 'Sales commission',
+      method: 'percent_of_revenue_sale', value: 0,
       stage: 'soft', scope: 'indirect', allocationBasis: 'per_asset',
       ...win('commission'), phasing: 'even',
       phasingSource: 'collections',
-      selectedLineIds: [],
     },
     // ── Developer Fee (% of the construction and soft costs above) ──────
     // 2026-08-17. New to the catalog. It seeds at ZERO like every other

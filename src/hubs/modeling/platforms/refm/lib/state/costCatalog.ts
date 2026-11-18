@@ -180,7 +180,7 @@ export const BUILT_IN_COST_CATALOG: readonly CostCatalogEntry[] = [
     hint: 'Charged on everything selected above it.',
   },
   {
-    id: 'commission', label: 'Commission', method: 'percent_of_selected', stage: 'soft',
+    id: 'commission', label: 'Sales commission', method: 'percent_of_revenue_sale', stage: 'soft',
     phasingSource: 'collections', allocationBasis: 'per_asset', scope: 'indirect', builtIn: true,
     assetScope: 'selling',
     hint: 'A selling cost on the assets that SELL, paid out of cash received, so it follows sales collections.',

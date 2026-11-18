@@ -63,7 +63,7 @@ import type {
 import type { ProjectFinancialsSnapshot } from './financials-resolvers';
 import { terminalMetricIndex, type TerminalValueBasis } from '@/src/core/calculations/returns/disposal';
 import type { Project } from './state/module1-types';
-import { resolveFundTerms, resolveFeeEarners, performanceFeeDefaultsToManager, performanceFeeDefaultShare } from './fundTerms';
+import { resolveFundTerms, resolveFeeEarners, resolveCommissionSplit, DEVELOPER_EARNER_ID, performanceFeeDefaultsToManager, performanceFeeDefaultShare } from './fundTerms';
 
 export interface ReturnsConfig {
   discountRate: number;
@@ -578,23 +578,42 @@ export function computeReturnsSnapshot(snap: ProjectFinancialsSnapshot, project:
   // inception-prefixed (length E+1), so management fees are lifted onto the
   // stream basis with a ZERO inception. That is not a fudge: the fund charges
   // no management fee before the project axis begins.
-  const managementFeeAxis = snap.fundFees.totalPerPeriod.slice(0, E).map((v) => v ?? 0);
+  // THE MANAGER EARNS THE FEES, NOT THE OTHER EXPENSES (2026-11-18): the flat "other expenses" line
+  // pays third parties, so it is charged but earned by nobody in "Who gets what".
+  const managementFeeAxis = Array.from({ length: E }, (_, t) => snap.fundFees.lines
+    .filter((l) => l.base !== 'flat_amount').reduce((a, l) => a + (l.amountPerPeriod[t] ?? 0), 0));
+  // THE DEVELOPER FEE AND THE SALES COMMISSION (2026-11-18, founder): earned by parties, split by
+  // the fund matrix's developer fee shares and by the project's commission split (100% to the
+  // Developer where none is stated). Shown whether or not the fund layer is on.
+  const devFeeAxis = (snap.financing.capex.developerFeePerPeriod ?? []).slice(0, E).map((v) => v ?? 0);
+  const commAxis = (snap.financing.capex.commissionPerPeriod ?? []).slice(0, E).map((v) => v ?? 0);
+  const earnerMap = new Map<string, { entityId: string; name: string; kind: 'fund_manager' | 'party' | 'third_party'; managementFeeShare: number; performanceFeeShare: number; developerFeeShare: number; commissionShare: number }>();
+  if (fundTerms.enabled) {
+    for (const e of resolveFeeEarners(fundTerms)) {
+      earnerMap.set(e.entityId, { entityId: e.entityId, name: e.name, kind: e.kind, managementFeeShare: e.managementFeeShare, performanceFeeShare: e.performanceFeePct, developerFeeShare: Math.max(0, e.developerFeePct ?? 0), commissionShare: 0 });
+    }
+  }
+  const devShareSum = [...earnerMap.values()].reduce((a, e) => a + e.developerFeeShare, 0);
+  if (devShareSum <= 1e-9) {
+    const dv = earnerMap.get(DEVELOPER_EARNER_ID) ?? { entityId: DEVELOPER_EARNER_ID, name: 'Developer', kind: 'party' as const, managementFeeShare: 0, performanceFeeShare: 0, developerFeeShare: 0, commissionShare: 0 };
+    dv.developerFeeShare = 1;
+    earnerMap.set(DEVELOPER_EARNER_ID, dv);
+  }
+  for (const s of resolveCommissionSplit(project)) {
+    const cur = earnerMap.get(s.entityId) ?? { entityId: s.entityId, name: s.name, kind: s.kind, managementFeeShare: 0, performanceFeeShare: 0, developerFeeShare: 0, commissionShare: 0 };
+    cur.commissionShare += s.share;
+    earnerMap.set(s.entityId, cur);
+  }
+  const earnedOnLines = devFeeAxis.some((v) => Math.abs(v) > 0.005) || commAxis.some((v) => Math.abs(v) > 0.005);
   const feeEarners = computeFeeEarnerReturns({
-    // resolveFeeEarners always puts the Fund Manager first and always includes
-    // it when the layer is on, even with an empty matrix, because the
-    // management fees are its entitlement regardless of any split.
-    earners: fundTerms.enabled
-      ? resolveFeeEarners(fundTerms).map((e) => ({
-        entityId: e.entityId,
-        name: e.name,
-        kind: e.kind,
-        managementFeeShare: e.managementFeeShare,
-        performanceFeeShare: e.performanceFeePct,
-      }))
-      : [],
+    // The Fund Manager first when the layer is on; then every party that earns a share of any fee.
+    earners: [...earnerMap.values()].filter((e) => e.kind === 'fund_manager'
+      || e.performanceFeeShare > 0 || (earnedOnLines && (e.developerFeeShare > 0 || e.commissionShare > 0))),
     managementFeePerPeriod: incep(0, managementFeeAxis),
     performanceFeePerPeriod: waterfall.performanceFeePerPeriod,
-    active: fundTerms.enabled,
+    developerFeePerPeriod: incep(0, devFeeAxis),
+    commissionPerPeriod: incep(0, commAxis),
+    active: fundTerms.enabled || earnedOnLines,
   });
 
   // ── Step-by-step build-up components (E+1, index 0 = inception) ──────

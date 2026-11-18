@@ -320,7 +320,9 @@ export function buildFundTermsPairs(ctx: FundReportCtx, fundManagerName: string)
 // ── Fee income ──────────────────────────────────────────────────────────────
 
 export const FUND_EARNER_COLUMNS: readonly string[] =
-  ['Fee Earner', 'Type', 'Mgmt Fee %', 'Management Fees', 'Perf. Fee %', 'Performance Fee', 'Total Fee Income'];
+  ['Fee Earner', 'Type', 'Mgmt Fee %', 'Management Fees', 'Perf. Fee %', 'Performance Fee', 'Developer Fee', 'Sales Commission', 'Total Fee Income'];
+/** The table's title on every surface (2026-11-18, founder: "Who gets what"). */
+export const WHO_GETS_WHAT_TITLE = 'Who Gets What, Fee Income by Earner';
 
 /**
  * Who EARNS the fees, as distinct from who owns the equity. Fee earners sit
@@ -338,9 +340,10 @@ export function buildFundEarnerRows(ctx: FundReportCtx): FundGridRow[] {
   const rows: FundGridRow[] = s.earners.map((e) => ({
     cells: [
       e.name,
-      e.kind === 'fund_manager' ? (ctx.returns.performanceFeeDefaultedToManager ? 'Fund Manager, unassigned performance fee by default' : 'Fund Manager') : 'Project Party',
+      e.kind === 'fund_manager' ? (ctx.returns.performanceFeeDefaultedToManager ? 'Fund Manager, unassigned performance fee by default' : 'Fund Manager') : e.kind === 'third_party' ? 'Third Party' : 'Project Party',
       pct(e.managementFeeShare, 1), money(e.totalManagementFeeIncome),
       pct(e.performanceFeeShare, 1), money(e.totalPerformanceFeeIncome),
+      money(e.totalDeveloperFeeIncome), money(e.totalCommissionIncome),
       money(e.totalFeeIncome),
     ],
   }));
@@ -348,12 +351,17 @@ export function buildFundEarnerRows(ctx: FundReportCtx): FundGridRow[] {
     rows.push({
       cells: ['Unallocated', '', '', '',
         pct(Math.max(0, 1 - s.performanceFeeShareSum), 1),
-        money(s.unallocatedPerformanceFee), money(s.unallocatedPerformanceFee)],
+        money(s.unallocatedPerformanceFee), '', '', money(s.unallocatedPerformanceFee)],
     });
   }
+  // THE TOTAL IS THE FEE CHARGED (2026-11-18): a share short of 100% leaves the rest to no one, shown.
+  const devT = s.totalDeveloperFee, comT = s.totalCommission;
+  const devUn = Math.max(0, devT - s.earners.reduce((a, e) => a + e.totalDeveloperFeeIncome, 0));
+  const comUn = Math.max(0, comT - s.earners.reduce((a, e) => a + e.totalCommissionIncome, 0));
+  if (devUn > 0.5 || comUn > 0.5) rows.push({ cells: ['Developer fee or commission unallocated', '', '', '', '', '', money(devUn), money(comUn), money(devUn + comUn)] });
   rows.push({
-    cells: ['Total', '', '', money(s.totalManagementFee), '', money(s.totalPerformanceFee),
-      money(s.totalManagementFee + s.totalPerformanceFee)],
+    cells: ['Total', '', '', money(s.totalManagementFee), '', money(s.totalPerformanceFee), money(devT), money(comT),
+      money(s.totalManagementFee + s.totalPerformanceFee + devT + comT)],
     emphasis: 'total',
   });
   return rows;

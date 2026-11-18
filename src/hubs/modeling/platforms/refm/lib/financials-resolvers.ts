@@ -1877,6 +1877,22 @@ function computeFinancialsSnapshotOnce(
       };
     }
   }
+  // NO SILENT DEBT / EQUITY SPLIT (2026-11-18, founder). Methods 2 and 3 each read their OWN split; when
+  // it is not stored the engine uses 70 / 30, and that is now SAID where the model's warnings are read.
+  {
+    const fc = project.financing;
+    const m = fc?.fundingMethod;
+    const own = m === 3 ? fc?.cashDeficitConfig : m === 2 ? fc?.netFundingConfig : undefined;
+    if ((m === 2 || m === 3) && (own === undefined || (own.debtPct === undefined && own.equityPct === undefined))) {
+      financing.reconciliation = {
+        ok: false,
+        issues: [
+          ...financing.reconciliation.issues,
+          `Funding method ${m} has no debt / equity split of its own, so the model is using 70% debt / 30% equity. Set the split on Financing to make it a stated input.`,
+        ],
+      };
+    }
+  }
 
   const N = revenue.axisLength;
   const projectStartYear = revenue.projectStartYear;

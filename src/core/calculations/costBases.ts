@@ -29,7 +29,7 @@
  */
 import { isRetailCompanion, planRetailCompanionOverrides } from './retailCompanion';
 
-export interface BasesCostLine { id: string; phaseId: string; method: string; value: number; phasing: string }
+export interface BasesCostLine { id: string; phaseId: string; method: string; value: number; phasing: string; catalogId?: string; selectedLineIds?: readonly string[] }
 export interface BasesCostOverride { assetId: string; lineId: string; method: string }
 export interface BasesAsset { id: string; phaseId: string; isCompanion?: boolean; companionType?: string }
 export interface BasesState {
@@ -84,6 +84,15 @@ export function applyReferenceCostBases<T extends BasesState>(state: T): CostBas
 
   let linesChanged = false;
   const costLines = state.costLines.map((l) => {
+    // THE DEAD COMMISSION LINE (2026-11-18): the old seed charged a % of selected lines with none
+    // selected, which is exactly zero whatever rate it shows. It moves to a share of the sale value
+    // at 0%, so it still charges nothing today and a rate typed later charges what it says.
+    const isCommission = l.catalogId === 'commission' || (!l.catalogId && l.id === `commission__${l.phaseId}`);
+    if (isCommission && l.method === 'percent_of_selected' && !(l.selectedLineIds ?? []).length) {
+      linesChanged = true;
+      moves.push({ kind: 'line', lineId: l.id, from: l.method, to: 'percent_of_revenue_sale' });
+      return { ...l, method: 'percent_of_revenue_sale', value: 0 };
+    }
     const base = baseOf.get(l.id);
     if (!base || !LINE_MOVES_FROM[base].includes(l.method)) return l;
     linesChanged = true;

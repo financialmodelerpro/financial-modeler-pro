@@ -41,6 +41,9 @@ export interface CapexAggregate {
   // hand-built fixtures that only need the totals stay valid.
   /** Total computed amount per cost-line id, summed across all assets. */
   perLineTotals?: Record<string, number>;
+  /** The developer fee and sales commission lines' spend per period (2026-11-18), for who earns them. */
+  developerFeePerPeriod?: number[];
+  commissionPerPeriod?: number[];
   /** Per construction stage, per project-period currency schedule (length = axis.totalPeriods). */
   perStagePerPeriod?: Record<string, number[]>;
   /**

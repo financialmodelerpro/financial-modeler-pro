@@ -79,12 +79,12 @@ import {
   emitLandTables, emitSubUnitAreas, LAND_CHAIN_COLS, utcMonthYear, utcYear, phaseStatusLabel, type SheetCursor,
 } from './inputsSheetSections';
 import { buildAssetAreaTables, buildAssetLandView } from '../../components/modules/_shared/assetInputsView';
-import { resolveFundTerms, FUND_FEE_SPECS, performanceFeeOverallocation, PERFORMANCE_FEE_SHARES_MAX } from '../fundTerms';
+import { resolveFundTerms, resolveCommissionSplit, FUND_FEE_SPECS, performanceFeeOverallocation, PERFORMANCE_FEE_SHARES_MAX } from '../fundTerms';
 import {
   isFundActive, hasFundFeeIncome, buildFundWaterfallRows, buildFundFeeIncomeRows, buildDdmPostFeeRows,
   buildFundGrossNetRows, buildFundEarnerRows, fundPerformanceFeeDefaultNote, fundPerformanceFeeShortfallNote, performanceFeeShortfall, buildFundHeadlineCards, fundGrossNetNote,
   fundWaterfallTotalsNote,
-  FUND_GROSS_NET_COLUMNS, FUND_EARNER_COLUMNS, type FundReportCtx,
+  FUND_GROSS_NET_COLUMNS, FUND_EARNER_COLUMNS, WHO_GETS_WHAT_TITLE, type FundReportCtx,
 } from '../reports/fundReports';
 import { buildAssetNotes } from '../reports/assetNotes';
 import { formatAccounting } from '@/src/core/formatters';
@@ -970,15 +970,21 @@ function addAssumptions(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFin
     // The distribution matrix. Shares are NEVER normalised.
     const matrix = fundTerms.feeDistribution ?? [];
     if (matrix.length) {
-      // The performance fee share only (2026-11-03): the developer fee and commission shares are read by nothing.
-      setSectionHeader(ws.getRow(r), 'Performance fee shares (not normalised)', 2); r += 1;
-      ['Party', 'Performance fee %'].forEach((h, i) => setColHeader(ws.getCell(r, i + 1), h, i === 0 ? 'left' : 'right')); r += 1;
+      // The performance fee share, and (2026-11-18) the developer fee share where the model has a developer
+      // fee: "Who gets what" reads both. The commission share is the project's own split, below.
+      const devOn = (snap.financing.capex.developerFeePerPeriod ?? []).some((v) => Math.abs(v ?? 0) > 0.005);
+      setSectionHeader(ws.getRow(r), devOn ? 'Fee shares (not normalised)' : 'Performance fee shares (not normalised)', devOn ? 3 : 2); r += 1;
+      (devOn ? ['Party', 'Performance fee %', 'Developer fee %'] : ['Party', 'Performance fee %']).forEach((h, i) => setColHeader(ws.getCell(r, i + 1), h, i === 0 ? 'left' : 'right')); r += 1;
       for (const [mi, m] of matrix.entries()) {
         setLabel(ws.getCell(`A${r}`), m.partyName || m.partyId);
         setInput(ws.getCell(`B${r}`), m.performanceFeePct ?? 0, NUMFMT.pct2);
         // Live: Returns splits the fee by it. The hardcoded workbook prints it as typed.
         if (isLiveLayout()) registerCell(`ftm:${mi}:perf`, ws, ws.getCell(r, 2));
         else fixedAt(r, 2, 'How the performance fee is shared among earners, as set on Fund Terms.');
+        if (devOn) {
+          setInput(ws.getCell(`C${r}`), m.developerFeePct ?? 0, NUMFMT.pct2);
+          if (isLiveLayout()) registerCell(`ftm:${mi}:dev`, ws, ws.getCell(r, 3));
+        }
         r += 1;
       }
       r += 1;
@@ -992,6 +998,23 @@ function addAssumptions(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFin
     setInput(ws.getCell(`B${r}`), 'No', '@');
     setLabel(ws.getCell(`D${r}`), 'Off: the project is modelled without fund fees, hurdle or performance fee.');
     r += 2;
+  }
+
+  // ── WHO EARNS THE SALES COMMISSION (2026-11-18, founder) ─────────────────────
+  // The project's split, with or without the fund layer, only where the model charges a commission
+  // and a split is stated (none stated: 100% to the Developer, said here in words).
+  if ((snap.financing.capex.commissionPerPeriod ?? []).some((v) => Math.abs(v ?? 0) > 0.005)) {
+    const split = resolveCommissionSplit(p);
+    setSectionHeader(ws.getRow(r), 'Sales commission split', 2); r += 1;
+    ['Earner', 'Share %'].forEach((h, i) => setColHeader(ws.getCell(r, i + 1), h, i === 0 ? 'left' : 'right')); r += 1;
+    const stated = (p.commissionSplit ?? []).length > 0;
+    split.forEach((s, j) => {
+      setLabel(ws.getCell(`A${r}`), s.name);
+      if (stated) { setInput(ws.getCell(`B${r}`), s.share, NUMFMT.pct2); if (isLiveLayout()) registerCell(`csplit:${j}`, ws, ws.getCell(r, 2)); }
+      else { setLabel(ws.getCell(`B${r}`), '100% (none stated)'); }
+      r += 1;
+    });
+    r += 1;
   }
 
   // ── Module 1, tab 4: Asset Types & Standards ───────────────────────────────
@@ -6545,7 +6568,7 @@ function addReturns(ctx: EmitCtx, revLinks: RevLinks, opexLinks: OpexLinks, fin:
     note('Who earns the fund\'s fees, as distinct from who owns its equity. The Fund Manager takes 100% of the five management fees plus its share of the performance fee from the Module 1 distribution matrix; project parties take only their matrix share. Fee earners hold no equity, so nothing here is part of the equity split above.');
     // A string grid on its own title: the fund verifiers find the earner rows
     // under this caption.
-    grid('Fund Fee Income by Earner', [...FUND_EARNER_COLUMNS], buildFundEarnerRows(textCtx).map((g) => ({ label: g.cells[0], bold: g.emphasis === 'total', cells: g.cells.slice(1) })));
+    grid(WHO_GETS_WHAT_TITLE, [...FUND_EARNER_COLUMNS], buildFundEarnerRows(textCtx).map((g) => ({ label: g.cells[0], bold: g.emphasis === 'total', cells: g.cells.slice(1) })));
     const defaultNote = fundPerformanceFeeDefaultNote({ returns: rs }) ?? fundPerformanceFeeShortfallNote(rs, cMoney);
     if (defaultNote) note(defaultNote);
     else note(fe.noneAllocated

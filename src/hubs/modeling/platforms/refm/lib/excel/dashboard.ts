@@ -739,7 +739,8 @@ export function buildDashboard(wb: ExcelJS.Workbook, ctx: DashboardContext): { c
   const cInv = pc('Invested'), cShare = pc('Share'), cDist = pc('Distributions'), cDIrr = pc('Distribution IRR'), cDMoic = pc('Distribution MOIC');
   const earnHead = retFees ? L.row(RET, 'Earner', retFees) : null;
   const earners: number[] = [];
-  if (earnHead) { const rw = L.ws(RET); for (let x = earnHead + 1; x <= retFees![1] && txt(rw.getCell(x, 3)) && txt(rw.getCell(x, 3)) !== 'Total'; x++) earners.push(x); }
+  // A row of fee no earner takes is not a party (2026-11-18): it stays on Returns, off this table.
+  if (earnHead) { const rw = L.ws(RET); for (let x = earnHead + 1; x <= retFees![1] && txt(rw.getCell(x, 3)) && txt(rw.getCell(x, 3)) !== 'Total'; x++) if (!/no earner takes$/.test(txt(rw.getCell(x, 3)))) earners.push(x); }
   const cEarnTot = earnHead ? L.colOf(RET, earnHead, 'Total') : null;
   const feeF = (rr: number): string => (earners.length && cEarnTot ? `=SUMIF(${RG(RET, earners[0], 3, earners[earners.length - 1], 3)},C${rr},${RG(RET, earners[0], cEarnTot, earners[earners.length - 1], cEarnTot)})` : '=0');
   const whoStart = r;
@@ -760,7 +761,14 @@ export function buildDashboard(wb: ExcelJS.Workbook, ctx: DashboardContext): { c
   const partnerNames = new Set(partners.map((pr) => txt(L.ws(RET).getCell(pr, 3))));
   earners.filter((er) => !partnerNames.has(txt(L.ws(RET).getCell(er, 3)))).forEach((er, j) => {
     const f = z(partners.length + j);
-    put(r, 3, `=${A(RET, er, 3)}`, 'labelB', undefined, f); put(r, 4, 'Fund manager', 'grey', undefined, f); merge(r, 4, 5);
+    // THE EARNER'S ROLE (2026-11-18): the manager earns the fund fees; a third party or a party the
+    // commission or developer fee: the fund-fee column says which.
+    const nm = txt(L.ws(RET).getCell(er, 3));
+    const mgCol = earnHead ? L.colOf(RET, earnHead, 'Management fees') : null;
+    const mgRaw = mgCol ? (L.ws(RET).getCell(er, mgCol).value as unknown) : null;
+    const mgV = typeof mgRaw === 'number' ? mgRaw : mgRaw && typeof mgRaw === 'object' && 'result' in mgRaw ? Number((mgRaw as { result?: unknown }).result) || 0 : 0;
+    const role = nm === 'Third party' ? 'Third party' : mgV > 0 || /fund manager/i.test(nm) ? 'Fund manager' : 'Fee earner';
+    put(r, 3, `=${A(RET, er, 3)}`, 'labelB', undefined, f); put(r, 4, role, 'grey', undefined, f); merge(r, 4, 5);
     ws!.getCell(r, 4).font = { name: 'Calibri', size: 9, italic: true, color: { argb: GREY } };
     for (const c of [6, 7, 8, 9, 10]) put(r, c, '=0', 'value', money, f);
     put(r, 11, feeF(r), 'value', money, f);

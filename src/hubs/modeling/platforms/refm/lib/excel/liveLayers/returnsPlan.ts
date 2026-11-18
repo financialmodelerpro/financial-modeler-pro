@@ -19,7 +19,8 @@
 import type { computeFinancialsSnapshot, FinancialsResolverState } from '../../financials-resolvers';
 import type { computeReturnsSnapshot } from '../../returns-resolvers';
 import { trappedCashFrom } from '../../returns-resolvers';
-import { resolveFundTerms, isFundManagerRow } from '../../fundTerms';
+import { resolveFundTerms, isFundManagerRow, resolveCommissionSplit, DEVELOPER_EARNER_ID } from '../../fundTerms';
+import { resolveCatalogId } from '../../state/costCatalog';
 import { covenantSeries, evaluateCovenant, type CovenantInputs } from '../../covenants';
 import { DEFAULT_COVENANTS, type CostLine, type Phase } from '../../state/module1-types';
 import { isLandValueLine, computePhaseTimeline } from '@/src/core/calculations';
@@ -351,20 +352,47 @@ export function returnsPlan(state: FinancialsResolverState, snap: Snap, rs: RS, 
   gap('ret|gap|f');
 
   // ════ FUND FEES AND WHO EARNS THEM (fund layer) ═════════════════════════
-  if (fundOn && rs.feeEarners.active) {
+  if (rs.feeEarners.active) {
     const terms = resolveFundTerms(p);
-    head('ret|#fees', 'Fund fees and who earns them');
-    // One link to Financing's management fees (2026-11-16, founder): the fee lines are there.
-    const mg = yearsToStream(rs.feeEarners.managementFeePerPeriod.slice(1));
-    pRow('rs|fee:mgmt', 'Management fees', mg, (E, s) => (E.has('fl:feeTot') ? E.x('fl:feeTot', s)
-      : snap.fundFees.lines.map((_l, i) => E.loop(`fnc:fee:${i}`, s)).join('+') || '0'), { indent: 1 });
-    pRow('rs|fee:perf', 'Performance fee', stream(rs.waterfall.performanceFeePerPeriod).map((v, s) => (s === 0 ? null : v)), (E, s) => E.s('rs|wf:fee', s), { indent: 1 });
-    pRow('rs|fee:all', 'Total fee income', [null, ...Array.from({ length: N }, (_, t) => (mg[t + 1] ?? 0) + (rs.waterfall.performanceFeePerPeriod[t + 1] ?? 0))],
-      (E, s) => `${E.s('rs|fee:mgmt', s)}+${E.s('rs|fee:perf', s)}`, { style: 'subtotal' });
-    // Who earns them: the Fund Manager takes the management fees; the performance fee follows the
-    // shares typed on Inputs (an empty column is the manager's by default).
-    rows.push({ key: 'ret|#ecols', label: 'Earner', kind: 'cols', cols: [[D, 'Management fees'], [D + 1, 'Performance fee'], [D + 2, 'Total']] });
-    const matrix = terms.feeDistribution ?? [];
+    const fe0 = rs.feeEarners;
+    head('ret|#fees', fundOn ? 'Fees and who earns them' : 'Developer fee, sales commission and who earns them');
+    // The manager's fees (2026-11-18): every fund fee line but the flat other expenses, which pay third parties.
+    const mg = yearsToStream(fe0.managementFeePerPeriod.slice(1));
+    if (fundOn) {
+      pRow('rs|fee:mgmt', 'Management fees', mg, (E, s) => snap.fundFees.lines.map((l, i) => (l.base === 'flat_amount' ? '' : E.loop(`fnc:fee:${i}`, s))).filter(Boolean).join('+') || '0', { indent: 1 });
+      pRow('rs|fee:perf', 'Performance fee', stream(rs.waterfall.performanceFeePerPeriod).map((v, s) => (s === 0 ? null : v)), (E, s) => E.s('rs|wf:fee', s), { indent: 1 });
+    }
+    // THE DEVELOPER FEE AND THE SALES COMMISSION (2026-11-18, founder), each the Capex rows of its lines.
+    const identityKeys = (E: REnv, ident: string): string[] => KEYS.cxc(E).filter((k) => {
+      const lineId = k.split(':')[2];
+      const cl = (state.costLines as CostLine[]).find((x) => x.id === lineId);
+      return !!cl && resolveCatalogId(cl) === ident;
+    });
+    const dvS = [null, ...fe0.developerFeePerPeriod.slice(1, N + 1)];
+    const cmS = [null, ...fe0.commissionPerPeriod.slice(1, N + 1)];
+    const hasDev = fe0.totalDeveloperFee > 0.005, hasCom = fe0.totalCommission > 0.005;
+    if (hasDev) pRow('rs|fee:dev', 'Developer fee', dvS, (E, s) => identityKeys(E, 'developer-fee').map((k) => E.x(k, s)).join('+') || '0', { indent: 1 });
+    if (hasCom) pRow('rs|fee:com', 'Sales commission', cmS, (E, s) => identityKeys(E, 'commission').map((k) => E.x(k, s)).join('+') || '0', { indent: 1 });
+    const feeKeys = [fundOn ? 'rs|fee:mgmt' : '', fundOn ? 'rs|fee:perf' : '', hasDev ? 'rs|fee:dev' : '', hasCom ? 'rs|fee:com' : ''].filter(Boolean);
+    pRow('rs|fee:all', 'Total fee income', [null, ...Array.from({ length: N }, (_, t) => (fundOn ? (mg[t + 1] ?? 0) + (rs.waterfall.performanceFeePerPeriod[t + 1] ?? 0) : 0) + (dvS[t + 1] ?? 0) + (cmS[t + 1] ?? 0))],
+      (E, s) => feeKeys.map((k) => E.s(k, s)).join('+') || '0', { style: 'subtotal' });
+    // Who earns them: the Fund Manager takes the management fees; the performance fee and the developer
+    // fee follow the shares typed on Inputs; the commission follows the project's split.
+    rows.push({ key: 'ret|#ecols', label: 'Earner', kind: 'cols', cols: [[D, 'Management fees'], [D + 1, 'Performance fee'], [D + 2, 'Developer fee'], [D + 3, 'Sales commission'], [D + 4, 'Total']] });
+    const matrix = fundOn ? (terms.feeDistribution ?? []) : [];
+    const devCells = (E: REnv): string[] => matrix.map((_m, i) => `ftm:${i}:dev`).filter((k) => E.has(k)).map((k) => E.ref(k));
+    const devShareF = (e: typeof fe0.earners[number]): Fx => (E) => {
+      const i = matrix.findIndex((m) => (e.kind === 'fund_manager' ? isFundManagerRow(m) : m.partyId === e.entityId && !isFundManagerRow(m)));
+      if (i >= 0 && E.has(`ftm:${i}:dev`)) return `MAX(0,${E.ref(`ftm:${i}:dev`)})`;
+      if (e.entityId === DEVELOPER_EARNER_ID) { const cs = devCells(E); return cs.length ? `IF((${cs.map((c) => `(${c}>0)`).join('+')})>0,0,1)` : '1'; }
+      return '0';
+    };
+    const splitRows = resolveCommissionSplit(p);
+    const comShareF = (e: typeof fe0.earners[number]): Fx => (E) => {
+      const j = splitRows.findIndex((x) => x.entityId === e.entityId);
+      if (j < 0) return '0';
+      return E.has(`csplit:${j}`) ? `MAX(0,${E.ref(`csplit:${j}`)})` : String(splitRows[j].share);
+    };
     const perfCells = (E: REnv): string[] => matrix.map((_m, i) => E.ref(`ftm:${i}:perf`));
     // The Fund Manager takes the whole performance fee by default only where no share is typed at all.
     const anyTyped = (E: REnv): string => `IF((${perfCells(E).map((c) => `(${c}>0)`).join('+')})>0,0,1)`;
@@ -376,23 +404,37 @@ export function returnsPlan(state: FinancialsResolverState, snap: Snap, rs: RS, 
     };
     fe.earners.forEach((e, k) => {
       rows.push({ key: `ret|fe|${k}`, label: e.name, kind: 'cells', cells: [
-        { col: D, v: e.totalManagementFeeIncome, fmt: RF.money, f: (E) => (e.managementFeeShare > 0 ? E.d('rs|fee:mgmt') : '0') },
-        { col: D + 1, v: e.totalPerformanceFeeIncome, fmt: RF.money, f: (E) => `(${shareF(e)(E)})*${E.d('rs|fee:perf')}` },
-        { col: D + 2, v: e.totalFeeIncome, fmt: RF.money, f: (E) => `${E.cell(`ret|fe|${k}`, D)}+${E.cell(`ret|fe|${k}`, D + 1)}` },
+        { col: D, v: e.totalManagementFeeIncome, fmt: RF.money, f: (E) => (fundOn && e.managementFeeShare > 0 ? E.d('rs|fee:mgmt') : '0') },
+        { col: D + 1, v: e.totalPerformanceFeeIncome, fmt: RF.money, f: (E) => (fundOn ? `(${shareF(e)(E)})*${E.d('rs|fee:perf')}` : '0') },
+        { col: D + 2, v: e.totalDeveloperFeeIncome, fmt: RF.money, f: (E) => (hasDev ? `(${devShareF(e)(E)})*${E.d('rs|fee:dev')}` : '0') },
+        { col: D + 3, v: e.totalCommissionIncome, fmt: RF.money, f: (E) => (hasCom ? `(${comShareF(e)(E)})*${E.d('rs|fee:com')}` : '0') },
+        { col: D + 4, v: e.totalFeeIncome, fmt: RF.money, f: (E) => `SUM(${E.cell(`ret|fe|${k}`, D)}:${E.cell(`ret|fe|${k}`, D + 3)})` },
       ] });
     });
     // Not built where the shares assign the whole fee by set-up (2026-11-17, founder): none typed (the Fund
     // Manager takes it all) or the typed shares add to 100% or more.
     const perfSum = matrix.reduce((a, m) => a + Math.max(0, (m as { performanceFeePct?: number }).performanceFeePct ?? 0), 0);
-    if (!(perfSum === 0 || perfSum >= 1 - 1e-9)) rows.push({ key: 'ret|fe|un', label: 'Performance fee no earner takes', kind: 'cells', cells: [
+    if (fundOn && !(perfSum === 0 || perfSum >= 1 - 1e-9)) rows.push({ key: 'ret|fe|un', label: 'Performance fee no earner takes', kind: 'cells', cells: [
       { col: D + 1, v: fe.unallocatedPerformanceFee, fmt: RF.money, f: (E) => `MAX(0,${E.d('rs|fee:perf')}-SUM(${fe.earners.map((_e, k) => E.cell(`ret|fe|${k}`, D + 1)).join(',')}))` },
-      { col: D + 2, v: fe.unallocatedPerformanceFee, fmt: RF.money, f: (E) => E.cell('ret|fe|un', D + 1) },
+      { col: D + 4, v: fe.unallocatedPerformanceFee, fmt: RF.money, f: (E) => E.cell('ret|fe|un', D + 1) },
     ] });
-    rows.push({ key: 'ret|fe|tot', label: 'Total', kind: 'cells', style: 'subtotal', cells: [D, D + 1, D + 2].map((c, i) => ({ col: c,
-      v: [fe.totalManagementFee, fe.totalPerformanceFee, fe.totalManagementFee + fe.totalPerformanceFee][i], fmt: RF.money,
+    // THE TOTAL IS THE FEE CHARGED here too: a developer fee or commission share short of 100% leaves the
+    // rest earned by no one, its own row below the earners (2026-11-18).
+    const devT = fe.totalDeveloperFee, comT = fe.totalCommission;
+    const devUn = Math.max(0, devT - fe.earners.reduce((a, e) => a + e.totalDeveloperFeeIncome, 0));
+    const comUn = Math.max(0, comT - fe.earners.reduce((a, e) => a + e.totalCommissionIncome, 0));
+    if (devUn > 0.5 || comUn > 0.5) rows.push({ key: 'ret|fe|un2', label: 'Developer fee or commission no earner takes', kind: 'cells', cells: [
+      { col: D + 2, v: devUn, fmt: RF.money, f: (E) => (hasDev ? `MAX(0,SUM(${E.rng('rs|fee:dev')})-SUM(${fe.earners.map((_e, k) => E.cell(`ret|fe|${k}`, D + 2)).join(',')}))` : '0') },
+      { col: D + 3, v: comUn, fmt: RF.money, f: (E) => (hasCom ? `MAX(0,SUM(${E.rng('rs|fee:com')})-SUM(${fe.earners.map((_e, k) => E.cell(`ret|fe|${k}`, D + 3)).join(',')}))` : '0') },
+      { col: D + 4, v: devUn + comUn, fmt: RF.money, f: (E) => `${E.cell('ret|fe|un2', D + 2)}+${E.cell('ret|fe|un2', D + 3)}` },
+    ] });
+    rows.push({ key: 'ret|fe|tot', label: 'Total', kind: 'cells', style: 'subtotal', cells: [D, D + 1, D + 2, D + 3, D + 4].map((c, i) => ({ col: c,
+      v: [fe.totalManagementFee, fe.totalPerformanceFee, devT, comT, fe.totalManagementFee + fe.totalPerformanceFee + devT + comT][i], fmt: RF.money,
       // THE TOTAL IS THE FEE CHARGED (2026-11-03), as the platform states it: with shares typed over
       // 100% the earners' rows add to more than the fund pays, and the total must not follow them.
-      f: (E: REnv) => [E.d('rs|fee:mgmt'), E.d('rs|fee:perf'), `${E.cell('ret|fe|tot', D)}+${E.cell('ret|fe|tot', D + 1)}`][i] })) });
+      f: (E: REnv) => [fundOn ? E.d('rs|fee:mgmt') : '0', fundOn ? E.d('rs|fee:perf') : '0',
+        hasDev ? `SUM(${E.rng('rs|fee:dev')})` : '0', hasCom ? `SUM(${E.rng('rs|fee:com')})` : '0',
+        `SUM(${E.cell('ret|fe|tot', D)}:${E.cell('ret|fe|tot', D + 3)})`][i] })) });
     gap('ret|gap|g');
   }
 

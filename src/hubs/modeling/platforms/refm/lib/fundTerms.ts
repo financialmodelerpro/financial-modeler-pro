@@ -334,6 +334,24 @@ export function performanceFeeOverMessage(total: number, room?: number): string 
  * empty matrix, because it earns the management fees regardless of whether
  * anyone has split the performance fee yet.
  */
+/** The commission earner ids (2026-11-18): a third party, and the Developer when no split is stated. */
+export const THIRD_PARTY_ID = 'third_party';
+export const DEVELOPER_EARNER_ID = '__developer__';
+/**
+ * WHO EARNS THE SALES COMMISSION (2026-11-18): the stated split (whole percents, used as typed,
+ * never rescaled), else 100% to the Developer. One rule for the engine, the screens and the exports.
+ */
+export function resolveCommissionSplit(project: Pick<Project, 'commissionSplit'>): Array<{ entityId: string; name: string; kind: 'party' | 'third_party'; share: number }> {
+  const rows = (project.commissionSplit ?? []).filter((r) => r && typeof r.partyId === 'string' && Number.isFinite(r.sharePct));
+  if (!rows.length) return [{ entityId: DEVELOPER_EARNER_ID, name: 'Developer', kind: 'party', share: 1 }];
+  return rows.map((r) => ({
+    entityId: r.partyId,
+    name: r.partyId === THIRD_PARTY_ID ? 'Third party' : (r.partyName || 'Party'),
+    kind: r.partyId === THIRD_PARTY_ID ? 'third_party' as const : 'party' as const,
+    share: Math.max(0, r.sharePct) / 100,
+  }));
+}
+
 export function resolveFeeEarners(terms: FundTerms): FeeEarner[] {
   const fmRow = terms.feeDistribution.find(isFundManagerRow);
   const defaultShare = performanceFeeDefaultShare(terms);

@@ -11,6 +11,7 @@ import type {
   ParcelFundingConfig,
 } from '@/src/hubs/modeling/platforms/refm/lib/state/module1-types';
 import { COST_STAGES } from '@/src/hubs/modeling/platforms/refm/lib/state/module1-types';
+import { resolveCatalogId } from '@/src/hubs/modeling/platforms/refm/lib/state/costCatalog';
 import { computeAssetCost, deriveCostStage } from '../index';
 import { phaseHasModelCapex } from '../modelCapex';
 import { collectionsForAssetAtOffset, phaseLocalToProjectIndex, type CollectionsSource } from '../capexPhasing';
@@ -74,6 +75,12 @@ export function aggregateProjectCapex(inputs: CapexInputs, axis: ProjectAxis): C
   // other surface whenever the two disagree.
   const lineStage = new Map<string, CostStage>();
   for (const cl of inputs.costLines) lineStage.set(cl.id, deriveCostStage(cl));
+  // WHO EARNS TWO OF THE LINES (2026-11-18): the developer fee and the sales commission, found by
+  // catalog identity (the one identity rule), so "Who gets what" can split each to its parties.
+  const lineIdentity = new Map<string, string | undefined>();
+  for (const cl of inputs.costLines) lineIdentity.set(cl.id, resolveCatalogId(cl));
+  const developerFeePerPeriod = new Array<number>(N).fill(0);
+  const commissionPerPeriod = new Array<number>(N).fill(0);
   const perLineTotals: Record<string, number> = {};
   // 2026-08-16: buckets are DERIVED FROM COST_STAGES, not a literal.
   //
@@ -135,10 +142,13 @@ export function aggregateProjectCapex(inputs: CapexInputs, axis: ProjectAxis): C
         // schedule is recoverable; crashing the whole model is not.
         const bucket = perStagePerPeriod[stage];
         if (!bucket) continue;
+        const ident = lineIdentity.get(lineId);
+        const earned = ident === 'developer-fee' ? developerFeePerPeriod : ident === 'commission' ? commissionPerPeriod : null;
         for (let i = 0; i < dist.length; i++) {
           const projIdx = phaseLocalToProjectIndex(i, offset);
           if (projIdx < 0 || projIdx >= N) continue;
           bucket[projIdx] += dist[i] ?? 0;
+          if (earned) earned[projIdx] += dist[i] ?? 0;
         }
       }
       // Expensed as incurred (marketing): the same offset rule, kept apart from every capex series.
@@ -202,6 +212,8 @@ export function aggregateProjectCapex(inputs: CapexInputs, axis: ProjectAxis): C
     totals,
     perPeriod: { exclAllLand, exclLandInKind, inclAllLand, landCash, landInKind, nonLand },
     perLineTotals,
+    developerFeePerPeriod,
+    commissionPerPeriod,
     perStagePerPeriod,
     landByPhase,
     expensedPerPeriod,

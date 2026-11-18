@@ -41,11 +41,13 @@ export default function Module5Returns({ activeProjectId = null }: { activeProje
   // Module 1 Parties carrying an equity role, offered as the source for equity
   // partner identity. Identity only, never feeds the returns math.
   const [equityParties, setEquityParties] = useState<Party[]>([]);
+  // Every project party (2026-11-18), for the sales commission split.
+  const [allParties, setAllParties] = useState<Party[]>([]);
   useEffect(() => {
     let alive = true;
     if (!activeProjectId) { setEquityParties([]); return; }
     void listParties(activeProjectId).then(({ data }) => {
-      if (alive && data) setEquityParties(data.parties.filter((p) => isEquityParty(p.roles)));
+      if (alive && data) { setEquityParties(data.parties.filter((p) => isEquityParty(p.roles))); setAllParties(data.parties); }
     });
     return () => { alive = false; };
   }, [activeProjectId]);
@@ -231,6 +233,13 @@ export default function Module5Returns({ activeProjectId = null }: { activeProje
             partners above, never inside them: a fee earner holds no equity, so
             it takes no shareholding and cannot disturb the identity that makes
             the partner table reconcile. Renders only when the toggle is on. ── */}
+      {(rs.feeEarners.totalCommission > 0.005 || (project.commissionSplit ?? []).length > 0) && (
+        <CommissionSplitEditor
+          parties={allParties}
+          value={project.commissionSplit ?? []}
+          onChange={(next) => state.setProject({ commissionSplit: next })}
+        />
+      )}
       {rs.feeEarners.active && (
         <FeeIncomeSection
           snapshot={rs.feeEarners}
@@ -530,6 +539,62 @@ function FundWaterfallSection(props: {
  * displayed rather than absorbed, because absorbing it would invent an
  * allocation the user never made.
  */
+/**
+ * WHO EARNS THE SALES COMMISSION (2026-11-18, founder): every project party plus a third party,
+ * whole percents adding to 100. None stated: 100% to the Developer (the party with the Developer
+ * role is offered first). The split is used as typed; a total other than 100% is said, not rescaled.
+ */
+function CommissionSplitEditor(props: {
+  parties: Party[];
+  value: Array<{ partyId: string; partyName: string; sharePct: number }>;
+  onChange: (next: Array<{ partyId: string; partyName: string; sharePct: number }>) => void;
+}): React.JSX.Element {
+  const { parties, value, onChange } = props;
+  const dev = parties.find((p) => (p.roles ?? []).includes('Developer'));
+  const rows = [...parties.map((p) => ({ partyId: p.id, partyName: p.name })), { partyId: 'third_party', partyName: 'Third party' }];
+  const shareOf = (id: string): number => {
+    const hit = value.find((v) => v.partyId === id);
+    if (hit) return hit.sharePct;
+    return value.length === 0 && dev && id === dev.id ? 100 : 0;
+  };
+  const total = rows.reduce((a, r) => a + shareOf(r.partyId), 0);
+  const set = (id: string, name: string, pct: number): void => {
+    const base = value.length ? value : (dev ? [{ partyId: dev.id, partyName: dev.name, sharePct: 100 }] : []);
+    const next = base.filter((v) => v.partyId !== id);
+    if (pct > 0) next.push({ partyId: id, partyName: name, sharePct: pct });
+    onChange(next);
+  };
+  return (
+    <section style={{ marginBottom: 'var(--sp-3)' }} data-testid="m5-commission-split">
+      <SectionTitle>Sales Commission Split</SectionTitle>
+      <div style={{ fontSize: 11, color: 'var(--color-meta)', marginBottom: 'var(--sp-1)' }}>
+        Who earns the sales commission charged on the residential lines. Shares are used as typed and should add to 100%.
+      </div>
+      <table style={{ borderCollapse: 'collapse', minWidth: 360 }}>
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r.partyId}>
+              <td style={{ padding: '3px 8px', fontSize: 11 }}>{r.partyName}</td>
+              <td style={{ padding: '3px 8px' }}>
+                <input type="number" min={0} max={100} step={1} value={shareOf(r.partyId)}
+                  onChange={(e) => set(r.partyId, r.partyName, Math.max(0, Math.min(100, Number(e.target.value) || 0)))}
+                  style={{ width: 80, fontSize: 11, textAlign: 'right' }} data-testid={`commission-split-${r.partyId}`} />
+                <span style={{ fontSize: 11, marginLeft: 4 }}>%</span>
+              </td>
+            </tr>
+          ))}
+          <tr>
+            <td style={{ padding: '3px 8px', fontSize: 11, fontWeight: 700 }}>Total</td>
+            <td style={{ padding: '3px 8px', fontSize: 11, fontWeight: 700, color: Math.abs(total - 100) < 1e-6 ? 'var(--color-success, #1A7A30)' : '#92400E' }}>
+              {total.toFixed(1)}%{Math.abs(total - 100) < 1e-6 ? '' : ' (should be 100%)'}
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+  );
+}
+
 function FeeIncomeSection(props: {
   snapshot: import('@/src/core/calculations/returns').FeeEarnersSnapshot;
   reportCtx: FundReportCtx;
@@ -571,7 +636,7 @@ function FeeIncomeSection(props: {
 
   return (
     <section style={{ marginBottom: 'var(--sp-3)' }} data-testid="m5-fee-income">
-      <SectionTitle>Fund Fee Income</SectionTitle>
+      <SectionTitle>Who Gets What</SectionTitle>
       <div style={{ fontSize: 11, color: 'var(--color-meta)', marginBottom: 'var(--sp-1)' }}>
         Who earns the fund&apos;s fees, as distinct from who owns its equity. The Fund Manager takes 100% of the
         five management fees (its entitlement by definition, never split) plus its share of the performance fee
@@ -590,6 +655,8 @@ function FeeIncomeSection(props: {
               <th style={th}>Management Fees</th>
               <th style={th} title="Share of the performance fee, from the Module 1 distribution matrix">Perf. Fee %</th>
               <th style={th}>Performance Fee</th>
+              <th style={th} title="The developer fee cost line, by the developer fee shares">Developer Fee</th>
+              <th style={th} title="The sales commission cost line, by the commission split">Sales Commission</th>
               <th style={th}>Total Fee Income</th>
             </tr>
           </thead>
@@ -598,12 +665,14 @@ function FeeIncomeSection(props: {
               <tr key={e.entityId}>
                 <td style={{ ...tdL, fontWeight: 600 }}>{e.name}</td>
                 <td style={{ ...tdL, color: 'var(--color-meta)' }}>
-                  {e.kind === 'fund_manager' ? 'Fund Manager' : 'Project Party'}
+                  {e.kind === 'fund_manager' ? 'Fund Manager' : e.kind === 'third_party' ? 'Third Party' : 'Project Party'}
                 </td>
                 <td style={td}>{fmtPct(e.managementFeeShare)}</td>
                 <td style={td}>{fmt(e.totalManagementFeeIncome)}</td>
                 <td style={td}>{fmtPct(e.performanceFeeShare)}</td>
                 <td style={td}>{fmt(e.totalPerformanceFeeIncome)}</td>
+                <td style={td}>{fmt(e.totalDeveloperFeeIncome)}</td>
+                <td style={td}>{fmt(e.totalCommissionIncome)}</td>
                 <td style={{ ...td, fontWeight: 700 }}>{fmt(e.totalFeeIncome)}</td>
               </tr>
             ))}
@@ -616,6 +685,8 @@ function FeeIncomeSection(props: {
                 <td style={td} />
                 <td style={{ ...td, color: 'var(--color-meta)' }}>{fmtPct(Math.max(0, 1 - s.performanceFeeShareSum))}</td>
                 <td style={{ ...td, color: 'var(--color-meta)' }}>{fmt(s.unallocatedPerformanceFee)}</td>
+                <td style={td} />
+                <td style={td} />
                 <td style={{ ...td, color: 'var(--color-meta)' }}>{fmt(s.unallocatedPerformanceFee)}</td>
               </tr>
             )}
@@ -626,7 +697,9 @@ function FeeIncomeSection(props: {
               <td style={{ ...td, fontWeight: 700 }}>{fmt(s.totalManagementFee)}</td>
               <td style={td} />
               <td style={{ ...td, fontWeight: 700 }}>{fmt(s.totalPerformanceFee)}</td>
-              <td style={{ ...td, fontWeight: 800 }}>{fmt(s.totalManagementFee + s.totalPerformanceFee)}</td>
+              <td style={{ ...td, fontWeight: 700 }}>{fmt(s.totalDeveloperFee)}</td>
+              <td style={{ ...td, fontWeight: 700 }}>{fmt(s.totalCommission)}</td>
+              <td style={{ ...td, fontWeight: 800 }}>{fmt(s.totalManagementFee + s.totalPerformanceFee + s.totalDeveloperFee + s.totalCommission)}</td>
             </tr>
           </tbody>
         </table>

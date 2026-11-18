@@ -53,22 +53,31 @@ export interface FeeEarnerInput {
   /** Stable id: the reserved fund-manager id, or a project party id. */
   entityId: string;
   name: string;
-  kind: 'fund_manager' | 'party';
+  kind: 'fund_manager' | 'party' | 'third_party';
   /** Share of the five management fees. 1 for the manager, 0 for everyone else. */
   managementFeeShare: number;
   /** Share of the performance fee, from the distribution matrix (0 to 1). */
   performanceFeeShare: number;
+  /** Share of the developer fee and of the sales commission (2026-11-18), 0 to 1. */
+  developerFeeShare?: number;
+  commissionShare?: number;
 }
 
 export interface FeeEarnerResult {
   entityId: string;
   name: string;
-  kind: 'fund_manager' | 'party';
+  kind: 'fund_manager' | 'party' | 'third_party';
   managementFeeShare: number;
   performanceFeeShare: number;
+  developerFeeShare: number;
+  commissionShare: number;
   /** Per period, same index basis as the streams (index 0 = inception). */
   managementFeeIncomePerPeriod: number[];
   performanceFeeIncomePerPeriod: number[];
+  developerFeeIncomePerPeriod: number[];
+  commissionIncomePerPeriod: number[];
+  totalDeveloperFeeIncome: number;
+  totalCommissionIncome: number;
   /** The two above, added. */
   totalFeeIncomePerPeriod: number[];
   totalManagementFeeIncome: number;
@@ -85,6 +94,11 @@ export interface FeeEarnersSnapshot {
   performanceFeePerPeriod: number[];
   totalManagementFee: number;
   totalPerformanceFee: number;
+  /** The developer fee and the sales commission being shared out (2026-11-18). */
+  developerFeePerPeriod: number[];
+  commissionPerPeriod: number[];
+  totalDeveloperFee: number;
+  totalCommission: number;
   /** What the earners actually take, which is not the total when the matrix
    *  is half filled. */
   allocatedManagementFee: number;
@@ -118,7 +132,10 @@ export interface FeeEarnerInputs {
   managementFeePerPeriod: readonly number[];
   /** The waterfall's performance fee, per period, project total. */
   performanceFeePerPeriod: readonly number[];
-  /** False (the fund toggle off) returns an empty inactive snapshot. */
+  /** The developer fee and the sales commission, per period (2026-11-18). */
+  developerFeePerPeriod?: readonly number[];
+  commissionPerPeriod?: readonly number[];
+  /** False returns an empty inactive snapshot: no fund and nothing earned on the two lines. */
   active: boolean;
 }
 
@@ -135,24 +152,36 @@ export function computeFeeEarnerReturns(input: FeeEarnerInputs): FeeEarnersSnaps
 
   const mgmt = Array.from({ length: len }, (_, t) => input.managementFeePerPeriod[t] ?? 0);
   const perf = Array.from({ length: len }, (_, t) => input.performanceFeePerPeriod[t] ?? 0);
+  const devF = Array.from({ length: len }, (_, t) => input.developerFeePerPeriod?.[t] ?? 0);
+  const comm = Array.from({ length: len }, (_, t) => input.commissionPerPeriod?.[t] ?? 0);
 
   const earners: FeeEarnerResult[] = input.earners.map((e) => {
     const mShare = Number.isFinite(e.managementFeeShare) ? Math.max(0, e.managementFeeShare) : 0;
     const pShare = Number.isFinite(e.performanceFeeShare) ? Math.max(0, e.performanceFeeShare) : 0;
+    const dShare = Number.isFinite(e.developerFeeShare) ? Math.max(0, e.developerFeeShare ?? 0) : 0;
+    const cShare = Number.isFinite(e.commissionShare) ? Math.max(0, e.commissionShare ?? 0) : 0;
     const mIncome = mgmt.map((v) => v * mShare);
     const pIncome = perf.map((v) => v * pShare);
+    const dIncome = devF.map((v) => v * dShare);
+    const cIncome = comm.map((v) => v * cShare);
     return {
       entityId: e.entityId,
       name: e.name,
       kind: e.kind,
       managementFeeShare: mShare,
       performanceFeeShare: pShare,
+      developerFeeShare: dShare,
+      commissionShare: cShare,
       managementFeeIncomePerPeriod: mIncome,
       performanceFeeIncomePerPeriod: pIncome,
-      totalFeeIncomePerPeriod: mIncome.map((v, t) => v + (pIncome[t] ?? 0)),
+      developerFeeIncomePerPeriod: dIncome,
+      commissionIncomePerPeriod: cIncome,
+      totalFeeIncomePerPeriod: mIncome.map((v, t) => v + (pIncome[t] ?? 0) + (dIncome[t] ?? 0) + (cIncome[t] ?? 0)),
       totalManagementFeeIncome: sum(mIncome),
       totalPerformanceFeeIncome: sum(pIncome),
-      totalFeeIncome: sum(mIncome) + sum(pIncome),
+      totalDeveloperFeeIncome: sum(dIncome),
+      totalCommissionIncome: sum(cIncome),
+      totalFeeIncome: sum(mIncome) + sum(pIncome) + sum(dIncome) + sum(cIncome),
     };
   });
 
@@ -175,6 +204,10 @@ export function computeFeeEarnerReturns(input: FeeEarnerInputs): FeeEarnersSnaps
     performanceFeePerPeriod: perf,
     totalManagementFee,
     totalPerformanceFee,
+    developerFeePerPeriod: devF,
+    commissionPerPeriod: comm,
+    totalDeveloperFee: sum(devF),
+    totalCommission: sum(comm),
     allocatedManagementFee,
     allocatedPerformanceFee,
     totalFeeIncomePerPeriod,
@@ -202,6 +235,10 @@ export function emptyFeeEarners(len: number): FeeEarnersSnapshot {
     performanceFeePerPeriod: zeros(n),
     totalManagementFee: 0,
     totalPerformanceFee: 0,
+    developerFeePerPeriod: zeros(n),
+    commissionPerPeriod: zeros(n),
+    totalDeveloperFee: 0,
+    totalCommission: 0,
     allocatedManagementFee: 0,
     allocatedPerformanceFee: 0,
     totalFeeIncomePerPeriod: zeros(n),

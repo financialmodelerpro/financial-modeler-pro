@@ -25,7 +25,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useModule1Store } from '../../lib/state/module1-store';
-import type { Asset, SubUnit, Phase, Project, Parcel } from '../../lib/state/module1-types';
+import type { Asset, SubUnit, Phase, Project, Parcel, CostLine } from '../../lib/state/module1-types';
+import { makeBlankCostLines } from '../../lib/state/module1-types';
+import { resolveCatalogId } from '../../lib/state/costCatalog';
 import { computeProjectTimeline, computeSubUnitArea, resolveSubUnitMetric } from '@/src/core/calculations';
 import { formatArea, formatAccounting } from '@/src/core/formatters';
 import { DEFAULT_INSTALMENT_YEARS } from '@/src/core/calculations/revenue/cohortTerms';
@@ -558,6 +560,56 @@ interface AssetCardProps {
   project: Project;
   phases: Phase[];
   parcels: Parcel[];
+}
+
+/**
+ * MARKETING AND SALES COMMISSION, PER RESIDENTIAL LINE (2026-11-18). Each is a % of the sale value
+ * charged through the phase's own cost line of that identity, by a per-plot override, the same
+ * thing the Capex tab's line input writes, so the two screens edit one figure. A phase with no
+ * commission line gains one (a share of the sale value, 0% until typed).
+ */
+function SellingCostRates({ line, phase }: { line: RevenueLine; phase: Phase }): React.JSX.Element {
+  const { costLines, costOverrides, setCostOverride, addCostLine } = useModule1Store(useShallow((s) => ({
+    costLines: s.costLines, costOverrides: s.costOverrides, setCostOverride: s.setCostOverride, addCostLine: s.addCostLine,
+  })));
+  const lineOf = (ident: 'marketing' | 'commission'): CostLine | undefined =>
+    costLines.find((l) => l.phaseId === phase.id && resolveCatalogId(l) === ident);
+  const rateOf = (ident: 'marketing' | 'commission'): number => {
+    const cl = lineOf(ident);
+    if (!cl) return 0;
+    const o = costOverrides.find((x) => x.lineId === cl.id && x.assetId === line.host.id && x.overridden !== false);
+    return o?.value ?? cl.value ?? 0;
+  };
+  const setRate = (ident: 'marketing' | 'commission', pct: number): void => {
+    let cl = lineOf(ident);
+    if (!cl) {
+      const seed = makeBlankCostLines(phase.id, phase.constructionPeriods ?? 4).find((l) => resolveCatalogId(l) === ident);
+      if (!seed) return;
+      cl = { ...seed, method: 'percent_of_revenue_sale', value: 0 };
+      addCostLine(cl);
+    }
+    for (const m of line.members) {
+      setCostOverride({ assetId: m.id, lineId: cl.id, method: 'percent_of_revenue_sale', value: Math.max(0, pct), phasing: cl.phasing, overridden: true });
+    }
+  };
+  const box: React.CSSProperties = { display: 'flex', gap: 'var(--sp-2)', alignItems: 'flex-end', padding: '6px 10px', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', background: 'var(--color-surface)' };
+  const lab: React.CSSProperties = { fontSize: 11, fontWeight: 600, color: 'var(--color-heading)', display: 'block', marginBottom: 2 };
+  return (
+    <div style={box} data-testid={`selling-cost-rates-${line.key}`}>
+      <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-heading)', minWidth: 90 }}>Selling costs</div>
+      <div>
+        <label style={lab}>Marketing (% of sale value)</label>
+        <PercentageInput value={rateOf('marketing')} onChange={(v) => setRate('marketing', v)} style={{ width: 90 }} />
+      </div>
+      <div>
+        <label style={lab}>Sales commission (% of sale value)</label>
+        <PercentageInput value={rateOf('commission')} onChange={(v) => setRate('commission', v)} style={{ width: 90 }} />
+      </div>
+      <div style={{ fontSize: 10, color: 'var(--color-meta)', maxWidth: 360 }}>
+        Marketing is expensed as incurred; the commission is capitalised as a contract cost and released to the P&L as revenue is recognised. Who earns the commission is set on Returns.
+      </div>
+    </div>
+  );
 }
 
 function AssetCard({ line, allLines, phase, project, phases, parcels }: AssetCardProps): React.JSX.Element {
@@ -2318,6 +2370,11 @@ function AssetCard({ line, allLines, phase, project, phases, parcels }: AssetCar
               area + price they entered in M1 Tab 2 without switching
               tabs. */}
           <SubUnitReferenceStrip units={subUnits} asset={asset} assetFor={assetFor} currency={project.currency || ''} />
+
+          {/* SELLING COSTS PER RESIDENTIAL LINE (2026-11-18, founder): two inputs, each a share of the
+              sale value, written to every plot on the line. Marketing is expensed as incurred; the
+              commission is capitalised as a contract cost and released as revenue is recognised. */}
+          <SellingCostRates line={line} phase={phase} />
 
           {/* Pass 7v: per-asset velocity view toggle. Default collapsed
               (lockstep across all sub-units); opt-in split exposes the

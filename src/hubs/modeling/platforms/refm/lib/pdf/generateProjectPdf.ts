@@ -71,7 +71,7 @@ import {
   isFundActive, hasFundFeeIncome, buildFundWaterfallRows, buildFundFeeIncomeRows,
   buildFundGrossNetRows, buildFundEarnerRows, fundPerformanceFeeDefaultNote, fundPerformanceFeeShortfallNote, performanceFeeShortfall, buildFundHeadlineCards, buildFundTermsPairs,
   fundGrossNetNote, fundWaterfallTotalsNote, fundHeadlineRestatementNote,
-  FUND_GROSS_NET_COLUMNS, FUND_EARNER_COLUMNS, type FundReportCtx, type FundFmt,
+  FUND_GROSS_NET_COLUMNS, FUND_EARNER_COLUMNS, WHO_GETS_WHAT_TITLE, type FundReportCtx, type FundFmt,
 } from '../reports/fundReports';
 import { buildAssetNotes, structuralZeroCell, type AssetStructuralZero } from '../reports/assetNotes';
 import INTER_REGULAR_B64 from './fonts/interRegular';
@@ -1058,15 +1058,15 @@ function buildFundBlock(
   }
   if (hasFundFeeIncome(returns)) {
     out.push({
-      title: 'Fund Fee Income by Earner', cards: null,
+      title: WHO_GETS_WHAT_TITLE, cards: null,
       table: {
-        title: 'Fund Fee Income by Earner', kind: 'grid', align: 'data',
+        title: WHO_GETS_WHAT_TITLE, kind: 'grid', align: 'data',
         columns: [...FUND_EARNER_COLUMNS],
         rows: buildFundEarnerRows(ctx).map((g) => row(g.cells, g.emphasis)),
       },
     });
     const defaultNote = fundPerformanceFeeDefaultNote(ctx) ?? fundPerformanceFeeShortfallNote(ctx.returns, ctx.fmt.money);
-    if (defaultNote) out.push({ title: 'Fund Fee Income by Earner', table: null, cards: null, note: defaultNote });
+    if (defaultNote) out.push({ title: WHO_GETS_WHAT_TITLE, table: null, cards: null, note: defaultNote });
     const basis = buildFundFeeBasisRows(snap);
     if (basis.length > 0) {
       // The three capital bases are their OWN table, above the fee rows. They
