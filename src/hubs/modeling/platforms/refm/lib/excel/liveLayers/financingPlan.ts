@@ -266,7 +266,7 @@ export function financingPlan(state: FinancialsResolverState, snap: Snap = compu
   per('fl:debtDraw', 'Debt drawn for the funding', sl(fin.debtEquitySplit.debt), method === 3 ? 'The funding need x the debt share' : method === 2 ? 'The gap (plus the minimum cash in the first capex year) x the debt share' : 'Capex excluding land (plus the minimum cash in the first capex year) x the debt share, and land cash x its debt share');
   per('fl:eqDraw', 'Equity drawn for the funding', sl(fin.equity.developmentPerPeriod), method === 3 ? 'The funding need x the equity share' : 'As the debt, at the equity share');
   if (feeByEquity) {
-    per('fl:feeDraw', 'Equity drawn for the fund fees', sl(w.managementFeeEquityDrawPerPeriod), 'The whole fee, in a year capex is paid; outside the funding need');
+    per('fl:feeDraw', 'Equity drawn for the fund fees', sl(w.managementFeeEquityDrawPerPeriod), 'The whole fee, in a year construction runs; outside the funding need');
   }
   per('fl:after', 'Cash after funding', inWin(sl(w.closingCashAfterFundingPerPeriod)), 'Cash before financing plus the funding need', { balance: true, style: 'subtotal' });
   gapRow();
@@ -358,8 +358,8 @@ export function financingPlan(state: FinancialsResolverState, snap: Snap = compu
     scalar('fl:feeEq', 'Capex equity of the funding need', ff.totalEquity.amount, 'money', 'The fee-free funding need x the equity share');
     scalar('fl:feeDebt', 'Capex debt of the funding need', ff.debtFacility.amount, 'money', 'The fee-free funding need x the debt share');
     scalar('fl:feeFund', '= Fund size (debt + equity funding need)', ff.fundSize.amount, 'money', fundTerms.fundSizeOverride ? 'The fund size typed on Inputs' : 'The two rows above');
-    scalar('fl:feeTdc', 'Total development cost (excl. IDC)', ff.totalDevelopmentCost, 'money', 'Capex Table 2: all capex including land, no capitalised interest');
-    scalar('fl:feeDsc', 'Debt share x cash development cost', ff.debtShareCashCost, 'money', 'The debt share x the capex paid in cash');
+    scalar('fl:feeTdc', 'Total development cost (excl. IDC)', ff.totalDevelopmentCost, 'money', 'Capex Table 2: all capex including land, less the sales commission; no capitalised interest');
+    scalar('fl:feeDsc', 'Debt share x cash development cost', ff.debtShareCashCost, 'money', 'The debt share x the capex paid in cash, less the sales commission');
     if (method === 3 && !feeByEquity) {
       // THE SHADOW FACILITY (2026-11-18): the fee-free draws and the interest capitalised on them.
       let wS = 0, rS = 0;

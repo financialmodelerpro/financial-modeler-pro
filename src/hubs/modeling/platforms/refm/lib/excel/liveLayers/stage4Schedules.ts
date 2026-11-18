@@ -205,7 +205,9 @@ export const stage4Schedules: LiveLayer = {
       const simple = has(onK) && !late;
       if (simple) row(onK, (t) => `${upto(t)}IF(${life}>0,(${idxNow(t)}>=${first})*(${idxNow(t)}<${first}+MAX(1,INT(${life}))),0)`, 'none');
       const before0 = (ks: string[]): string => ks.filter(has).map((k) => `SUMIF(${idxR},"<"&${first},${rng(k)})`).join('+') || '0';
-      const simpleDep = (ks: string[]) => (t: number): string => `(${before0(ks)})/MAX(1,${life})*${p(onK, t)}`;
+      // A YEAR THAT DOES NOT DEPRECIATE NEVER READS THE BASE (2026-11-18): the base holds later years'
+      // capitalised interest, which reads the debt the sweep sets from this year's cash, after this year's zakat.
+      const simpleDep = (ks: string[]) => (t: number): string => `IF(${p(onK, t)}=0,0,(${before0(ks)})/MAX(1,${life})*${p(onK, t)})`;
       row(K('dep'), (t) => `-${simple ? simpleDep(flows)(t) : dep(flows)(t)}`, 'sum');
       const before = (t: number): string => `${p(K('open'), t)}+${p(K('capAdd'), t)}${withIdc ? `+${p(K('idcAdd'), t)}` : ''}+${p(K('dep'), t)}`;
       row(K('disp'), (t) => `-${exit(t)}*(${before(t)})`, 'sum');
@@ -251,7 +253,10 @@ export const stage4Schedules: LiveLayer = {
       const recTot = fx(rec, TOTAL_COL);
       row(K('share'), (t) => `IF(${recTot}>0,MAX(0,${p(rec, t)})/${recTot},0)`, 'sum');
       const baseTot = fx(K('base'), TOTAL_COL);
-      row(K('cos'), (t) => `IF(${baseTot}>0,${baseTot}*${p(K('share'), t)},0)`, 'sum');
+      // NOTHING RELEASED, NOTHING READ (2026-11-18): a year with no recognition never reads the lifetime base.
+      // The base includes later years' capitalised interest, which reads the debt the sweep sets from this
+      // year's cash, which pays this year's zakat on this year's profit: reading it here would close a loop.
+      row(K('cos'), (t) => `IF(${p(K('share'), t)}=0,0,IF(${baseTot}>0,${baseTot}*${p(K('share'), t)},0))`, 'sum');
       row(K('open'), (t) => p(K('close'), t, -1), 'none');
       row(K('add'), (t) => p(K('base'), t), 'sum');
       row(K('out'), (t) => `-${p(K('cos'), t)}`, 'sum');

@@ -441,13 +441,19 @@ export const stage2Capex: LiveLayer = {
 
     // ── The blends: where an asset's plots spread a line differently ────────
     const spreadRow = (plot: string, lid: string): number => w.addr(`cxw:${plan.plotLine.get(`${plot}|${lid}`)!.spread}`).row;
+    // A SPEND SHARE MAY LIVE ON REVENUE (a line following collections, 2026-11-15): read it on its own sheet
+    // (2026-11-18). A Capex row number alone pointed a capitalised commission at an empty Capex row.
+    const spreadRef = (plot: string, lid: string, c: number): string => {
+      const a = w.addr(`cxw:${plan.plotLine.get(`${plot}|${lid}`)!.spread}`);
+      return a.sheet === CAPEX ? P(a.row, c) : w.refP({ sheet: a.sheet, row: a.row, col: c }, CAPEX);
+    };
     const blendRow = (r: number, plots: string[], weight: (id: string) => string, lid: (id: string) => string): void => {
       const W = plots.map(weight);
       const tot = W.length > 1 ? `(${W.join('+')})` : W[0];
       for (let t = 0; t < N; t++) {
         const c = cP(t);
-        const terms = plots.map((id, i) => `${W[i]}*${P(spreadRow(id, lid(id)), c)}`);
-        w.fA({ sheet: CAPEX, row: r, col: c }, `IF(${tot}>0,(${terms.join('+')})/${tot},${P(spreadRow(plots[0], lid(plots[0])), c)})`);
+        const terms = plots.map((id, i) => `${W[i]}*${spreadRef(id, lid(id), c)}`);
+        w.fA({ sheet: CAPEX, row: r, col: c }, `IF(${tot}>0,(${terms.join('+')})/${tot},${spreadRef(plots[0], lid(plots[0]), c)})`);
       }
       w.fA({ sheet: CAPEX, row: r, col: C_TOT }, sumAcross(r));
     };
@@ -516,7 +522,8 @@ export const stage2Capex: LiveLayer = {
       w.fA({ sheet: CAPEX, row, col: 2 }, rateRef(rep));
       w.fA({ sheet: CAPEX, row, col: C_QTY }, assetQty(host, pls));
       const use = blends.use.get(`${host}|${rep.line.id}`);
-      const spRow = use && w.has(use) ? w.addr(use).row : undefined;
+      const spAddr = use && w.has(use) ? w.addr(use) : undefined;
+      const spRow = spAddr?.row;
       if (pls.some((x) => x.disabled) && !pls.every((x) => x.disabled)) return values(`${rep.line.name} is switched off on some plots of ${host} and not on others`);
       const off = pls.every((x) => x.disabled);
       const esc = plan.plotLine.get(pk)?.escalates;
@@ -524,7 +531,8 @@ export const stage2Capex: LiveLayer = {
         const c = cP(t);
         if (off || spRow === undefined) { w.valueA({ sheet: CAPEX, row, col: c }, 0); continue; }
         // Rate x quantity x the year's spend share x the year's escalation factor.
-        w.fA({ sheet: CAPEX, row, col: c }, `${A(row, 2)}*${A(row, C_QTY)}*${P(spRow, c)}${esc ? `*${P(escRow, c)}` : ''}`);
+        const share = spAddr && spAddr.sheet !== CAPEX ? w.refP({ sheet: spAddr.sheet, row: spAddr.row, col: c }, CAPEX) : P(spRow, c);
+        w.fA({ sheet: CAPEX, row, col: c }, `${A(row, 2)}*${A(row, C_QTY)}*${share}${esc ? `*${P(escRow, c)}` : ''}`);
       }
       w.fA({ sheet: CAPEX, row, col: C_TOT }, sumAcross(row));
     }

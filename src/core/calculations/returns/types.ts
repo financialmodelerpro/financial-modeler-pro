@@ -120,6 +120,8 @@ export interface ReturnsInput {
     totalCost: number;
     totalPAT: number;
     exitNOI: number;
+    /** The exit value before selling costs (2026-11-18), the cap rate's base. Absent = the enterprise value. */
+    exitGrossValue?: number;
     exitEnterpriseValue: number;
     debtOutstandingAtExit: number;
     totalEquityInvested: number;

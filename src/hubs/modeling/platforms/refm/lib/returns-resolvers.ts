@@ -711,6 +711,7 @@ export function computeReturnsSnapshot(snap: ProjectFinancialsSnapshot, project:
       totalPAT,
       exitNOI,
       exitEnterpriseValue: tvEnterprise,
+      exitGrossValue: cfg.exitSellingCostRate < 1 ? tvEnterprise / (1 - cfg.exitSellingCostRate) : tvEnterprise,
       debtOutstandingAtExit: debtAtExit,
       totalEquityInvested,
       totalEquityDistributions: totalDividends + (proceedsDistributed ? 0 : tvEquity),

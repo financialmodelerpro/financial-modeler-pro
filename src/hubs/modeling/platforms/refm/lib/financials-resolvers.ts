@@ -1681,7 +1681,9 @@ export function computeFundingGap(snap: ProjectFinancialsSnapshot): FundingGapSn
     // spending, so the fee neither raises nor uses the development funding and the sizing
     // carries no fee. After the spend stops the fee is paid from operating cash.
     let feeDraw = 0;
-    if (feeFundedByEquity && spendingThisPeriod && fee > 0) feeDraw = fee;
+    // CONSTRUCTION YEARS ONLY (2026-11-18): a commission still being paid after handover keeps cash capex
+    // above zero, which is not construction; the fee is then paid from operating cash.
+    if (feeFundedByEquity && (fin.idcPeriodMask?.[t] ?? spendingThisPeriod) && fee > 0) feeDraw = fee;
     managementFeeEquityDrawPerPeriod[t] = feeDraw;
     const afterFee = afterBase;
     // RETIRED 2026-11-18: IDC is capitalised in full, so there is no cash headroom for it.
@@ -3357,8 +3359,11 @@ export function computeFinancialsSnapshot(
       // Equity to date: cash equity for capex plus land in kind, cumulative, while the fund runs.
       const equityToDatePerPeriod: number[] = [];
       { let run = 0; for (let t = 0; t < nAx; t++) { run += (eqCapex[t] ?? 0) + (src.financing.equity.inKindPerPeriod[t] ?? 0); equityToDatePerPeriod.push(t > feeStopIdx ? 0 : run); } }
-      const totalDevelopmentCost = Math.max(0, src.financing.capex.totals.inclAllLand);
-      const debtShareCashCost = dFr * Math.max(0, src.financing.capex.totals.exclLandInKind);
+      // DEVELOPMENT COST EXCLUDES THE COST OF SELLING (2026-11-18): the sales commission is capitalised
+      // as a contract cost, but it is a cost to sell, not to develop, so neither base carries it.
+      const commissionTotal = (src.financing.capex.commissionPerPeriod ?? []).reduce((a, v) => a + (v ?? 0), 0);
+      const totalDevelopmentCost = Math.max(0, src.financing.capex.totals.inclAllLand - commissionTotal);
+      const debtShareCashCost = dFr * Math.max(0, src.financing.capex.totals.exclLandInKind - commissionTotal);
       // The total facility: capex debt plus the interest capitalised on it. Equity-funded fees never
       // enter the funding, so the real facility IS fee-free; deficit-funded fees do, so a shadow
       // facility on the fee-free draws carries the IDC at the facilities' share-weighted rate.

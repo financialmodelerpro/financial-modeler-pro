@@ -39,6 +39,7 @@ import { sharesCapitalisedInterest } from '@/src/core/calculations/capitalisedIn
 import { computeFinancialsSnapshot } from '../../financials-resolvers';
 import { resolveFundTerms, FUND_FEE_SPECS } from '../../fundTerms';
 import { FUND_CAPITAL_LABELS } from '../../reports/m4Reports';
+import { resolveCatalogId } from '../../state/costCatalog';
 import { resolveReturnsConfig } from '../../returns-resolvers';
 import { planRevenueLines, lineForAsset } from '../../revenueLines';
 import { buildFixedAssetReport, idcRowIsHeld } from '../../reports/fixedAssetReports';
@@ -347,8 +348,8 @@ export const stage6Loop: LiveLayer = {
     const drawBase = (t: number): string => (METHOD === 3 ? P('fl:need', t) : METHOD === 2 ? `(${P('fl:m2gap', t)}+${minAt(t)})` : `(${P('fl:nonLand', t)}+${minAt(t)})`);
     put('fl:debtDraw', (t) => `${drawBase(t)}*${dF()}${METHOD === 1 ? `+${P('fl:landCash', t)}*${T('fl:landDebt')}` : ''}`);
     put('fl:eqDraw', (t) => `${drawBase(t)}*${eF()}${METHOD === 1 ? `+${P('fl:landCash', t)}*(1-${T('fl:landDebt')})` : ''}`);
-    // The fund fees drawn from equity (2026-11-18): the whole fee in a year capex is paid.
-    put('fl:feeDraw', (t) => `IF(${spending(t)},${fee(t)},0)`);
+    // The fund fees drawn from equity (2026-11-18): the whole fee in a year construction runs.
+    put('fl:feeDraw', (t) => `IF(AND(${Y(t)}<=${lastCon()},${P('fl:capex', t)}+${P('fl:inKind', t)}>0),${fee(t)},0)`);
     put('fl:after', (t) => win(t, `${P('fl:avail', t)}+${P('fl:need', t)}`), 'last');
     // Construction running: a year up to the last construction year with capex in it.
     const running = (t: number): string => `AND(${Y(t)}<=${lastCon()},${P('fl:capex', t)}+${P('fl:inKind', t)}>0)`;
@@ -485,8 +486,14 @@ export const stage6Loop: LiveLayer = {
       putS('fl:feeFund', fundTerms.fundSizeOverride ? `MAX(0,N(${w.ref('ft:Fund size (typed target)')}))` : `${T('fl:feeEq')}+${T('fl:feeDebt')}`);
       // THE BASES OF 2026-11-18 (founder): total development cost, debt share x cash cost, the total
       // facility (fee-free), and equity to date; the Inputs text picks the structure and arranging bases.
-      putS('fl:feeTdc', `SUM(${rowRange('cx2:total')})`);
-      putS('fl:feeDsc', `${dF()}*SUM(${rowRange('fl:capex')})`);
+      // Development cost excludes the sales commission, a cost to sell (2026-11-18): its Capex rows come off.
+      const commKeys = reg.keys().filter((k) => k.startsWith('cxc:') && k.split(':').length === 3 && (() => {
+        const cl = state.costLines.find((x) => x.id === k.split(':')[2]);
+        return !!cl && resolveCatalogId(cl) === 'commission';
+      })());
+      const lessComm = commKeys.length ? `-(${commKeys.map((k) => `SUM(${rowRange(k)})`).join('+')})` : '';
+      putS('fl:feeTdc', `SUM(${rowRange('cx2:total')})${lessComm}`);
+      putS('fl:feeDsc', `${dF()}*(SUM(${rowRange('fl:capex')})${lessComm})`);
       if (has('fl:xIdc')) {
         const newT = tranches.filter((t) => t.origin !== 'existing');
         const shares = newT.map((t) => (anyShareTyped && has(`tr:${t.id}:share`) ? `MAX(0,N(${w.ref(`tr:${t.id}:share`)}))` : String(1 / Math.max(1, newT.length))));

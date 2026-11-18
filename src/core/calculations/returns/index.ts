@@ -46,7 +46,8 @@ function buildRealEstateMetrics(input: ReturnsInput): RealEstateMetrics {
   // the income the terminal value capitalised (the year before the exit by
   // default), so this reads back the cap rate the model used. Exit-year NOI
   // over a value built on the prior year would not.
-  const cap = capRate(m.stabilisedNOI, m.exitEnterpriseValue);
+  // A CAP RATE IS INCOME OVER THE GROSS VALUE (2026-11-18): before the selling costs at exit.
+  const cap = capRate(m.stabilisedNOI, m.exitGrossValue ?? m.exitEnterpriseValue);
   const dscr = dscrSeries(m.cfadsPerPeriod, m.debtServicePerPeriod, m.operatingPerPeriod);
   const icr = icrSeries(m.ebitdaPerPeriod, m.interestPerPeriod);
   const coc = cashOnCashSeries(m.distributionPerPeriod, m.cumulativeEquityPerPeriod);

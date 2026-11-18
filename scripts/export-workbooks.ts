@@ -11,7 +11,7 @@
  * each step ends with both files exported for review in every unit.
  *
  * Usage:
- *   npx tsx --env-file=.env.local scripts/export-workbooks.ts [--scale full|thousands|millions|all] [--no-libre] [--dump <file.json>]
+ *   npx tsx --env-file=.env.local scripts/export-workbooks.ts [--scale full|thousands|millions|all] [--no-libre] [--dump <file.json>] [--version <id>]
  *
  * --dump writes every cell's value (sheet!address -> value) for both workbooks,
  * so a before / after pair proves a formatting change moved no figure.
@@ -33,6 +33,8 @@ const scaleArg = arg('--scale') ?? 'full';
 const SCALES: DisplayScale[] = scaleArg === 'all' ? ['full', 'thousands', 'millions'] : [scaleArg as DisplayScale];
 const noLibre = args.includes('--no-libre');
 const dumpFile = arg('--dump');
+/** A saved version by id (2026-11-18); absent, the latest. */
+const versionArg = arg('--version') ?? undefined;
 const OUT = resolve('exports');
 const SOFFICE = join(process.env.LOCALAPPDATA ?? '', 'LibreOfficeExtract', 'program', 'soffice.exe');
 
@@ -91,7 +93,7 @@ function dumpValues(wb: ExcelJS.Workbook): Record<string, unknown> {
 
 (async () => {
   mkdirSync(OUT, { recursive: true });
-  const live = await loadLiveExportInputs();
+  const live = await loadLiveExportInputs(undefined, versionArg);
   const base = live.projectName.replace(/[^a-z0-9_-]+/gi, '_').slice(0, 60);
   const dateLabel = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
   const dump: Record<string, unknown> = {};
