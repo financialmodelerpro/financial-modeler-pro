@@ -39,6 +39,7 @@ import {
   type ProjectRevenueSnapshot,
 } from './revenue-resolvers';
 import { assetLabel } from '@/src/core/calculations/assetName';
+import { settleAtExit } from '@/src/core/calculations/exitSettlement';
 
 export interface ProjectOpexSnapshot {
   axisLength: number;
@@ -442,9 +443,16 @@ export interface ProjectOpexApSnapshot {
 export function computeOpexApSnapshot(
   state: Pick<Module1Store, 'project' | 'phases' | 'parcels' | 'assets'>,
   opexSnap: ProjectOpexSnapshot,
+  /** THE EXIT SETTLES THE PAYABLES (2026-11-18): from this index the balance is zero, paid in the exit year. */
+  settleFromIdx?: number,
 ): ProjectOpexApSnapshot {
   const { project, assets } = state;
   const N = opexSnap.axisLength;
+  const settle = <R extends { perPeriod: number[]; changePerPeriod: number[]; cashPaidPerPeriod: number[]; openingPerPeriod: number[] }>(x: R): R => {
+    if (settleFromIdx === undefined) return x;
+    const s = settleAtExit(x.perPeriod, x.changePerPeriod, x.cashPaidPerPeriod, settleFromIdx);
+    return { ...x, perPeriod: s.perPeriod, changePerPeriod: s.changePerPeriod, cashPaidPerPeriod: s.cash, openingPerPeriod: s.perPeriod.map((_, t) => (t === 0 ? x.openingPerPeriod[0] ?? 0 : s.perPeriod[t - 1])) };
+  };
   const daysPerYear = Math.max(1, project.opexAp?.daysPerYear ?? 365);
   const projectDefaultApDays = Math.max(0, project.opexAp?.defaultApDays ?? 0);
 
@@ -466,12 +474,12 @@ export function computeOpexApSnapshot(
       ? override
       : projectDefaultApDays;
     const opexIncurred = r.totalOpexPerPeriod.slice(0, N);
-    const ap = buildAccountsPayable({
+    const ap = settle(buildAccountsPayable({
       opexIncurredPerPeriod: opexIncurred,
       dpoDays: effectiveApDays,
       daysPerYear,
       axisLength: N,
-    });
+    }));
     byAsset.set(a.id, {
       assetId: a.id,
       assetName: assetLabel(a, state),
@@ -490,12 +498,12 @@ export function computeOpexApSnapshot(
 
   // HQ AP: uses the project default DPO (no HQ-specific override yet).
   const hqIncurred = opexSnap.hq.totalOpexPerPeriod.slice(0, N);
-  const hqAp = buildAccountsPayable({
+  const hqAp = settle(buildAccountsPayable({
     opexIncurredPerPeriod: hqIncurred,
     dpoDays: projectDefaultApDays,
     daysPerYear,
     axisLength: N,
-  });
+  }));
   for (let t = 0; t < N; t++) {
     totals.opexIncurredPerPeriod[t] += hqIncurred[t];
     totals.openingApPerPeriod[t] += hqAp.openingPerPeriod[t];

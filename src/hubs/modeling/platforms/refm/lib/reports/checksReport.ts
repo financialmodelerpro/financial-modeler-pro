@@ -89,6 +89,8 @@ interface ChecksSource {
   };
   directCF: { closingCashPerPeriod: number[]; netCashFlowPerPeriod: number[] };
   indirectCF: { netCashFlowPerPeriod: number[] };
+  /** The exit (2026-11-18): the balance sheet closes to zero from its year. Absent on a narrow source. */
+  disposal?: { booked: boolean; exitIdx: number };
   bsReconciliation: { unexplainedPerPeriod: number[] };
 }
 
@@ -235,6 +237,7 @@ export function buildIntegrityChecks(
     ...(extra.noBridge ? [] : [mk(BRIDGE_CHECK_LABEL, unexplained, unexplained.map(() => 0), bs.totalAssetsPerPeriod, 'unexplained',
       'The "Unexplained (must be 0)" row of the reconciliation bridge on the Balance Sheet.')]),
     cashFloorCheck(snap.directCF.closingCashPerPeriod, n),
+    ...(snap.disposal?.booked ? [exitCloseCheck(bs.totalAssetsPerPeriod, bs.totalLiabilitiesPerPeriod, snap.disposal.exitIdx, n)] : []),
     ...(extra.phaseEbitda
       ? [mk(PHASE_EBITDA_CHECK_LABEL, extra.phaseEbitda.fromPhases, extra.phaseEbitda.project, extra.phaseEbitda.project, 'EBITDA',
         'The Phase EBITDA Reconciliation under the phase P&Ls.')]
@@ -250,6 +253,22 @@ export const BRIDGE_CHECK_LABEL = 'Balance sheet reconciliation bridge, unexplai
  * the lowest closing cash, the year beside it) and never patches it. Within a cent is OK.
  */
 export const CASH_FLOOR_CHECK_LABEL = 'Cash never goes below zero';
+
+/**
+ * THE BALANCE SHEET CLOSES TO ZERO AT THE EXIT (2026-11-18, founder): from the exit year on, total assets and
+ * total liabilities are zero (only equity, itself zero once everything is distributed). The residue is the
+ * largest of the two in any year from the exit, against the peak total assets.
+ */
+export const EXIT_CLOSE_CHECK_LABEL = 'Balance sheet closes to zero at exit';
+export function exitCloseCheck(totalAssets: readonly number[], totalLiabilities: readonly number[], exitIdx: number, n: number): IntegrityCheck {
+  let worst = 0, at = Math.max(0, Math.min(n - 1, exitIdx)), peak = 0;
+  for (let t = 0; t < n; t++) peak = Math.max(peak, Math.abs(totalAssets[t] ?? 0));
+  for (let t = Math.max(0, exitIdx); t < n; t++) {
+    const v = Math.max(Math.abs(totalAssets[t] ?? 0), Math.abs(totalLiabilities[t] ?? 0));
+    if (v > Math.abs(worst)) { worst = v; at = t; }
+  }
+  return { label: EXIT_CLOSE_CHECK_LABEL, ok: relativeCheckOk(worst, peak), residue: worst, atIndex: at, hi: worst, lo: 0, magnitude: peak, what: 'balance at exit', where: 'Total assets and total liabilities on the Balance Sheet, from the exit year.' };
+}
 export function cashFloorCheck(closingCash: readonly number[], n: number): IntegrityCheck {
   let lo = 0, at = 0, peak = 0;
   for (let t = 0; t < n; t++) {

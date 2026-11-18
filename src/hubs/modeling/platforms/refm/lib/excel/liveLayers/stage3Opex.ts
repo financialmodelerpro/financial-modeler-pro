@@ -316,7 +316,9 @@ export const stage3Opex: LiveLayer = {
       if (!has(key)) return;
       w.fA(at(key, META_B), daysF);
       const d = A(key, META_B);
-      row(key, (t) => `${inc(t)}*${d}/${daysBasis}`, 'last');
+      // Nothing is payable from the exit year on (2026-11-18): the exit pays it.
+      const settled = (t: number): string => (has('tl:flag:exit') ? `*(1-SUM(${w.rangeA(w.addr('tl:flag:exit').sheet, w.addr('tl:flag:exit').row, pc(0), pc(t))}))` : '');
+      row(key, (t) => `${inc(t)}*${d}/${daysBasis}${settled(t)}`, 'last');
       closeKeys.push(key);
     };
     for (const rl of planReportLines(lineState, (a) => snap.ap.byAsset.has(a.id))) {

@@ -97,3 +97,6 @@ docs/REFM_Live_Course_Materials/
 docs/FMP_Marina_Gate_Model.xlsx
 # 2026-11-17: the hand-restyled live export the REFM export must match; local only, never commit.
 docs/refm-export-reference.xlsx
+
+# Local Claude Code permissions (per machine, never committed)
+.claude/settings.local.json

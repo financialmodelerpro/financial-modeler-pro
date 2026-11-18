@@ -67,6 +67,7 @@ import { withInheritedMassingAll } from '@/src/core/calculations/landChain';
 import { chainMassingFor } from './state/assetTypeStandards';
 import { valueAtExit, writeOffAtExit, stopAfterExit, type TerminalValueBasis } from '@/src/core/calculations/returns/disposal';
 import { resolveReturnsConfig } from './returns-resolvers';
+import { settleAtExit } from '@/src/core/calculations/exitSettlement';
 
 /** Lifetime sum of a per-period series. Local to the fund-size resolution. */
 const sumSeries = (a: readonly number[] | undefined): number =>
@@ -1842,7 +1843,14 @@ function computeFinancialsSnapshotOnce(
     const totalOpexPerPeriodInclHQ = projectTotals.totalOpexPerPeriod.map((v, t) => v + (opexAsComputed.hq.totalOpexPerPeriod[t] ?? 0));
     return { ...opexAsComputed, byAsset, projectTotals: { ...opexAsComputed.projectTotals, ...projectTotals }, totalOpexPerPeriodInclHQ };
   })();
-  const ap = computeOpexApSnapshot({ project, phases, parcels, assets }, opex);
+  // THE BALANCE SHEET CLOSES TO ZERO AT THE EXIT (2026-11-18, founder): in the exit year every working-capital
+  // balance is settled in cash (exitSettlement.ts), receivables collected, payables and the year's zakat paid.
+  const exitSettleIdx = exitCfgAtSource.terminalMethod !== 'none' && exitAxisLength > 0 ? exitCfgAtSource.exitYearOffset : undefined;
+  const settledAr = <R extends { perPeriod: number[]; changePerPeriod: number[]; cashReceivedPerPeriod: number[] }>(r0: R): R => {
+    const s = settleAtExit(r0.perPeriod, r0.changePerPeriod, r0.cashReceivedPerPeriod, exitSettleIdx);
+    return { ...r0, perPeriod: s.perPeriod, changePerPeriod: s.changePerPeriod, cashReceivedPerPeriod: s.cash };
+  };
+  const ap = computeOpexApSnapshot({ project, phases, parcels, assets }, opex, exitSettleIdx);
   const escrow = computeEscrowSnapshot({ project, phases, parcels, assets, subUnits }, revenue);
   // 2026-08-16: `revenue` threaded so capitalised capex is built on the same
   // curve the P&L spends it, for any line that follows collections.
@@ -2349,7 +2357,7 @@ function computeFinancialsSnapshotOnce(
       if (a.visible === false || (a.strategy !== 'Operate' && a.strategy !== 'Lease')) continue;
       const rev = perAssetPL.get(a.id)?.revenuePerPeriod;
       if (!rev) continue;
-      const r = buildAccountsReceivableDSO({ revenuePerPeriod: rev.slice(0, N), dsoDays: lineArDays(a), daysPerYear: operatingArDaysPerYear, axisLength: N });
+      const r = settledAr(buildAccountsReceivableDSO({ revenuePerPeriod: rev.slice(0, N), dsoDays: lineArDays(a), daysPerYear: operatingArDaysPerYear, axisLength: N }));
       // THE LINE'S CASH IS ITS OWN RECEIVABLE'S CASH (2026-11-03): the per-asset series was revenue
       // (cash on receipt), so the cash flow's line rows ignored the receivable days the project total
       // applied, and the rows stopped footing to it the moment a line or the project stated days.
@@ -2368,7 +2376,7 @@ function computeFinancialsSnapshotOnce(
     // Anything in the operating revenue no asset accounts for keeps the project DSO.
     const rest = operatingRevenuePerPeriod.map((v, t) => v - covered[t]);
     if (rest.some((v) => Math.abs(v) > 1e-6)) {
-      const r = buildAccountsReceivableDSO({ revenuePerPeriod: rest, dsoDays: operatingArDays, daysPerYear: operatingArDaysPerYear, axisLength: N });
+      const r = settledAr(buildAccountsReceivableDSO({ revenuePerPeriod: rest, dsoDays: operatingArDays, daysPerYear: operatingArDaysPerYear, axisLength: N }));
       for (let t = 0; t < N; t++) { perPeriod[t] += r.perPeriod[t] ?? 0; changePerPeriod[t] += r.changePerPeriod[t] ?? 0; cashReceivedPerPeriod[t] += r.cashReceivedPerPeriod[t] ?? 0; }
     }
     const openingPerPeriod = perPeriod.map((_, t) => (t === 0 ? 0 : perPeriod[t - 1]));
@@ -2389,6 +2397,14 @@ function computeFinancialsSnapshotOnce(
     // with their cash basis approximation; the project-level DSO
     // adjustment below corrects the operating-side cash.
     if (a.strategy === 'Operate' || a.strategy === 'Lease') continue;
+    // A RESIDENTIAL RECEIVABLE IS COLLECTED AT THE EXIT (2026-11-18): the schedule's balance closes to zero
+    // and the line's cash takes what was still to come, in the exit year.
+    const bundle = byAssetSchedules.get(a.id);
+    if (bundle && exitSettleIdx !== undefined) {
+      const s = settleAtExit(bundle.ar.perPeriod, bundle.ar.changePerPeriod, cf.revenueReceivedPerPeriod, exitSettleIdx);
+      bundle.ar = { ...bundle.ar, perPeriod: s.perPeriod, changePerPeriod: s.changePerPeriod };
+      for (let t = 0; t < cf.revenueReceivedPerPeriod.length; t++) cf.revenueReceivedPerPeriod[t] = s.cash[t] ?? 0;
+    }
     for (let t = 0; t < N; t++) revRcvProject[t] += cf.revenueReceivedPerPeriod[t];
   }
   // Add DSO-adjusted operating revenue cash (hospitality + lease).
@@ -2475,7 +2491,8 @@ function computeFinancialsSnapshotOnce(
   // the close (days / 365 of it) and is paid the next year. 0, the default,
   // pays it in the year, exactly as before.
   const taxPayDays = Math.max(0, Math.min(365, project.tax?.paymentDays ?? 0));
-  const taxPayable = taxArr.map((v) => v * taxPayDays / 365);
+  // The exit year's zakat is paid in the exit year (2026-11-18): nothing is payable from the exit on.
+  const taxPayable = taxArr.map((v, t) => (disposalBooked && t >= exitIdx ? 0 : v * taxPayDays / 365));
   const taxPayableChange = taxPayable.map((v, t) => v - (t === 0 ? 0 : taxPayable[t - 1]));
   const taxPaidArr = taxArr.map((v, t) => v - taxPayableChange[t]);
 

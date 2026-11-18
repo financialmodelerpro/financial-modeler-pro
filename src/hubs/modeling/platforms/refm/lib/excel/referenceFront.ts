@@ -223,6 +223,7 @@ function buildGuide(ws: ExcelJS.Worksheet, wb: ExcelJS.Workbook, ctx: FrontConte
   line('FCFE', 'Cash flow to equity after debt drawn, interest and repayments. Gives the equity IRR.');
   // THE NPV CONVENTION (2026-11-18, founder): end of year, valued at the project start.
   line('Selling costs, cash', 'Marketing is paid as units are sold (a phase from 2026-11-18; older phases with collections). The sales commission is paid on each residential line terms on Inputs: a share on contract, in the sale year, and the rest with customer collections or at handover. It stays a contract cost on the Balance Sheet until the revenue is recognised.', { height: 27 });
+  line('Exit settlement', 'In the exit year receivables are collected, payables paid and the year’s zakat paid, so the cash reaches the exit distribution and the Balance Sheet closes to zero; Checks proves it.', { height: 27 });
   line('NPV', 'End of year, valued at the project start: each model year is discounted by its full years, the first year once (as Excel NPV() from the first model year). The project NPV uses the discount rate; the equity NPVs use the cost of equity on Inputs.', { height: 27 });
   line('Distributions', 'What investors actually receive: dividends plus the exit value, before and after the performance fee.');
   line('Performance fee', "The manager's share of distributions above the hurdle return, worked out in the hurdle waterfall on Returns.");

@@ -474,7 +474,8 @@ export const stage6Loop: LiveLayer = {
     // ── Zakat: the P&L's charge, read back (2026-11-15, founder; formulaWorkbook LOOP_LINKS) ──
     const plTax = 'pl|__all__||zakat';
     put('fl:tax', (t) => (has(plTax) ? `-${P(plTax, t)}` : '0'));
-    put('fl:taxPay', (t) => `${P('fl:tax', t)}*MIN(365,MAX(0,N(${w.ref('project:taxDays')})))/365`, 'last');
+    // The exit year's zakat is paid in the exit year (2026-11-18): nothing payable from the exit on.
+    put('fl:taxPay', (t) => `${P('fl:tax', t)}*MIN(365,MAX(0,N(${w.ref('project:taxDays')})))/365${booked && has('tl:flag:exit') ? `*(1-SUM(${w.rangeA(w.addr('tl:flag:exit').sheet, w.addr('tl:flag:exit').row, pc(0), pc(t))}))` : ''}`, 'last');
     if (has('fl:taxPay')) put('fl:taxPaid', (t) => `${P('fl:tax', t)}-(${P('fl:taxPay', t)}-${P('fl:taxPay', t, -1)})`);
 
     // ── The fund fees ────────────────────────────────────────────────────────

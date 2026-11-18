@@ -367,7 +367,15 @@ export const stage3Revenue: LiveLayer = {
           });
         }
         const preCash = O(l, 'c', 'Pre-sales cash collected'), postCash = O(l, 'c', 'Sales during operation cash collected');
-        row(preCash, (t) => sumRows(cohortRows, t));
+        // THE EXIT COLLECTS WHAT IS LEFT (2026-11-18, exitSettlement.ts): in the exit year the receivable still
+        // owed (pre-sales billed to date less collected to date) is collected, and nothing comes after the exit.
+        if (has('tl:flag:exit')) {
+          const xa = w.addr('tl:flag:exit');
+          const ex = (t: number): string => w.refP({ sheet: xa.sheet, row: xa.row, col: pc(t) }, REV);
+          const after = (t: number): string => (t === 0 ? '0' : `SUM(${w.rangeA(xa.sheet, xa.row, pc(0), pc(t - 1))})`);
+          const cumCohort = (t: number): string => cohortRows.map((r) => `SUM($${colLetter(pc(0))}$${r}:${colLetter(pc(t))}$${r})`).join('+') || '0';
+          row(preCash, (t) => `(1-${after(t)})*(${sumRows(cohortRows, t)}+${ex(t)}*(${toDate(preRev, t)}-(${cumCohort(t)})))`);
+        } else row(preCash, (t) => sumRows(cohortRows, t));
         row(postCash, (t) => P(postRev, t));
         // Balances: running totals of what was billed less what was collected or recognised.
         const ar = O(l, 'b', 'Receivable at year end'), ur = O(l, 'b', 'Unearned revenue at year end');
@@ -449,7 +457,9 @@ export const stage3Revenue: LiveLayer = {
         const arK = R('Receivable at year end'), cashK = R('Cash collected');
         // Collected as earned (receivables off): the revenue row is the cash.
         if (!has(cashK)) { claim(`rvc:${l.key}:opcash`, rev); return; }
-        row(arK, (t) => `${P(rev, t)}*${A(daysK, TOTAL_COL)}/365`, 'last');
+        // Nothing is receivable from the exit year on (2026-11-18): the exit collects it.
+        const settled = (t: number): string => (has('tl:flag:exit') ? `*(1-SUM(${w.rangeA(w.addr('tl:flag:exit').sheet, w.addr('tl:flag:exit').row, pc(0), pc(t))}))` : '');
+        row(arK, (t) => `${P(rev, t)}*${A(daysK, TOTAL_COL)}/365${settled(t)}`, 'last');
         row(cashK, (t) => (t === 0 ? `${P(rev, t)}-${P(arK, t)}` : `${P(rev, t)}-(${P(arK, t)}-${Prev(arK, t)})`));
         claim(`rvc:${l.key}:opar`, arK); claim(`rvc:${l.key}:opcash`, cashK);
       };

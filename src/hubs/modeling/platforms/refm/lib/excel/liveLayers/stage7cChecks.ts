@@ -25,7 +25,7 @@
 import type { LayerContext, LiveLayer } from '../formulaWorkbook';
 import { LiveWriter } from './writer';
 import { PERIOD_COLS } from '../buildModelWorkbook';
-import { CASH_FLOOR_CHECK_LABEL, CHECK_REL_TOL, PHASE_EBITDA_CHECK_LABEL, buildEmptyInputAdvisories, isEmptyCheckEligible } from '../../reports/checksReport';
+import { CASH_FLOOR_CHECK_LABEL, EXIT_CLOSE_CHECK_LABEL, CHECK_REL_TOL, PHASE_EBITDA_CHECK_LABEL, buildEmptyInputAdvisories, isEmptyCheckEligible } from '../../reports/checksReport';
 import { PHASE_RECON, PHASE_RECON_LINE } from '../../reports/m4Reports';
 import { computeFinancialsSnapshot } from '../../financials-resolvers';
 import { LOOP_PBT_CHECK, SOURCES_USES_CHECK } from '../buildModelWorkbook';
@@ -118,6 +118,25 @@ export const stage7cChecks: LiveLayer = {
         w.reset(); w.fA({ ...res, col: res.col + 2 }, `IF(${Dc}=0,"Nothing to reconcile",IF(${C}>=-0.01,"Within tolerance","Out by "&TEXT(ABS(${C})/1000000,"#,##0.0")&" m"))`);
         liveIds.push(CASH_FLOOR_CHECK_LABEL);
       }
+    }
+    // The balance sheet closes to zero at the exit (2026-11-18): the larger of total assets and total
+    // liabilities in any year from the exit year (Timeline's exit flag) on, against the peak total assets.
+    {
+      const key = `chk|id|${EXIT_CLOSE_CHECK_LABEL}`;
+      const A = liveRow('bs|__all__||TOTAL ASSETS'), L = liveRow('bs|__all__||TOTAL LIABILITIES'), X = liveRow('tl:flag:exit');
+      if (has(key) && A && L && X) {
+        const res = w.addr(key);
+        const bsA = w.addr('bs|__all__||TOTAL ASSETS');
+        const yrs = w.rangeA(bsA.sheet, 3, pc(0), pc(N - 1));
+        const from = `(${yrs}>=SUMPRODUCT(${X},${yrs}))`;
+        w.reset(); w.fA({ ...res, col: res.col + HI_OFFSET }, `SUMPRODUCT(MAX(${from}*ABS(${A})))`);
+        w.reset(); w.fA({ ...res, col: res.col + HI_OFFSET + 1 }, `SUMPRODUCT(MAX(${from}*ABS(${L})))`);
+        const hi = w.refA({ ...res, col: res.col + HI_OFFSET }, CHK), lo = w.refA({ ...res, col: res.col + HI_OFFSET + 1 }, CHK);
+        w.reset(); w.fA(res, `MAX(${hi},${lo})`);
+        w.reset(); w.fA({ ...res, col: res.col + 1 }, `MAX(MAX(${A}),-MIN(${A}))`);
+        finish(res);
+        liveIds.push(EXIT_CLOSE_CHECK_LABEL);
+      } else if (has(key)) valueIds.push(EXIT_CLOSE_CHECK_LABEL);
     }
     // Sources equal uses: Returns' two totals, each the sum of its own rows.
     {
