@@ -564,6 +564,8 @@ export interface Project {
         method: 'none' | 'single_rate' | 'yoy_compound' | 'step' | 'yoy_per_period';
         rate?: number;
         startYear?: number;
+        /** Index from the line's first operating year (2026-11-18); absent = the fixed startYear. */
+        startFrom?: 'fixed' | 'first_operating_year';
         steps?: Array<{ year: number; factor: number }>;
         growthPerPeriod?: number[];
       };
@@ -991,6 +993,8 @@ export interface Project {
       method: 'none' | 'single_rate' | 'yoy_compound' | 'step' | 'yoy_per_period';
       rate?: number;
       startYear?: number;
+      /** Index from the line's first operating year (2026-11-18); absent = the fixed startYear. */
+      startFrom?: 'fixed' | 'first_operating_year';
       steps?: Array<{ year: number; factor: number }>;
       /** @deprecated M4 Pass 2h: project-axis-indexed. */
       growthPerPeriod?: number[];
@@ -1009,6 +1013,8 @@ export interface Project {
         method: 'none' | 'single_rate' | 'yoy_compound' | 'step' | 'yoy_per_period';
         rate?: number;
         startYear?: number;
+        /** Index from the line's first operating year (2026-11-18); absent = the fixed startYear. */
+        startFrom?: 'fixed' | 'first_operating_year';
         steps?: Array<{ year: number; factor: number }>;
         /** @deprecated M4 Pass 2h: project-axis-indexed. */
         growthPerPeriod?: number[];
@@ -1294,6 +1300,8 @@ export interface SubUnit {
     method: 'none' | 'single_rate' | 'yoy_compound' | 'step' | 'yoy_per_period';
     rate?: number;
     startYear?: number;
+    /** Index from the line's first operating year (2026-11-18); absent = the fixed startYear. */
+    startFrom?: 'fixed' | 'first_operating_year';
     steps?: Array<{ year: number; factor: number }>;
     growthPerPeriod?: number[];
   };
@@ -1778,6 +1786,8 @@ export interface Asset {
         method: 'none' | 'single_rate' | 'yoy_compound' | 'step' | 'yoy_per_period';
         rate?: number;
         startYear?: number;
+        /** Index from the line's first operating year (2026-11-18); absent = the fixed startYear. */
+        startFrom?: 'fixed' | 'first_operating_year';
         steps?: Array<{ year: number; factor: number }>;
         /** @deprecated M4 Pass 2h: project-axis-indexed. */
         growthPerPeriod?: number[];
@@ -1863,6 +1873,8 @@ export interface Asset {
         method: 'none' | 'single_rate' | 'yoy_compound' | 'step' | 'yoy_per_period';
         rate?: number;
         startYear?: number;
+        /** Index from the line's first operating year (2026-11-18); absent = the fixed startYear. */
+        startFrom?: 'fixed' | 'first_operating_year';
         steps?: Array<{ year: number; factor: number }>;
         /** @deprecated M4 Pass 2h: project-axis-indexed. */
         growthPerPeriod?: number[];
@@ -1895,6 +1907,8 @@ export interface Asset {
           method: 'none' | 'single_rate' | 'yoy_compound' | 'step' | 'yoy_per_period';
           rate?: number;
           startYear?: number;
+          /** Index from the line's first operating year (2026-11-18); absent = the fixed startYear. */
+          startFrom?: 'fixed' | 'first_operating_year';
           steps?: Array<{ year: number; factor: number }>;
           /** @deprecated M4 Pass 2h: project-axis-indexed. */
           growthPerPeriod?: number[];
@@ -1916,6 +1930,8 @@ export interface Asset {
           method: 'none' | 'single_rate' | 'yoy_compound' | 'step' | 'yoy_per_period';
           rate?: number;
           startYear?: number;
+          /** Index from the line's first operating year (2026-11-18); absent = the fixed startYear. */
+          startFrom?: 'fixed' | 'first_operating_year';
           steps?: Array<{ year: number; factor: number }>;
           /** @deprecated M4 Pass 2h: project-axis-indexed. */
           growthPerPeriod?: number[];
@@ -1955,6 +1971,8 @@ export interface Asset {
         method: 'none' | 'single_rate' | 'yoy_compound' | 'step' | 'yoy_per_period';
         rate?: number;
         startYear?: number;
+        /** Index from the line's first operating year (2026-11-18); absent = the fixed startYear. */
+        startFrom?: 'fixed' | 'first_operating_year';
         steps?: Array<{ year: number; factor: number }>;
         /** @deprecated M4 Pass 2h: project-axis-indexed. */
         growthPerPeriod?: number[];
@@ -1993,6 +2011,8 @@ export interface Asset {
       method: 'none' | 'single_rate' | 'yoy_compound' | 'step' | 'yoy_per_period';
       rate?: number;
       startYear?: number;
+      /** Index from the line's first operating year (2026-11-18); absent = the fixed startYear. */
+      startFrom?: 'fixed' | 'first_operating_year';
       steps?: Array<{ year: number; factor: number }>;
       /** @deprecated M4 Pass 2h: project-axis-indexed. */
       growthPerPeriod?: number[];
@@ -2010,6 +2030,8 @@ export interface Asset {
         method: 'none' | 'single_rate' | 'yoy_compound' | 'step' | 'yoy_per_period';
         rate?: number;
         startYear?: number;
+        /** Index from the line's first operating year (2026-11-18); absent = the fixed startYear. */
+        startFrom?: 'fixed' | 'first_operating_year';
         steps?: Array<{ year: number; factor: number }>;
         /** @deprecated M4 Pass 2h: project-axis-indexed. */
         growthPerPeriod?: number[];

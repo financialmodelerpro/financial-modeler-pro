@@ -174,13 +174,21 @@ export function expandYearKeyedToAxis(
 /** Indexation config helper: returns a new IndexationConfig where
  *  growthPerPeriod is the expanded axis-indexed array. Preserves all
  *  other fields (method, rate, startYear, steps). */
+/** The start year an indexation counts from (2026-11-18): the line's first operating year where it says so. */
+export function resolveIndexStart(ix: IndexationConfig, firstOpsIdx: number | undefined): IndexationConfig {
+  return ix.startFrom === 'first_operating_year' && firstOpsIdx !== undefined ? { ...ix, startYear: Math.max(0, firstOpsIdx) } : ix;
+}
+
 export function expandIndexationToAxis(
-  ix: IndexationConfig | undefined,
+  ix0: IndexationConfig | undefined,
   byPhase: number[] | undefined,
   phaseOffset: number,
   axisLength: number,
+  /** The line's first operating year on the axis, for an indexation that counts from it. */
+  firstOpsIdx?: number,
 ): IndexationConfig {
-  if (!ix) return { method: 'none' };
+  if (!ix0) return { method: 'none' };
+  const ix = resolveIndexStart(ix0, firstOpsIdx);
   if (ix.method !== 'yoy_per_period') return ix;
   const growthPerPeriod = expandPhaseLocalToAxis(byPhase, ix.growthPerPeriod, phaseOffset, axisLength);
   return { ...ix, growthPerPeriod };
@@ -388,7 +396,7 @@ export function resolveHospitalityConfig(
     // operate.startingADR === undefined when the user touched a
     // non-ADR field first; cfg.startingADR is undefined in that case.
     startingADR: cfg.startingADR ?? 0,
-    adrIndexation: expandIndexationToAxis(cfg.adrIndexation, cfg.adrIndexation?.growthPerPeriodByPhase, phaseOffset, axisLength),
+    adrIndexation: expandIndexationToAxis(cfg.adrIndexation, cfg.adrIndexation?.growthPerPeriodByPhase, phaseOffset, axisLength, opsStartIdx),
     // The occupancy scenario lever shifts the ramp before it reaches the axis (2026-09-15).
     occupancyPerPeriod: occupancyAxis(cfg, opsStartIdx - constructionStartIdx, phaseOffset, axisLength),
     guestsPerOccupiedRoom: cfg.guestsPerOccupiedRoom ?? 1.5,
@@ -459,7 +467,7 @@ export function resolveLeaseConfig(
     subUnits: leaseSubUnits,
     gla: totalGla,
     baseRate: cfg.baseRate ?? 0,
-    rentIndexation: expandIndexationToAxis(cfg.rentIndexation, cfg.rentIndexation?.growthPerPeriodByPhase, phaseOffset, axisLength),
+    rentIndexation: expandIndexationToAxis(cfg.rentIndexation, cfg.rentIndexation?.growthPerPeriodByPhase, phaseOffset, axisLength, opsStartIdx),
     // The occupancy scenario lever shifts the ramp before it reaches the axis (2026-09-15).
     occupancyPerPeriod: occupancyAxis(cfg, opsStartIdx - constructionStartIdx, phaseOffset, axisLength),
     opsStartIdx,
@@ -941,7 +949,8 @@ export function computeAllSellResults(state: Pick<Module1Store, 'project' | 'pha
         const positions = axisPct.map((_, i) => i);
         return { ...rp, percentages: axisPct, positions };
       })(),
-      indexation: expandIndexationToAxis(cfgRaw.indexation, storedSell?.indexation?.growthPerPeriodByPhase, phaseOffset, N),
+      // A sale price indexed from the first operating year counts from the year after handover (2026-11-18).
+      indexation: expandIndexationToAxis(cfgRaw.indexation, storedSell?.indexation?.growthPerPeriodByPhase, phaseOffset, N, phase ? phaseOffset + Math.max(0, phase.constructionPeriods ?? 0) : undefined),
     };
 
     const subUnitMaterials = assetSubUnits.map((u) => makeSubUnitMaterial(u, a));

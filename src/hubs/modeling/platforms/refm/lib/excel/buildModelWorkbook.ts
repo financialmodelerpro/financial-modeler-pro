@@ -3782,7 +3782,7 @@ function addRevenue(ctx: EmitCtx): { revLinks: RevLinks; cosLinks: CosLinks } {
         setBasis(ws.getCell(em.cursor() - 1, META_B), [line.strategy, lineMeta(line)].filter(Boolean).join(', '));
         if (line.form === 'sell' && res?.sell) {
           const r = res.sell;
-          const idxAxis = expandIndexationToAxis(resolveSellConfig(a, state.project)?.indexation, a.revenue?.sell?.indexation?.growthPerPeriodByPhase, w.phaseOffset, N);
+          const idxAxis = expandIndexationToAxis(resolveSellConfig(a, state.project)?.indexation, a.revenue?.sell?.indexation?.growthPerPeriodByPhase, w.phaseOffset, N, w.phaseOffset + Math.max(0, state.phases.find((x) => x.id === a.phaseId)?.constructionPeriods ?? 0));
           // FOUR SUB-HEADINGS PER SELL LINE (2026-11-17, founder): area sold, price and sale value, cash
           // collected, revenue recognised. A line of one sub-unit names its rows without a prefix.
           const L = (u: SubUnit, what: string): string => sellRowLabel(units.length, nm(u), what);
@@ -4092,7 +4092,7 @@ function addRevenue(ctx: EmitCtx): { revLinks: RevLinks; cosLinks: CosLinks } {
         }
         const idx = sell?.indexation ?? { method: 'none' as const };
         em.tableTitle('Price Indexation', indexationText(idx, 0, psy));
-        const idxAxis = expandIndexationToAxis(idx, sell?.indexation?.growthPerPeriodByPhase, w.phaseOffset, N);
+        const idxAxis = expandIndexationToAxis(idx, sell?.indexation?.growthPerPeriodByPhase, w.phaseOffset, N, w.phaseOffset + Math.max(0, phase.constructionPeriods ?? 0));
         if (idx.method === 'step') {
           (idx.steps ?? []).forEach((st, i) => em.scalarRow(`Step ${i + 1}, from ${psy + st.year}`, st.factor, FACTOR_FMT, { input: true, basis: `Uplift ${((Math.max(1, st.factor) - 1) * 100).toFixed(2)}%` }));
         } else if (idx.method === 'yoy_per_period') {
@@ -4282,7 +4282,7 @@ function addRevenue(ctx: EmitCtx): { revLinks: RevLinks; cosLinks: CosLinks } {
           const denomPerSU = useUnits ? countPerSU : areaPerSU;
           const denom = denomPerSU.reduce((s, v) => s + v, 0);
           const cfg = resolveSellConfig(a, state.project);
-          const idxAxis = expandIndexationToAxis(cfg?.indexation, a.revenue?.sell?.indexation?.growthPerPeriodByPhase, w.phaseOffset, N);
+          const idxAxis = expandIndexationToAxis(cfg?.indexation, a.revenue?.sell?.indexation?.growthPerPeriodByPhase, w.phaseOffset, N, w.phaseOffset + Math.max(0, state.phases.find((x) => x.id === a.phaseId)?.constructionPeriods ?? 0));
           if (isLiveLayout()) {
             // THE VELOCITY IN FORCE (live layout, 2026-10-15): each sub-unit's pre-sales and
             // sales during operation velocity on one row, at the years it applies to now. The

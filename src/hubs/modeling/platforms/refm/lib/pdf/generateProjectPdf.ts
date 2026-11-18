@@ -2518,10 +2518,11 @@ const tPara = (tab: string, part: PartKind, title: string, text: string): Tagged
 const gridTable = (title: string, columns: string[], rows: PdfTableRow[], align: 'kv' | 'data' = 'data'): PdfTable => ({ title, kind: 'grid', align, columns, rows });
 
 /** The Module 2 inflation / indexation setting, as the card's pills read. */
-function m2IndexationText(ix: { method?: string; rate?: number; startYear?: number; steps?: Array<{ year: number; factor: number }> } | undefined, startYearDefault: number, projectStartYear: number): string {
+function m2IndexationText(ix: { method?: string; rate?: number; startYear?: number; startFrom?: string; steps?: Array<{ year: number; factor: number }> } | undefined, startYearDefault: number, projectStartYear: number): string {
   const method = ix?.method ?? 'none';
   if (method === 'none') return 'None';
-  const from = projectStartYear + (ix?.startYear ?? startYearDefault);
+  // INDEX FROM THE FIRST OPERATING YEAR (2026-11-18): said in words, as the Inputs tab says it.
+  const from = ix?.startFrom === 'first_operating_year' ? 'the first operating year' : String(projectStartYear + (ix?.startYear ?? startYearDefault));
   if (method === 'yoy_compound') return `YoY Compound, rate ${((ix?.rate ?? 0) * 100).toFixed(2)}%, start year ${from}`;
   if (method === 'single_rate') return `Single rate ${((ix?.rate ?? 0) * 100).toFixed(2)}%, start year ${from}`;
   if (method === 'yoy_per_period') return `Per-Year growth from start year ${from}`;
@@ -2695,7 +2696,7 @@ function buildModule2(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
           ])));
         }
         const idx = sell?.indexation ?? { method: 'none' as const };
-        const idxAxis = expandIndexationToAxis(idx, sell?.indexation?.growthPerPeriodByPhase, w.phaseOffset, N);
+        const idxAxis = expandIndexationToAxis(idx, sell?.indexation?.growthPerPeriodByPhase, w.phaseOffset, N, w.phaseOffset + Math.max(0, phase.constructionPeriods ?? 0));
         if (idx.method === 'step') {
           items.push(tTable(T1, 'inputs', gridTable(`${ln}: Price Indexation (${m2IndexationText(idx, 0, psy)})`, ['Step', 'From', 'Factor', 'Uplift'],
             (idx.steps ?? []).map((st, i) => row([`Step ${i + 1}`, String(psy + st.year), st.factor.toFixed(4), `${((Math.max(1, st.factor) - 1) * 100).toFixed(2)}%`])))));
@@ -2853,7 +2854,7 @@ function buildModule2(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
           const denomPerSU = useUnits ? countPerSU : areaPerSU;
           const denom = denomPerSU.reduce((s, v) => s + v, 0);
           const cfg = resolveSellConfig(a, state.project);
-          const idxAxis = expandIndexationToAxis(cfg?.indexation, a.revenue?.sell?.indexation?.growthPerPeriodByPhase, w.phaseOffset, N);
+          const idxAxis = expandIndexationToAxis(cfg?.indexation, a.revenue?.sell?.indexation?.growthPerPeriodByPhase, w.phaseOffset, N, w.phaseOffset + Math.max(0, state.phases.find((x) => x.id === a.phaseId)?.constructionPeriods ?? 0));
           put('1a. Share of inventory sold per year (per sub-unit)', buildShareSoldRows(units, denomPerSU, preSU, postSU, denom, N));
           note(shareSoldCaption(invLower));
           put(`1b. ${invLabel} Sold (per sub-unit, pre-sales and sales during operation)`, buildPrePostRows(units, preSU, postSU, preTot, postTot, N, { preLabel: `Total pre-sales ${invLower}`, postLabel: `Total sales during operation ${invLower}`, grandLabel: `Asset Total ${invLabel} Sold` }, 'count'));

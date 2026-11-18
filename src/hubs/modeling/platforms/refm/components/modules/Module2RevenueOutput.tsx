@@ -1320,7 +1320,7 @@ export default function Module2RevenueOutput(): React.JSX.Element {
             axis expansion, so it is the figure inside the revenue above. */}
         {(() => {
           const phaseOffsetForIdx = Math.max(0, (p.startDate ? new Date(p.startDate).getUTCFullYear() : projectStartYear) - projectStartYear);
-          const idxAxis = expandIndexationToAxis(indexation, a.revenue?.sell?.indexation?.growthPerPeriodByPhase, phaseOffsetForIdx, snap.axisLength);
+          const idxAxis = expandIndexationToAxis(indexation, a.revenue?.sell?.indexation?.growthPerPeriodByPhase, phaseOffsetForIdx, snap.axisLength, phaseOffsetForIdx + Math.max(0, p.constructionPeriods ?? 0));
           const priceFmt = makeCurrencyFmt('full', Math.max(1, decimals) as DisplayDecimals);
           // ONE BUILDER for the screen, the PDF and the workbook (2026-09-24):
           // one factor row, then a price PER SQM on every sub-unit, a unit row

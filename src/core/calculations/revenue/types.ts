@@ -77,6 +77,9 @@ export interface IndexationConfig {
   method: 'none' | 'single_rate' | 'yoy_compound' | 'step' | 'yoy_per_period';
   rate?: number;
   startYear?: number;
+  /** INDEX FROM (2026-11-18, founder): 'first_operating_year' counts from the line's first operating year (the
+   *  training convention, so a delay moves it with the phase); absent or 'fixed' = startYear as stored. */
+  startFrom?: 'fixed' | 'first_operating_year';
   steps?: Array<{ year: number; factor: number }>;
   // Pass 8e (2026-05-18): per-year growth array, project-axis-indexed
   // (decimal, e.g. 0.05 = 5%). Used only when method = 'yoy_per_period'.

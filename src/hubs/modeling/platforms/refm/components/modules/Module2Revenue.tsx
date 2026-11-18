@@ -1234,6 +1234,7 @@ function AssetCard({ line, allLines, phase, project, phases, parcels }: AssetCar
       },
     });
   };
+  const setSellIndexFrom = (mode: 'fixed' | 'first_operating_year'): void => { updateSellInline({ indexation: { ...idxConfig, method: idxConfig.method === 'none' ? 'yoy_compound' : idxConfig.method, startFrom: mode } }); };
   const setIndexationStartYear = (yearAbs: number): void => {
     const idx = Math.max(0, Math.min(totalPeriods - 1, yearAbs - projectStartYear));
     updateSellInline({
@@ -1411,6 +1412,8 @@ function AssetCard({ line, allLines, phase, project, phases, parcels }: AssetCar
   const setOperateADRIndexationRate = (pct: number): void => {
     updateOperateInline({ adrIndexation: { method: opADRIdx.method === 'none' ? 'yoy_compound' : opADRIdx.method, rate: Math.max(0, pct / 100), startYear: opADRIdx.startYear ?? operationsStartIdx } });
   };
+  // INDEX FROM (2026-11-18): the first operating year (moves with a delay) or the fixed year typed.
+  const setOperateADRIndexFrom = (mode: 'fixed' | 'first_operating_year'): void => { updateOperateInline({ adrIndexation: { ...opADRIdx, method: opADRIdx.method === 'none' ? 'yoy_compound' : opADRIdx.method, startFrom: mode } }); };
   const setOperateADRIndexationStartYear = (yearAbs: number): void => {
     const idx = Math.max(0, Math.min(totalPeriods - 1, yearAbs - projectStartYear));
     updateOperateInline({ adrIndexation: { method: opADRIdx.method === 'none' ? 'yoy_compound' : opADRIdx.method, rate: opADRIdx.rate ?? 0, startYear: idx } });
@@ -1507,6 +1510,7 @@ function AssetCard({ line, allLines, phase, project, phases, parcels }: AssetCar
   const setLeaseRentIndexationRate = (pct: number): void => {
     updateLeaseInline({ rentIndexation: { method: leaseRentIdx.method === 'none' ? 'yoy_compound' : leaseRentIdx.method, rate: Math.max(0, pct / 100), startYear: leaseRentIdx.startYear ?? operationsStartIdx } });
   };
+  const setLeaseRentIndexFrom = (mode: 'fixed' | 'first_operating_year'): void => { updateLeaseInline({ rentIndexation: { ...leaseRentIdx, method: leaseRentIdx.method === 'none' ? 'yoy_compound' : leaseRentIdx.method, startFrom: mode } }); };
   const setLeaseRentIndexationStartYear = (yearAbs: number): void => {
     const idx = Math.max(0, Math.min(totalPeriods - 1, yearAbs - projectStartYear));
     updateLeaseInline({ rentIndexation: { method: leaseRentIdx.method === 'none' ? 'yoy_compound' : leaseRentIdx.method, rate: leaseRentIdx.rate ?? 0, startYear: idx } });
@@ -1753,6 +1757,10 @@ function AssetCard({ line, allLines, phase, project, phases, parcels }: AssetCar
                           data-testid={`m2-asset-${asset.id}-adr-idx-rate`}
                         />
                       </div>
+                      <select value={(opADRIdx as { startFrom?: string }).startFrom === 'first_operating_year' ? 'first_operating_year' : 'fixed'} onChange={(e) => setOperateADRIndexFrom(e.target.value === 'first_operating_year' ? 'first_operating_year' : 'fixed')} style={{ fontSize: 10, marginLeft: 8 }} data-testid={`m2-asset-${asset.id}-adr-idx-from`} title="Index from: the first operating year moves with a delay; a fixed year stays put.">
+                        <option value="fixed">Index from: fixed year</option>
+                        <option value="first_operating_year">Index from: first operating year</option>
+                      </select>
                       <span style={{ fontSize: 10, color: 'var(--color-meta)', marginLeft: 8 }}>Start Year</span>
                       <div style={{ width: 90 }}>
                         <input
@@ -2202,6 +2210,10 @@ function AssetCard({ line, allLines, phase, project, phases, parcels }: AssetCar
                           data-testid={`m2-asset-${asset.id}-lease-rent-idx-rate`}
                         />
                       </div>
+                      <select value={(leaseRentIdx as { startFrom?: string }).startFrom === 'first_operating_year' ? 'first_operating_year' : 'fixed'} onChange={(e) => setLeaseRentIndexFrom(e.target.value === 'first_operating_year' ? 'first_operating_year' : 'fixed')} style={{ fontSize: 10, marginLeft: 8 }} data-testid={`m2-asset-${asset.id}-rent-idx-from`} title="Index from: the first operating year moves with a delay; a fixed year stays put.">
+                        <option value="fixed">Index from: fixed year</option>
+                        <option value="first_operating_year">Index from: first operating year</option>
+                      </select>
                       <span style={{ fontSize: 10, color: 'var(--color-meta)', marginLeft: 8 }}>Start Year</span>
                       <div style={{ width: 90 }}>
                         <input
@@ -2501,6 +2513,10 @@ function AssetCard({ line, allLines, phase, project, phases, parcels }: AssetCar
                       data-testid={`m2-asset-${asset.id}-idx-rate`}
                     />
                   </div>
+                  <select value={(idxConfig as { startFrom?: string }).startFrom === 'first_operating_year' ? 'first_operating_year' : 'fixed'} onChange={(e) => setSellIndexFrom(e.target.value === 'first_operating_year' ? 'first_operating_year' : 'fixed')} style={{ fontSize: 10, marginLeft: 8 }} data-testid={`m2-asset-${asset.id}-idx-from`} title="Index from: the first operating year moves with a delay; a fixed year stays put.">
+                    <option value="fixed">Index from: fixed year</option>
+                    <option value="first_operating_year">Index from: first operating year</option>
+                  </select>
                   <span style={{ fontSize: 10, color: 'var(--color-meta)', marginLeft: 8 }}>Start Year</span>
                   <div style={{ width: 90 }}>
                     <input
@@ -2624,7 +2640,7 @@ function AssetCard({ line, allLines, phase, project, phases, parcels }: AssetCar
               hint="Read-only. Base price per sub-unit (Table 5) x the indexation factor above at each year. This is the rate the engine multiplies the sold area or units by; the handover column is marked with *."
             >
               {(() => {
-                const idxAxis = expandIndexationToAxis(idxConfig, sellConfig?.indexation?.growthPerPeriodByPhase, phaseOffset, totalPeriods);
+                const idxAxis = expandIndexationToAxis(idxConfig, sellConfig?.indexation?.growthPerPeriodByPhase, phaseOffset, totalPeriods, phaseOffset + cp);
                 const priceFmt = (v: number): string => formatAccounting(v, 'full', project.displayDecimals ?? 2);
                 const HEAD: React.CSSProperties = { ...CELL_HEADER, textAlign: 'left', position: 'sticky', left: 0, minWidth: 220, zIndex: 1 };
                 const YEAR: React.CSSProperties = { ...CELL_HEADER, minWidth: 72 };

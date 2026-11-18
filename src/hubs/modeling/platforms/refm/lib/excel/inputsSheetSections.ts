@@ -805,7 +805,7 @@ function phaseYearStrip(c: SheetCursor, label: string, idxs: number[], values: (
 /** The module sheets' year columns: the axis year idx sits in column 6 + idx (PERIOD_COLS). */
 const axisCol = (idx: number): number => 6 + idx;
 
-function indexationRows(c: SheetCursor, title: string, ix: { method?: string; rate?: number; startYear?: number; steps?: Array<{ year: number; factor: number }> } | undefined, snap: Snap, revfootLine?: string): void {
+function indexationRows(c: SheetCursor, title: string, ix: { method?: string; rate?: number; startYear?: number; startFrom?: string; steps?: Array<{ year: number; factor: number }> } | undefined, snap: Snap, revfootLine?: string): void {
   const method = ix?.method ?? 'none';
   kv(c, `${title}: method`, INDEX_METHOD_LABELS[method] ?? method, '@', true);
   if (method === 'yoy_compound' || method === 'single_rate') {
@@ -813,7 +813,9 @@ function indexationRows(c: SheetCursor, title: string, ix: { method?: string; ra
     // The live workbook reads these two cells directly (rxin keys, 2026-10-15); the hardcoded one links its foot.
     const live = isLiveLayout() && !!revfootLine;
     kv(c, `${title}: rate %`, ix?.rate ?? 0, NUMFMT.pct2, true, undefined, undefined, live ? `rxin|${revfootLine}|rate` : revfootLine ? `inp=revfoot|${revfootLine}|idx@4` : undefined);
-    kv(c, `${title}: start year`, snap.projectStartYear + (ix?.startYear ?? 0), NUMFMT.year, ix?.startYear !== undefined || live, undefined, undefined,
+    // INDEX FROM THE FIRST OPERATING YEAR (2026-11-18): no year is typed; Revenue reads the line's operations start.
+    if (ix?.startFrom === 'first_operating_year') kv(c, `${title}: index from`, 'First operating year', '@', false, undefined, undefined, live ? `rxin|${revfootLine}|from` : undefined);
+    else kv(c, `${title}: start year`, snap.projectStartYear + (ix?.startYear ?? 0), NUMFMT.year, ix?.startYear !== undefined || live, undefined, undefined,
       live ? `rxin|${revfootLine}|from` : revfootLine && ix?.startYear !== undefined ? `inp=revfoot|${revfootLine}|idx@5#yearidx` : undefined);
   }
   if (method === 'step') {
@@ -888,7 +890,13 @@ function emitLeaseTable(c: SheetCursor, leaseLines: RevenueLine[], state: Financ
   const indexed = (i: number): boolean => per[i].method === 'yoy_compound' || per[i].method === 'single_rate';
   if (per.some((_, i) => indexed(i))) {
     rowOf('Rent indexation: rate %', (i, cell) => { if (!indexed(i)) return; setInput(cell, per[i].ix?.rate ?? 0, NUMFMT.pct2); registerCell(`rxin|${per[i].line.key}|rate`, c.ws, cell); });
-    rowOf('Rent indexation: start year', (i, cell) => { if (!indexed(i)) return; setInput(cell, snap.projectStartYear + (per[i].ix?.startYear ?? 0), NUMFMT.year); registerCell(`rxin|${per[i].line.key}|from`, c.ws, cell); });
+    rowOf('Rent indexation: start year', (i, cell) => {
+      if (!indexed(i)) return;
+      // The first operating year (2026-11-18): a label, not a typed year; Revenue reads the line's operations start.
+      if ((per[i].ix as { startFrom?: string } | undefined)?.startFrom === 'first_operating_year') derived(cell, 'First operating year', '@');
+      else setInput(cell, snap.projectStartYear + (per[i].ix?.startYear ?? 0), NUMFMT.year);
+      registerCell(`rxin|${per[i].line.key}|from`, c.ws, cell);
+    });
   }
   rowOf('Operations start year (blank = the year after handover)', (i, cell) => {
     const ov = per[i].lease?.operationsStartYearOverride;

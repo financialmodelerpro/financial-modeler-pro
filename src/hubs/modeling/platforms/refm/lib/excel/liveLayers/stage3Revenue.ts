@@ -66,7 +66,7 @@ const REV = 'Revenue';
 const CHK = 'Checks';
 const IDX_METHODS = new Set(['none', 'yoy_compound', 'single_rate']);
 
-type Idx = { method?: string; rate?: number; startYear?: number } | undefined;
+type Idx = { method?: string; rate?: number; startYear?: number; startFrom?: string } | undefined;
 
 export const stage3Revenue: LiveLayer = {
   name: 'stage 3: revenue',
@@ -259,10 +259,12 @@ export const stage3Revenue: LiveLayer = {
     /** The Timeline's handover flag of phase p (1 in the handover year). */
     const handF = (p: Phase, t: number): string => w.refP({ sheet: 'Timeline', row: w.addr(`tl:flag:${p.id}:hand`).row, col: pc(t) }, REV);
     /** The indexation factor of the line for year t, from the rate and start year on Inputs. */
-    const factorF = (l: RevenueLine, idx: Idx, t: number): string => {
+    const factorF = (l: RevenueLine, idx: Idx, t: number, firstOps?: string): string => {
       const m = idx?.method ?? 'none';
       if (m === 'none') return '1';
-      const rate = w.ref(`rxin|${l.key}|rate`), from = `MAX(${w.ref('project:axisYear')},${w.ref(`rxin|${l.key}|from`)})`;
+      // INDEX FROM THE FIRST OPERATING YEAR (2026-11-18): the line's own operations start, so a delay moves it.
+      const start = idx?.startFrom === 'first_operating_year' && firstOps ? firstOps : w.ref(`rxin|${l.key}|from`);
+      const rate = w.ref(`rxin|${l.key}|rate`), from = `MAX(${w.ref('project:axisYear')},${start})`;
       return m === 'yoy_compound' ? `(1+${rate})^MAX(0,${yr(t)}-${from})` : `IF(${yr(t)}>=${from},1+${rate},1)`;
     };
     /** A block of rows on this tab, this year's column, as one SUM (or a single cell). */
@@ -322,7 +324,8 @@ export const stage3Revenue: LiveLayer = {
           row(uk, (t) => `${Prev(uk, t)}-${P(sk, t)}`, 'last');
         }
         const fk = S('Price indexation factor');
-        row(fk, (t) => factorF(l, idx, t), 'none');
+        // A sale price indexed from the first operating year counts from the year after handover (2026-11-18).
+        row(fk, (t) => factorF(l, idx, t, `${TL(p, 'hy')}+1`), 'none');
         // Each sub-unit's price this year (its price on Inputs, indexed), then its sale value: sqm sold x that price.
         const suRev: number[] = [];
         for (const u of units) {
@@ -477,7 +480,7 @@ export const stage3Revenue: LiveLayer = {
         if (u && has(keysK)) w.fA(at(keysK, TOTAL_COL), `IF(AND(${w.ref(`su:${u.id}:area`)}>0,${sz}>0),MAX(1,ROUND(${w.ref(`su:${u.id}:area`)}/${sz},0)),0)`);
         const keys = (): string => A(keysK, TOTAL_COL);
         const adrR = byPrefix(R('ADR ('));
-        if (adrR && u) row(adrR, (t) => `${IO(t)}*${w.ref(`su:${u.id}:rate`)}*${factorF(l, idx, t)}`, 'none');
+        if (adrR && u) row(adrR, (t) => `${IO(t)}*${w.ref(`su:${u.id}:rate`)}*${factorF(l, idx, t, A(startKey, TOTAL_COL))}`, 'none');
         const arnR = R('Available room nights'), ornR = R('Occupied room nights');
         row(arnR, (t) => `${IO(t)}*${keys()}*${IN(`rxin|${l.key}|days`)}`);
         row(ornR, (t) => `${P(arnR, t)}*${P(occR, t)}`);
@@ -502,7 +505,7 @@ export const stage3Revenue: LiveLayer = {
         const one = units.length === 1;
         for (const u of units) {
           const rk = R(one ? 'Rent per sqm' : `${nm(u)}: rent per sqm`), ok = R(one ? 'Area let (sqm)' : `${nm(u)}: area let (sqm)`), vk = R(one ? 'Lease revenue' : `${nm(u)}: rent`);
-          row(rk, (t) => `${IO(t)}*${w.ref(`su:${u.id}:rate`)}*${factorF(l, idx, t)}`, 'none');
+          row(rk, (t) => `${IO(t)}*${w.ref(`su:${u.id}:rate`)}*${factorF(l, idx, t, A(startKey, TOTAL_COL))}`, 'none');
           row(ok, (t) => `${w.ref(`su:${u.id}:area`)}*${P(occR, t)}`);
           row(vk, (t) => `${P(ok, t)}*${P(rk, t)}`);
           if (has(ok)) occRows.push(rowOf(ok));
