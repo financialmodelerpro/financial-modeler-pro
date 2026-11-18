@@ -520,27 +520,30 @@ export const stage6Loop: LiveLayer = {
     if (!has('fl:excess')) return values('The financing could not be made live for this model: the cash above the minimum has no row.');
     put('fl:excess', (t) => `IF(ROUND(${P('fl:forDiv', t)}-${MIN()},2)<=0,0,${P('fl:forDiv', t)}-${MIN()})`, 'last');
     const excess = (t: number): string => P('fl:excess', t);
-    // Dividends by phase: a payout of the cash above the minimum, capped at the phase's EBITDA to date,
-    // LINKED to the phase P&L's EBITDA row (its own marketing charged, no HQ), never rebuilt here.
-    const phaseDiv: string[] = [];
-    for (const p of phases) {
-      const kEb = `fl:ph:${p.id}:ebitda`, kDiv = `fl:ph:${p.id}:div`;
-      const kPlEb = `pl|${p.id}||${labels.ebitda}`;
-      if (!has(kEb) || !has(kDiv)) return values(`The financing could not be made live for this model: ${p.name} has no dividend rows.`);
-      if (!has(kPlEb)) return values(`The financing could not be made live for this model: ${p.name} has no EBITDA row on its P&L.`);
-      put(kEb, (t) => P(kPlEb, t));
-      const before = [...phaseDiv];
-      put(kDiv, (t) => {
-        const ex = before.length ? `(${excess(t)}${before.map((k) => `-${P(k, t)}`).join('')})` : excess(t);
-        const budget = `MAX(0,SUM(${toNow(kEb, t)})-SUM(${toPrev(kDiv, t)}))`;
-        // The payout share is 0% to 100% and the cash above the minimum is positive here, so a payout of it
-        // never exceeds it: only a payout of EBITDA needs the cash as a cap too.
-        const cap = onEbitda ? `MIN(MAX(0,${P(kEb, t)})*${payout()},${ex},${budget})` : `MIN(${ex}*${payout()},${budget})`;
-        return `IF(AND(N(${IN('fin:in:divOn')})=1,${Y(t)}>=${T('fl:divStart')},${payout()}>0,${ex}>0),${cap},0)`;
-      });
-      phaseDiv.push(kDiv);
+    // ONE PROJECT DIVIDEND (2026-11-18, founder): a payout of the cash above the minimum, capped at the
+    // retained earnings available (the Balance Sheet's own figure, which reads no dividend of this year)
+    // unless Inputs allows dividends above them, when the excess is a return of capital.
+    if (!has('fl:divP')) return values('The financing could not be made live for this model: the dividend has no row.');
+    const E2 = (label: string): string => `sch|E2||${label}`;
+    if (has('fl:reAvail')) {
+      const bsOpen = E2('Opening'), bsPat = E2('PAT'), bsTr = E2('Transfer');
+      if (!has(bsOpen) || !has(bsPat)) return values('The financing could not be made live for this model: the retained earnings rows are not on the Balance Sheet.');
+      put('fl:reAvail', (t) => `MAX(0,${P(bsOpen, t)}+${P(bsPat, t)}${has(bsTr) ? `+${P(bsTr, t)}` : ''})`);
     }
-    const phaseSum = (t: number): string => phaseDiv.map((k) => P(k, t)).join('+') || '0';
+    if (onEbitda) {
+      const kPl = `pl|__all__||${labels.ebitda}`;
+      if (!has('fl:ebitda') || !has(kPl)) return values('The financing could not be made live for this model: the project EBITDA is not on the P&L.');
+      put('fl:ebitda', (t) => P(kPl, t));
+    }
+    put('fl:divP', (t) => {
+      const ex = excess(t);
+      const desired = onEbitda ? `MIN(MAX(0,${P('fl:ebitda', t)})*${payout()},${ex})` : `${ex}*${payout()}`;
+      // Inputs: 1 pays above the retained earnings (the excess is a return of capital on the Balance Sheet).
+      const above = has('fin:in:divAbove') ? `N(${IN('fin:in:divAbove')})` : '0';
+      const cap = has('fl:reAvail') ? `IF(${above}=1,${desired},MIN(${desired},${P('fl:reAvail', t)}))` : desired;
+      return `IF(AND(${divOn()}=1,${Y(t)}>=${T('fl:divStart')},${payout()}>0,${ex}>0),${cap},0)`;
+    });
+    const phaseSum = (t: number): string => P('fl:divP', t);
     put('fl:div', (t) => `-(${phaseSum(t)}+${exitF(t)}*IF(AND(${divOn()}=1,${excess(t)}>0,ROUND(${P('fl:forDiv', t)}-(${phaseSum(t)}),2)>0),${P('fl:forDiv', t)}-(${phaseSum(t)}),0))`);
     why('fl:div', 'The phases\' dividends, and in the exit year all the cash above the minimum.');
     put('fl:close', (t) => `${P('fl:forDiv', t)}+${P('fl:div', t)}`, 'last');

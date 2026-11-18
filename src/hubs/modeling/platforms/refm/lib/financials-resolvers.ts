@@ -1030,6 +1030,45 @@ export interface DividendSnapshot {
  * dividends per period. Returns both CashSweepSnapshot and
  * DividendSnapshot so the composer + UI can render each tier separately.
  */
+/**
+ * THE RETAINED EARNINGS RULE, ONCE (2026-11-18). The balance sheet splits each year's
+ * distribution into a dividend (up to the retained earnings available) and a return of
+ * capital (the rest, never more than the share capital), after the statutory reserve
+ * transfer; the dividend cap reads the SAME "available" figure, so a capped dividend never
+ * books a return of capital and an uncapped one books exactly the excess.
+ * Call `available(t)` before deciding year t's distribution and `book(t, dist)` after.
+ */
+export function createEquitySplitter(inp: {
+  openingShareCapital: number;
+  equityCumulative: readonly number[];
+  pat: readonly number[];
+  reserveRate: number;
+  reserveCapPct: number;
+}) {
+  let runningReserve = 0, runningRetained = 0, capitalReturned = 0;
+  const pre = (t: number) => {
+    const shareBefore = inp.openingShareCapital + (inp.equityCumulative[t] ?? 0) - capitalReturned;
+    const pat = inp.pat[t] ?? 0;
+    const transfer = inp.reserveRate > 0 ? Math.max(0, pat) * inp.reserveRate : 0;
+    const cap = inp.reserveCapPct > 0 ? Math.max(0, shareBefore) * inp.reserveCapPct : Infinity;
+    const allowed = Math.max(0, Math.min(transfer, cap - runningReserve));
+    return { shareBefore, pat, allowed, available: Math.max(0, runningRetained + pat - allowed) };
+  };
+  return {
+    available: (t: number): number => pre(t).available,
+    book(t: number, dist: number) {
+      const p = pre(t);
+      runningReserve += p.allowed;
+      const roc = Math.max(0, Math.min(dist - Math.min(dist, p.available), Math.max(0, p.shareBefore)));
+      const div = dist - roc;
+      capitalReturned += roc;
+      runningRetained += p.pat - p.allowed - div;
+      return { div, roc, transfer: p.allowed, reserve: runningReserve, retained: runningRetained, shareCapital: p.shareBefore - roc };
+    },
+  };
+}
+export type EquitySplitter = ReturnType<typeof createEquitySplitter>;
+
 export function computeCashWaterfall(args: {
   axisLength: number;
   projectStartYear: number;
@@ -1064,12 +1103,17 @@ export function computeCashWaterfall(args: {
    *  mode applied to EVERY phase. When provided it is authoritative; when
    *  undefined the engine falls back to the legacy per-phase
    *  Phase.dividendPolicy (back-compat). */
-  projectDividendPolicy?: { enabled?: boolean; payoutRatio?: number; mode?: 'cash_above_min' | 'pct_of_ebitda' };
+  projectDividendPolicy?: { enabled?: boolean; payoutRatio?: number; mode?: 'cash_above_min' | 'pct_of_ebitda'; allowAboveRetainedEarnings?: boolean };
+  /** The retained earnings rule (2026-11-18): the cap reads `available(t)`. Absent = no cap. */
+  equitySplitter?: EquitySplitter;
+  /** The project EBITDA per period (the P&L's, after the fund fees), for a payout of EBITDA. */
+  projectEbitdaPerPeriod?: number[];
   /** Project-level cash-sweep settings (2026-06-03): one Starting Year + Sweep
    *  Ratio for every sweep loan (precedence over the legacy per-tranche cfg). */
   projectSweep?: { startingYear?: number; sweepRatioPct?: number };
 }): { cashSweep: CashSweepSnapshot; dividends: DividendSnapshot } {
-  const { axisLength: N, projectStartYear, tranches, phases, facilityOutstanding, preSweepClosingCash, minCashReserve, phaseEbitdaPerPeriod, engineSweepByTranche, terminalPayoutPeriod, terminalCashFloor, dividendStartYear, projectDividendPolicy, projectSweep } = args;
+  const { axisLength: N, projectStartYear, tranches, phases, facilityOutstanding, preSweepClosingCash, minCashReserve, phaseEbitdaPerPeriod, engineSweepByTranche, terminalPayoutPeriod, terminalCashFloor, dividendStartYear, projectDividendPolicy, projectSweep, equitySplitter, projectEbitdaPerPeriod } = args;
+  void phaseEbitdaPerPeriod;
   const sweepInEngine = engineSweepByTranche !== undefined;
 
   // Build sweep-eligible tranches.
@@ -1194,13 +1238,27 @@ export function computeCashWaterfall(args: {
       cashAvailableForDividendPerPeriod: new Array<number>(N).fill(0),
     };
   };
+  // ONE PROJECT DIVIDEND (2026-11-18, founder): the per-phase EBITDA cap is gone. The policy is
+  // the project's (or, on an older snapshot with none, the first phase's that pays dividends),
+  // and the cap is the project's retained earnings unless the policy allows more.
+  void buildPhaseRow;
   const beforeSweepPhases: DividendPhaseRow[] = [];
   const afterSweepPhases: DividendPhaseRow[] = [];
-  for (const ph of phases) {
-    const before = buildPhaseRow(ph, 'before_sweep');
-    if (before) beforeSweepPhases.push(before);
-    const after = buildPhaseRow(ph, 'after_sweep');
-    if (after) afterSweepPhases.push(after);
+  const policyIn = projectDividendPolicy ?? phases.map((ph) => ph.dividendPolicy).find((pp) => pp?.enabled === true);
+  const allowAbove = projectDividendPolicy?.allowAboveRetainedEarnings === true;
+  if (policyIn?.enabled === true) {
+    const startingYear = effectiveDividendStartYear;
+    const ebitda = Array.from({ length: N }, (_, t) => projectEbitdaPerPeriod?.[t] ?? 0);
+    afterSweepPhases.push({
+      phaseId: '__project__', phaseName: 'Project', priority: 'after_sweep',
+      startingYear, startingYearAxisIdx: Math.max(0, Math.min(N - 1, startingYear - projectStartYear)),
+      payoutRatio: Math.max(0, Math.min(1, (policyIn.payoutRatio ?? 0) / 100)),
+      mode: policyIn.mode === 'pct_of_ebitda' ? 'pct_of_ebitda' : 'cash_above_min',
+      dividendsPerPeriod: new Array<number>(N).fill(0), totalDividends: 0,
+      phaseEbitdaPerPeriod: ebitda, cumulativeEbitdaPerPeriod: new Array<number>(N).fill(0),
+      ebitdaBudgetPerPeriod: new Array<number>(N).fill(0), totalPhaseEbitda: 0,
+      cashAvailableForDividendPerPeriod: new Array<number>(N).fill(0),
+    });
   }
 
   /** Cash above the floor smaller than half a cent is a solver residue, not a distribution. */
@@ -1236,6 +1294,7 @@ export function computeCashWaterfall(args: {
     excessAvailablePerPeriod[t] = excess;
     if (excess <= 0) {
       adjustedClosingCash[t] = cashBefore;
+      equitySplitter?.book(t, 0);
       continue;
     }
     // 1. Before-sweep dividends. Capped by remaining EBITDA budget:
@@ -1293,13 +1352,10 @@ export function computeCashWaterfall(args: {
       if (t < row.startingYearAxisIdx || row.payoutRatio <= 0) continue;
       row.cashAvailableForDividendPerPeriod[t] = excess;
       if (excess <= 0) continue;
-      const cumEb = row.cumulativeEbitdaPerPeriod[t] ?? 0;
-      const cumDivPriorPeriods = row.totalDividends;
-      const budget = Math.max(0, cumEb - cumDivPriorPeriods);
-      row.ebitdaBudgetPerPeriod[t] = budget;
-      // 2026-06-01: pct_of_ebitda sizes the dividend off THIS period's EBITDA;
-      // cash_above_min (default) sizes it off the cash above the min reserve.
-      // Both stay bounded by `excess` (cash available) + the EBITDA budget cap.
+      // THE CAP IS THE RETAINED EARNINGS AVAILABLE (2026-11-18), the balance sheet's own figure,
+      // unless the policy pays above them (the excess is then a return of capital).
+      const budget = allowAbove || !equitySplitter ? Infinity : equitySplitter.available(t);
+      row.ebitdaBudgetPerPeriod[t] = Number.isFinite(budget) ? budget : 0;
       const desired = row.mode === 'pct_of_ebitda'
         ? Math.max(0, row.phaseEbitdaPerPeriod[t] ?? 0) * row.payoutRatio
         : excess * row.payoutRatio;
@@ -1330,6 +1386,7 @@ export function computeCashWaterfall(args: {
     // preSweepClosingCash (via debtRepays), so only the dividends reduce cash
     // here; otherwise both the (overlay) sweep + dividends reduce it.
     const allocThisPeriod = (sweepInEngine ? 0 : totalSweepPerPeriod[t]) + totalDividendsPerPeriod[t];
+    equitySplitter?.book(t, totalDividendsPerPeriod[t]);
     cumAllocation += allocThisPeriod;
     adjustedClosingCash[t] = cashBefore - allocThisPeriod;
   }
@@ -2621,7 +2678,19 @@ function computeFinancialsSnapshotOnce(
     for (let t = 0; t < N; t++) ebitdaArr[t] -= ownMarketing[t] ?? 0;
     phaseEbitdaForWaterfall.set(phase.id, ebitdaArr);
   }
+  // THE DIVIDEND CAP'S RETAINED EARNINGS (2026-11-18): the balance sheet's rule, run here on
+  // the same inputs, so the cap and the split below can never disagree.
+  const openingShareCapitalForCap = project.shareCapital != null && project.shareCapital > 0 ? project.shareCapital : financing.existing.equityTotal;
+  const capSplitter = createEquitySplitter({
+    openingShareCapital: openingShareCapitalForCap,
+    equityCumulative: cumulative(equityDraws),
+    pat,
+    reserveRate: Math.max(0, project.statutoryReserve?.transferRate ?? 0),
+    reserveCapPct: Math.max(0, project.statutoryReserve?.capOfShareCapital ?? 0),
+  });
   const waterfall = computeCashWaterfall({
+    equitySplitter: capSplitter,
+    projectEbitdaPerPeriod: ebitda.slice(0, N),
     axisLength: N,
     projectStartYear,
     tranches: financingTranches,
@@ -2866,29 +2935,15 @@ function computeFinancialsSnapshotOnce(
   // Total equity, cash and every distribution are unchanged by the split.
   const dividendsDeclaredArr = zeros(N);
   const returnOfCapitalArr = zeros(N);
-  let runningReserve = 0;
-  let runningRetained = 0;
-  let capitalReturned = 0;
+  const bsSplitter = createEquitySplitter({ openingShareCapital, equityCumulative, pat, reserveRate, reserveCapPct });
   for (let t = 0; t < N; t++) {
-    const shareBefore = openingShareCapital + equityCumulative[t] - capitalReturned;
-    const transfer = reserveRate > 0
-      ? Math.max(0, pat[t]) * reserveRate
-      : 0;
-    const cap = reserveCapPct > 0 ? Math.max(0, shareBefore) * reserveCapPct : Infinity;
-    const allowed = Math.max(0, Math.min(transfer, cap - runningReserve));
-    runningReserve += allowed;
-    const dist = dividendsArr[t] ?? 0;
-    const available = Math.max(0, runningRetained + pat[t] - allowed);
-    const roc = Math.max(0, Math.min(dist - Math.min(dist, available), Math.max(0, shareBefore)));
-    const div = dist - roc;
-    capitalReturned += roc;
-    runningRetained += pat[t] - allowed - div;
-    reserveArr[t] = runningReserve;
-    reserveTransferArr[t] = allowed;
-    retained[t] = runningRetained;
-    dividendsDeclaredArr[t] = div;
-    returnOfCapitalArr[t] = roc;
-    shareCapital[t] = shareBefore - roc;
+    const s = bsSplitter.book(t, dividendsArr[t] ?? 0);
+    reserveArr[t] = s.reserve;
+    reserveTransferArr[t] = s.transfer;
+    retained[t] = s.retained;
+    dividendsDeclaredArr[t] = s.div;
+    returnOfCapitalArr[t] = s.roc;
+    shareCapital[t] = s.shareCapital;
   }
   const totalEquity = zeros(N);
   for (let t = 0; t < N; t++) totalEquity[t] = shareCapital[t] + reserveArr[t] + retained[t];

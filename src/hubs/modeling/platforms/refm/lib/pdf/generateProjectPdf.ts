@@ -2397,6 +2397,8 @@ function buildModule1(
       ['Sweep ratio (% of surplus)', fmt.pctRaw(sweep?.sweepRatioPct ?? 100, 2)],
       ['Dividends enabled', div?.enabled ? 'Yes' : 'No'],
       ['Dividend payout ratio', fmt.pctRaw(div?.payoutRatio ?? 0, 2)],
+      ['Dividend basis', div?.mode === 'pct_of_ebitda' ? 'A share of the project EBITDA' : 'A share of the cash above the minimum'],
+      ['Dividends above retained earnings', div?.allowAboveRetainedEarnings ? 'Yes (the excess is a return of capital)' : 'No (capped at the retained earnings available)'],
       ['Dividend start year', p.dividendStartYear ? String(p.dividendStartYear) : 'Auto'],
     ])));
   }

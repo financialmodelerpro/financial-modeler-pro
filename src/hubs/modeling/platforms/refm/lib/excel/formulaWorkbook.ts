@@ -310,7 +310,10 @@ export const LOOP_LINKS: ReadonlyArray<{ from: string; to: string; fromRow?: Reg
   { from: 'Schedules', to: 'Financing' },
   { from: 'Capex', to: 'Financing' },
   // The labels as built and as tidied for reading (readability.ts, 2026-11-17).
-  { from: 'Financing', to: 'P&L', fromRow: /(: EBITDA \(the phase P&L\)| EBITDA, from its P&L)$/ },
+  // THE DIVIDEND CAP (2026-11-18, founder): the retained earnings available, read from the Balance Sheet
+  // (last year's retained earnings and this year's profit after tax and reserve transfer, none of which reads
+  // this year's dividend), and on a payout of EBITDA the project EBITDA.
+  { from: 'Financing', to: 'Balance Sheet', fromRow: /( \(the Balance Sheet\)|, from the Balance Sheet)$/ },
   // ZAKAT (2026-11-15, founder): worked out on the P&L; Financing reads the charge back for the cash.
   { from: 'Financing', to: 'P&L', fromRow: /( \(the P&L\)|, from the P&L)$/ },
   // AND ONE MORE (2026-11-12, founder): Revenue's selling costs by sell line link the cells Capex charges

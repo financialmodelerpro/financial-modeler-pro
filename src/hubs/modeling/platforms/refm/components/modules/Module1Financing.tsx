@@ -3089,8 +3089,9 @@ function FundingGapView(p: FundingGapProps): React.JSX.Element {
           const payoutRatio = dp?.payoutRatio ?? legacyPhase?.dividendPolicy?.payoutRatio ?? 0;
           const mode = dp?.mode ?? legacyPhase?.dividendPolicy?.mode ?? 'cash_above_min';
           const startYear = state.project.dividendStartYear ?? defaultStartYear;
+          const allowAbove = dp?.allowAboveRetainedEarnings === true;
           const setDp = (patch: Partial<NonNullable<typeof dp>>) =>
-            state.setProject({ dividendPolicy: { enabled, payoutRatio, mode, ...patch } });
+            state.setProject({ dividendPolicy: { enabled, payoutRatio, mode, allowAboveRetainedEarnings: allowAbove, ...patch } });
           const pillBtn = (active: boolean, label: string, onClick: () => void, key: string) => (
             <button
               key={key}
@@ -3136,6 +3137,18 @@ function FundingGapView(p: FundingGapProps): React.JSX.Element {
                 </div>
                 <div style={{ fontSize: 9, color: 'var(--color-text-muted)', marginTop: 4 }}>
                   {mode === 'pct_of_ebitda' ? 'payout % of EBITDA (gated by cash)' : 'payout % of cash above min reserve'}
+                </div>
+              </div>
+              <div>
+                <label style={fieldLabel}>Above Retained Earnings</label>
+                <div style={{ display: 'flex', gap: 4 }}>
+                  {pillBtn(!allowAbove, 'No', () => setDp({ allowAboveRetainedEarnings: false }), 'ab-no')}
+                  {pillBtn(allowAbove, 'Yes', () => setDp({ allowAboveRetainedEarnings: true }), 'ab-yes')}
+                </div>
+                <div style={{ fontSize: 9, color: 'var(--color-text-muted)', marginTop: 4, maxWidth: 220 }}>
+                  {allowAbove
+                    ? 'pays the cash above the minimum after debt service; the part beyond retained earnings is a return of capital'
+                    : 'capped at the retained earnings available (profit after zakat less dividends paid)'}
                 </div>
               </div>
               <div>
@@ -3398,7 +3411,7 @@ function FundingGapView(p: FundingGapProps): React.JSX.Element {
                   })()}
                   {renderFlowRow('(−) Debt Paid (total principal incl. sweep)', debtPaidW, { negative: true, subtotal: true })}
                   {renderStateRow('= Cash Available for Dividend', cashForDividendW, { subtotal: true })}
-                  {div.enabled && renderFlowRow('(−) Dividend Paid (per policy, EBITDA-capped)', divArr.map((v) => -v), { negative: true })}
+                  {div.enabled && renderFlowRow('(−) Dividend Paid (per policy, retained earnings cap)', divArr.map((v) => -v), { negative: true })}
                   {renderStateRow('= Closing Cash (ties to Cash Flow tab + Balance Sheet)', finalClosing, { bold: true, priorValue: snap.bs.historicalOpeningCashTotal })}
                   {hasIdcCash && (
                     <tr><td colSpan={3 + N} style={{ ...ROW_SUBTOTAL.name, fontStyle: 'italic', color: 'var(--color-meta)' }}>Memo &mdash; IDC funding split (conditional): paid in cash where surplus, capitalised to debt otherwise</td></tr>

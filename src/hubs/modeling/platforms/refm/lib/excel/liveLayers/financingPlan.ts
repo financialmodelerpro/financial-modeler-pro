@@ -386,7 +386,9 @@ export function financingPlan(state: FinancialsResolverState, snap: Snap = compu
     const schedV = sl(c.totalPrincipalRepaid.map((v, i) => Math.max(0, (v ?? 0) - (c.totalSweepRepaid[i] ?? 0))));
     const exitV = sl(snap.disposal.debtRepaidPerPeriod);
     const minR = Math.max(0, p.financing?.minimumCashReserve ?? fin.funding.minCashReserve ?? 0);
-    per('fl:sweepLeft', 'Cash above the minimum, before the sweep', cashV.map((v, t) => Math.max(0, v - (schedV[t] ?? 0) - (exitV[t] ?? 0) - minR)), 'Cash available less the scheduled principal, the exit repayment and the minimum cash');
+    void exitV;
+    const exitAt = snap.disposal.booked ? snap.disposal.exitIdx : -1;
+    per('fl:sweepLeft', 'Cash above the minimum, before the sweep', cashV.map((v, t) => (t === exitAt ? 0 : Math.max(0, v - (schedV[t] ?? 0) - minR))), 'Cash available less the scheduled principal and the minimum cash; none in the exit year');
   }
   per('fl:repaidCash', '(-) Debt repaid (scheduled, swept and at the exit)', sl(dcf.debtRepaymentPerPeriod), 'Each facility\'s principal repaid, and the exit repayment');
   const forDiv = add(sl(dcf.openingCashPerPeriod), sl(dcf.cashFromOperationsPerPeriod), sl(dcf.cashFromInvestmentPerPeriod), sl(dcf.equityDrawdownPerPeriod), sl(dcf.debtDrawdownPerPeriod), sl(dcf.interestPaidPerPeriod), sl(dcf.debtRepaymentPerPeriod));
@@ -397,24 +399,19 @@ export function financingPlan(state: FinancialsResolverState, snap: Snap = compu
     per('fl:excess', 'Cash above the minimum balance', forDiv.map((v) => (Math.round((v - minRes) * 100) / 100 <= 0 ? 0 : v - minRes)), 'Cash available for dividends less the minimum cash on Inputs, never below zero', { indent: 1, balance: true });
   }
   {
-    const rowsP = [...snap.dividends.beforeSweepPhases, ...snap.dividends.afterSweepPhases];
-    for (const ph of state.phases) {
-      const rp = rowsP.find((x) => x.phaseId === ph.id);
-      const eb = rp ? sl(rp.phaseEbitdaPerPeriod) : (() => {
-        const v = zeros();
-        for (const a of state.assets.filter((x) => x.visible !== false && x.phaseId === ph.id)) {
-          const pa = snap.perAssetPL.get(a.id);
-          if (pa) for (let t = 0; t < N; t++) v[t] += (pa.revenuePerPeriod[t] ?? 0) - (pa.cosPerPeriod[t] ?? 0) - (pa.opexPerPeriod[t] ?? 0);
-        }
-        const own = snap.pl.sellingExpenseByPhase?.[ph.id] ?? [];
-        for (let t = 0; t < N; t++) v[t] -= own[t] ?? 0;
-        return v;
-      })();
-      per(`fl:ph:${ph.id}:ebitda`, `${ph.name}: EBITDA (the phase P&L)`, eb, 'P&L: the phase\'s EBITDA, its own marketing charged and no HQ', { indent: 1 });
-      per(`fl:ph:${ph.id}:div`, `${ph.name}: dividend`, sl(rp?.dividendsPerPeriod), 'The payout of the cash above the minimum, capped at the phase\'s EBITDA to date', { indent: 1 });
+    // ONE PROJECT DIVIDEND, CAPPED AT THE RETAINED EARNINGS (2026-11-18, founder): no per-phase cap.
+    const row = snap.dividends.afterSweepPhases[0];
+    const above = p.dividendPolicy?.allowAboveRetainedEarnings === true;
+    if (p.dividendPolicy?.mode === 'pct_of_ebitda') per('fl:ebitda', 'Project EBITDA (the P&L)', sl(snap.pl.ebitdaPerPeriod), 'P&L: the project EBITDA, after the fund fees', { indent: 1 });
+    {
+      const re = sl(snap.bs.retainedEarningsPerPeriod);
+      const transfer = sl(snap.bs.statutoryReserveTransferPerPeriod);
+      const pat = sl(snap.pl.patPerPeriod);
+      per('fl:reAvail', 'Retained earnings available (the Balance Sheet)', pat.map((v, t) => Math.max(0, (t === 0 ? 0 : re[t - 1] ?? 0) + v - (transfer[t] ?? 0))), 'Retained earnings a year earlier plus the profit after tax of the year, less the reserve transfer, never below zero', { indent: 1 });
     }
+    per('fl:divP', 'Dividend before the exit', sl(row?.dividendsPerPeriod), above ? 'The payout of the cash above the minimum; the part beyond the retained earnings is a return of capital' : 'The payout of the cash above the minimum, up to the retained earnings available', { indent: 1 });
   }
-  per('fl:div', '(-) Dividends paid', neg(sl(snap.dividends.totalDividendsPerPeriod)), 'The phases\' dividends, and in the exit year all the cash above the minimum');
+  per('fl:div', '(-) Dividends paid', neg(sl(snap.dividends.totalDividendsPerPeriod)), 'The dividend, and in the exit year all the cash above the minimum');
   per('fl:close', '= Closing cash', sl(dcf.closingCashPerPeriod), 'Cash available for dividends less the dividends (ties to the Cash Flow and the Balance Sheet)', { balance: true, style: 'total' });
   // Each facility's balance after the exit repayment (2026-11-03): the Balance Sheet links each one.
   const afterExit = (v: number[]): number[] => v.map((x, t) => (snap.disposal.booked && t >= snap.disposal.exitIdx ? 0 : x));

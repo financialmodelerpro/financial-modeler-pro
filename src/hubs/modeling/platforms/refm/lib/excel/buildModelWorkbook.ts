@@ -1269,7 +1269,10 @@ function addAssumptions(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFin
     if (fundTermsOn) fixedText('Fund fees funded by', p.fundTerms?.managementFeeFunding === 'equity' ? 'Equity, drawn outside the funding need' : 'The funding need, at the debt / equity split');
     financingScalars.dividendEnabled = addr('B', addKV('Dividends paid (1 = yes)', p.dividendPolicy?.enabled ? 1 : 0, NUMFMT.int, undefined, 'fin:in:divOn'));
     financingScalars.dividendPayout = addr('B', addKV('Dividend payout ratio %', (p.dividendPolicy?.payoutRatio ?? 0) / 100, NUMFMT.pct, undefined, 'fin:in:payout'));
-    fixedText('Dividend basis', p.dividendPolicy?.mode === 'pct_of_ebitda' ? 'A share of the phase EBITDA, within the cash above the minimum' : 'A share of the cash above the minimum');
+    fixedText('Dividend basis', p.dividendPolicy?.mode === 'pct_of_ebitda' ? 'A share of the project EBITDA, within the cash above the minimum' : 'A share of the cash above the minimum');
+    // THE CAP (2026-11-18): 0 caps the dividend at the retained earnings available; 1 pays above them and the
+    // excess is booked as a return of capital.
+    addKV('Dividends above retained earnings (1 = yes)', p.dividendPolicy?.allowAboveRetainedEarnings ? 1 : 0, NUMFMT.int, undefined, 'fin:in:divAbove');
     financingScalars.dividendStart = addr('B', blankYear('Dividend start year (blank = after construction)', p.dividendStartYear, 'fin:in:divStart'));
     r += 1;
 

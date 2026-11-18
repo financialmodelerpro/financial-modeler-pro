@@ -768,6 +768,14 @@ export interface Project {
     enabled?: boolean;
     payoutRatio?: number;
     mode?: 'cash_above_min' | 'pct_of_ebitda';
+    /**
+     * THE DIVIDEND CAP IS THE PROJECT'S RETAINED EARNINGS (2026-11-18, founder): cumulative
+     * profit after zakat, less the reserve transfers and the dividends already paid. Absent or
+     * false: no dividend beyond them. True: the payout of all the cash above the minimum after
+     * debt service is paid whatever the retained earnings, and the part beyond them is booked
+     * as a return of capital (it reduces share capital), so the balance sheet still balances.
+     */
+    allowAboveRetainedEarnings?: boolean;
   };
   /**
    * M5 Returns (2026-06-01): returns + valuation assumptions. Additive;

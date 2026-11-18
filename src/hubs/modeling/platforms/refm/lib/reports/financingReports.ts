@@ -435,7 +435,7 @@ export function buildCashSweepTables(snap: ProjectFinancialsSnapshot, state: Fin
     { label: '(-) Debt Paid (total principal incl. sweep)', values: debtPaidTotal, isSubtotal: true },
     { label: '= Cash Available for Dividend', values: cashForDividend, isSubtotal: true, totalOverride: fmt(cashForDividend[N - 1] ?? 0) },
   );
-  if (allRows || div.enabled || anyNonZero(dividends)) waterfall.push({ label: '(-) Dividend Paid (per policy, EBITDA-capped)', values: dividends });
+  if (allRows || div.enabled || anyNonZero(dividends)) waterfall.push({ label: '(-) Dividend Paid (per policy, retained earnings cap)', values: dividends });
   waterfall.push({ label: '= Closing Cash (ties to Cash Flow tab + Balance Sheet)', values: closing, isTotal: true, totalOverride: fmt(closing[N - 1] ?? 0), priorValue: snap.bs.historicalOpeningCashTotal });
   tables.push({ title: 'Cash Waterfall (Operations -> Debt -> Dividend -> Closing)', rows: waterfall });
 
@@ -507,7 +507,7 @@ export function financingRowBasis(label: string, table: string): string {
     '(memo) Headroom above the minimum reserve': 'Cash available - minimum reserve',
     '(-) Debt Paid (total principal incl. sweep)': 'Principal repaid, scheduled + sweep',
     '= Cash Available for Dividend': 'Cash available - debt paid',
-    '(-) Dividend Paid (per policy, EBITDA-capped)': 'Distribution per the dividend policy',
+    '(-) Dividend Paid (per policy, retained earnings cap)': 'Distribution per the dividend policy',
     '= Closing Cash (ties to Cash Flow tab + Balance Sheet)': 'Cash available for dividend - dividend paid',
     'Project total debt outstanding (post-sweep)': 'Sum of the facilities\' post-sweep balances',
     'Total IDC (allocated to assets)': 'Capitalised construction interest, all lines',

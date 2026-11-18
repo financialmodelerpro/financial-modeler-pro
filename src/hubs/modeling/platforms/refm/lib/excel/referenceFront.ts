@@ -231,7 +231,7 @@ function buildGuide(ws: ExcelJS.Worksheet, wb: ExcelJS.Workbook, ctx: FrontConte
 
   bar('Links that read a later tab');
   line('Capitalised interest', 'Schedules reads it from Financing, which works it out from the opening debt and the draw of the year.');
-  line('Phase EBITDA', "Each phase's dividend cap on Financing reads that phase's EBITDA on the P&L.");
+  line('Retained earnings', 'The dividend cap on Financing reads the retained earnings available on the Balance Sheet (last year\'s retained earnings and this year\'s profit after tax), none of which reads this year\'s dividend.');
   line(tax === 'zakat' ? 'Zakat' : 'Tax', 'Worked out on the P&L; Financing reads the charge back for the cash.');
   r++;
 
