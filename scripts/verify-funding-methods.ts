@@ -265,7 +265,9 @@ console.log('\n[IDC] Conditional IDC: full engine integration');
 
   // Feature works: some construction interest is paid in cash.
   const cashIdc = sum(cond.financing.combined.totalInterestCapitalizedCashPaid);
-  check('IDC conditional: construction interest paid in cash > 0 (surplus diverted)', cashIdc > 0, `cashIdc=${Math.round(cashIdc)}`);
+  // IDC IS CAPITALISED IN FULL (2026-11-18, A1, founder): no IDC cash budget, so no construction interest is paid
+  // from a surplus; the IDC rides on the debt and the model has no circular reference.
+  check('IDC capitalised in full: no construction interest is paid in cash', cashIdc === 0 && sum(cond.financing.combined.totalInterestCapitalized) > 0, `cashIdc=${Math.round(cashIdc)}`);
 
   // T2: debt is lower (paying interest in cash avoids both the IDC drawdown
   // AND the compounding it would cause).
@@ -395,8 +397,9 @@ console.log('\n[IDC-LATE] Conditional IDC is decided PER PERIOD (capitalise when
   // reserve and pays from cash instead.
   check('IDC-LATE: a cash-short early year BORROWS for its IDC (idx 0)',
     (capC[0] ?? 0) > 0 && (cashC[0] ?? 0) === 0, `drawn0=${Math.round(capC[0] ?? 0)} cash0=${Math.round(cashC[0] ?? 0)}`);
-  check('IDC-LATE: a surplus late year pays its IDC from CASH, borrowing nothing (idx 2)',
-    (cashC[2] ?? 0) > 0 && (capC[2] ?? 0) === 0, `cash2=${Math.round(cashC[2] ?? 0)} drawn2=${Math.round(capC[2] ?? 0)}`);
+  // A1 (2026-11-18): a surplus year capitalises its IDC too; a cash budget would make IDC read cash, which reads IDC.
+  check('IDC-LATE: a surplus late year still capitalises its IDC, paying none from cash (idx 2)',
+    (cashC[2] ?? 0) === 0 && (capC[2] ?? 0) > 0, `cash2=${Math.round(cashC[2] ?? 0)} drawn2=${Math.round(capC[2] ?? 0)}`);
   // The two funding routes are exhaustive: every unit of IDC is either paid
   // from cash or borrowed, never neither and never both.
   check('IDC-LATE: cash-funded + debt-funded = IDC, every period',

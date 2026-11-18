@@ -160,7 +160,7 @@ export function returnsPlan(state: FinancialsResolverState, snap: Snap, rs: RS, 
   // Each stream's IRR, MOIC and NPV, computed once, in the row under the stream (2026-11-16, founder).
   const rate = (E: REnv): string => E.ref('inp=ret|Discount Rate (%)@4');
   // THE EQUITY STREAMS DISCOUNT AT THE COST OF EQUITY (2026-11-18); the project stream at the discount rate.
-  const coe = (E: REnv): string => E.ref('ret:coe');
+  const coe = (E: REnv): string => `IF(N(${E.ref('ret:coe')})>0,${E.ref('ret:coe')},${rate(E)})`;
   const results = (key: string, label: string, src: string, r: RS['result']['fcff'], rateOf: (E: REnv) => string = rate): void => {
     rows.push({ key: `${key}#cols`, label: '', kind: 'cols', cols: [[D, 'IRR'], [D + 1, 'MOIC'], [D + 2, 'NPV']] });
     const rng = (E: REnv): string => E.rng(src);
@@ -175,7 +175,7 @@ export function returnsPlan(state: FinancialsResolverState, snap: Snap, rs: RS, 
   section('ret|#section', 'Returns');
   head('ret|#assumptions', 'Assumptions (from Inputs)');
   one('ret|Discount Rate (%)', 'Discount rate', cfg.discountRate, undefined, RF.pct);
-  one('ret|Cost of equity (%)', 'Cost of equity (the equity NPVs)', cfg.costOfEquity, (E) => E.ref('ret:coe'), RF.pct);
+  one('ret|Cost of equity (%)', 'Cost of equity (the equity NPVs)', cfg.costOfEquity, (E) => coe(E), RF.pct);
   one('ret|Exit Year', 'Exit year', exitYear, undefined, RF.year);
   const methodLabel: Record<string, string> = { exit_multiple: 'Exit Multiple', cap_rate: 'Exit Cap Rate', perpetuity: 'Perpetuity (Gordon)', none: 'None' };
   one('ret|Terminal Value Method', 'Terminal value method', methodLabel[cfg.terminalMethod] ?? cfg.terminalMethod, (E) => E.ref('ret:tvMethod'), RF.text);

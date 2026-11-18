@@ -109,8 +109,23 @@ function walk(dir: string, out: string[] = []): string[] {
   check('G6b no .tsx or client module imports the live build directly', clientish.length === 0, clientish.join(', '));
   const vw = readFileSync(VALUES, 'utf8');
   const frozen = vw.slice(vw.indexOf('export function frozenLiveWorkbook'), vw.indexOf('export function buildValuesWorkbook'));
+  // A BEHAVIOUR, NOT A SHAPE (2026-11-18): the freeze moved into freezeFormulas, which this check had pinned as
+  // inline code. Run it on a workbook of formulas and require that none survives, and that the frozen live build
+  // goes through it.
+  const { freezeFormulas } = await import('../src/hubs/modeling/platforms/refm/lib/excel/valuesWorkbook');
+  const ExcelJSmod = (await import('exceljs')).default;
+  const twb = new ExcelJSmod.Workbook();
+  const tws = twb.addWorksheet('T');
+  tws.getCell('A1').value = 2;
+  tws.getCell('B1').value = { formula: 'A1*2', result: 4 } as never;
+  tws.getCell('C1').value = { formula: 'B1+1', result: 5 } as never;
+  freezeFormulas(twb);
+  let left = 0;
+  tws.eachRow((r) => r.eachCell((c) => { const v = c.value as unknown; if (v && typeof v === 'object' && 'formula' in (v as object)) left++; }));
   check('G6c the values file freezes every formula of the live build before it leaves, and the dialog never builds the live file',
-    /typeof v\.formula !== 'string'\) return;[\s\S]{0,200}c\.value = /.test(frozen) && !/generateLiveWorkbook/.test(readFileSync(MODAL, 'utf8')));
+    left === 0 && tws.getCell('B1').value === 4 && tws.getCell('C1').value === 5
+    && /freezeFormulas\(wb\)/.test(frozen) && !/generateLiveWorkbook/.test(readFileSync(MODAL, 'utf8')),
+    `${left} formulas left; B1 ${String(tws.getCell('B1').value)}`);
 
   console.log("\n=== G7. The dialog shows it only on the server's answer ===");
   const m = readFileSync(MODAL, 'utf8');

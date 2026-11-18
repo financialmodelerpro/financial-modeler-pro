@@ -162,7 +162,8 @@ async function runVersion(inp: LiveExportInputs, title: string): Promise<void> {
     { name: 'Dividends above retained earnings', label: 'Dividends above retained earnings (1 = yes)', want: p.dividendPolicy?.allowAboveRetainedEarnings ? 1 : 0, pdfLabel: 'Dividends above retained earnings', pdfForms: [p.dividendPolicy?.allowAboveRetainedEarnings ? 'Yes' : 'No'] },
     { name: 'Minimum cash reserve', label: 'Minimum cash reserve', want: Number(p.financing?.minimumCashReserve ?? 0), pdfLabel: 'Minimum Cash Reserve', pdfForms: [m(Number(p.financing?.minimumCashReserve ?? 0))] },
     { name: 'Discount rate', label: 'Discount Rate (%)', want: cfg.discountRate, pdfLabel: 'Discount rate', pdfForms: [pct(cfg.discountRate)] },
-    { name: 'Cost of equity', label: 'Cost of equity (%)', want: cfg.costOfEquity, pdfLabel: 'Cost of equity', pdfForms: [pct(cfg.costOfEquity)] },
+    // Blank on Inputs when none is typed (it then reads the discount rate), so the cell beside the label is its note.
+    { name: 'Cost of equity', label: 'Cost of equity (%)', want: p.returns?.costOfEquity === undefined ? 'Blank: the discount rate.' : cfg.costOfEquity, pdfLabel: 'Cost of equity', pdfForms: [pct(cfg.costOfEquity)] },
     ...(cfg.terminalMethod !== 'none' ? [{ name: 'Selling costs at exit', label: 'Selling costs at exit', want: cfg.exitSellingCostRate, pdfLabel: 'Selling costs at exit', pdfForms: [pct(cfg.exitSellingCostRate)] }] : []),
     ...(ft.enabled ? [
       { name: 'Structure fee basis', label: 'Structure fee basis', want: ft.structureFeeBasis === 'total_development_cost' ? 'Total development cost (excl. IDC)' : 'Fund size (debt + equity funding need)', pdfLabel: 'Fund structure fee', pdfForms: [FEE_BASE_LABELS[ft.structureFeeBasis === 'total_development_cost' ? 'total_development_cost' : 'fund_size']] },

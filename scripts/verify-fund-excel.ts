@@ -36,6 +36,7 @@ import { computeFinancialsSnapshot } from '../src/hubs/modeling/platforms/refm/l
 import { computeReturnsSnapshot } from '../src/hubs/modeling/platforms/refm/lib/returns-resolvers';
 import { buildExcelSampleState } from './excelSampleState';
 import { ALLOWED_FILLS } from '../src/hubs/modeling/platforms/refm/lib/excel/styles';
+import { WHO_GETS_WHAT_TITLE } from '../src/hubs/modeling/platforms/refm/lib/reports/fundReports';
 
 let pass = 0, fail = 0;
 const failures: string[] = [];
@@ -279,7 +280,9 @@ async function main(): Promise<void> {
       if (perPeriod !== / x \d+$/.test(baseCell)) return false;
       if (!String(pl.getCell(R, META_C).value ?? '').trim()) return false;
       // The collapsed row carries the CHARGE; a paired basis row carries the base.
-      const want = flat ? line.total : (constant ? first : sum(line.basisPerPeriod));
+      // A MOVING equity-to-date base shows its PEAK (2026-11-18, the shared builder's rule); any other moving
+      // base its lifetime sum.
+      const want = flat ? line.total : constant ? first : line.base === 'equity_to_date' ? Math.max(0, ...line.basisPerPeriod) : sum(line.basisPerPeriod);
       if (!near(numAt(pl, R, TOTAL), want)) return false;
     }
     return true;
@@ -304,17 +307,19 @@ async function main(): Promise<void> {
   // Teeth: an ANNUAL fee must NOT show the lifetime sum. Without this the check
   // above would still pass if the builder reverted, because a one-time fee's
   // constant and its sum are the same number.
-  check('P&L: an annual fee shows the per-period base, NOT the sum over the life', (() => {
+  check('P&L: an annual fee on a moving base shows its peak, NOT the sum over the life', (() => {
     // Rate-based only: a flat amount has no basis row to check, by design.
+    // Both annual fees charge each year's equity to date (2026-11-18, A4), a MOVING balance: the basis row shows
+    // its peak and no "x n" count, never the balance summed over the life.
     const annual = feeLines.filter((l) => l.timing === 'annual' && l.base !== 'flat_amount'
-      && l.basisPerPeriod.filter((v) => v !== 0).length > 1);
+      && new Set(l.basisPerPeriod.filter((v) => v !== 0).map((v) => Math.round(v))).size > 1);
     if (annual.length === 0) return false; // the fixture must exercise this
     return annual.every((line) => {
-      const n = line.basisPerPeriod.filter((v) => v !== 0).length;
       const R = rowOf(pl, `${line.label}: basis`);
       return R > 0
         && !near(numAt(pl, R, TOTAL), sum(line.basisPerPeriod))
-        && String(pl.getCell(R, META_B).value ?? '').endsWith(` x ${n}`);
+        && near(numAt(pl, R, TOTAL), Math.max(0, ...line.basisPerPeriod))
+        && !/ x d+$/.test(String(pl.getCell(R, META_B).value ?? ''));
     });
   })());
   // The Rate column has to be wide enough to show a rate. It was 2 characters
@@ -456,11 +461,11 @@ async function main(): Promise<void> {
   // ── 6. Returns: the Fund Fee Income section ───────────────────────────────
   console.log('\n-- 6. Returns: Fund Fee Income for the Fund Manager --');
   const fe = rsOn.feeEarners;
-  check('Returns: the fee income section is present', rowOf(ret, 'Fund Fee Income by Earner') > 0);
+  check('Returns: the fee income section is present', rowOf(ret, WHO_GETS_WHAT_TITLE) > 0);
   check('Returns: the Fund Manager appears as an earner', rowOf(ret, TERMS.fundManagerName) > 0);
   check('Returns: fee earners sit BESIDE the equity partners, not inside them', (() => {
     const rPartners = rowOf(ret, 'Equity Partners');
-    const rEarners = rowOf(ret, 'Fund Fee Income by Earner');
+    const rEarners = rowOf(ret, WHO_GETS_WHAT_TITLE);
     // The Fund Manager must not appear in the partner grid.
     if (rPartners < 0) return rEarners > 0;
     const partnerNames = rsOn.partners.partners.map((p: any) => p.name);
@@ -480,9 +485,11 @@ async function main(): Promise<void> {
   // table's own total, so an unallocated performance fee is not dropped from it.
   check('Returns: Total Fee Income ties to management plus performance fee',
     near(totalAt(ret, '= Total Fee Income'), fe.totalManagementFee + fe.totalPerformanceFee));
-  check('Returns: the management fees earned equal the fees CHARGED in the P&L',
-    near(fe.totalManagementFee, sum(snapOn.fundFees.totalPerPeriod)) &&
-    near(totalAt(ret, '= Total Management Fees'), -numAt(pl, rTot, TOTAL)));
+  // The RATE fees (2026-11-18): other expenses are charged in the P&L but earned by no party.
+  const otherExp = sum(snapOn.fundFees.lines.filter((l: any) => l.base === 'flat_amount').flatMap((l: any) => l.amountPerPeriod));
+  check('Returns: the management fees earned equal the rate fees CHARGED in the P&L (other expenses earned by no one)',
+    near(fe.totalManagementFee, sum(snapOn.fundFees.totalPerPeriod) - otherExp) &&
+    near(totalAt(ret, '= Total Management Fees'), -numAt(pl, rTot, TOTAL) - otherExp));
   check('Returns: the fee income basis block repeats the shared builder', (() => {
     const R = rowOf(ret, 'Fund Fee Basis (what each fee is charged on)');
     if (R < 0) return false;

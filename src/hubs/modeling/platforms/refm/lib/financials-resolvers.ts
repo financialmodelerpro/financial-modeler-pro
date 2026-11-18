@@ -108,6 +108,9 @@ export interface AssetCF {
   strategy: Asset['strategy'];
   // Direct method per-asset
   revenueReceivedPerPeriod: number[];
+  /** THE LINE'S RECEIVABLE AT YEAR END (2026-11-18): an Operate or Lease asset's revenue x its receivable
+   *  days, the series its revenueReceivedPerPeriod is the cash of, published so a surface prints it. */
+  receivablePerPeriod?: number[];
   opexPaidPerPeriod: number[];
   /** POSITIVE cost magnitude. Note this is the OPPOSITE sign to the
    *  project-level `DirectCashFlow.capexPerPeriod`, which is negative. */
@@ -953,6 +956,9 @@ export interface CashSweepSnapshot {
   cashBeforeAllocationPerPeriod: number[];
   /** Excess available per period before sweep (capped at 0 from below). */
   excessAvailablePerPeriod: number[];
+  /** WHAT A SWEEP MAY TAKE (2026-11-18): the excess above, none from the exit year (sweepStopIdx), so the
+   *  workbook's "Cash above the minimum, before the sweep" prints the engine's figure. */
+  sweepAvailablePerPeriod?: number[];
   /** Total sweep applied per period (sum across all tranches). */
   totalSweepPerPeriod: number[];
   totalSweep: number;
@@ -1019,6 +1025,9 @@ export interface DividendSnapshot {
   /** Per-period total dividends (sum across all phases, before + after,
    *  INCLUDING any terminal 100% payout). */
   totalDividendsPerPeriod: number[];
+  /** THE CAP (2026-11-18): the retained earnings available to each year's dividend, before it is paid (the
+   *  balance sheet's rule, createEquitySplitter.available); 0 where no splitter runs. */
+  retainedEarningsAvailablePerPeriod?: number[];
   totalDividends: number;
   /** Terminal 100% payout per period (2026-06-02): the liquidating
    *  distribution booked in the exit period that releases all cash above the
@@ -1285,7 +1294,10 @@ export function computeCashWaterfall(args: {
 
   // Forward pass with the full waterfall.
   let cumAllocation = 0;
+  const retainedEarningsAvailablePerPeriod = new Array<number>(N).fill(0);
   for (let t = 0; t < N; t++) {
+    // Read before anything is booked for year t, as the cap reads it.
+    retainedEarningsAvailablePerPeriod[t] = equitySplitter ? equitySplitter.available(t) : 0;
     const cashBefore = (preSweepClosingCash[t] ?? 0) - cumAllocation;
     cashBeforeAllocationPerPeriod[t] = cashBefore;
     // A RESIDUE IS NOT CASH (2026-09-27): the fixed-point solve can leave the cash a
@@ -1451,6 +1463,7 @@ export function computeCashWaterfall(args: {
     totalDividendsPerPeriod,
     totalDividends: totalDividendsPerPeriod.reduce((s, v) => s + v, 0),
     terminalPayoutPerPeriod,
+    retainedEarningsAvailablePerPeriod,
   };
   return { cashSweep, dividends };
 }
@@ -2330,7 +2343,10 @@ function computeFinancialsSnapshotOnce(
       // (cash on receipt), so the cash flow's line rows ignored the receivable days the project total
       // applied, and the rows stopped footing to it the moment a line or the project stated days.
       const cfA = perAssetCF.get(a.id);
-      if (cfA) for (let t = 0; t < N; t++) cfA.revenueReceivedPerPeriod[t] = r.cashReceivedPerPeriod[t] ?? 0;
+      if (cfA) {
+        for (let t = 0; t < N; t++) cfA.revenueReceivedPerPeriod[t] = r.cashReceivedPerPeriod[t] ?? 0;
+        cfA.receivablePerPeriod = r.perPeriod.slice(0, N);
+      }
       for (let t = 0; t < N; t++) {
         perPeriod[t] += r.perPeriod[t] ?? 0;
         changePerPeriod[t] += r.changePerPeriod[t] ?? 0;
@@ -3113,6 +3129,22 @@ function computeFinancialsSnapshotOnce(
     return mask;
   })();
 
+  {
+    // WHAT A SWEEP MAY TAKE (2026-11-18): the cash available (opening, operations, investing, equity, debt, interest)
+    // less the scheduled principal (not the sweep) and the minimum cash, none in the exit year, where the facility
+    // stops sweeping (sweepStopIdx) and the balance is repaid. The workbook's row is this formula.
+    const c = financing.combined;
+    const minR = Math.max(0, project.financing?.minimumCashReserve ?? financing.funding.minCashReserve ?? 0);
+    cashSweep.sweepAvailablePerPeriod = Array.from({ length: N }, (_, t) => {
+      if (disposalBooked && t === exitIdx) return 0;
+      const cash = (directCF.openingCashPerPeriod[t] ?? 0) + (directCF.cashFromOperationsPerPeriod[t] ?? 0)
+        + (directCF.cashFromInvestmentPerPeriod[t] ?? 0) + (directCF.equityDrawdownPerPeriod[t] ?? 0)
+        + (directCF.debtDrawdownPerPeriod[t] ?? 0) + (directCF.interestPaidPerPeriod[t] ?? 0);
+      const sched = Math.max(0, (c.totalPrincipalRepaid[t] ?? 0) - (c.totalSweepRepaid[t] ?? 0));
+      return Math.max(0, cash - sched - minR);
+    });
+  }
+
   const snapResult: ProjectFinancialsSnapshot = {
     axisLength: N,
     projectStartYear,
@@ -3369,8 +3401,15 @@ export function computeFinancialsSnapshot(
       // facility on the fee-free draws carries the IDC at the facilities' share-weighted rate.
       let totalFacility: number;
       if ((state.project.fundTerms?.managementFeeFunding ?? 'deficit') === 'equity') {
-        const c = src.financing.combined;
-        totalFacility = c.totalDrawdown.reduce((a, v) => a + (v ?? 0), 0) + c.totalInterestCapitalized.reduce((a, v) => a + (v ?? 0), 0);
+        // THE DEVELOPMENT FACILITIES ONLY (2026-11-18): an existing loan is not a facility the fund arranges, as on
+        // the deficit path below and in the live workbook (which sums the non-existing facilities' rows).
+        totalFacility = 0;
+        for (const t of state.financingTranches) {
+          if (t.origin === 'existing') continue;
+          const f = src.financing.facilities.get(t.id);
+          if (!f) continue;
+          totalFacility += f.drawSchedule.reduce((a: number, v: number) => a + (v ?? 0), 0) + f.interestCapitalized.reduce((a: number, v: number) => a + (v ?? 0), 0);
+        }
       } else {
         let wSum = 0, rSum = 0;
         for (const t of state.financingTranches) {
@@ -3502,6 +3541,10 @@ function computeFinancialsSnapshotSolved(
     const gapDelta = Math.max(
       maxArrDelta(derived.fundingGap?.method2PerPeriod, applied.fundingGap?.method2PerPeriod),
       maxArrDelta(derived.fundingGap?.method3PerPeriod, applied.fundingGap?.method3PerPeriod),
+      // THE FEE EQUITY DRAW SETTLES TOO (2026-11-18): it is the fee of the pass it was derived from, so a pass
+      // that re-sized the fees has not settled until the draw has been re-derived from them (it once stopped
+      // one pass early and drew the previous pass's one-time fees, 0.22m over the fee charged on a fixture).
+      maxArrDelta(derived.fundingGap?.dedicatedEquityByPeriod, applied.fundingGap?.dedicatedEquityByPeriod),
     );
     const idcDelta = maxArrDelta(derived.idcCashBudget, applied.idcCashBudget);
     const sweepDelta = maxArrDelta(derived.sweepBudget, applied.sweepBudget);

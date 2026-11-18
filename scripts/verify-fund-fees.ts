@@ -137,9 +137,11 @@ console.log('=== 1. Timing: each fee lands where its spec says ===');
   // resolver is still exercised below, because the tab still displays it.
   const resolvedLimit = sched.facilityLimit.amount;
   const debtFacility = sched.debtFacility.amount;
-  check('the debt arranging fee is charged in period 0', near(arranging.amountPerPeriod[0], debtFacility * 0.0075, 1));
+  // THE TOTAL FACILITY (2026-11-18, A4): the capex debt plus the IDC capitalised on it, from the fee-free funding.
+  const totalFacility = sched.totalFacility;
+  check('the debt arranging fee is charged in period 0', near(arranging.amountPerPeriod[0], totalFacility * 0.0075, 1), `${arranging.amountPerPeriod[0]} vs ${totalFacility * 0.0075}`);
   check('the debt arranging fee is charged ONCE', near(sum(arranging.amountPerPeriod.slice(1)), 0));
-  check('the arranging fee uses the DEBT FACILITY (total raised)', near(arranging.basisPerPeriod[0], debtFacility, 1));
+  check('the arranging fee uses the TOTAL FACILITY (capex debt + IDC)', totalFacility > 0 && near(arranging.basisPerPeriod[0], totalFacility, 1));
   check('and the debt facility differs from the facility limit here, so the check bites',
     !near(debtFacility, resolvedLimit, 1), `facility ${debtFacility} vs limit ${resolvedLimit}`);
 
@@ -159,9 +161,12 @@ console.log('=== 1. Timing: each fee lands where its spec says ===');
     mgmt.amountPerPeriod[0] > 0);
   check('the custody fee is charged in period 0 too', custody.amountPerPeriod[0] > 0);
   check('the management fee is charged in later periods', sum(mgmt.amountPerPeriod.slice(1)) > 0);
-  check('the annual base is the SAME figure in every period (a constant, not a balance)',
-    mgmt.basisPerPeriod.every((v) => near(v, mgmt.basisPerPeriod[0] ?? 0)));
-  check('and that figure IS TOTAL EQUITY', near(mgmt.basisPerPeriod[0] ?? 0, sched.totalEquity.amount));
+  // EQUITY TO DATE (2026-11-18, A4, founder decision 2): a running BALANCE, each year's fee-free cash equity for
+  // capex plus land in kind to date, never the equity drawn for these fees.
+  check('the annual base is each period\'s equity to date (a balance, not a constant)',
+    mgmt.basisPerPeriod.every((v, t) => near(v, sched.equityToDatePerPeriod[t] ?? 0)));
+  check('and that balance grows while equity is drawn (not vacuous)',
+    new Set(sched.equityToDatePerPeriod.map((v) => Math.round(v))).size > 1);
   check('total equity plus the debt facility equals the fund size, so the three bases reconcile',
     near(sched.totalEquity.amount + sched.debtFacility.amount, resolvedFundSize));
   check('every capital-fee period equals rate x that period basis',
@@ -192,8 +197,8 @@ console.log('\n=== 1b. The arranging fee charges the limit the MODEL states ==='
   // The fee no longer charges the limit, which is the whole point of the move.
   check('the arranging fee does NOT charge the resolved LTV cap',
     !near(snap.fundFees.lines.find((l) => l.key === 'debtArrangingFeePct')!.basisPerPeriod[0], 0.6 * capex, 1));
-  check('it charges the debt facility instead',
-    near(snap.fundFees.lines.find((l) => l.key === 'debtArrangingFeePct')!.basisPerPeriod[0], snap.fundFees.debtFacility.amount, 1));
+  check('it charges the total facility instead',
+    near(snap.fundFees.lines.find((l) => l.key === 'debtArrangingFeePct')!.basisPerPeriod[0], snap.fundFees.totalFacility, 1));
   check('the engine always knows the amount (it has capex)', snap.fundFees.facilityLimit.amountKnown === true);
 
   // The override pins the typed figure.
@@ -204,18 +209,18 @@ console.log('\n=== 1b. The arranging fee charges the limit the MODEL states ==='
   // The override moves the DISPLAYED limit only. The fee is on the debt
   // facility, so it must be untouched; pinning that stops the two being
   // silently re-coupled later.
-  check('but the arranging fee does NOT follow it (the fee is on the debt facility)',
+  check('but the arranging fee does NOT follow it (the fee is on the total facility)',
     near(pinnedSnap.fundFees.lines.find((l) => l.key === 'debtArrangingFeePct')!.amountPerPeriod[0],
-      pinnedSnap.fundFees.debtFacility.amount * 0.0075, 1));
+      pinnedSnap.fundFees.totalFacility * 0.0075, 1));
 
   // A stated principal beats the LTV cap.
   const stated = buildState({ fund: true });
   stated.financingTranches = [{ ...stated.financingTranches[0], principal: 400_000_000 }];
   const statedSnap = computeFinancialsSnapshot(stated);
   check('a stated principal wins over the LTV cap', statedSnap.fundFees.facilityLimit.source === 'stated_principal');
-  check('but the fee still charges the debt facility, not the stated principal',
+  check('but the fee still charges the total facility, not the stated principal',
     near(statedSnap.fundFees.lines.find((l) => l.key === 'debtArrangingFeePct')!.amountPerPeriod[0],
-      statedSnap.fundFees.debtFacility.amount * 0.0075, 1));
+      statedSnap.fundFees.totalFacility * 0.0075, 1));
 
   // The decisive one: the limit must NOT track the drawn balance.
   const drawn = sum(snap.directCF.debtDrawdownPerPeriod);
@@ -599,10 +604,10 @@ console.log('\n=== 4. The fee raises the funding requirement by exactly its cash
   check('the period-0 fee is every fee on its own base, charged together',
     near(on.pl.fundFeesPerPeriod[0] ?? 0,
       on.fundFees.fundSize.amount * 0.01           // structure,  one time, fund size
-      + on.fundFees.debtFacility.amount * 0.0075   // arranging,  one time, debt facility
+      + on.fundFees.totalFacility * 0.0075          // arranging,  one time, total facility (2026-11-18)
       + 1_500_000                                   // other,      annual,   flat
-      + on.fundFees.totalEquity.amount * 0.02       // management, annual,   total equity
-      + on.fundFees.totalEquity.amount * 0.0025,    // custody,    annual,   total equity
+      + (on.fundFees.equityToDatePerPeriod[0] ?? 0) * 0.02     // management, annual, equity to date
+      + (on.fundFees.equityToDatePerPeriod[0] ?? 0) * 0.0025,  // custody,    annual, equity to date
       1));
   check('the rise is a real fraction of the fee, not a rounding artefact', reqDelta > 0.01 * feeTotal);
 
@@ -722,6 +727,12 @@ console.log('\n=== 6. No fee feeds back into its own base ===');
     // Same for the fund size: the FROZEN figure the booked schedule actually
     // used, not a re-derivation, which is the whole point of the freeze.
     fundSize: on.fundFees.fundSize,
+    // THE NEW BASES (2026-11-18, A4), the ones the engine froze from the fee-free funding walk.
+    equityToDatePerPeriod: on.fundFees.equityToDatePerPeriod,
+    totalDevelopmentCost: on.fundFees.totalDevelopmentCost,
+    totalFacility: on.fundFees.totalFacility,
+    debtShareCashCost: on.fundFees.debtShareCashCost,
+    firstChargeIdx: Math.max(0, on.fundFees.lines.find((l) => l.key === 'fundStructureFeePct')!.amountPerPeriod.findIndex((v) => v > 0)),
   });
   check('the booked fees equal the schedule derived from the FEE-FREE pass',
     on.fundFees.totalPerPeriod.every((v, t) => near(v, expected.totalPerPeriod[t] ?? 0, 0.001)));

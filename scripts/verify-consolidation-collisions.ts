@@ -36,6 +36,7 @@ import {
 import { groupAssetsForConsolidation } from '../src/core/calculations/consolidation';
 import { resolveConsolidatedLine } from '../src/core/calculations/consolidatedLine';
 import { normaliseAssetTypeId } from '../src/hubs/modeling/platforms/refm/lib/state/assetTypeStandards';
+import { versionFilterFor } from './fixtures/liveProject';
 
 let pass = 0, fail = 0;
 const check = (name: string, ok: boolean, detail = ''): void => {
@@ -136,7 +137,7 @@ async function liveChecks(): Promise<void> {
   const all: CollidableAsset[] = [];
   let multiMemberGroups = 0, groups = 0, liveCollisions = 0, rawDifferences = 0;
   for (const p of ps) {
-    const vs = await q(`refm_project_versions?project_id=eq.${p.id}&select=snapshot&order=created_at.desc&limit=1`) as
+    const vs = await q(`refm_project_versions?project_id=eq.${p.id}&select=snapshot&${versionFilterFor(p.id)}`) as
       { snapshot: { assets?: CollidableAsset[]; phases?: { id: string }[] } }[];
     const s = vs[0]?.snapshot;
     if (!s?.assets?.length) continue;

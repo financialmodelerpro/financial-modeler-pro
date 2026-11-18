@@ -101,28 +101,32 @@ console.log('\n=== 2. The five fees, each on the base it should be ===');
   // every year, and a NAV-based fee could not be reconciled against the fund
   // size at all. Fund size is a constant resolved in the fee-free pass, so the
   // freeze is unchanged.
-  check('fund management fee is ANNUAL on TOTAL EQUITY',
-    spec('fundManagementFeePct')?.timing === 'annual' && spec('fundManagementFeePct')?.base === 'total_equity');
-  check('custody and admin fee is ANNUAL on TOTAL EQUITY',
-    spec('custodyAdminFeePct')?.timing === 'annual' && spec('custodyAdminFeePct')?.base === 'total_equity');
+  // EQUITY TO DATE (2026-11-18, A4, founder decision 2): the annual fees charge on each year's balance of the
+  // fee-free cash equity for capex plus land in kind, never on the equity drawn to pay these fees.
+  check('fund management fee is ANNUAL on EQUITY TO DATE',
+    spec('fundManagementFeePct')?.timing === 'annual' && spec('fundManagementFeePct')?.base === 'equity_to_date');
+  check('custody and admin fee is ANNUAL on EQUITY TO DATE',
+    spec('custodyAdminFeePct')?.timing === 'annual' && spec('custodyAdminFeePct')?.base === 'equity_to_date');
   check('NO fee charges on opening NAV any more',
     FUND_FEE_SPECS.every((f) => f.base !== 'opening_nav'));
   // THREE DISTINCT capital bases, matching the reference. An earlier version of
   // this check asserted they shared ONE base, which was the over-collapsed
   // design this replaced; it is inverted deliberately.
-  check('the capital fees use THREE DISTINCT bases, not one',
+  check('the capital fees use THREE DISTINCT default bases, not one',
     spec('fundStructureFeePct')?.base === 'fund_size'
-    && spec('fundManagementFeePct')?.base === 'total_equity'
-    && spec('debtArrangingFeePct')?.base === 'debt_facility');
-  check('and fund size is the only base used by more than nothing else',
+    && spec('fundManagementFeePct')?.base === 'equity_to_date'
+    && spec('debtArrangingFeePct')?.base === 'total_facility');
+  check('and only the two annual fees share a base',
     FUND_FEE_SPECS.filter((f) => f.base === 'fund_size').length === 1
-    && FUND_FEE_SPECS.filter((f) => f.base === 'total_equity').length === 2
-    && FUND_FEE_SPECS.filter((f) => f.base === 'debt_facility').length === 1);
+    && FUND_FEE_SPECS.filter((f) => f.base === 'equity_to_date').length === 2
+    && FUND_FEE_SPECS.filter((f) => f.base === 'total_facility').length === 1);
   // Moved off the facility LIMIT 2026-08-10: on the reference project the limit
   // resolves from an LTV cap to 4,273.8m against 2,834.1m actually raised, so
   // the fee would have charged on a ceiling the fund never drew.
-  check('debt arranging fee is ONE TIME on the DEBT FACILITY (total raised)',
-    spec('debtArrangingFeePct')?.timing === 'one_time' && spec('debtArrangingFeePct')?.base === 'debt_facility');
+  // TOTAL FACILITY BY DEFAULT (2026-11-18, A4): the capex debt plus the IDC capitalised on it; the fund terms
+  // may choose the debt share of the cash development cost instead (feeBaseFor reads that choice).
+  check('debt arranging fee is ONE TIME on the TOTAL FACILITY by default',
+    spec('debtArrangingFeePct')?.timing === 'one_time' && spec('debtArrangingFeePct')?.base === 'total_facility');
   check('other expenses is ANNUAL and a flat amount',
     spec('otherExpensesPerAnnum')?.timing === 'annual' && spec('otherExpensesPerAnnum')?.base === 'flat_amount'
     && spec('otherExpensesPerAnnum')?.kind === 'amount');
@@ -383,8 +387,9 @@ console.log('\n=== 5. The two stores agree, and retired columns still resolve ==
   // The fallback is now a three-tier walk (210 -> 209 -> 208), because the
   // Fund Manager columns can lag exactly as the 209 columns did.
   // 2026-08-18f: five tiers, 215 (fee funding) above 211.
-  check('the server knows five schema tiers', /type SchemaTier = 208 \| 209 \| 210 \| 211 \| 215/.test(serverFile));
-  check('it walks them highest first', /TIERS: SchemaTier\[\] = \[215, 211, 210, 209, 208\]/.test(serverFile));
+  // 2026-11-18: six tiers, 258 (the structure and arranging fee bases) above 215.
+  check('the server knows six schema tiers', /type SchemaTier = 208 \| 209 \| 210 \| 211 \| 215 \| 258/.test(serverFile));
+  check('it walks them highest first', /TIERS: SchemaTier\[\] = \[258, 215, 211, 210, 209, 208\]/.test(serverFile));
   check('it recognises the 215 column as steppable', /management_fee_funding/.test(serverFile));
   check('it recognises the 211 column as steppable', /fund_size_override/.test(serverFile));
   check('it has a row shape for every tier',
@@ -458,7 +463,8 @@ console.log('\n=== 8. The tab is wired, and honest about doing nothing yet ===')
 
   check('the fee rows render FROM the registry, not hand-written per fee', /FUND_FEE_SPECS\.map/.test(tab));
   check('each fee row shows its timing', /FEE_TIMING_LABELS\[spec\.timing\]/.test(tab));
-  check('each fee row shows its base', /FEE_BASE_LABELS\[spec\.base\]/.test(tab));
+  // The basis IN FORCE, through the one rule (the structure and arranging fees each choose theirs).
+  check('each fee row shows its base, the one in force', /FEE_BASE_LABELS\[feeBaseFor\(spec, terms\)\]/.test(tab));
   check('the matrix rows come from the LIVE parties', /listParties\(/.test(tab) && /parties\.map/.test(tab));
   check('the matrix columns come from the registry', /FEE_DISTRIBUTION_COLUMNS\.map/.test(tab));
   check('each column shows a live total', /feeColumnTotal\(/.test(tab) && /feeColumnBalanced\(/.test(tab));

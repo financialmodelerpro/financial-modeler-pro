@@ -621,42 +621,43 @@ console.log('\n[P] Pass 2T-Fix: Dividend EBITDA cap');
     phases: [phase],
   };
   const snap = computeFinancialsSnapshot(state);
-  const phaseRow = [...snap.dividends.beforeSweepPhases, ...snap.dividends.afterSweepPhases].find((r) => r.phaseId === phase.id);
+  // ONE PROJECT DIVIDEND, CAPPED AT RETAINED EARNINGS (2026-11-18, founder): the per-phase EBITDA cap is gone, so
+  // the row is the project's and the cap P3/P1 assert is retained earnings, not EBITDA.
+  const phaseRow = [...snap.dividends.beforeSweepPhases, ...snap.dividends.afterSweepPhases].find((r) => r.phaseId === '__project__');
   if (!phaseRow) {
     fail++;
     failures.push('P-setup: dividend phase row missing');
     console.log('  [FAIL] P-setup: dividend phase row missing');
   } else {
-    // P3: cumulative dividend never exceeds cumulative EBITDA per period.
+    // P3: a dividend never takes retained earnings below zero (the cap is the retained earnings available).
     let capOk = true;
-    let cumDiv = 0;
+    const re = snap.bs.retainedEarningsPerPeriod;
     for (let t = 0; t < snap.axisLength; t++) {
-      cumDiv += phaseRow.dividendsPerPeriod[t] ?? 0;
-      const cumEb = phaseRow.cumulativeEbitdaPerPeriod[t] ?? 0;
-      if (cumDiv > cumEb + 1) {
+      if ((phaseRow.dividendsPerPeriod[t] ?? 0) > 0.5 && (re[t] ?? 0) < -1) {
         capOk = false;
-        failures.push(`P3[t=${t}]: cumDiv ${cumDiv} > cumEbitda ${cumEb}`);
-        console.log(`  [FAIL] P3[t=${t}]: cumDiv ${cumDiv} > cumEbitda ${cumEb}`);
+        failures.push(`P3[t=${t}]: a dividend leaves retained earnings at ${re[t]}`);
+        console.log(`  [FAIL] P3[t=${t}]: a dividend leaves retained earnings at ${re[t]}`);
         break;
       }
     }
     if (capOk) {
       pass++;
-      console.log('  [PASS] P3: cumulative dividend <= cumulative EBITDA at every period');
+      console.log('  [PASS] P3: no dividend takes retained earnings below zero');
     } else {
       fail++;
     }
+    const totalPat = snap.pl.patPerPeriod.reduce((s, v) => s + v, 0);
     // P1: when payout is 100% and excess cash is plentiful, total
     // dividends should equal totalPhaseEbitda (cap binds). If excess
     // cash is the binding constraint, we'll have totalDividends <= EBITDA.
     // Either way, we test the cap upper bound: total <= EBITDA.
-    if (phaseRow.totalDividends <= phaseRow.totalPhaseEbitda + 1) {
+    if (phaseRow.totalDividends <= Math.max(0, totalPat) + 1) {
       pass++;
-      console.log(`  [PASS] P1: totalDividends ${phaseRow.totalDividends.toFixed(2)} <= totalPhaseEbitda ${phaseRow.totalPhaseEbitda.toFixed(2)}`);
+      console.log(`  [PASS] P1: totalDividends ${phaseRow.totalDividends.toFixed(2)} <= lifetime PAT ${totalPat.toFixed(2)}`);
     } else {
       fail++;
-      failures.push(`P1: totalDividends ${phaseRow.totalDividends} > totalPhaseEbitda ${phaseRow.totalPhaseEbitda}`);
-      console.log(`  [FAIL] P1: totalDividends ${phaseRow.totalDividends} > totalPhaseEbitda ${phaseRow.totalPhaseEbitda}`);
+      failures.push(`P1: totalDividends ${phaseRow.totalDividends} > lifetime PAT ${totalPat}`);
+      console.log(`  [FAIL] P1: totalDividends ${phaseRow.totalDividends} > lifetime PAT ${totalPat}`);
     }
   }
   // P4: BS still balances under dividend.

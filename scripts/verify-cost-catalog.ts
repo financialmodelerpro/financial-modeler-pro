@@ -204,8 +204,9 @@ section('C. The catalog covers a real development and carries behaviour');
     check(`seeded ${l.id.split('__')[0]} resolves an identity`, resolveCatalogId(l) !== undefined, l.id);
   }
   const renamed: CostLine = { ...seeded.find((l) => l.id.startsWith('commission'))!, name: 'Permits and approvals' };
+  // The catalog's own label (2026-11-18: "Sales commission"), not a copy of it.
   check('a RENAMED line still declares what it is',
-    catalogLabelFor(renamed) === 'Commission', catalogLabelFor(renamed));
+    catalogLabelFor(renamed) === findCatalogEntry('commission')!.label, catalogLabelFor(renamed));
   check('a genuine one-off says so',
     catalogLabelFor({ id: 'custom-123__phase_1' }) === 'Custom line');
 
@@ -252,7 +253,8 @@ section('D. Selecting stamps behaviour; renaming changes only the label');
   check('including the method', changes.some((c) => c.field === 'Method'));
   check('including the phasing source', changes.some((c) => c.field === 'Phasing source'));
   const noChange = describeCatalogChange(
-    { ...commissionLine, method: 'percent_of_selected', stage: 'soft', phasingSource: 'collections' },
+    // The line already as the entry stamps it (2026-11-18: a share of sale revenue), so nothing changes.
+    { ...commissionLine, method: findCatalogEntry('commission')!.method, stage: 'soft', phasingSource: 'collections' },
     findCatalogEntry('commission')!,
     {
       method: COST_METHOD_LABELS as unknown as Record<string, string>,

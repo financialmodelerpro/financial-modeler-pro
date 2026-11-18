@@ -409,7 +409,9 @@ export function financingPlan(state: FinancialsResolverState, snap: Snap = compu
     const minR = Math.max(0, p.financing?.minimumCashReserve ?? fin.funding.minCashReserve ?? 0);
     void exitV;
     const exitAt = snap.disposal.booked ? snap.disposal.exitIdx : -1;
-    per('fl:sweepLeft', 'Cash above the minimum, before the sweep', cashV.map((v, t) => (t === exitAt ? 0 : Math.max(0, v - (schedV[t] ?? 0) - minR))), 'Cash available less the scheduled principal and the minimum cash; none in the exit year');
+    // THE ENGINE'S FIGURE (2026-11-18): the cash sweep's own "sweep available", which the formula restates.
+    void cashV; void schedV; void minR; void exitAt;
+    per('fl:sweepLeft', 'Cash above the minimum, before the sweep', sl(snap.cashSweep.sweepAvailablePerPeriod ?? []), 'Cash available less the scheduled principal and the minimum cash; none in the exit year');
   }
   per('fl:repaidCash', '(-) Debt repaid (scheduled, swept and at the exit)', sl(dcf.debtRepaymentPerPeriod), 'Each facility\'s principal repaid, and the exit repayment');
   const forDiv = add(sl(dcf.openingCashPerPeriod), sl(dcf.cashFromOperationsPerPeriod), sl(dcf.cashFromInvestmentPerPeriod), sl(dcf.equityDrawdownPerPeriod), sl(dcf.debtDrawdownPerPeriod), sl(dcf.interestPaidPerPeriod), sl(dcf.debtRepaymentPerPeriod));
@@ -428,7 +430,9 @@ export function financingPlan(state: FinancialsResolverState, snap: Snap = compu
       const re = sl(snap.bs.retainedEarningsPerPeriod);
       const transfer = sl(snap.bs.statutoryReserveTransferPerPeriod);
       const pat = sl(snap.pl.patPerPeriod);
-      per('fl:reAvail', 'Retained earnings available (the Balance Sheet)', pat.map((v, t) => Math.max(0, (t === 0 ? 0 : re[t - 1] ?? 0) + v - (transfer[t] ?? 0))), 'Retained earnings a year earlier plus the profit after tax of the year, less the reserve transfer, never below zero', { indent: 1 });
+      // THE ENGINE'S FIGURE (2026-11-18): the cap the dividend read (createEquitySplitter.available), which the formula restates.
+      void pat; void re; void transfer;
+      per('fl:reAvail', 'Retained earnings, from the Balance Sheet', sl(snap.dividends.retainedEarningsAvailablePerPeriod ?? []), 'Retained earnings a year earlier plus the profit after tax of the year, less the reserve transfer, never below zero', { indent: 1 });
     }
     per('fl:divP', 'Dividend before the exit', sl(row?.dividendsPerPeriod), above ? 'The payout of the cash above the minimum; the part beyond the retained earnings is a return of capital' : 'The payout of the cash above the minimum, up to the retained earnings available', { indent: 1 });
   }

@@ -488,10 +488,19 @@ console.log('\n-- 5b. Fee funding: deficit path and equity path, neither funds t
       debtArrangingFeePct: 0.005, otherExpensesPerAnnum: 1_000_000, performanceFeePct: 0.2, hurdleRatePct: 0.08,
       fundManagerName: 'FM', feeDistribution: [], managementFeeFunding: mode,
     };
-    const fin = (st.project as unknown as { financing: { fundingMethod: number; minimumCashReserve: number } }).financing;
+    const fin = (st.project as unknown as { financing: { fundingMethod: number; minimumCashReserve: number; cashDeficitConfig?: unknown } }).financing;
     fin.fundingMethod = 3; fin.minimumCashReserve = 5_000_000;
+    // A STATED split (2026-11-18): an unstated one is now a named warning in the reconciliation, checked below.
+    fin.cashDeficitConfig = { debtPct: 70, equityPct: 30 };
     return st;
   };
+  {
+    const unstated = withFund('deficit');
+    delete (unstated.project as unknown as { financing: { cashDeficitConfig?: unknown } }).financing.cashDeficitConfig;
+    const iss = computeFinancialsSnapshot(unstated).financing.reconciliation.issues;
+    check('an UNSTATED method 3 split is named in the reconciliation (the 70 / 30 the engine uses is said, not silent)',
+      iss.some((s) => s.startsWith('Funding method 3 has no debt / equity split')), iss.join(' | '));
+  }
   const sDef = computeFinancialsSnapshot(withFund('deficit'));
   const sEq = computeFinancialsSnapshot(withFund('equity'));
   if (SAB === 7) {
@@ -518,9 +527,13 @@ console.log('\n-- 5b. Fee funding: deficit path and equity path, neither funds t
     Array.from({ length: N }, (_, t) => (eqW.cashFromInvPerPeriod[t] ?? 0) < -0.005 || (feeDrawEq[t] ?? 0) < 0.01).every(Boolean));
   check('EQUITY path: no period draws MORE than that period fee',
     Array.from({ length: N }, (_, t) => (feeDrawEq[t] ?? 0) <= (sEq.fundFees.totalPerPeriod[t] ?? 0) + 0.01).every(Boolean));
-  check('EQUITY path: the draw is capped at what keeps cash at the minimum (never funds a surplus)',
-    Array.from({ length: N }, (_, t) => (eqW.closingCashAfterFundingPerPeriod[t] ?? 0) <= eqW.minCashReserve + 1
-      || (feeDrawEq[t] ?? 0) < 0.01).every(Boolean));
+  // THE WHOLE FEE IN EVERY CONSTRUCTION YEAR (2026-11-18, founder decision 2), replacing the 2026-08-19 cap at
+  // the minimum cash: the fee neither raises nor uses the development funding, and after the spend it is paid
+  // from operating cash.
+  check('EQUITY path: the draw is the whole fee in every construction year and nothing outside them',
+    Array.from({ length: N }, (_, t) => (sEq.financing.idcPeriodMask[t]
+      ? Math.abs((feeDrawEq[t] ?? 0) - (sEq.fundFees.totalPerPeriod[t] ?? 0)) < 0.01
+      : (feeDrawEq[t] ?? 0) < 0.01)).every(Boolean));
   check('EQUITY path: the cap BITES, so the draw is less than the whole fee (not vacuous)',
     sum(feeDrawEq) < feeDef - 1, `drawn ${M(sum(feeDrawEq))} of a ${M(feeDef)} fee`);
   // The ENGINE's equity series must carry the dedicated draw, which is how you
@@ -694,8 +707,15 @@ const gap = (r: { fcfePerPeriod: number[]; dividendStreamPerPeriod: number[] }):
     const copy = JSON.parse(JSON.stringify(model));
     copy.project.dividendPolicy = { ...(copy.project.dividendPolicy ?? {}), enabled: true, mode: 'cash_above_min', payoutRatio: 50 };
     const hr: any = q(() => computeReturnsSnapshot(computeFinancialsSnapshot(copy), copy.project));
-    console.log(`     ${live.label}: gap ${M(gap(lr))}; at 50% ${M(gap(hr))}`);
-    check(`7f ${live.label}: the streams tie in every period and the note prints`, gap(lr) < 0.01 && distributedTieNote(lr) !== null, M(gap(lr)));
+    // THE RETAINED EARNINGS CAP (2026-11-18, A2) holds back cash FCFE counts until the earnings exist, so the
+    // project as saved need not tie any more: the note prints EXACTLY when it does (both branches asserted), and
+    // paying above the retained earnings (the excess a return of capital) restores the tie, which fires the note.
+    const above = JSON.parse(JSON.stringify(model));
+    above.project.dividendPolicy = { ...(above.project.dividendPolicy ?? {}), enabled: true, mode: 'cash_above_min', payoutRatio: 100, allowAboveRetainedEarnings: true };
+    const ar: any = q(() => computeReturnsSnapshot(computeFinancialsSnapshot(above), above.project));
+    console.log(`     ${live.label}: gap ${M(gap(lr))}; above retained earnings ${M(gap(ar))}; at 50% ${M(gap(hr))}`);
+    check(`7f ${live.label}: the note prints exactly when the streams tie`, (gap(lr) < 0.01) === (distributedTieNote(lr) !== null), M(gap(lr)));
+    check(`7f2 ${live.label} paying above the retained earnings: the streams tie in every period and the note prints`, gap(ar) < 0.01 && distributedTieNote(ar) !== null, M(gap(ar)));
     check(`7g ${live.label} at a 50% payout: the streams differ and the note does not print`, gap(hr) > 1 && distributedTieNote(hr) === null, M(gap(hr)));
   }
 }

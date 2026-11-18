@@ -77,7 +77,10 @@ function runFor(label: string, st: any): void {
   // for a day when it read the capex breakdown alone.
   const scr = buildSellingCostReport({ revenue: s.revenue, assets: st.assets, phases: st.phases, costLines: st.costLines, costOverrides: st.costOverrides, parcels: st.parcels, landAllocationMode: st.landAllocationMode, project: st.project, subUnits: st.subUnits, yearLabels: s.yearLabels, projectStartYear: s.projectStartYear } as any);
   const schedTotal = (scr?.schedule?.rows ?? []).reduce((x: number, r: any) => x + (r.total ?? 0), 0);
-  check('the selling cost schedule by year still carries the expensed marketing (not zeros)', near(schedTotal, expensedTotal, expensedTotal), `${M(schedTotal)} vs ${M(expensedTotal)}`);
+  // MARKETING PLUS COMMISSION (2026-11-18, A6): the schedule lists every selling cost, the expensed marketing and the
+  // capitalised commission (which the seeded line charged nothing for until A6 gave it a rate), so it foots to both.
+  const commissionTotal = S(s.financing.capex.commissionPerPeriod ?? []);
+  check('the selling cost schedule by year carries the expensed marketing plus the commission (not zeros)', expensedTotal > 1 && near(schedTotal, expensedTotal + commissionTotal, expensedTotal), `${M(schedTotal)} vs ${M(expensedTotal)} + ${M(commissionTotal)}`);
 
   // 3. The summary deducts the operating expenses over the GDV's years, so expensing moves the surplus by nothing.
   const de = rs.developmentEconomics;

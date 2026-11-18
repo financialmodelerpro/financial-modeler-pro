@@ -42,7 +42,7 @@ import {
   FCFF_BUILDUP_LABELS, FCFE_BUILDUP_LABELS, DIVIDEND_BUILDUP_LABELS,
   buildFcfeBuildup, m4StreamRow,
 } from '../src/hubs/modeling/platforms/refm/lib/reports/streamReports';
-import { buildIntegrityChecks, relativeCheckOk, BRIDGE_CHECK_LABEL, buildEmptyInputAdvisories } from '../src/hubs/modeling/platforms/refm/lib/reports/checksReport';
+import { buildIntegrityChecks, relativeCheckOk, BRIDGE_CHECK_LABEL, CASH_FLOOR_CHECK_LABEL, buildEmptyInputAdvisories } from '../src/hubs/modeling/platforms/refm/lib/reports/checksReport';
 import { fundFeeBasisCaption } from '../src/hubs/modeling/platforms/refm/lib/reports/m4Reports';
 import { buildExcelSampleState } from './excelSampleState';
 import { buildExistingOperationsState, EXISTING_OPS_LABEL } from './fixtures/existingOperationsState';
@@ -199,8 +199,15 @@ async function main(): Promise<void> {
   console.log('\n-- G2: the tolerance is relative and anchored on the PEAK --');
   {
     const checks = buildIntegrityChecks(snap);
-    check('G2: every check passes on a healthy model', checks.every((c) => c.ok),
-      checks.filter((c) => !c.ok).map((c) => `${c.label} residue=${c.residue}`).join(' | '));
+    // THE CASH FLOOR REPORTS, IT DOES NOT PASS BY DEFAULT (2026-11-18, founder decision 1): zakat left the funding
+    // need, so a model can now run its cash below zero and the check says so with the lowest balance. It is
+    // asserted against the engine's own closing cash; every other check passes on this model.
+    const minCash = Math.min(0, ...snap.directCF.closingCashPerPeriod);
+    const floor = checks.find((c) => c.label === CASH_FLOOR_CHECK_LABEL);
+    check('G2: every reconciliation check passes on a healthy model', checks.filter((c) => c.label !== CASH_FLOOR_CHECK_LABEL).every((c) => c.ok),
+      checks.filter((c) => !c.ok && c.label !== CASH_FLOOR_CHECK_LABEL).map((c) => `${c.label} residue=${c.residue}`).join(' | '));
+    check('G2: the cash floor check is present and fails exactly when the engine closing cash goes below zero',
+      !!floor && floor.ok === (minCash >= -0.01), `ok=${floor?.ok} min closing cash ${minCash}`);
     check('G2: the magnitude is the PEAK, not the final period',
       checks.every((c) => c.magnitude >= Math.abs(c.residue)));
     // 2026-08-18: THE COMMENT THAT STOOD HERE WAS WRONG, and it is why the band

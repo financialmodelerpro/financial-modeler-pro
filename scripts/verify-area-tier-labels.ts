@@ -65,8 +65,13 @@ const tierOfWord = (label: string): 'bua' | 'gfa' | null => (/\bBUA\b/.test(labe
 
   // ── A. The rule, and that the live model can tell the tiers apart ─────────────
   check('A1 the live model has parking, so GFA and BUA differ and an inversion is visible', BUA - GFA > 1, `GFA ${int(GFA)} BUA ${int(BUA)}`);
-  const arith = vis.filter((a: any) => { const m = metricsOf(a), t = areaTiers(m); return !(t.nsaSqm <= t.totalGfaSqm + 0.5 && near(t.totalBuaSqm - t.totalGfaSqm, m.parkingArea + m.retailParkingArea)); });
-  check('A2 the rule is arithmetic on every asset: NSA within GFA, and BUA is GFA plus its parking', arith.length === 0, arith.map((a: any) => a.id).join(', '));
+  // NSA IS WITHIN GFA ON EVERY LINE (2026-11-18, re-aimed): a line's sub-units pool on one of its plots (Table 5),
+  // so one plot can carry more NSA than its own GFA while the line does not. BUA less GFA is parking on every asset.
+  const { planReportLines } = await import('../src/hubs/modeling/platforms/refm/lib/reports/lineRows');
+  const lineSets = planReportLines({ assets: st.assets, phases: st.phases, parcels: st.parcels }, (a: any) => vis.some((x: any) => x.id === a.id)).map((l: any) => [...l.assetIds] as string[]);
+  const overLines = lineSets.filter((ids) => sumOf(ids, 'nsaSqm') > sumOf(ids, 'totalGfaSqm') + 0.5).map((ids) => ids.join('+'));
+  const arith = vis.filter((a: any) => { const m = metricsOf(a), t = areaTiers(m); return !near(t.totalBuaSqm - t.totalGfaSqm, m.parkingArea + m.retailParkingArea); });
+  check('A2 the rule is arithmetic: NSA within GFA on every line, and BUA is GFA plus its parking on every asset', arith.length === 0 && overLines.length === 0 && lineSets.length > 0, [...arith.map((a: any) => a.id), ...overLines].join(', '));
 
   // ── B. The Overview builder (the Overview screen, the PDF and the Summary print it) ─
   const snap: any = quiet(() => computeFinancialsSnapshot(st));
@@ -132,7 +137,9 @@ const tierOfWord = (label: string): 'bua' | 'gfa' | null => (/\bBUA\b/.test(labe
     + ' ' + decode(await quiet(() => generateSummaryPdf({ ...common, selectedModuleKeys: [] })));
   check('D1 the PDF prints BUA beside the word BUA, never GFA there', pdf.includes(`BUA ${int(BUA)}`) && !pdf.includes(`BUA ${int(GFA)}`));
   check('D2 the PDF prints GFA as the Total GFA figure', pdf.includes(`${int(GFA)} sqm`));
-  check('D3 the PDF plot ratio is GFA over land', pdf.includes(`${(GFA / LAND).toFixed(2)}x`) && !pdf.includes(`${(BUA / LAND).toFixed(2)}x`));
+  // THE FIGURE BESIDE ITS LABEL (2026-11-18): any other "2.90x" in the report (a multiple) is not the plot ratio.
+  const pr = /Plot ratio\s*([0-9.]+x)/i.exec(pdf)?.[1];
+  check('D3 the PDF plot ratio is GFA over land', pr === `${(GFA / LAND).toFixed(2)}x` && pr !== `${(BUA / LAND).toFixed(2)}x`, `printed ${pr ?? '(none)'}, GFA / land ${(GFA / LAND).toFixed(2)}x`);
 
   // ── E. The IC deck: every metric whose label names a tier ─────────────────────
   const ic: any = quiet(() => buildICReportModel({ project: st.project, phases: st.phases, parcels: st.parcels, assets: st.assets, subUnits: st.subUnits, landAllocationMode: st.landAllocationMode, rs, snap, parties: input.parties ?? [], asOf: '2026-09-29', cases: st.cases ?? [{ id: 'base' }] }));

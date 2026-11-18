@@ -179,13 +179,18 @@ async function main(): Promise<void> {
     check('engine: the FULL financials snapshot is byte-identical (absent vs populated-but-disabled)', dFin === null, dFin ?? '');
     const dRet = firstDiff(retOff, retD);
     check('engine: the FULL returns snapshot is byte-identical', dRet === null, dRet ?? '');
-    check('fund flags are all off', !snapD.fundFees.active && !retD.waterfall.active && !retD.feeEarners.active);
+    // WHO GETS WHAT IS NOT FUND-ONLY (2026-11-18, founder item 6c / 8): the developer fee and the sales commission
+    // are earned by parties whatever the toggle, so the earner block is on exactly when one of them is charged,
+    // and with the toggle off it carries no fund fee and no performance fee.
+    const lineFees = sum(snapD.financing.capex.developerFeePerPeriod ?? []) + sum(snapD.financing.capex.commissionPerPeriod ?? []);
+    check('fund flags are all off (the earner block only for a developer fee or commission, with no fund fee in it)',
+      !snapD.fundFees.active && !retD.waterfall.active && retD.feeEarners.active === (lineFees > 0.5)
+      && retD.feeEarners.totalManagementFee === 0 && retD.feeEarners.totalPerformanceFee === 0);
 
     const ctxD: FundReportCtx = { snap: snapD, returns: retD, fmt: { money: String, pct: () => '', mult: () => '' } };
-    check('every fund presentation builder is empty',
-      buildFundWaterfallRows(ctxD).length === 0 && buildFundFeeIncomeRows(ctxD).length === 0
-      && buildFundGrossNetRows(ctxD).length === 0 && buildFundEarnerRows(ctxD).length === 0
-      && buildFundFeeBasisRows(snapD).length === 0);
+    check('every fund presentation builder is empty (the earner and fee income rows only where a line fee is earned)',
+      buildFundWaterfallRows(ctxD).length === 0 && buildFundGrossNetRows(ctxD).length === 0 && buildFundFeeBasisRows(snapD).length === 0
+      && (lineFees > 0.5 || (buildFundFeeIncomeRows(ctxD).length === 0 && buildFundEarnerRows(ctxD).length === 0)));
 
     // Screen builders: the rows the M4 tabs render.
     const labels = getFinancialLabels(offState.project.financialTerminology ?? defaultTerminologyForCountry(offState.project.country));
@@ -400,10 +405,13 @@ async function main(): Promise<void> {
 
     console.log(`-- 5. Fee earners :: ${c.label} --`);
     const fe = r.feeEarners;
-    check(`[${c.label}] the Fund Manager takes 100% of the management fees, unsplit`,
-      near(fe.earners.filter((e) => e.kind === 'fund_manager').reduce((a, e) => a + e.totalManagementFeeIncome, 0), sum(s.fundFees.totalPerPeriod), 1));
-    check(`[${c.label}] management fees earned equal the fees CHARGED in the P&L`,
-      near(fe.totalManagementFee, sum(s.pl.fundFeesPerPeriod), 1));
+    const otherExp = sum(s.fundFees.lines.filter((l: any) => l.base === 'flat_amount').flatMap((l: any) => l.amountPerPeriod));
+    const rateFees = sum(s.fundFees.totalPerPeriod) - otherExp;
+    check(`[${c.label}] the Fund Manager takes 100% of the rate fees, unsplit`,
+      near(fe.earners.filter((e) => e.kind === 'fund_manager').reduce((a, e) => a + e.totalManagementFeeIncome, 0), rateFees, 1));
+    // The RATE fees (2026-11-18): other expenses are charged in the P&L but earned by no party.
+    check(`[${c.label}] management fees earned equal the rate fees CHARGED in the P&L (other expenses earned by no one)`,
+      near(fe.totalManagementFee, sum(s.pl.fundFeesPerPeriod) - otherExp, 1));
     check(`[${c.label}] allocated performance fee + unallocated == the total performance fee`,
       near(fe.allocatedPerformanceFee + fe.unallocatedPerformanceFee, w.totalPerformanceFee, 1));
     check(`[${c.label}] no fee earner id appears among the equity partner ids`, (() => {

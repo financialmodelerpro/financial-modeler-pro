@@ -66,7 +66,12 @@ function workbookRules(label: string, wb: ExcelJS.Workbook, scale: DisplayScale,
   let periodTabs = 0, sectionBars = 0, keyTotals = 0;
   const badFill: string[] = [], noTitle: string[] = [], noBack: string[] = [], badBand: string[] = [], noPhase: string[] = [], badBar: string[] = [], badTotal: string[] = [], badInput: string[] = [], badPage: string[] = [], badMoney: string[] = [], badPct: string[] = [], scaledCount: string[] = [], blackLinks: string[] = [];
   for (const ws of wb.worksheets) {
-    if (ws.pageSetup.orientation !== 'landscape' || ws.pageSetup.fitToWidth !== 1 || ws.views?.some((v) => v.showGridLines !== false)) badPage.push(ws.name);
+    // THE DASHBOARD PRINTS AT A FIXED SCALE (2026-11-17, founder, e9559d3a): fit-to-width pushed its sections onto a
+    // fourth page in real Excel, so it carries a whole-percent scale with fit off; every other tab fits to width.
+    const fits = ws.name === 'Dashboard'
+      ? ws.pageSetup.fitToPage === false && typeof ws.pageSetup.scale === 'number' && ws.pageSetup.scale >= 10 && ws.pageSetup.scale <= 100
+      : ws.pageSetup.fitToWidth === 1;
+    if (ws.pageSetup.orientation !== 'landscape' || !fits || ws.views?.some((v) => v.showGridLines !== false)) badPage.push(ws.name);
     if (ws.name !== 'Cover') {
       const t = titleCellOf(ws);
       // THE TITLE BLOCK (2026-11-17, founder; re-aimed from "a 13pt navy title"): row 1 the model line, bold navy

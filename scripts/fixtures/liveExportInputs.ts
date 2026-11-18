@@ -15,7 +15,7 @@ import { loadStoredModel } from '../../src/hubs/modeling/platforms/refm/lib/stat
 import { savedVersionInputs } from '../../src/hubs/modeling/platforms/refm/lib/excel/savedVersionInputs';
 import type { computeFinancialsSnapshot } from '../../src/hubs/modeling/platforms/refm/lib/financials-resolvers';
 import type { BuildModelOptions } from '../../src/hubs/modeling/platforms/refm/lib/excel/buildModelWorkbook';
-import { LIVE_PROJECT_ID } from './liveProject';
+import { LIVE_PROJECT_ID, LIVE_WORKING_VERSION_ID } from './liveProject';
 
 export interface LiveExportInputs {
   projectName: string;
@@ -38,7 +38,9 @@ export async function loadLiveExportInputs(projectId: string = LIVE_PROJECT_ID, 
   if (!projRows?.length) throw new Error('project not found (deleted or purged?)');
   // A NAMED VERSION (2026-11-18), else the latest.
   const q = sb.from('refm_project_versions').select('snapshot, label, comment').eq('project_id', projectId);
-  const { data: verRows, error: verErr } = versionId ? await q.eq('id', versionId).limit(1) : await q.order('created_at', { ascending: false }).limit(1);
+  // The live project defaults to its WORKING version (LIVE_WORKING_VERSION_ID), any other project to its newest.
+  const pinned = versionId ?? (projectId === LIVE_PROJECT_ID ? LIVE_WORKING_VERSION_ID : undefined);
+  const { data: verRows, error: verErr } = pinned ? await q.eq('id', pinned).limit(1) : await q.order('created_at', { ascending: false }).limit(1);
   if (verErr) throw new Error(`version read: ${verErr.message}`);
   if (!verRows?.length) throw new Error('no saved version');
   const v = verRows[0] as { snapshot: unknown; label: string | null; comment: string | null };

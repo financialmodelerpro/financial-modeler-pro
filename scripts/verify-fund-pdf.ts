@@ -37,6 +37,7 @@ import {
   isFundActive, type FundReportCtx,
 } from '../src/hubs/modeling/platforms/refm/lib/reports/fundReports';
 import { buildExcelSampleState } from './excelSampleState';
+import { WHO_GETS_WHAT_TITLE } from '../src/hubs/modeling/platforms/refm/lib/reports/fundReports';
 
 let pass = 0, fail = 0;
 const failures: string[] = [];
@@ -202,7 +203,7 @@ async function main(): Promise<void> {
   { const o = waterfallInOrder(full, FUND_WATERFALL_ROW_ORDER); check('full PDF: the waterfall rows appear in the REFERENCE order', o.ok, o.detail); }
   check('full PDF: gross vs post-fee comparison',
     full.includes('Excluding fund fees (gross)') && full.includes('Net of performance fee'));
-  check('full PDF: the Fund Fee Income section', full.includes('Fund Fee Income by Earner') && full.includes('Fee Income by Period'));
+  check('full PDF: the Fund Fee Income section', full.includes(WHO_GETS_WHAT_TITLE) && full.includes('Fee Income by Period'));
   check('full PDF: the Fund Manager is named', full.includes(TERMS.fundManagerName));
   check('full PDF: the hurdle and performance fee terms are stated',
     full.includes('Hurdle rate (preferred return)') && full.includes('Performance fee on the excess'));
@@ -245,7 +246,7 @@ async function main(): Promise<void> {
   { const o = waterfallInOrder(summary, FUND_WATERFALL_ROW_ORDER); check('summary PDF: the waterfall rows appear in the REFERENCE order', o.ok, o.detail); }
   check('summary PDF: gross vs post-fee comparison',
     summary.includes('Excluding fund fees (gross)') && summary.includes('Net of performance fee'));
-  check('summary PDF: the Fund Fee Income section', summary.includes('Fund Fee Income by Earner'));
+  check('summary PDF: the Fund Fee Income section', summary.includes(WHO_GETS_WHAT_TITLE));
   check('summary PDF: the Fund Fee Basis states each base and rate',
     summary.includes('Fund Fee Basis') && /Fund size|Opening NAV|Facility limit/.test(summary));
 
@@ -258,7 +259,7 @@ async function main(): Promise<void> {
   // different words that predate the fund layer by two years.
   const FUND_TEXT = [
     'Total Fund Management Fee', 'Fund Management and Other Expenses', 'Fund Fee Basis',
-    'Fund Fee Income by Earner', 'Fee Income by Period', 'Distribution Waterfall',
+    WHO_GETS_WHAT_TITLE, 'Fee Income by Period', 'Distribution Waterfall',
     'Excluding fund fees (gross)', 'Net of performance fee', 'Hurdle rate (preferred return)',
     ...FUND_WATERFALL_ROW_ORDER,
   ];

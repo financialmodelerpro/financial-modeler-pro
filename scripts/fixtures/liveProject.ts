@@ -28,13 +28,25 @@ import { createClient } from '@supabase/supabase-js';
 export const LIVE_PROJECT_ID = 'c417fc6a-4514-4438-857c-a72dc7472f65';
 export const LIVE_PROJECT_LABEL = 'FMP - MARINA GATE';
 
+/**
+ * THE WORKING VERSION THE VERIFIERS MEASURE (2026-11-18): v1.1, the founder's working model, the one with the
+ * retail strips, the fund and every input the verifiers exercise. A later version of this project is a
+ * reconciliation copy (the "Training model match", saved through the app as a NEW version, which made it the
+ * newest), so "the newest version" stopped meaning "the working model". Every live read of this project takes
+ * this version by id; another project still reads its newest.
+ */
+export const LIVE_WORKING_VERSION_ID = '56c55440-5e32-4ffe-bdde-8a97030c2803';
+/** The PostgREST filter that picks the version a verifier measures for a project (see LIVE_WORKING_VERSION_ID). */
+export const versionFilterFor = (projectId: string): string =>
+  projectId === LIVE_PROJECT_ID ? `id=eq.${LIVE_WORKING_VERSION_ID}` : 'order=created_at.desc&limit=1';
+
 export type LiveRead =
   | { ok: true; snapshot: any; versionLabel: string; label: string }
   | { ok: false; noCredentials: true }
   | { ok: false; noCredentials?: false; reason: string };
 
 /**
- * The newest saved version of the live project.
+ * The working version of the live project (LIVE_WORKING_VERSION_ID).
  *
  * Read-only, and never written back: a verifier must not edit a real project.
  */
@@ -49,7 +61,7 @@ export async function readLiveProjectVersion(): Promise<LiveRead> {
     try {
       const { data, error } = await sb.from('refm_project_versions')
         .select('snapshot,version_label').eq('project_id', LIVE_PROJECT_ID)
-        .order('created_at', { ascending: false }).limit(1);
+        .eq('id', LIVE_WORKING_VERSION_ID).limit(1);
       if (error) { lastReason = `read failed: ${error.message}`; continue; }
       if (!data?.length) {
         // NOT retried: the query succeeded and the project has no versions.

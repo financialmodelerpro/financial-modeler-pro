@@ -633,7 +633,9 @@ export function emitReturnsSection(c: SheetCursor, state: FinancialsResolverStat
   const drRow = kv(c, 'Discount Rate (%)', cfg.discountRate, NUMFMT.pct, stored.discountRate !== undefined, 'DiscountRate', undefined, 'inp=ret|Discount Rate (%)@4');
   void drRow;
   // THE COST OF EQUITY (2026-11-18): the equity NPVs' rate; the discount rate when none is typed.
-  kv(c, 'Cost of equity (%)', cfg.costOfEquity, NUMFMT.pct, true, undefined, stored.costOfEquity === undefined ? 'The discount rate, as none is typed.' : undefined, 'ret:coe');
+  // BLANK FOLLOWS THE DISCOUNT RATE (the receivable days' convention): a typed figure is the cost of equity, a blank
+  // cell reads the discount rate above, so changing that rate in the file moves the equity NPVs as on the platform.
+  kv(c, 'Cost of equity (%)', stored.costOfEquity === undefined ? undefined : cfg.costOfEquity, NUMFMT.pct, true, undefined, stored.costOfEquity === undefined ? 'Blank: the discount rate.' : undefined, 'ret:coe');
   kv(c, 'Exit Year', snap.projectStartYear + cfg.exitYearOffset, NUMFMT.year, stored.exitYearOffset !== undefined, 'ExitYear', undefined, 'inp=ret|Exit Year@4');
   kv(c, 'Terminal Value Method', TERMINAL_METHOD_LABELS[cfg.terminalMethod] ?? cfg.terminalMethod, '@', stored.terminalMethod !== undefined, undefined, undefined, isLiveLayout() ? 'ret:tvMethod' : undefined);
   if (cfg.terminalMethod === 'exit_multiple') kv(c, 'Exit Multiple (x stabilised NOI)', cfg.exitMultiple, NUMFMT.mult, stored.exitMultiple !== undefined, 'ExitMultiple', undefined, 'inp=ret|Exit Multiple (x stabilised NOI)@4');

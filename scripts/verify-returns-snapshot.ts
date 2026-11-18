@@ -504,9 +504,12 @@ console.log('=== M5 Returns snapshot integration ===');
       const cap = r.result.realEstate.capRateAtExit;
       const caption = capRateAtExitCaption(r);
       console.log(`     ${basis}: cap ${cap}, capitalised NOI ${r.yearLabels[capIdx]} ${Math.round(capNoi)}, exit NOI ${Math.round(r.exitNOI)}, caption "${caption}"`);
-      check(`CR1 ${basis}: the cap rate is the capitalised NOI over the exit value`, cap != null && Math.abs(cap - capNoi / r.terminalEnterpriseValue) < 1e-9);
+      // THE GROSS VALUE (2026-11-18, A3): a cap rate is NOI over the value a buyer pays, before the seller's
+      // selling costs at exit; with no selling cost the gross IS the net, so this is the old check there.
+      const gross = r.terminalEnterpriseValue / (1 - (r.config.exitSellingCostRate ?? 0));
+      check(`CR1 ${basis}: the cap rate is the capitalised NOI over the gross exit value`, cap != null && Math.abs(cap - capNoi / gross) < 1e-9, `cap ${cap} vs ${capNoi / gross}`);
       check(`CR2 ${basis}: the caption names that year`, caption === `capitalised NOI (${r.yearLabels[capIdx]}) / exit value`);
-      if (basis === 'prior_year') check('CR3 on this project exit-year NOI gives a DIFFERENT ratio, so the old caption was wrong here (not vacuous)', Math.abs(r.exitNOI / r.terminalEnterpriseValue - cap) > 1e-4);
+      if (basis === 'prior_year') check('CR3 on this project exit-year NOI gives a DIFFERENT ratio, so the old caption was wrong here (not vacuous)', Math.abs(r.exitNOI / (r.terminalEnterpriseValue / (1 - (r.config.exitSellingCostRate ?? 0))) - cap) > 1e-4);
     }
   }
   // ── THE EXIT-YEAR TABLE STARTS WHERE THERE IS INCOME TO CAPITALISE (2026-09-30, review item 16) ──

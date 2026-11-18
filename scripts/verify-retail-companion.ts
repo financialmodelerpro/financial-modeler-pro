@@ -49,6 +49,7 @@ import { computeFinancialsSnapshot } from '../src/hubs/modeling/platforms/refm/l
 import { buildCapexReport } from '../src/hubs/modeling/platforms/refm/lib/reports/capexReports';
 import { hydrationFromAnySnapshot } from '../src/hubs/modeling/platforms/refm/lib/state/module1-migrate';
 import { sharesCapitalisedInterest } from '../src/core/calculations/capitalisedInterest';
+import { versionFilterFor } from './fixtures/liveProject';
 import {
   normaliseAssetTypeId, resolveAssetTypeValues, resolveAvgUnitSize, resolveRetailSlotArea,
 } from '../src/hubs/modeling/platforms/refm/lib/state/assetTypeStandards';
@@ -428,7 +429,7 @@ async function liveChecks(): Promise<void> {
   const ps = await q('refm_projects?select=id,name&deleted_at=is.null&order=created_at') as { id: string; name: string }[];
   let projects = 0, injected = 0, identical = 0, withRetail = 0, hostsMoved = 0;
   for (const p of ps) {
-    const vs = await q(`refm_project_versions?project_id=eq.${p.id}&select=snapshot&order=created_at.desc&limit=1`) as { snapshot: Record<string, unknown> }[];
+    const vs = await q(`refm_project_versions?project_id=eq.${p.id}&select=snapshot&${versionFilterFor(p.id)}`) as { snapshot: Record<string, unknown> }[];
     if (!vs[0]?.snapshot) continue;
     let st: Record<string, unknown>;
     try { st = hydrationFromAnySnapshot(vs[0].snapshot as never) as never; } catch { continue; }
@@ -534,7 +535,7 @@ async function liveChecks(): Promise<void> {
   section('I. Live: every host loses exactly what its companion gains');
   let carveProjects = 0, carveMoved = 0, mismatched = 0, totalsMoved = 0;
   for (const p of ps) {
-    const vs = await q(`refm_project_versions?project_id=eq.${p.id}&select=snapshot&order=created_at.desc&limit=1`) as { snapshot: Record<string, unknown> }[];
+    const vs = await q(`refm_project_versions?project_id=eq.${p.id}&select=snapshot&${versionFilterFor(p.id)}`) as { snapshot: Record<string, unknown> }[];
     if (!vs[0]?.snapshot) continue;
     let st: Record<string, unknown>;
     try { st = hydrationFromAnySnapshot(vs[0].snapshot as never) as never; } catch { continue; }
@@ -594,7 +595,7 @@ async function liveChecks(): Promise<void> {
   // number of places that answer it.
   let disagreed = 0, compared = 0;
   for (const p of ps) {
-    const vs = await q(`refm_project_versions?project_id=eq.${p.id}&select=snapshot&order=created_at.desc&limit=1`) as { snapshot: Record<string, unknown> }[];
+    const vs = await q(`refm_project_versions?project_id=eq.${p.id}&select=snapshot&${versionFilterFor(p.id)}`) as { snapshot: Record<string, unknown> }[];
     if (!vs[0]?.snapshot) continue;
     let st: Record<string, unknown>;
     try { st = hydrationFromAnySnapshot(vs[0].snapshot as never) as never; } catch { continue; }
@@ -634,7 +635,7 @@ async function liveChecks(): Promise<void> {
   section('J. Live: the carve honours massing inherited from the asset type');
   let inheritTested = 0, inheritMoved = 0, provedNotVacuous = 0;
   for (const p of ps) {
-    const vs = await q(`refm_project_versions?project_id=eq.${p.id}&select=snapshot&order=created_at.desc&limit=1`) as { snapshot: Record<string, unknown> }[];
+    const vs = await q(`refm_project_versions?project_id=eq.${p.id}&select=snapshot&${versionFilterFor(p.id)}`) as { snapshot: Record<string, unknown> }[];
     if (!vs[0]?.snapshot) continue;
     let st: Record<string, unknown>;
     try { st = hydrationFromAnySnapshot(vs[0].snapshot as never) as never; } catch { continue; }
@@ -728,7 +729,7 @@ async function liveChecks(): Promise<void> {
   // sentence going stale.
   let carveClaimOk = 0, carveClaimTested = 0;
   for (const p of ps) {
-    const vs = await q(`refm_project_versions?project_id=eq.${p.id}&select=snapshot&order=created_at.desc&limit=1`) as { snapshot: Record<string, unknown> }[];
+    const vs = await q(`refm_project_versions?project_id=eq.${p.id}&select=snapshot&${versionFilterFor(p.id)}`) as { snapshot: Record<string, unknown> }[];
     if (!vs[0]?.snapshot) continue;
     let st: Record<string, unknown>;
     try { st = hydrationFromAnySnapshot(vs[0].snapshot as never) as never; } catch { continue; }
@@ -782,7 +783,7 @@ async function liveChecks(): Promise<void> {
   // reader who assumes it does will be wrong in one direction or the other.
   let plotsChecked = 0, plotsShort = 0;
   for (const p of ps) {
-    const vs = await q(`refm_project_versions?project_id=eq.${p.id}&select=snapshot&order=created_at.desc&limit=1`) as { snapshot: Record<string, unknown> }[];
+    const vs = await q(`refm_project_versions?project_id=eq.${p.id}&select=snapshot&${versionFilterFor(p.id)}`) as { snapshot: Record<string, unknown> }[];
     if (!vs[0]?.snapshot) continue;
     let st: Record<string, unknown>;
     try { st = hydrationFromAnySnapshot(vs[0].snapshot as never) as never; } catch { continue; }

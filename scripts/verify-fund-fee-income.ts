@@ -366,9 +366,12 @@ console.log('\n=== 5. Fee income ties to the model ===');
     const E = ret.dividendStreamPerPeriod.length - 1;
     let worst = 0;
     for (let t = 0; t < E; t++) {
-      worst = Math.max(worst, Math.abs((fe.managementFeePerPeriod[t + 1] ?? 0) - (fin.fundFees.totalPerPeriod[t] ?? 0)));
+      // THE RATE FEES ONLY (2026-11-18): other expenses are a flat amount paid to service providers (audit,
+      // administration), charged in the P&L but earned by no party, so they are not fee income.
+      const rateFees = fin.fundFees.lines.filter((l: any) => l.base !== 'flat_amount').reduce((a: number, l: any) => a + (l.amountPerPeriod[t] ?? 0), 0);
+      worst = Math.max(worst, Math.abs((fe.managementFeePerPeriod[t + 1] ?? 0) - rateFees));
     }
-    check('management fees are the M4 fee schedule, period for period', worst <= 1e-9, `worst ${worst}`);
+    check('management fees are the M4 fee schedule rate fees, period for period (other expenses earned by no one)', worst <= 1e-9, `worst ${worst}`);
   }
   check('the performance fee series IS the waterfall\'s',
     firstDiff(fe.performanceFeePerPeriod, ret.waterfall.performanceFeePerPeriod) === null);
@@ -471,7 +474,7 @@ console.log('\n=== 7. The M5 surface (SOURCE LEVEL ONLY, see the header) ===');
       return blank.length === 4 && FUND_WATERFALL_NO_TOTAL_ROWS.every((l) => blank.includes(l));
     })());
   check('the fee income section names the Fund Manager as a distinct kind',
-    ui.includes("e.kind === 'fund_manager' ? 'Fund Manager' : 'Project Party'"));
+    ui.includes("e.kind === 'fund_manager' ? 'Fund Manager' : e.kind === 'third_party' ? 'Third Party' : 'Project Party'"));
   check('an unallocated performance fee is rendered rather than absorbed',
     ui.includes('s.unallocatedPerformanceFee > 0'));
   // The strongest structural guarantee in Step 5: the partner code path was not

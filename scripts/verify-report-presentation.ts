@@ -331,9 +331,9 @@ async function main(): Promise<void> {
   console.log('\n-- P4: the capital bases are their own block --');
   {
     const capital = buildFundCapitalRows(snap);
-    check('P4: the fixture resolves three capital bases', capital.length === 3, String(capital.length));
-    check('P4: equity + debt reconciles to the fund size',
-      Math.abs(capital[0].amount + capital[1].amount - capital[2].amount) < 0.01);
+    // One row per distinct base the fees charge on (2026-11-18, A4), never a fixed three.
+    check('P4: the fixture resolves a capital base per distinct base in use', capital.length >= 2 && new Set(capital.map((c) => c.label)).size === capital.length, String(capital.length));
+    check('P4: every capital base carries a positive amount', capital.every((c) => Number.isFinite(c.amount) && c.amount > 0));
     check('P4: the title and note are shared constants',
       FUND_CAPITAL_BASES_TITLE.length > 0 && FUND_CAPITAL_BASES_NOTE.includes('not fees'));
     for (const [doc, txt] of [['full report', full], ['summary', summary]] as const) {

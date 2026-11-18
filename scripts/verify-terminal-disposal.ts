@@ -252,7 +252,10 @@ section('G. the Returns working reads the booked disposal');
   const rs = computeReturnsSnapshot(snap, state.project);
   const w = buildDisposalWorking(snap, rs, (id) => id);
   const val = (label: string): number | undefined => w.rows.find((r) => r.label === label)?.value;
-  check('G1 the terminal value row is the proceeds booked', w.booked && val('Terminal value, booked as proceeds from disposal') === snap.disposal.proceeds);
+  // GROSS, LESS SELLING COSTS, NET (2026-11-18, A3): the net row is the proceeds booked, and the three foot.
+  check('G1 the net exit value row is the proceeds booked, gross less selling costs', w.booked
+    && val('Net exit value, booked as proceeds from disposal') === snap.disposal.proceeds
+    && Math.abs((val('Gross exit value') ?? NaN) + (val('Less: selling costs at exit') ?? NaN) - snap.disposal.proceeds) < 0.01);
   check('G2 the income capitalised is the basis year income', val('Income capitalised') === snap.disposal.exitMetric);
   check('G3 gain = proceeds less net book value, as the P&L books it',
     val('Gain on disposal') === snap.disposal.gain && val('P&L: Gain on Disposal of Operating Assets') === snap.pl.gainOnDisposalPerPeriod[X]);

@@ -524,6 +524,12 @@ export function fundFeeLineLabel(
     const span = line.timing === 'annual' && charged.length > 1 ? `, ${charged.length} periods` : '';
     return `${line.label} (${(line.rate * 100).toFixed(2)}% of ${baseName} ${fmt(first)}${span})`;
   }
+  // A MOVING BASE (2026-11-18): the fee charges each year's balance, so the label names the peak, as the fee
+  // basis table does; the sum of a balance over the years is not a quantity anyone reads.
+  if (line.base === 'equity_to_date') {
+    const peak = Math.max(0, ...line.basisPerPeriod.map((v) => v ?? 0));
+    return `${line.label} (${(line.rate * 100).toFixed(2)}% of each year's ${baseName}, peak ${fmt(peak)})`;
+  }
   const basis = line.basisPerPeriod.reduce((s, v) => s + (v ?? 0), 0);
   return `${line.label} (${(line.rate * 100).toFixed(2)}% of ${baseName}, ${fmt(basis)} over the life)`;
 }

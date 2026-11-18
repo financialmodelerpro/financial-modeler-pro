@@ -113,7 +113,9 @@ export const stage7cChecks: LiveLayer = {
         w.reset(); w.fA({ ...res, col: res.col + 1 }, `MAX(MAX(${cash}),-MIN(${cash}))`);
         const C = w.refA(res, CHK);
         w.reset(); w.fA({ ...res, col: res.col - 1 }, `IF(${C}>=-0.01,"OK","CHECK")`);
-        w.reset(); w.fA({ ...res, col: res.col + 2 }, `IF(${C}>=-0.01,"Cash stays at or above zero","Cash falls to "&TEXT(${C}/1000000,"#,##0.0")&" m")`);
+        // THE PLATFORM'S WORDS (the Checks rows' one detail rule), so the live file reads as the platform does.
+        const Dc = w.refA({ ...res, col: res.col + 1 }, CHK);
+        w.reset(); w.fA({ ...res, col: res.col + 2 }, `IF(${Dc}=0,"Nothing to reconcile",IF(${C}>=-0.01,"Within tolerance","Out by "&TEXT(ABS(${C})/1000000,"#,##0.0")&" m"))`);
         liveIds.push(CASH_FLOOR_CHECK_LABEL);
       }
     }

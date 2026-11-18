@@ -117,9 +117,14 @@ async function main(): Promise<void> {
   {
     const capital = buildFundCapitalRows(on.snap);
     const basis = buildFundFeeBasisRows(on.snap);
-    check('all three capital bases are carried', on.m.fund.capitalBases.length === capital.length && capital.length === 3, `${on.m.fund.capitalBases.length}`);
-    check('equity plus debt reconciles to the fund size',
-      Math.abs(on.m.fund.capitalBases[0].amount + on.m.fund.capitalBases[1].amount - on.m.fund.capitalBases[2].amount) < 0.01);
+    // THE BASES THE FEES CHARGE ON (2026-11-18, A4): one row per distinct base in use, each its schedule's figure.
+    // The old "equity + debt = fund size" identity described three fixed rows that no longer exist.
+    check('every capital base the fees use is carried, once, as the shared builder states it',
+      on.m.fund.capitalBases.length === capital.length && capital.length >= 2
+      && capital.every((c, i) => on.m.fund.capitalBases[i].amount === c.amount)
+      && new Set(capital.map((c) => c.label)).size === capital.length, `${on.m.fund.capitalBases.length} of ${capital.length}`);
+    check('every capital base carries a positive amount', capital.every((c) => Number.isFinite(c.amount) && c.amount > 0),
+      capital.map((c) => `${c.label} ${c.amount}`).join('; '));
     check('all five fees are carried', on.m.fund.feeBasis.length === basis.length && basis.length === 5, `${on.m.fund.feeBasis.length}`);
     const first = on.m.fund.feeBasis[0];
     check('each fee states timing, base, rate and amount',

@@ -1080,10 +1080,10 @@ function formulaCells(wb: ExcelJS.Workbook): Map<string, { formula: string; resu
     const capLabels = new Set(capReads.map((x) => String(wb.getWorksheet('Financing')!.getCell(x.row, LC).value ?? '').trim()));
     // The allowed later-tab links (founder): capitalised interest, each phase's EBITDA and, since step 5
     // (2026-11-15), zakat, worked out on the P&L and read back by Financing's one "Zakat (the P&L)" row.
-    check('A12h each phase dividend cap links to the phase P&L EBITDA, and only the cap rows and the one zakat row read the P&L',
-      // The labels as the reader sees them since 2026-11-17 (no explanation in brackets): "Phase 1 EBITDA, from its
-      // P&L" and "Zakat, from the P&L".
-      capReads.length > 0 && [...capLabels].some((l) => / EBITDA, from its P&L$/.test(l)) && [...capLabels].every((l) => / EBITDA, from its P&L$/.test(l) || l === 'Zakat, from the P&L'), [...capLabels].join('; '));
+    // ONE PROJECT DIVIDEND (2026-11-18, founder decision 3): the per-phase EBITDA cap is gone, so no phase EBITDA
+    // link is left and the one Financing row that reads the P&L is the zakat.
+    check('A12h no phase dividend cap reads the P&L any more, and the one Financing row reading it is the zakat',
+      capReads.length > 0 && [...capLabels].every((l) => l === 'Zakat, from the P&L'), [...capLabels].join('; '));
     const copy2 = buildModelWorkbook({ ...opts, liveLayout: true });
     copy2.getWorksheet('Financing')!.getCell(2, 9).value = { formula: "'P&L'!F20+1", result: 0 } as unknown as ExcelJS.CellValue;
     const p2 = exportShapeProblems(copy2);
@@ -1351,7 +1351,9 @@ function formulaCells(wb: ExcelJS.Workbook): Map<string, { formula: string; resu
 
   const buf = await finalizeFormulaCalc((await wb.xlsx.writeBuffer()) as ArrayBuffer);
   const calcPr = (await (await JSZip.loadAsync(buf)).file('xl/workbook.xml')!.async('string')).match(/<calcPr[^>]*>/)?.[0] ?? '';
-  check('A7 iterative calculation is switched on in the file', /iterate="1"/.test(calcPr), calcPr);
+  // NO CIRCULAR REFERENCE (2026-11-18, A1): IDC is solved in closed form and the switch is gone, so the file must
+  // NOT ask for iterative calculation (a model that needs it would hide a circular reference behind it).
+  check('A7 iterative calculation is OFF in the file (no circular reference to settle)', !/iterate="1"/.test(calcPr), calcPr);
   // A8. A RESIDUE IS NOT A DISTRIBUTION (2026-09-27): the fixed-point solve left
   // 0.00000003 above the floor in 2031 and the engine paid it as a dividend, so cash
   // on cash averaged over eight years instead of seven (37.0% for 42.3%). Every
@@ -1379,7 +1381,7 @@ function formulaCells(wb: ExcelJS.Workbook): Map<string, { formula: string; resu
     const t0 = Date.now();
     const rec = recalcInExcel(path);
     console.log(`  (Excel recalculated in ${((Date.now() - t0) / 1000).toFixed(1)}s; iteration ${rec.calc.iteration}, ${rec.calc.maxIterations} passes, max change ${rec.calc.maxChange})`);
-    check('B1 Excel opened the file with iterative calculation on', rec.calc.iteration === true);
+    check('B1 Excel opened the file with iterative calculation off', rec.calc.iteration === false);
     const perSheet = new Map<string, { compared: number; bad: string[] }>();
     let errors = 0; const errList: string[] = [];
     for (const [k, n] of oracleLive) {
