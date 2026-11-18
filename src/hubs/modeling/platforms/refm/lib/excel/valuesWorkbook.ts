@@ -29,7 +29,7 @@
  * No em dashes in this file.
  */
 import type ExcelJS from 'exceljs';
-import { buildModelWorkbook, houseContextOf, enableIterativeCalc, applyPartVisibility, type BuildModelOptions } from './buildModelWorkbook';
+import { buildModelWorkbook, houseContextOf, finalizeCalcSettings, applyPartVisibility, type BuildModelOptions } from './buildModelWorkbook';
 import { CellRegistry, setCellSink } from './cellRegistry';
 import { deleteRowAt } from './liveFrontMatter';
 import { applyHouseStyle } from './houseStyle';
@@ -244,5 +244,5 @@ function dropEmptyHeadings(ws: ExcelJS.Worksheet): void {
 export async function generateValuesWorkbookBuffer(opts: BuildModelOptions): Promise<ArrayBuffer> {
   const { wb, charts } = buildValuesWorkbook(opts);
   const buf = await addDashboardCharts((await wb.xlsx.writeBuffer()) as ArrayBuffer, charts ?? []);
-  return enableIterativeCalc(buf);
+  return finalizeCalcSettings(buf);
 }

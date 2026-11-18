@@ -85,6 +85,8 @@ export interface FinancingContext {
    * snapshot two-pass. Absent => no sweep repayment.
    */
   sweepBudget?: number[];
+  /** The exit year's index (2026-11-18): no sweep from it on; the exit repays the balance. */
+  sweepStopIdx?: number;
 }
 
 export function computeFinancingResult(ctx: FinancingContext): FinancingComputation {
@@ -152,7 +154,7 @@ export function computeFinancingResult(ctx: FinancingContext): FinancingComputat
     const pct = shares.get(t.id) ?? 0;
     computed.set(
       t.id,
-      computeFacilitySchedule(t, ctx.project, ctx.phases, axis, split.debt, pct, remainingIdcBudget, remainingSweepBudget, constructionSpendByPeriod),
+      computeFacilitySchedule(t, ctx.project, ctx.phases, axis, split.debt, pct, remainingIdcBudget, remainingSweepBudget, constructionSpendByPeriod, ctx.sweepStopIdx),
     );
   }
   const facilities = new Map<string, FacilityResult>();

@@ -194,6 +194,8 @@ export const stage6Loop: LiveLayer = {
     const D = (): string => `MAX(0,N(${IN('fin:in:debt')}))`, E = (): string => `MAX(0,N(${IN('fin:in:equity')}))`;
     putS('fl:dF', `IF(${D()}+${E()}>0,${D()}/(${D()}+${E()}),0)`); // no hidden default (2026-11-17): the engine reads a blank share as 0
     putS('fl:eF', `1-${T('fl:dF')}`);
+    // THE IDC METHOD (2026-11-18): 1 where Inputs reads "excluding same-year IDC".
+    if (has('fin:in:idcMethod')) putS('fl:idcExcl', `IF(ISNUMBER(SEARCH("excluding",${IN('fin:in:idcMethod')})),1,0)`);
     const dF = (): string => T('fl:dF'), eF = (): string => T('fl:eF');
     if (has('fl:landDebt')) {
       const shareOf = (parcel: { id: string; phaseId?: string }): string => {
@@ -307,6 +309,9 @@ export const stage6Loop: LiveLayer = {
     put('fl:feeOps', (t) => `-${P('fl:feeTot', t)}`);
     put('fl:opIn', (t) => chain(['fl:collected', 'fl:opexPaid', 'fl:mkt', 'fl:esc', 'fl:taxPaidOps', 'fl:feeOps'], t));
     why('fl:opIn', CHAIN);
+    // THE FUNDING TEST READS NO ZAKAT AND NO FUND FEE (2026-11-18): zakat is paid from cash on hand,
+    // an equity-funded fee is drawn in full, and a deficit-funded fee is taken off below.
+    put('fl:opSize', (t) => chain(['fl:collected', 'fl:opexPaid', 'fl:mkt', 'fl:esc'], t));
 
     // ── The funding need ─────────────────────────────────────────────────────
     // THE FUNDING TEST ONLY WHILE CAPEX IS STILL TO BE PAID (2026-11-17, founder): each row of it is 0 once no
@@ -314,12 +319,15 @@ export const stage6Loop: LiveLayer = {
     const cxRow = w.addr('fl:capex').row;
     const win = (t: number, e: string): string => `IF(SUM(${P('fl:capex', t)}:$${colLetter(pc(N - 1))}$${cxRow})>0,${e},0)`;
     put('fl:open', (t) => win(t, `N(${P('fl:after', t, -1)})`), 'last');
-    put('fl:avail', (t) => win(t, `${P('fl:open', t)}+${P('fl:opIn', t)}-${P('fl:capex', t)}+${P('fl:proceeds', t)}`), 'last');
-    why('fl:avail', CHAIN);
+    const fee = (t: number): string => (feeOn && has('fl:feeTot') ? P('fl:feeTot', t) : '0');
+    const feeInNeed = feeOn && !byEq;
+    put('fl:avail', (t) => win(t, `${P('fl:open', t)}+${P('fl:opSize', t)}${feeInNeed ? `-${fee(t)}` : ''}-${P('fl:capex', t)}+${P('fl:proceeds', t)}`), 'last');
     // A year needs funding only while capex (net of exit proceeds) is paid, to the cent.
     const spending = (t: number): string => `(ROUND(${P('fl:capex', t)}-${P('fl:proceeds', t)},2)>0)`;
     put('fl:need', (t) => `IF(${spending(t)},MAX(0,${MIN()}-${P('fl:avail', t)}),0)`);
-    put('fl:needExFee', (t) => `IF(${spending(t)},MAX(0,${MIN()}-(${P('fl:avail', t)}+${P('fl:feeTot', t)})),0)`);
+    // The fee-free walk: its own opening (last year's cash plus its need), no fee anywhere in it.
+    put('fl:xAvail', (t) => win(t, `N(${P('fl:xAvail', t, -1)})+N(${P('fl:needExFee', t, -1)})+${P('fl:opSize', t)}-${P('fl:capex', t)}+${P('fl:proceeds', t)}`), 'last');
+    put('fl:needExFee', (t) => `IF(${spending(t)},MAX(0,${MIN()}-${P('fl:xAvail', t)}),0)`);
     // Methods 1 and 2: the minimum cash, drawn in the first year capex is paid.
     // THE FIRST YEAR A ROW IS POSITIVE, WITH NO ARRAY FORMULA (2026-11-04): MATCH(TRUE, INDEX(...,0))
     // read #VALUE! outside Excel. SUMPRODUCT evaluates its argument as an array in Excel and LibreOffice
@@ -336,13 +344,9 @@ export const stage6Loop: LiveLayer = {
     const drawBase = (t: number): string => (METHOD === 3 ? P('fl:need', t) : METHOD === 2 ? `(${P('fl:m2gap', t)}+${minAt(t)})` : `(${P('fl:nonLand', t)}+${minAt(t)})`);
     put('fl:debtDraw', (t) => `${drawBase(t)}*${dF()}${METHOD === 1 ? `+${P('fl:landCash', t)}*${T('fl:landDebt')}` : ''}`);
     put('fl:eqDraw', (t) => `${drawBase(t)}*${eF()}${METHOD === 1 ? `+${P('fl:landCash', t)}*(1-${T('fl:landDebt')})` : ''}`);
-    const fee = (t: number): string => (feeOn && has('fl:feeTot') ? P('fl:feeTot', t) : '0');
-    // The fund fees drawn from equity: while capex is paid, as far as keeps cash at the minimum.
-    put('fl:feeDraw', (t) => `IF(AND(${spending(t)},${fee(t)}>0),MIN(${fee(t)},MAX(0,${MIN()}-(${P('fl:avail', t)}+${P('fl:need', t)}-${fee(t)}))),0)`);
-    put('fl:feePaid', (t) => win(t, `-${fee(t)}`));
-    put('fl:after', (t) => win(t, `${P('fl:avail', t)}+${P('fl:need', t)}${byEq ? `+${P('fl:feeDraw', t)}+${P('fl:feePaid', t)}` : ''}`), 'last');
-    why('fl:after', CHAIN);
-    const head = (t: number): string => `MAX(0,${P('fl:after', t)}-${MIN()})`;
+    // The fund fees drawn from equity (2026-11-18): the whole fee in a year capex is paid.
+    put('fl:feeDraw', (t) => `IF(${spending(t)},${fee(t)},0)`);
+    put('fl:after', (t) => win(t, `${P('fl:avail', t)}+${P('fl:need', t)}`), 'last');
     // Construction running: a year up to the last construction year with capex in it.
     const running = (t: number): string => `AND(${Y(t)}<=${lastCon()},${P('fl:capex', t)}+${P('fl:inKind', t)}>0)`;
 
@@ -364,15 +368,22 @@ export const stage6Loop: LiveLayer = {
       const sh = shareOf(f);
       put(f.draw, (t) => (f.isEx ? `(${Y(t)}=N(${IN(`fin:in:tr:${f.t.id}:orig`)}))*MAX(0,N(${IN(`fin:in:tr:${f.t.id}:open`)}))` : `MAX(0,${P('fl:debtDraw', t)})${sh ? `*${sh}` : ''}`));
       const intFrom = (t: number): string => (f.isEx ? `(${Y(t)}>=MAX(${Y0()},N(${IN(`fin:in:tr:${f.t.id}:intStart`)})))*` : '');
-      put(f.charge, (t) => `${intFrom(t)}(${P(f.open, t)}+${P(f.draw, t)})*${rate(f)}`);
-      // The interest the cash above the minimum cannot pay is drawn as debt while construction runs.
-      const paidBefore = (t: number): string => before.filter((b) => !b.isEx).map((b) => `(${P(b.charge, t)}-${P(b.idc, t)})`).join('+') || '0';
-      put(f.idc, (t) => (f.isEx ? '0' : `IF(${running(t)},MAX(0,${P(f.charge, t)}-MAX(0,${head(t)}-(${paidBefore(t)}))),0)`));
+      // NO CIRCULARITY (2026-11-18): construction charges rate x (opening + drawdown / 2), over
+      // (1 - rate / 2) unless the IDC method excludes the year's own IDC; otherwise rate x opening.
+      void before;
+      const excl = has('fl:idcExcl') ? T('fl:idcExcl') : '0';
+      put(f.charge, (t) => (f.isEx
+        ? `${intFrom(t)}(${P(f.open, t)}+${P(f.draw, t)})*${rate(f)}`
+        : `IF(${running(t)},${rate(f)}*(${P(f.open, t)}+${P(f.draw, t)}/2)/(1-(1-${excl})*${rate(f)}/2),${P(f.open, t)}*${rate(f)})`));
+      // Capitalised in full: the whole construction charge is drawn as debt.
+      put(f.idc, (t) => (f.isEx ? '0' : `IF(${running(t)},${P(f.charge, t)},0)`));
     }
     // The sweep: from the cash above the minimum after this year's scheduled principal and the exit
     // repayment, each swept loan in turn from what the loans before it left.
     const schedTot = (t: number): string => fac.filter((f) => f.kind !== 'sweep').map((f) => `(-${P(f.repaid, t)})`).join('+') || '0';
-    const preSweep = (t: number): string => `MAX(0,${P('fl:cash', t)}-(${schedTot(t)})-${P('fl:exitRepay', t)}-${MIN()})`;
+    // NOT IN THE EXIT YEAR (2026-11-18): the exit repays the balance from the proceeds, so the sweep
+    // never reads the exit repayment, which reads the balance the sweep sets.
+    const preSweep = (t: number): string => `(1-${exitF(t)})*MAX(0,${P('fl:cash', t)}-(${schedTot(t)})-${MIN()})`;
     // Its own row (2026-11-15): the cash above the minimum a sweep may take.
     put('fl:sweepLeft', (t) => preSweep(t));
     const pre = (t: number): string => (has('fl:sweepLeft') ? P('fl:sweepLeft', t) : preSweep(t));

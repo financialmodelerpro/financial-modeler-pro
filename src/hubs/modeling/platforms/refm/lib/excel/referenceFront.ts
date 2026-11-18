@@ -189,7 +189,7 @@ function buildGuide(ws: ExcelJS.Worksheet, wb: ExcelJS.Workbook, ctx: FrontConte
   line('Purpose', { formula: `"A development, sales, operating, financing and exit model for "&Inputs!$D$${nameRow}&" in "&Inputs!$D$${locRow}&", built on Financial Modeler Pro and exported with ${ctx.valuesOutput ? 'its values' : 'live formulas'}."` }, { height: 27 });
   line('Time frame', { formula: `"Annual model, "&Timeline!$F$${fy}&" to "&Timeline!$F$${ly}&" ("&Timeline!$F$${ny}&" years), one column per year ending in December. The Opening column holds balances before the first year."` }, { height: 27 });
   line('Scheme', 'Land and plots, then GFA, NSA, units and keys for each line; each line is sold, operated (hotel) or leased (retail).');
-  line('Methods', `Area chain from land, off-plan sales with instalments and revenue at handover, hotel P&L to EBITDA, leasing to NOI, cost-based capex with spend curves, a funding loop with cash sweep, ${tax}, and an exit at a cap rate.`, { height: 27 });
+  line('Methods', `Area chain from land, off-plan sales with instalments and revenue at handover, hotel P&L to EBITDA, leasing to NOI, cost-based capex with spend curves, funding sized on the cash short of the minimum, a cash sweep, ${tax}, and an exit at a cap rate.`, { height: 27 });
   line('Outputs', 'The Dashboard: development margin, funding, project and equity IRR, investor returns after the performance fee, covenant tests, risk flags, scenarios and sensitivity.', { height: 27 });
   r++;
 
@@ -198,11 +198,8 @@ function buildGuide(ws: ExcelJS.Worksheet, wb: ExcelJS.Workbook, ctx: FrontConte
   const ccy = currencyOf(wb);
   line('Save a copy', 'Keep the exported file untouched and work in a copy.');
   if (ctx.valuesOutput) line('Values, not formulas', 'This file holds the platform\'s results as values: nothing recalculates and no iterative calculation is needed. Change an input on the platform and export again.', { height: 27 });
-  else {
-    line('Iterative calculation', 'The financing loop (interest, capitalised interest and the cash sweep) needs iterative calculation. It is switched on in this file. If a number looks wrong: File > Options > Formulas > Enable iterative calculation, 1,000 iterations, maximum change 0.000001.', { height: 27 });
-    // THE CIRCULARITY SWITCH (2026-11-17, founder, open fix 8; TRAPS 3.46).
-    line('Circularity switch', 'If #VALUE! fills the financing tabs (Excel can do this when the file is opened with no stored values), set the circularity switch on Inputs (Calculation settings) to 0, press F9, then set it back to 1.', { height: 27 });
-  }
+  // NO CIRCULAR REFERENCE (2026-11-18): the switch and the iteration it needed are gone.
+  else line('No circular reference', 'Leave iterative calculation off (File > Options > Formulas). Interest reads the opening debt and half the draw of the year, so nothing in the model reads itself, and Excel would report any loop.', { height: 27 });
   line('Units', `Figures show in the unit chosen at export (here ${ccy}${ctx.scale === 'full' ? '' : ` ${unit}`}). Cells hold full values, so nothing is rounded inside the model.`, { height: 27 });
   line('What to change', ctx.valuesOutput ? 'Nothing here: every figure is a value. Change the project on the platform and export again.' : 'Only the yellow cells on Inputs (the Dashboard\'s risk-flag triggers included). Everything else is a formula.');
   line('Do not', 'Insert or delete columns in the year area, type over black or green cells, or rename tabs.');
@@ -233,14 +230,14 @@ function buildGuide(ws: ExcelJS.Worksheet, wb: ExcelJS.Workbook, ctx: FrontConte
   r++;
 
   bar('Links that read a later tab');
-  line('Capitalised interest', 'Schedules reads it from Financing, which solves the financing loop.');
+  line('Capitalised interest', 'Schedules reads it from Financing, which works it out from the opening debt and the draw of the year.');
   line('Phase EBITDA', "Each phase's dividend cap on Financing reads that phase's EBITDA on the P&L.");
   line(tax === 'zakat' ? 'Zakat' : 'Tax', 'Worked out on the P&L; Financing reads the charge back for the cash.');
   r++;
 
   bar('Troubleshooting');
   line('A CHECK on Checks', 'Open the Checks tab, read the line that fails and fix the input it names.');
-  line('Numbers look odd', 'Confirm iterative calculation is on (section 3), then press F9 to recalculate.');
+  line('Numbers look odd', ctx.valuesOutput ? 'Every figure is a value as of export. Change the project on the platform and export again.' : 'Press F9 to recalculate. If Excel reports a circular reference, a formula was typed over: undo, or re-export.');
   line('#VALUE! or #REF!', 'A formula was typed over or a row or column was deleted. Undo, or re-export from the platform.');
   line('Scenarios or sensitivity', 'These are platform results. Re-export after changing inputs to refresh them.');
   line('Different from the platform', 'The export matches the platform on the day it is made. Re-export after editing the project.');

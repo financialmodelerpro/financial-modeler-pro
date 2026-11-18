@@ -66,6 +66,10 @@ export function computeFacilitySchedule(
    *  reads no debt input, so this stays acyclic: IDC does not size capex, it
    *  only asks whether capex is happening. */
   constructionSpendByPeriod?: number[],
+  /** THE EXIT YEAR (2026-11-18): no sweep from this period on; the exit repays the
+   *  balance from the proceeds instead. Without it the sweep read the cash left after
+   *  the exit repayment, which reads the balance the sweep sets: a loop. Absent = never. */
+  sweepStopIdx?: number,
 ): FacilityResult {
   const N = axis.totalPeriods;
   const drawSchedule       = new Array<number>(N).fill(0);
@@ -318,13 +322,32 @@ export function computeFacilitySchedule(
     || method === 'balloon'
     || method === 'bullet';
 
+  // THE IDC METHOD (2026-11-18): see `Project.idcConfig.interestMethod`.
+  const idcExclSameYear = project.idcConfig?.interestMethod === 'mid_year_excl';
+  const stopSweepAt = sweepStopIdx !== undefined && Number.isFinite(sweepStopIdx) ? sweepStopIdx : Number.POSITIVE_INFINITY;
   let bal = openingBalance;
   for (let i = 0; i < N; i++) {
+    const opening = bal;
     bal += drawSchedule[i];
     // Pass 36 (2026-05-14): for existing facilities, only accrue
     // interest from interestStartYear onward (defaults to project Y0).
     const accrueInterest = !isExisting || i >= interestStartProj;
-    const interest = accrueInterest ? bal * periodicRate : 0;
+    const withinConstruction = i < constructionEndProj;
+    const constructionRunning = !isExisting && withinConstruction && (constructionSpendByPeriod?.[i] ?? 0) > 0;
+    // NO CIRCULARITY (2026-11-18). A construction year charges the opening balance plus
+    // HALF the year's capex draw; under the default method the year's own IDC is drawn
+    // mid-year too, which solves to rate x (opening + draw / 2) / (1 - rate / 2) in closed
+    // form. Any other year of a new loan charges the OPENING balance. Neither reads the
+    // year's cash, sweep or its own result. An existing loan keeps its own rule (the
+    // balance after an in-model raise).
+    let interest = 0;
+    if (accrueInterest) {
+      if (isExisting) interest = bal * periodicRate;
+      else if (constructionRunning) {
+        const base = periodicRate * (opening + drawSchedule[i] / 2);
+        interest = idcExclSameYear || periodicRate >= 2 ? base : base / (1 - periodicRate / 2);
+      } else interest = opening * periodicRate;
+    }
     interestAccrued[i] = interest;
     // ── IDC, ONE TREATMENT (2026-08-18) ───────────────────────────────────
     //
@@ -391,23 +414,18 @@ export function computeFacilitySchedule(
     // at completion. Both tests now apply: inside the construction window AND
     // actually spending. After the window, interest is an expense, which is
     // what the `else` branch below has always done.
-    const withinConstruction = i < constructionEndProj;
-    const constructionRunning = !isExisting && withinConstruction && (constructionSpendByPeriod?.[i] ?? 0) > 0;
     if (constructionRunning) {
       interestDuringConstruction[i] = interest;
       interestForAssetBasis[i] = interest;
-      // Paid in full; debt is drawn only for the part cash cannot cover.
+      // CAPITALISED IN FULL (2026-11-18): the whole charge is drawn as debt. It used to be
+      // paid from the cash above the minimum first (`remainingIdcBudget`), which made the
+      // interest depend on the year's cash, and the cash on the interest. Presented gross as
+      // before: paid, and the same amount drawn.
+      void remainingIdcBudget;
       interestPaid[i] = interest;
-      const avail = Math.max(0, remainingIdcBudget?.[i] ?? 0);
-      const fromCash = Math.min(interest, avail);
-      const drawnForIdc = interest - fromCash;
-      if (fromCash > 0) {
-        interestCapitalizedCashPaid[i] = fromCash;
-        if (remainingIdcBudget) remainingIdcBudget[i] = avail - fromCash;
-      }
-      if (drawnForIdc > 0) {
-        interestCapitalized[i] = drawnForIdc;
-        bal += drawnForIdc;
+      if (interest > 0) {
+        interestCapitalized[i] = interest;
+        bal += interest;
       }
     } else {
       interestPaid[i] = interest;
@@ -425,7 +443,7 @@ export function computeFacilitySchedule(
     // cash-available-for-debt budget, from the tranche's start year, capped
     // by sweepRatio and the remaining balance. Reduces bal so the NEXT
     // period's interest accrues on the swept balance (no phantom interest).
-    if (sweepEligible && i >= sweepStartProj && bal > 0 && remainingSweepBudget) {
+    if (sweepEligible && i >= sweepStartProj && i < stopSweepAt && bal > 0 && remainingSweepBudget) {
       const avail = Math.max(0, remainingSweepBudget[i] ?? 0);
       const sweepPay = Math.min(bal, avail * sweepRatio, avail);
       if (sweepPay > 0) {

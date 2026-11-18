@@ -51,6 +51,8 @@ import {
   REPAYMENT_METHOD_LABELS,
   makeDefaultFinancingTranche,
   getAssetPreCapexTotal,
+  IDC_INTEREST_METHOD_LABELS,
+  resolveIdcInterestMethod,
 } from '../../lib/state/module1-types';
 import { computeFinancingResult } from '@/src/core/calculations/financing';
 import { buildFinancingSummary, FINANCING_SUMMARY_CAPTIONS, operatingInflowClasses, phaseLandSplit, landFundingNote, landSplitCellText } from '../../lib/reports/financingReports';
@@ -428,16 +430,17 @@ export default function Module1Financing({ projectId = null }: { projectId?: str
                     </div>
                   </div>
                   <div>
-                    <div style={labelStyle}>Treatment</div>
-                    <div style={{ fontSize: 12, color: 'var(--color-heading)', fontWeight: 600 }}>
-                      Capitalised into asset cost, paid when it arises
+                    <div style={labelStyle}>IDC Method</div>
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                      {(['mid_year_incl', 'mid_year_excl'] as const).map((m) =>
+                        pillBtn(resolveIdcInterestMethod(project) === m, IDC_INTEREST_METHOD_LABELS[m], () => setIdcCfg({ interestMethod: m }), m))}
                     </div>
                     <div style={captionStyle}>
-                      One treatment, no options. A period with construction spend is a period whose
-                      finance cost is IDC; once the spend stops the same interest is an operating
-                      finance cost. IDC is paid in the period it arises and debt is drawn only for
-                      the part cash cannot cover, that is IDC less the headroom above the minimum
-                      cash target. The two drawdowns are shown separately on the cash flow.
+                      A construction year charges interest on the opening debt plus half the year&apos;s
+                      capex draw, capitalised in full into asset cost and added to the debt. Including
+                      same-year IDC: rate x (opening + draw / 2) / (1 - rate / 2). Excluding it:
+                      rate x (opening + draw / 2). An operating year charges rate x opening. Nothing
+                      reads the year&apos;s own cash or sweep, so the model has no circular reference.
                     </div>
                   </div>
                 </div>

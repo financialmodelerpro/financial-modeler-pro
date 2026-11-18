@@ -19,7 +19,7 @@ import { writeFileSync, mkdirSync, existsSync, readFileSync, rmSync } from 'node
 import { join, resolve } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import ExcelJS from 'exceljs';
-import { buildFormulaWorkbook, enableFormulaIteration } from '../src/hubs/modeling/platforms/refm/lib/excel/formulaWorkbook';
+import { buildFormulaWorkbook, finalizeFormulaCalc } from '../src/hubs/modeling/platforms/refm/lib/excel/formulaWorkbook';
 import { generateValuesWorkbookBuffer } from '../src/hubs/modeling/platforms/refm/lib/excel/valuesWorkbook';
 import { liveWorkbookRefusal, emptyProjectRefusal } from '../src/hubs/modeling/platforms/refm/lib/excel/liveWorkbookAvailability';
 import { loadLiveExportInputs } from './fixtures/liveExportInputs';
@@ -110,7 +110,7 @@ async function main(): Promise<void> {
     const safe = p.name.replace(/[^a-z0-9]+/gi, '_').slice(0, 40);
     const file = join(OUT, `${safe}.xlsx`);
     const buf = await res.wb.xlsx.writeBuffer();
-    writeFileSync(file, Buffer.from(await enableFormulaIteration(buf as ArrayBuffer)));
+    writeFileSync(file, Buffer.from(await finalizeFormulaCalc(buf as ArrayBuffer)));
     // The stored statuses (what the file shows on opening).
     const stored = new Map<string, string>();
     res.wb.getWorksheet('Checks')?.eachRow((row) => row.eachCell((c) => {

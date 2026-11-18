@@ -60,7 +60,7 @@ import { formatAccounting, formatArea, formatInteger, type DisplayScale } from '
 import { computeSubUnitArea, computePhaseTimeline, computeProjectTimeline } from '@/src/core/calculations';
 import {
   FUNDING_METHOD_LABELS, FUNDING_METHOD_DESCRIPTIONS, REPAYMENT_METHOD_LABELS, PHASE_STATUS_LABELS,
-  TERMINAL_METHOD_LABELS,
+  TERMINAL_METHOD_LABELS, IDC_INTEREST_METHOD_LABELS, resolveIdcInterestMethod,
   DEFAULT_COVENANTS, type FundingMethodId, type Asset,
 } from '../state/module1-types';
 import {
@@ -2175,7 +2175,8 @@ function buildModule1(
   ])));
   items.push(tTable(M1_TABS.finInputs, 'inputs', kvTable('1b. IDC (Interest During Construction) Policy', [
     ['Allocation Basis', (p.idcConfig?.allocationBasis ?? 'land') === 'bua' ? 'Total GFA' : 'Land Area'],
-    ['Treatment', 'Capitalised into asset cost, paid when it arises'],
+    ['IDC method', IDC_INTEREST_METHOD_LABELS[resolveIdcInterestMethod(p)]],
+    ['Treatment', 'Construction interest capitalised in full into asset cost and drawn as debt; operating years charge rate x opening debt'],
   ])));
   // 2. Funding method + 2a. its configuration.
   {

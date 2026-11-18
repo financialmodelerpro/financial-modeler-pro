@@ -122,6 +122,7 @@ export function financingPlan(state: FinancialsResolverState, snap: Snap = compu
   const dF = Math.max(0, fin.funding.debtPct ?? 0) / 100;
   scalar('fl:dF', 'Debt share of the funding', dF, 'pct', 'Debt % over debt % plus equity % on Inputs; 0 where neither is typed');
   scalar('fl:eF', 'Equity share of the funding', 1 - dF, 'pct', 'One less the debt share');
+  scalar('fl:idcExcl', 'IDC method excludes same-year IDC (1 = yes)', p.idcConfig?.interestMethod === 'mid_year_excl' ? 1 : 0, 'int', 'The IDC method on Inputs: 1 where it reads "excluding same-year IDC"');
   if (method !== 3) {
     const pf = p.financing?.parcelFunding ?? [];
     const typed = (c: { debtPct?: number; equityPct?: number }): boolean => typeof c.debtPct === 'number' || typeof c.equityPct === 'number';
@@ -236,20 +237,28 @@ export function financingPlan(state: FinancialsResolverState, snap: Snap = compu
   if (snap.escrow.byAsset.size > 0 && escrowInForce(state as never)) per('fl:esc', 'Escrow: pre-sales cash held back and released', sl(dcf.netRevenueAdjustmentPerPeriod), 'Revenue: net escrow cash flow');
   per('fl:taxPaidOps', `(-) ${TAX} paid`, sl(dcf.taxPaidPerPeriod), `The ${TAX.toLowerCase()} paid, below`);
   if (feeOn && !feeByEquity) per('fl:feeOps', '(-) Fund fees paid', sl(dcf.fundFeesPaidPerPeriod), 'The fund fees, below: inside the funding need');
-  const opIn = sl(w.operatingInflowsPerPeriod);
+  const opIn = add(sl(dcf.cashFromOperationsPerPeriod), feeOn && feeByEquity ? neg(sl(dcf.fundFeesPaidPerPeriod)) : zeros());
   per('fl:opIn', '= Operating cash before financing', opIn, 'The rows above', { style: 'subtotal' });
   gapRow();
 
   // ── The funding need ──────────────────────────────────────────────────────
-  title('fl:t:need', method === 3 ? 'The funding need (Method 3: the cash short of the minimum)' : 'Cash short of the minimum (sizes the interest drawn as debt)');
+  title('fl:t:need', method === 3 ? 'The funding need (Method 3: the cash short of the minimum)' : 'Cash short of the minimum');
   // THE FUNDING TEST ONLY WHILE CAPEX IS STILL TO BE PAID (2026-11-17, founder): 0 after the last capex year.
   const capexS = sl(fin.capex.perPeriod.exclLandInKind);
   let lastCx = -1; capexS.forEach((v, t) => { if (Math.abs(v ?? 0) > 0.005) lastCx = t; });
   const inWin = (a: number[]): number[] => a.map((v, t) => (t <= lastCx ? v : 0));
+  // ZAKAT IS PAID FROM CASH ON HAND, NEVER FUNDED (2026-11-18), and an equity-funded fund fee is
+  // drawn in full: neither enters the funding test, so the test reads no figure that reads it back.
+  per('fl:opSize', 'Operating cash for the funding test (before ' + TAX.toLowerCase() + ' and fund fees)', add(sl(dcf.cashFromOperationsPerPeriod), neg(sl(dcf.taxPaidPerPeriod)), neg(sl(dcf.fundFeesPaidPerPeriod))), 'Cash collected less opex, selling and marketing, and escrow');
   per('fl:open', 'Opening cash', inWin(sl(w.openingCashPerPeriod)), 'The year before: cash after funding', { balance: true });
-  per('fl:avail', '= Cash before financing', inWin(sl(w.cashAvailableBeforeNewDebtPerPeriod)), 'Opening cash plus operating cash, less capex, plus exit proceeds', { balance: true, style: 'subtotal' });
+  per('fl:avail', '= Cash before financing', inWin(sl(w.cashAvailableBeforeNewDebtPerPeriod)), feeOn && !feeByEquity ? 'Opening cash plus the operating cash above, less the fund fees and capex, plus exit proceeds' : 'Opening cash plus the operating cash above, less capex, plus exit proceeds', { balance: true, style: 'subtotal' });
   per('fl:need', 'Funding need: the cash short of the minimum, in a year capex is paid', sl(w.netCashRequiredPerPeriod), 'Minimum cash on Inputs less the cash before financing, where capex exceeds exit proceeds', { style: 'total' });
-  if (feeOn && !feeByEquity && method === 3) per('fl:needExFee', 'Funding need with the fund fees left out (the fee base)', sl(w.feeBaseRequirementPerPeriod), 'As above, with the fees added back to the cash');
+  if (feeOn && !feeByEquity && method === 3) {
+    // THE FEE-FREE WALK (2026-11-18): the same test with no fund fee in the cash at all, carried
+    // from its own close, so the fee base never reads a fee.
+    per('fl:xAvail', 'Cash before financing, with no fund fee paid', inWin(sl(w.feeFreeCashAvailablePerPeriod)), 'The figure a year earlier plus its funding need, plus the operating cash above, less capex, plus exit proceeds', { balance: true });
+    per('fl:needExFee', 'Funding need with no fund fee paid (the fee base)', sl(w.feeBaseRequirementPerPeriod), 'Minimum cash less the row above, in a year capex is paid');
+  }
   if (method === 2) {
     per('fl:m2pre', 'Pre-sales cash collected, net of escrow', sl(gap.preSalesNetPerPeriod), 'Revenue: pre-sales cash, less escrow held, plus escrow released');
     per('fl:m2gap', 'Funding gap: capex less last year\'s net pre-sales', sl(gap.methodAGapPerPeriod), 'Method 2: never below zero');
@@ -257,10 +266,9 @@ export function financingPlan(state: FinancialsResolverState, snap: Snap = compu
   per('fl:debtDraw', 'Debt drawn for the funding', sl(fin.debtEquitySplit.debt), method === 3 ? 'The funding need x the debt share' : method === 2 ? 'The gap (plus the minimum cash in the first capex year) x the debt share' : 'Capex excluding land (plus the minimum cash in the first capex year) x the debt share, and land cash x its debt share');
   per('fl:eqDraw', 'Equity drawn for the funding', sl(fin.equity.developmentPerPeriod), method === 3 ? 'The funding need x the equity share' : 'As the debt, at the equity share');
   if (feeByEquity) {
-    per('fl:feeDraw', 'Equity drawn for the fund fees', sl(w.managementFeeEquityDrawPerPeriod), 'While capex is paid, as far as keeps cash at the minimum once the fees are paid');
-    per('fl:feePaid', '(-) Fund fees paid', inWin(neg(sl(w.fundFeesPerPeriod))), 'The fund fees, below: drawn from equity outside the funding need');
+    per('fl:feeDraw', 'Equity drawn for the fund fees', sl(w.managementFeeEquityDrawPerPeriod), 'The whole fee, in a year capex is paid; outside the funding need');
   }
-  per('fl:after', 'Cash after funding, before interest', inWin(sl(w.closingCashAfterFundingPerPeriod)), 'Cash before financing plus the funding need', { balance: true, style: 'subtotal' });
+  per('fl:after', 'Cash after funding', inWin(sl(w.closingCashAfterFundingPerPeriod)), 'Cash before financing plus the funding need', { balance: true, style: 'subtotal' });
   gapRow();
 
   // ── Each facility ─────────────────────────────────────────────────────────
@@ -273,10 +281,10 @@ export function financingPlan(state: FinancialsResolverState, snap: Snap = compu
     const closing = sl(f.outstanding);
     per(`fl:tr:${t.id}:open`, 'Opening', closing.map((_, i) => (i === 0 ? 0 : closing[i - 1])), 'The closing balance of the year before', { balance: true });
     per(`fl:tr:${t.id}:draw`, isEx ? 'Drawn in its origination year' : 'Capex drawdown', sl(f.drawSchedule), isEx ? 'The opening balance on Inputs, in the origination year on Inputs' : 'Debt drawn for the funding x the facility\'s share');
-    per(`fl:tr:${t.id}:idc`, 'Interest drawn as debt', sl(f.interestCapitalized), 'Construction interest the cash above the minimum cannot pay');
+    per(`fl:tr:${t.id}:idc`, 'Interest drawn as debt', sl(f.interestCapitalized), isEx ? 'None: an existing loan pays its interest in cash' : 'The interest charged in a year construction runs, capitalised in full');
     per(`fl:tr:${t.id}:repaid`, kind === 'sweep' ? '(-) Swept from cash above the minimum' : '(-) Scheduled principal', neg(sl(f.principalRepaid)), kind === 'sweep' ? 'From the sweep start, the cash above the minimum after debt service x the sweep %' : 'The repayment terms on Inputs');
     per(`fl:tr:${t.id}:close`, 'Closing', closing, 'Opening plus the draws less the principal repaid', { balance: true, style: 'subtotal' });
-    per(`fl:tr:${t.id}:charge`, 'Interest charged', sl(f.interestAccrued), 'Opening plus the capex drawdown, at the rate on Inputs (interbank plus spread)');
+    per(`fl:tr:${t.id}:charge`, 'Interest charged', sl(f.interestAccrued), isEx ? 'Opening plus the drawdown, at the rate on Inputs (interbank plus spread)' : 'Construction: rate x (opening + drawdown / 2), divided by (1 - rate / 2) unless the IDC method excludes same-year IDC. Otherwise rate x opening');
   }
   gapRow();
 

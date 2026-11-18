@@ -234,6 +234,7 @@ export function buildIntegrityChecks(
     // The live workbook carries no bridge (2026-11-03): its balance check row is the check.
     ...(extra.noBridge ? [] : [mk(BRIDGE_CHECK_LABEL, unexplained, unexplained.map(() => 0), bs.totalAssetsPerPeriod, 'unexplained',
       'The "Unexplained (must be 0)" row of the reconciliation bridge on the Balance Sheet.')]),
+    cashFloorCheck(snap.directCF.closingCashPerPeriod, n),
     ...(extra.phaseEbitda
       ? [mk(PHASE_EBITDA_CHECK_LABEL, extra.phaseEbitda.fromPhases, extra.phaseEbitda.project, extra.phaseEbitda.project, 'EBITDA',
         'The Phase EBITDA Reconciliation under the phase P&Ls.')]
@@ -243,12 +244,29 @@ export function buildIntegrityChecks(
 
 export const BRIDGE_CHECK_LABEL = 'Balance sheet reconciliation bridge, unexplained';
 
+/**
+ * CASH NEVER BELOW ZERO (2026-11-18, founder). Zakat is paid from the cash on hand and is
+ * never borrowed for, so a model can run its cash short. This REPORTS it (the residue is
+ * the lowest closing cash, the year beside it) and never patches it. Within a cent is OK.
+ */
+export const CASH_FLOOR_CHECK_LABEL = 'Cash never goes below zero';
+export function cashFloorCheck(closingCash: readonly number[], n: number): IntegrityCheck {
+  let lo = 0, at = 0, peak = 0;
+  for (let t = 0; t < n; t++) {
+    const v = closingCash[t] ?? 0;
+    if (v < lo) { lo = v; at = t; }
+    peak = Math.max(peak, Math.abs(v));
+  }
+  return { label: CASH_FLOOR_CHECK_LABEL, ok: lo >= -0.01, residue: lo, atIndex: at, hi: 0, lo, magnitude: peak, what: 'cash', where: 'The closing cash on the Cash Flow.' };
+}
+
 /** The detail sentence for a check, stating the residue AND its scale either way. */
 export function checkDetail(c: IntegrityCheck, yearLabels: readonly number[], money: (v: number) => string, opts: { where?: boolean } = {}): string {
   const year = yearLabels[c.atIndex] ?? c.atIndex;
   // A narrow column (the PDF) prints `where` as a note below the table instead.
   const where = c.where && opts.where !== false ? ` ${c.where}` : '';
   if (c.magnitude === 0) return `worst period ${year}: nothing to reconcile.${where}`;
+  if (c.label === CASH_FLOOR_CHECK_LABEL) return c.ok ? `cash stays at or above zero in every year.${where}` : `cash falls to ${c.residue < 0 ? '-' : ''}${money(Math.abs(c.residue))} in ${year}: zakat or another outflow is paid from cash the model does not have.${where}`;
   const ratio = Math.abs(c.residue / c.magnitude).toExponential(1);
   const body = c.ok
     ? `worst period ${year}: ${ratio} of peak ${money(Math.abs(c.magnitude))}, within tolerance ${CHECK_REL_TOL.toExponential(0)}`

@@ -153,52 +153,7 @@ export function addRiskTriggers(wb: ExcelJS.Workbook): void {
     const d = ws.getCell(r, 4); d.value = t.basis; d.font = { name: 'Calibri', size: 9, color: { argb: 'FF000000' } }; d.alignment = { indent: 1 };
     r += 1;
   }
-
-  // THE CIRCULARITY SWITCH (2026-11-17, founder, open fix 8: "If it drifts, add a circularity switch on Inputs (1 = on),
-  // with interest using the switch"). Opened with no stored values, Excel's iteration reads a not yet worked out cell
-  // in the financing loop as empty text, and an error that enters a loop never leaves it (TRAPS 3.46). At 0 the
-  // interest is 0, the loop is broken and every cell takes a figure; back at 1 the loop iterates from those figures to
-  // the platform's. The Guide (section 3) says when to use it.
-  r += 1;
-  const bar2 = ws.getRow(r);
-  for (let c = 1; c <= 6; c++) bar2.getCell(c).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: BAR } };
-  bar2.getCell(1).value = `${barNo + 2}. Calculation settings`;
-  bar2.getCell(1).font = { name: 'Calibri', size: 10, bold: true, color: { argb: WHITE } };
-  // The switch sits directly under its bar (no empty row, whose blank left the input's top edge standing alone).
-  r += 1;
-  const s1 = ws.getCell(r, 1); s1.value = CIRCULARITY_LABEL; s1.font = { name: 'Calibri', size: 9, color: { argb: 'FF000000' } };
-  const s2 = ws.getCell(r, 2); s2.value = 1; s2.numFmt = '0';
-  const p = proto as ExcelJS.Cell | null;
-  s2.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: INPUT } };
-  s2.font = p?.font ? { ...p.font } : { name: 'Calibri', size: 9, color: { argb: BLUE } };
-  if (p?.border) s2.border = JSON.parse(JSON.stringify(p.border));
-  const s3 = ws.getCell(r, 4); s3.value = 'Set to 0, recalculate (F9), then back to 1 if an error ever fills the financing loop';
-  s3.font = { name: 'Calibri', size: 9, color: { argb: 'FF000000' } }; s3.alignment = { indent: 1 };
-  s2.dataValidation = { type: 'whole', operator: 'between', allowBlank: false, formulae: [0, 1], showErrorMessage: true, errorTitle: 'Circularity switch', error: 'Type 1 (on) or 0 (off).' };
-
-  // The switch cuts the loop where it closes: every year of every facility's "Interest charged" row, and every
-  // Financing cell that reads the P&L back (the zakat charge and each phase's EBITDA for its dividend cap). With the
-  // switch at 0 no cell on the loop depends on itself.
-  const fin = wb.getWorksheet('Financing');
-  if (!fin) return;
-  const sw = `Inputs!$B$${r}`;
-  // Two more loops close without interest, and are cut too: the fund fees (the fee base is the equity, and the equity
-  // funds the fees: their total) and the cash sweep (the sweep sets the debt repaid at the exit, which sets the cash
-  // the sweep takes from).
-  const CUT = new Set(['Interest charged', 'Total fund fees', '(-) Swept from cash above the minimum']);
-  fin.eachRow((row) => {
-    const interest = CUT.has(txt(row.getCell(1)));
-    row.eachCell((c, col) => {
-      if (col < 2) return;
-      const v = c.value as { formula?: string; result?: unknown } | null;
-      if (!v || typeof v !== 'object' || typeof v.formula !== 'string' || /^SUM\(/.test(v.formula)) return;
-      if (!interest && !/'P&L'!/.test(v.formula)) return;
-      c.value = { formula: `IF(${sw}=1,${v.formula},0)`, result: v.result ?? 0 } as ExcelJS.CellValue;
-    });
-  });
 }
-
-export const CIRCULARITY_LABEL = 'Circularity switch (1 = on)';
 
 // ── The Dashboard ─────────────────────────────────────────────────────────────────────────────────────────────────
 export interface DashboardContext {

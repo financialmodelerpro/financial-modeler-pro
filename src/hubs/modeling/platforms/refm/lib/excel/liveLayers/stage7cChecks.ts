@@ -25,7 +25,7 @@
 import type { LayerContext, LiveLayer } from '../formulaWorkbook';
 import { LiveWriter } from './writer';
 import { PERIOD_COLS } from '../buildModelWorkbook';
-import { CHECK_REL_TOL, PHASE_EBITDA_CHECK_LABEL, buildEmptyInputAdvisories, isEmptyCheckEligible } from '../../reports/checksReport';
+import { CASH_FLOOR_CHECK_LABEL, CHECK_REL_TOL, PHASE_EBITDA_CHECK_LABEL, buildEmptyInputAdvisories, isEmptyCheckEligible } from '../../reports/checksReport';
 import { PHASE_RECON, PHASE_RECON_LINE } from '../../reports/m4Reports';
 import { computeFinancialsSnapshot } from '../../financials-resolvers';
 import { LOOP_PBT_CHECK, SOURCES_USES_CHECK } from '../buildModelWorkbook';
@@ -99,6 +99,23 @@ export const stage7cChecks: LiveLayer = {
       w.reset(); w.fA({ ...res, col: res.col + 1 }, `MAX(MAX(${M}),-MIN(${M}))`);
       finish(res);
       liveIds.push(id.label);
+    }
+    // Cash never below zero (2026-11-18): the lowest closing cash, OK within a cent. It reports, it never patches.
+    {
+      const key = `chk|id|${CASH_FLOOR_CHECK_LABEL}`;
+      const cash = liveRow('cf|direct||Closing cash');
+      if (has(key) && cash) {
+        const res = w.addr(key);
+        w.reset(); w.fA({ ...res, col: res.col + HI_OFFSET }, '0');
+        w.reset(); w.fA({ ...res, col: res.col + HI_OFFSET + 1 }, `MIN(0,MIN(${cash}))`);
+        const lo = w.refA({ ...res, col: res.col + HI_OFFSET + 1 }, CHK);
+        w.reset(); w.fA(res, lo);
+        w.reset(); w.fA({ ...res, col: res.col + 1 }, `MAX(MAX(${cash}),-MIN(${cash}))`);
+        const C = w.refA(res, CHK);
+        w.reset(); w.fA({ ...res, col: res.col - 1 }, `IF(${C}>=-0.01,"OK","CHECK")`);
+        w.reset(); w.fA({ ...res, col: res.col + 2 }, `IF(${C}>=-0.01,"Cash stays at or above zero","Cash falls to "&TEXT(${C}/1000000,"#,##0.0")&" m")`);
+        liveIds.push(CASH_FLOOR_CHECK_LABEL);
+      }
     }
     // Sources equal uses: Returns' two totals, each the sum of its own rows.
     {

@@ -160,6 +160,17 @@ export type SubUnitMetric = 'units' | 'area';
 //   'autoByBua' -> Module 1 derives % automatically as asset.bua / total bua
 export type LandAllocationMode = 'sqm' | 'percent' | 'autoByBua';
 
+/** How a construction year's interest is charged (2026-11-18). See `Project.idcConfig.interestMethod`. */
+export type IdcInterestMethod = 'mid_year_incl' | 'mid_year_excl';
+export const IDC_INTEREST_METHOD_LABELS: Record<IdcInterestMethod, string> = {
+  mid_year_incl: 'Mid-year on draws, including same-year IDC',
+  mid_year_excl: 'Mid-year on draws, excluding same-year IDC',
+};
+/** The method in force: the stated one, else the default (including same-year IDC). */
+export function resolveIdcInterestMethod(p: { idcConfig?: { interestMethod?: IdcInterestMethod } }): IdcInterestMethod {
+  return p.idcConfig?.interestMethod === 'mid_year_excl' ? 'mid_year_excl' : 'mid_year_incl';
+}
+
 export const LAND_ALLOCATION_MODES: readonly LandAllocationMode[] = [
   'sqm',
   'percent',
@@ -719,6 +730,17 @@ export interface Project {
     allocationBasis?: 'land' | 'bua';
     capitalize?: boolean;
     fundingMode?: 'debt_drawdown' | 'cash' | 'conditional';
+    /**
+     * THE IDC METHOD (2026-11-18, no circularity). A construction year's interest is
+     * charged on the opening balance plus HALF the year's capex draw (draws arrive
+     * through the year), and is capitalised in full (added to the debt):
+     *   'mid_year_incl' (default): rate x (opening + draw / 2) / (1 - rate / 2), the
+     *     year's own IDC also drawn mid-year, so it carries interest for half a year;
+     *   'mid_year_excl': rate x (opening + draw / 2), the year's IDC carries none.
+     * An operating year charges rate x opening. Neither reads the year's cash, sweep
+     * or its own result, so the model has no circular reference.
+     */
+    interestMethod?: IdcInterestMethod;
   };
   /**
    * Project-level dividend start year (2026-06-02). Dividends are a single

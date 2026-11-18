@@ -30,7 +30,7 @@
  * No em dashes in this file.
  */
 import type ExcelJS from 'exceljs';
-import { buildModelWorkbook, enableIterativeCalc, houseContextOf, type BuildModelOptions } from './buildModelWorkbook';
+import { buildModelWorkbook, finalizeCalcSettings, houseContextOf, type BuildModelOptions } from './buildModelWorkbook';
 import { applyHouseStyle, timelinePhaseFormula } from './houseStyle';
 import { CellRegistry, setCellSink } from './cellRegistry';
 import { applyReferenceLayout, composeMoves } from './referenceLayout';
@@ -360,21 +360,15 @@ export function exportShapeProblems(wb: ExcelJS.Workbook): string[] {
   return out;
 }
 
-/**
- * THE LIVE WORKBOOK ITERATES FURTHER THAN THE HARDCODED ONE (2026-09-27, stage 6):
- * two coupled fixed-point solves (the fee-free one and the real one) must settle
- * to the platform's exact fixed point, so 1,000 passes to a millionth of a unit.
- * The hardcoded export keeps its own setting, byte-identical.
- */
-export const FORMULA_ITERATION = { count: 1000, delta: 0.000001 };
-export function enableFormulaIteration(buf: ArrayBuffer): Promise<ArrayBuffer> {
-  return enableIterativeCalc(buf, FORMULA_ITERATION);
+/** The live workbook's calc settings (2026-11-18): no circular reference, so iteration stays OFF. */
+export function finalizeFormulaCalc(buf: ArrayBuffer): Promise<ArrayBuffer> {
+  return finalizeCalcSettings(buf);
 }
 
 export async function generateFormulaWorkbookBuffer(opts: BuildModelOptions): Promise<ArrayBuffer> {
   const { wb } = buildFormulaWorkbook(opts);
   const buf = await wb.xlsx.writeBuffer();
-  return enableFormulaIteration(buf as ArrayBuffer);
+  return finalizeFormulaCalc(buf as ArrayBuffer);
 }
 
 /**
@@ -396,7 +390,7 @@ export async function generateLiveWorkbook(opts: BuildModelOptions): Promise<
   const refusal = liveWorkbookRefusal(res.status);
   if (refusal) return { ok: false, message: refusal.message, detail: res.status.get('Financing')?.note ?? '' };
   const buf = await addDashboardCharts((await res.wb.xlsx.writeBuffer()) as ArrayBuffer, res.charts);
-  return { ok: true, buffer: await enableFormulaIteration(buf) };
+  return { ok: true, buffer: await finalizeFormulaCalc(buf) };
 }
 
 // ── Honest labelling ─────────────────────────────────────────────────────────
@@ -420,7 +414,7 @@ function workbookStatusText(status: FormulaWorkbookResult['status']): string {
     partial.length ? `Partly live: ${partial.join(', ')}.` : '',
     `Not live yet (platform values as of export; they do NOT recalculate): ${notYet.length ? notYet.join(', ') : 'none'}.`,
     byDesign.length ? `Values by design: ${byDesign.join(', ')}.` : '',
-    'Shaded cells are inputs. Iterative calculation is switched on for the circular financing.',
+    'Shaded cells are inputs. The model has no circular reference, so iterative calculation stays off.',
   ].filter(Boolean).join(' ');
 }
 

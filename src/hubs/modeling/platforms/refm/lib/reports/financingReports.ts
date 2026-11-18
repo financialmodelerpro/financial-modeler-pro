@@ -335,7 +335,7 @@ export function buildIdcAllocationTables(snap: ProjectFinancialsSnapshot, state:
   }));
   if (rows.length) main.push({ label: 'Total IDC (allocated to assets)', values: sliceN(idc.totalIdcPerPeriod, N), isTotal: true });
   main.push({ label: idc.capitalize ? 'Memo: Total construction interest (accrual)' : 'Total construction interest to P&L Finance Cost', values: sliceN(idc.totalConstructionInterestPerPeriod, N) });
-  tables.push({ title: `IDC Allocation, by Line (YoY + Total), basis ${idc.allocationBasis === 'bua' ? 'GFA Area' : 'Land Area'}, capitalised into asset cost, paid when it arises, debt drawn for the shortfall`, rows: main });
+  tables.push({ title: `IDC Allocation, by Line (YoY + Total), basis ${idc.allocationBasis === 'bua' ? 'GFA Area' : 'Land Area'}, capitalised into asset cost and drawn as debt in full`, rows: main });
 
   const sum = (list: typeof rows): number[] => {
     const out = new Array<number>(N).fill(0);

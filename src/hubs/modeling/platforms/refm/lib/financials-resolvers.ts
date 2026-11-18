@@ -857,6 +857,9 @@ export interface Method3WaterfallSnapshot {
    *  the need itself; on the deficit path the fee is added back here. No finance cost is in
    *  either (the sizing has none), so it is the need excluding capitalised interest. */
   feeBaseRequirementPerPeriod: number[];
+  /** The fee-free walk's cash before financing (2026-11-18): opening (its own close) plus the
+   *  operating cash before zakat and fund fees, less capex, plus exit proceeds. */
+  feeFreeCashAvailablePerPeriod: number[];
 }
 
 export interface FundingGapSnapshot {
@@ -1492,6 +1495,11 @@ export function computeFundingGap(snap: ProjectFinancialsSnapshot): FundingGapSn
   const feeFundedByEquity = snap.directCF.managementFeeFundedByEquity === true;
   const fundFeesPerPeriod = (snap.directCF.fundFeesPaidPerPeriod ?? []).slice(0, N).map((v) => Math.max(0, -(v ?? 0)));
   while (fundFeesPerPeriod.length < N) fundFeesPerPeriod.push(0);
+  // ZAKAT IS NOT A FUNDING NEED (2026-11-18, founder): it is paid from the cash on hand, so
+  // the sizing adds it back. Zakat reads profit, profit reads the fees and the capitalised
+  // interest, and both read the funding: sizing the funding on zakat closed a loop.
+  const taxPaidForSizing = (snap.directCF.taxPaidPerPeriod ?? []).slice(0, N).map((v) => Math.max(0, -(v ?? 0)));
+  while (taxPaidForSizing.length < N) taxPaidForSizing.push(0);
 
   const existingEquityDrawdownPerPeriod = zeros(N);
   const existingDebtDrawdownPerPeriod = zeros(N);
@@ -1539,7 +1547,13 @@ export function computeFundingGap(snap: ProjectFinancialsSnapshot): FundingGapSn
   const idcHeadroomPerPeriod = zeros(N);
   const closingCashAfterFundingPerPeriod = zeros(N);
   const feeBaseRequirementPerPeriod = zeros(N);
+  const feeFreeCashAvailablePerPeriod = zeros(N);
   let openingC = snap.bs.historicalOpeningCashTotal;
+  // THE FEE-FREE WALK (2026-11-18): the same sizing with no fund fee in it at all, its own
+  // opening carried from its own close. The fee bases read it, so no fee can reach its own
+  // base through the cash a fee leaves behind. When the fees are equity funded the real walk
+  // carries no fee either, and the two are the same series.
+  let openingX = snap.bs.historicalOpeningCashTotal;
   for (let t = 0; t < N; t++) {
     openingCashPerPeriod[t] = openingC;
     // Existing debt repayment is DELIBERATELY EXCLUDED from the funding gap
@@ -1578,7 +1592,8 @@ export function computeFundingGap(snap: ProjectFinancialsSnapshot): FundingGapSn
     // debt / equity is sized without it, and it is drawn from equity directly
     // AFTER the base funding, below.
     const fee = fundFeesPerPeriod[t] ?? 0;
-    const opsForSizing = (cashFromOpsPerPeriod[t] ?? 0) + (feeFundedByEquity ? fee : 0);
+    const tax = taxPaidForSizing[t] ?? 0;
+    const opsForSizing = (cashFromOpsPerPeriod[t] ?? 0) + tax + (feeFundedByEquity ? fee : 0);
     operatingInflowsPerPeriod[t] = opsForSizing;
     preFinancingNetCashPerPeriod[t] = opsForSizing + (cashFromInvPerPeriod[t] ?? 0);
     const cashAvail = openingC
@@ -1593,22 +1608,24 @@ export function computeFundingGap(snap: ProjectFinancialsSnapshot): FundingGapSn
     const spendingThisPeriod = (cashFromInvPerPeriod[t] ?? 0) < -0.005;
     const netReq = spendingThisPeriod ? Math.max(0, minCashReserve - cashAvail) : 0;
     netCashRequiredPerPeriod[t] = netReq;
-    feeBaseRequirementPerPeriod[t] = spendingThisPeriod ? Math.max(0, minCashReserve - (cashAvail + (feeFundedByEquity ? 0 : fee))) : 0;
-    const afterBase = cashAvail + netReq;
-    // THE FEE EQUITY DRAW: only while construction is spending, and only as
-    // far as keeps cash at the minimum once the fee has been paid out of the
-    // cash the base funding left. Never more than the fee, never after the
-    // spend stops (the fee is then paid from cash, which may fall below the
-    // floor: that is the honest number, not a reason to raise equity).
-    let feeDraw = 0;
-    if (feeFundedByEquity && spendingThisPeriod && fee > 0) {
-      feeDraw = Math.min(fee, Math.max(0, minCashReserve - (afterBase - fee)));
+    {
+      const availX = openingX + opsForSizing + (feeFundedByEquity ? 0 : fee) + (cashFromInvPerPeriod[t] ?? 0)
+        + (existingEquityDrawdownPerPeriod[t] ?? 0) + (existingDebtDrawdownPerPeriod[t] ?? 0);
+      const needX = spendingThisPeriod ? Math.max(0, minCashReserve - availX) : 0;
+      feeBaseRequirementPerPeriod[t] = needX;
+      feeFreeCashAvailablePerPeriod[t] = availX;
+      openingX = availX + needX;
     }
+    const afterBase = cashAvail + netReq;
+    // THE FEE EQUITY DRAW (2026-11-18): the whole fee, in every year construction is
+    // spending, so the fee neither raises nor uses the development funding and the sizing
+    // carries no fee. After the spend stops the fee is paid from operating cash.
+    let feeDraw = 0;
+    if (feeFundedByEquity && spendingThisPeriod && fee > 0) feeDraw = fee;
     managementFeeEquityDrawPerPeriod[t] = feeDraw;
-    const afterFee = feeFundedByEquity ? afterBase - fee + feeDraw : afterBase;
-    // R123: the IDC is paid from what sits above the minimum BEFORE any
-    // interest, and the rest is drawn.
-    idcHeadroomPerPeriod[t] = Math.max(0, afterFee - minCashReserve);
+    const afterFee = afterBase;
+    // RETIRED 2026-11-18: IDC is capitalised in full, so there is no cash headroom for it.
+    idcHeadroomPerPeriod[t] = 0;
     closingCashAfterFundingPerPeriod[t] = afterFee;
     // In a spending period the base funding plugs cash to the floor; in a
     // non-spending period nothing is raised and the walk carries the true
@@ -1639,6 +1656,7 @@ export function computeFundingGap(snap: ProjectFinancialsSnapshot): FundingGapSn
     netCashRequiredPerPeriod,
     totalNetCashRequired: netCashRequiredPerPeriod.reduce((s, v) => s + v, 0),
     feeBaseRequirementPerPeriod,
+    feeFreeCashAvailablePerPeriod,
   };
 
   return {
@@ -1767,6 +1785,9 @@ function computeFinancialsSnapshotOnce(
     // sweep-eligible tranches repay from it IN the engine so interest follows
     // the swept balance. Fed by the snapshot two-pass (deriveCircularInputs).
     sweepBudget: opts?.sweepBudget,
+    // NO SWEEP FROM THE EXIT YEAR ON (2026-11-18): the exit repays what is left from the
+    // proceeds, so the sweep never reads cash that the exit repayment has already moved.
+    sweepStopIdx: exitCfgAtSource.terminalMethod !== 'none' && exitAxisLength > 0 ? exitCfgAtSource.exitYearOffset : undefined,
   });
 
   // NO DOWNPAYMENT STATED (2026-08-20, Option B Step 3). Appended to the
@@ -3326,10 +3347,10 @@ function computeFinancialsSnapshotSolved(
   let fundFees = fundFeesIn;
   const finCfg = state.project.financing ?? DEFAULT_PROJECT_FINANCING_CONFIG;
   const fundingMethod = finCfg.fundingMethod;
-  // Always true since 2026-08-18: IDC is funded cash-first and borrows only
-  // the shortfall, so the iterative pass that computes the surplus-cash
-  // budget is always required. The toggle that could switch it off is gone.
-  const idcConditional = true;
+  // RETIRED 2026-11-18: IDC is capitalised in full (no cash budget for it), so nothing
+  // about it needs solving. The remaining passes settle the funding gap and the sweep, each
+  // of which reads only EARLIER periods' results, so the passes converge exactly.
+  const idcConditional = false;
   // Cash sweep (2026-06-02): a sweep-eligible tranche means the sweep repayment
   // (and the interest that follows the swept balance) must be resolved by the
   // iterative two-pass, the sweep needs cumulative cash, computed in the cash

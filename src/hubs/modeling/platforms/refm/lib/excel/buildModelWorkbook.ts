@@ -67,7 +67,7 @@ import { computeReturnsSnapshot, computeReturnsSensitivity, resolveReturnsConfig
 import { defaultSensitivityValues } from '@/src/core/calculations/returns';
 import type { M4Row } from '../../components/modules/_shared/m4Table';
 import { resolveAssetAreaMetrics, computePhaseTimeline, computeProjectTimeline, resolveSubUnitAdr, type AssetAreaMetrics } from '@/src/core/calculations';
-import { FUNDING_METHOD_LABELS, COST_METHOD_LABELS, type FundingMethodId } from '../state/module1-types';
+import { FUNDING_METHOD_LABELS, COST_METHOD_LABELS, IDC_INTEREST_METHOD_LABELS, resolveIdcInterestMethod, type FundingMethodId } from '../state/module1-types';
 import { CAPEX_SECTIONS, CAPEX_TABLE6_TITLE, CAPEX_TABLE6_CAPTION, resolvedWindowYears } from '../reports/capexReports';
 import { TERMINAL_METHOD_LABELS, TERMINAL_BASIS_LABELS } from '../state/module1-types';
 import { buildConsolidatedReport, perAssetCostsFromTreatment, consolidatedCaption } from '../reports/consolidatedReport';
@@ -732,31 +732,25 @@ function buildRealModel(twin: LiveModel, snap: ReturnType<typeof computeFinancia
 export async function generateModelWorkbookBuffer(opts: BuildModelOptions): Promise<ArrayBuffer> {
   const wb = buildModelWorkbook(opts);
   const buf = await wb.xlsx.writeBuffer();
-  return enableIterativeCalc(buf);
+  return finalizeCalcSettings(buf);
 }
 
 /**
- * ExcelJS hardcodes <calcPr> and cannot emit the iterative-calculation flags the
- * model needs (the debt / IDC / cash-sweep / funding formulas are circular).
- * Post-process the .xlsx zip to add iterate / iterateCount / iterateDelta to
- * xl/workbook.xml so Excel converges the circular formulas on open.
+ * NO ITERATIVE CALCULATION (2026-11-18). The model has no circular reference: interest reads
+ * the opening balance and half the year's draw, the funding test reads no zakat and no fund
+ * fee, the fee bases read a fee-free walk, and the sweep stops at the exit. So the file must
+ * open with iteration OFF, where Excel would report any loop that crept back. This strips any
+ * iterate flag from <calcPr> (ExcelJS writes none; the strip guards a template that might).
  */
-export async function enableIterativeCalc(buf: ArrayBuffer, iteration: { count: number; delta: number } = { count: 100, delta: 0.001 }): Promise<ArrayBuffer> {
+export async function finalizeCalcSettings(buf: ArrayBuffer): Promise<ArrayBuffer> {
   try {
     const zip = await JSZip.loadAsync(buf);
     const f = zip.file('xl/workbook.xml');
     if (!f) return buf;
-    let xml = await f.async('string');
-    const ITER = `iterate="1" iterateCount="${iteration.count}" iterateDelta="${iteration.delta}"`;
-    if (/<calcPr\b/.test(xml)) {
-      xml = xml.replace(/<calcPr\b([^>]*?)\/>/, (_m, attrs: string) => {
-        const cleaned = attrs.replace(/\s+iterate(Count|Delta)?="[^"]*"/g, '');
-        return `<calcPr${cleaned} ${ITER}/>`;
-      });
-    } else {
-      xml = xml.replace('</workbook>', `<calcPr calcId="171027" ${ITER}/></workbook>`);
-    }
-    zip.file('xl/workbook.xml', xml);
+    const xml = await f.async('string');
+    const out = xml.replace(/<calcPr\b([^>]*?)\/>/, (_m, attrs: string) => `<calcPr${attrs.replace(/\s+iterate(Count|Delta)?="[^"]*"/g, '')}/>`);
+    if (out === xml) return buf;
+    zip.file('xl/workbook.xml', out);
     return await zip.generateAsync({ type: 'arraybuffer' });
   } catch {
     return buf; // never block the export on the calc-flag tweak
@@ -1270,7 +1264,8 @@ function addAssumptions(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFin
     addKV('Equity share', fin.funding.equityPct / 100, NUMFMT.pct, 'EquityPct', 'fin:in:equity');
     addKV('Minimum cash reserve', p.financing?.minimumCashReserve ?? fin.funding.minCashReserve ?? 0, NUMFMT.money, 'MinCashReserve', 'fin:in:min');
     fixedText('Capitalised interest shared on', (p.idcConfig?.allocationBasis ?? 'land') === 'bua' ? 'Total GFA' : 'Land area');
-    fixedText('Interest during construction', 'Capitalised; construction interest the cash cannot pay is drawn as debt');
+    // THE IDC METHOD (2026-11-18): typed here and read by Financing (the word "excluding" picks the second).
+    addKV('IDC method', IDC_INTEREST_METHOD_LABELS[resolveIdcInterestMethod(p)], '@', undefined, 'fin:in:idcMethod');
     if (fundTermsOn) fixedText('Fund fees funded by', p.fundTerms?.managementFeeFunding === 'equity' ? 'Equity, drawn outside the funding need' : 'The funding need, at the debt / equity split');
     financingScalars.dividendEnabled = addr('B', addKV('Dividends paid (1 = yes)', p.dividendPolicy?.enabled ? 1 : 0, NUMFMT.int, undefined, 'fin:in:divOn'));
     financingScalars.dividendPayout = addr('B', addKV('Dividend payout ratio %', (p.dividendPolicy?.payoutRatio ?? 0) / 100, NUMFMT.pct, undefined, 'fin:in:payout'));

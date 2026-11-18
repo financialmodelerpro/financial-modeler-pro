@@ -26,7 +26,7 @@ export const LIVE_TAB_GUIDE: Array<[string, string]> = [
   ['Capex', 'Each cost line per asset: rate x quantity x spend share x escalation, by year, with and without land.'],
   ['Opex', 'Operating costs per hotel and lease line, by year of operation.'],
   ['Schedules', 'Fixed assets and depreciation per held asset, and cost of sales and inventory per sell line.'],
-  ['Financing', 'The funding need, draws, interest, repayments, sweep, dividends and the exit; Excel iterates this loop.'],
+  ['Financing', 'The funding need, draws, interest, repayments, sweep, dividends and the exit, in year order with no circular reference.'],
   ['P&L', 'Revenue to EBITDA by line, then depreciation, interest, the gain on disposal and zakat; phases to EBITDA.'],
   ['Cash Flow', 'Cash in and out by the direct method, and opening and closing cash.'],
   ['Balance Sheet', 'Balances at each year end with the equity roll-forward; the check row must read zero.'],

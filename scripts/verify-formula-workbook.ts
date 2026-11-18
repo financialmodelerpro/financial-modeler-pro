@@ -27,7 +27,7 @@
 import { writeFileSync, mkdirSync } from 'node:fs';
 import type ExcelJS from 'exceljs';
 import { buildModelWorkbook, PERIOD_COLS, houseContextOf } from '../src/hubs/modeling/platforms/refm/lib/excel/buildModelWorkbook';
-import { buildFormulaWorkbook, enableFormulaIteration, exportShapeProblems, backwardReads, deadSwitchCells, TAB_ORDER } from '../src/hubs/modeling/platforms/refm/lib/excel/formulaWorkbook';
+import { buildFormulaWorkbook, finalizeFormulaCalc, exportShapeProblems, backwardReads, deadSwitchCells, TAB_ORDER } from '../src/hubs/modeling/platforms/refm/lib/excel/formulaWorkbook';
 import { readCells, shadedCells, isShaded, isLegendSwatch, cellId, inputsUnreadProblems, receivableDaysProblems, DEAD_SWITCHES } from '../src/hubs/modeling/platforms/refm/lib/excel/liveLayers/inputAudit';
 import { loadLiveExportInputs } from './fixtures/liveExportInputs';
 import { multiPlotVariant } from './fixtures/multiPlotVariant';
@@ -1349,7 +1349,7 @@ function formulaCells(wb: ExcelJS.Workbook): Map<string, { formula: string; resu
       want !== null && got !== null && Math.abs(got - want) < 1e-6, `builder ${got}, rule ${want}`);
   }
 
-  const buf = await enableFormulaIteration((await wb.xlsx.writeBuffer()) as ArrayBuffer);
+  const buf = await finalizeFormulaCalc((await wb.xlsx.writeBuffer()) as ArrayBuffer);
   const calcPr = (await (await JSZip.loadAsync(buf)).file('xl/workbook.xml')!.async('string')).match(/<calcPr[^>]*>/)?.[0] ?? '';
   check('A7 iterative calculation is switched on in the file', /iterate="1"/.test(calcPr), calcPr);
   // A8. A RESIDUE IS NOT A DISTRIBUTION (2026-09-27): the fixed-point solve left
@@ -1441,7 +1441,7 @@ function formulaCells(wb: ExcelJS.Workbook): Map<string, { formula: string; resu
       const { wb: bad } = buildFormulaWorkbook(opts);
       bad.getWorksheet(victim.sheet)!.getCell(victim.row, victim.col).value = victim.v + 1;
       const badPath = `exports/${input.projectName} - Live Model (sabotaged copy).xlsx`;
-      writeFileSync(badPath, Buffer.from(await enableFormulaIteration((await bad.xlsx.writeBuffer()) as ArrayBuffer)));
+      writeFileSync(badPath, Buffer.from(await finalizeFormulaCalc((await bad.xlsx.writeBuffer()) as ArrayBuffer)));
       const r2 = recalcInExcel(badPath);
       const caught = [...oracleLive].filter(([k, n]) => { const e = r2.cells.get(k); return typeof e !== 'number' || Math.abs(e - n.v) > tolFor(n.sheet, n.v, rowPeak(plain, n.sheet, n.prow)); }).map(([k]) => k);
       check('B0 the comparison fires: a copy with one figure off by 1 is caught at exactly that cell', caught.length === 1 && caught[0] === victim.key, caught.slice(0, 3).join(', '));
@@ -1480,7 +1480,7 @@ function formulaCells(wb: ExcelJS.Workbook): Map<string, { formula: string; resu
         check(`C ${pt.label}: every shaded cell on the test copy is an input a formula reads`, deadV.length === 0, deadV.slice(0, 6).join(', '));
         const longV = overLong(built.wb);
         if (longV.length) { check(`C ${pt.label}: the test copy has no formula over Excel's limit`, false, longV.slice(0, 5).join(', ')); continue; }
-        writeFileSync(vPath, Buffer.from(await enableFormulaIteration((await built.wb.xlsx.writeBuffer()) as ArrayBuffer)));
+        writeFileSync(vPath, Buffer.from(await finalizeFormulaCalc((await built.wb.xlsx.writeBuffer()) as ArrayBuffer)));
         base = { wb: built.wb, registry: built.registry, plain: framedPlain(vOpts, built.wb), path: vPath, opts: vOpts, pending: built.pending, frame: built.frame };
         const untouched = compareLive(base.plain, base.plain, base.wb, recalcInExcel(vPath));
         check(`C ${pt.label}: the test copy recalculates to the platform before the change`, untouched.bad.length === 0 && untouched.layout.length === 0, untouched.bad.slice(0, 6).map((x) => x.msg).join('\n        '));
