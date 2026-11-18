@@ -569,8 +569,8 @@ interface AssetCardProps {
  * commission line gains one (a share of the sale value, 0% until typed).
  */
 function SellingCostRates({ line, phase }: { line: RevenueLine; phase: Phase }): React.JSX.Element {
-  const { costLines, costOverrides, setCostOverride, addCostLine } = useModule1Store(useShallow((s) => ({
-    costLines: s.costLines, costOverrides: s.costOverrides, setCostOverride: s.setCostOverride, addCostLine: s.addCostLine,
+  const { costLines, costOverrides, setCostOverride, addCostLine, updateAsset } = useModule1Store(useShallow((s) => ({
+    costLines: s.costLines, costOverrides: s.costOverrides, setCostOverride: s.setCostOverride, addCostLine: s.addCostLine, updateAsset: s.updateAsset,
   })));
   const lineOf = (ident: 'marketing' | 'commission'): CostLine | undefined =>
     costLines.find((l) => l.phaseId === phase.id && resolveCatalogId(l) === ident);
@@ -592,6 +592,29 @@ function SellingCostRates({ line, phase }: { line: RevenueLine; phase: Phase }):
       setCostOverride({ assetId: m.id, lineId: cl.id, method: 'percent_of_revenue_sale', value: Math.max(0, pct), phasing: cl.phasing, overridden: true });
     }
   };
+  // THE COMMISSION TERMS (2026-11-18, founder): what the line pays on contract and when the rest is paid. A line
+  // still on the legacy timing (follows collections) shows 0% on contract with the rest on collections, which is
+  // exactly what it does; editing either field moves its commission onto the terms, on every plot of the line.
+  const commissionLine = lineOf('commission');
+  const srcOf = (assetId: string): string => {
+    if (!commissionLine) return 'commission_terms';
+    const o = costOverrides.find((x) => x.lineId === commissionLine.id && x.assetId === assetId && x.overridden !== false);
+    return o?.phasingSource ?? commissionLine.phasingSource ?? 'inherit';
+  };
+  const onTerms = srcOf(line.host.id) === 'commission_terms';
+  const terms = line.host.commissionTiming;
+  const shownPct = onTerms ? Math.max(0, Math.min(100, terms?.onContractPct ?? 100)) : 0;
+  const shownRem = onTerms ? (terms?.remainder ?? 'collections') : 'collections';
+  const setTerms = (next: { onContractPct: number; remainder: 'collections' | 'handover' }): void => {
+    const cl = commissionLine;
+    for (const m of line.members) {
+      updateAsset(m.id, { commissionTiming: { onContractPct: next.onContractPct, remainder: next.remainder } } as Partial<Asset>);
+      if (cl) {
+        const o = costOverrides.find((x) => x.lineId === cl.id && x.assetId === m.id && x.overridden !== false);
+        setCostOverride({ ...(o ?? {}), assetId: m.id, lineId: cl.id, method: o?.method ?? cl.method, value: o?.value ?? cl.value, phasing: o?.phasing ?? cl.phasing, phasingSource: 'commission_terms', overridden: true });
+      }
+    }
+  };
   const box: React.CSSProperties = { display: 'flex', gap: 'var(--sp-2)', alignItems: 'flex-end', padding: '6px 10px', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', background: 'var(--color-surface)' };
   const lab: React.CSSProperties = { fontSize: 11, fontWeight: 600, color: 'var(--color-heading)', display: 'block', marginBottom: 2 };
   return (
@@ -605,8 +628,19 @@ function SellingCostRates({ line, phase }: { line: RevenueLine; phase: Phase }):
         <label style={lab}>Sales commission (% of sale value)</label>
         <PercentageInput value={rateOf('commission')} onChange={(v) => setRate('commission', v)} style={{ width: 90 }} />
       </div>
+      <div>
+        <label style={lab}>Commission paid on contract (%)</label>
+        <PercentageInput value={shownPct} onChange={(v) => setTerms({ onContractPct: Math.max(0, Math.min(100, v)), remainder: shownRem })} style={{ width: 90 }} />
+      </div>
+      <div>
+        <label style={lab}>Remainder paid</label>
+        <select value={shownRem} onChange={(e) => setTerms({ onContractPct: shownPct, remainder: e.target.value === 'handover' ? 'handover' : 'collections' })} style={{ fontSize: 11, padding: '3px 4px' }} data-testid={`commission-remainder-${line.key}`}>
+          <option value="collections">With customer collections</option>
+          <option value="handover">At handover</option>
+        </select>
+      </div>
       <div style={{ fontSize: 10, color: 'var(--color-meta)', maxWidth: 360 }}>
-        Marketing is expensed as incurred; the commission is capitalised as a contract cost and released to the P&L as revenue is recognised. Who earns the commission is set on Returns.
+        Marketing is expensed as incurred, in the year units are sold on a new phase; the commission is capitalised as a contract cost, paid on the terms here (a share on contract, the rest with collections or at handover) and released to the P&L as revenue is recognised. Who earns the commission is set on Returns.
       </div>
     </div>
   );

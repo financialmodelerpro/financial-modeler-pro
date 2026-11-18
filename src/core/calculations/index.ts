@@ -87,6 +87,7 @@ import type {
 import {
   capexPhasingIsInert,
   resolveLinePhasing,
+  sellShapesForAssetAtOffset,
   isParcelDrivenLandLine,
   type CapexPhasingContext,
   type EffectivePhasing,
@@ -2212,9 +2213,16 @@ export function computeAssetCost(input: ComputeAssetCostInput): AssetCostBreakdo
         for (let i = 0; i < periodSlots; i += 1) landShape[i] += frac * (w[i] ?? 0);
       }
     }
+    // THE SALE YEAR AND THE HANDOVER (2026-11-18), placed in the phase exactly as the collections are.
+    const psy = (revenue as { projectStartYear?: number } | undefined)?.projectStartYear;
+    const phStart = phase.startDate ? new Date(phase.startDate).getUTCFullYear() : psy;
+    const sellShapes = psy != null && phStart != null
+      ? sellShapesForAssetAtOffset(revenue as never, asset.id, Math.max(0, phStart - psy), phase) : {};
     const phasingCtx: CapexPhasingContext = {
       landCashPerPeriod: landShape,
       collectionsPerPeriod: collectionsPerPeriod,
+      salesPerPeriod: sellShapes.sales,
+      handoverPerPeriod: sellShapes.handover,
     };
     for (const r of resolved) {
       const ov = costOverrides.find((o) => o.assetId === asset.id && o.lineId === r.line.id);

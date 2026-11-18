@@ -2031,7 +2031,8 @@ export function restoreStrippedPhasingSource(snap: HydrateSnapshot): HydrateSnap
     const catalogId = resolveCatalogId(c);
     if (!catalogId) return c;
     const entry = findCatalogEntry(catalogId);
-    const seeded = entry?.phasingSource;
+    // The seed AS IT WAS (2026-11-18): a stripped field predates the sale-year sources.
+    const seeded = entry?.legacyPhasingSource ?? entry?.phasingSource;
     if (!seeded || seeded === 'inherit') return c;
     touched += 1;
     return { ...c, phasingSource: seeded };

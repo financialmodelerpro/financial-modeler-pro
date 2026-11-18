@@ -53,7 +53,7 @@ import type { Asset, CostLine, CostOverride, Phase } from '../../state/module1-t
 import { computeFinancialsSnapshot } from '../../financials-resolvers';
 import { buildCapexReport, assetCapexSection } from '../../reports/capexReports';
 import { poolCapexByLine, planReportLines } from '../../reports/lineRows';
-import { planCapexSpread, planCapexBlends, followedRule } from './capexSpread';
+import { planCapexSpread, planCapexBlends, followedRule, SPREAD_BASIS_ROW, type SpreadBasis } from './capexSpread';
 
 const CAPEX = 'Capex';
 const INPUTS = 'Inputs';
@@ -168,7 +168,7 @@ export const stage2Capex: LiveLayer = {
         }
         if (base.kind === 'ref' && !w.has(base.key)) refuse.push(`${where}: its base (${base.key}) is not on Land & Area`);
         const src = isParcelDrivenLandLine(line) ? 'own' : resolvePhasingSource(line, ov);
-        if (!['own', 'inherit', 'land_cash', 'collections'].includes(src)) refuse.push(`${where} follows ${src}`);
+        if (!['own', 'inherit', 'land_cash', 'collections', 'sales', 'commission_terms'].includes(src)) refuse.push(`${where} follows ${src}`);
         // A line EXPENSED AS INCURRED (marketing, sellingExpense.ts) keys `cxe:`, so every stage that
         // sums a plot's capex (`cxc:`) leaves it out, as computeAssetCost does (2026-10-08).
         plotLines.set(`${a.id}|${line.id}`, { asset: a, line, method, disabled, rate, base, ownWindow, key: `${isExpensedAsIncurred(line) ? 'cxe' : 'cxc'}:${a.id}:${line.id}` });
@@ -195,7 +195,8 @@ export const stage2Capex: LiveLayer = {
     for (const sp of plan.rows.values()) {
       if (!w.has(`cxw:${sp.key}`)) refuse.push(`the spend share "${sp.label}" is not on the sheet`);
       if (sp.kind === 'curve' && !w.has(`inpcurve:${sp.assetId}`)) refuse.push(`the spend curve of ${sp.label} is not on Inputs`);
-      if (sp.kind === 'collections' && !w.has(`rvc:${sp.assetId}:cash`)) refuse.push(`the collections of ${sp.label} are not on Revenue`);
+      if (sp.kind === 'collections' && !w.has(`rvc:${sp.assetId}:${SPREAD_BASIS_ROW[sp.basis ?? 'cash']}`)) refuse.push(`the revenue row ${sp.label} reads is not on Revenue`);
+      if (sp.kind === 'blend' && (!w.has(`ctin|${sp.assetId}|pct`) || !w.has(`ctin|${sp.assetId}|rem`))) refuse.push(`the commission terms of ${sp.label} are not on Inputs`);
     }
     // THE BLENDS (2026-10-27): a soft line blends on its plots' hard-cost money, exact only while it
     // selects every hard line of the asset, directly or through soft lines that do.
@@ -279,6 +280,27 @@ export const stage2Capex: LiveLayer = {
         // ON REVENUE (2026-11-15, founder): the line's collections inside the phase's years over their
         // total there, even over the window where they say nothing; the window and the phase period of
         // each year are worked out in the formula, so the row carries no working columns.
+        // THE COMMISSION TERMS (2026-11-18): the share on contract on the sale year's share, the rest on the
+        // collections' or the handover's, as Inputs says (commissionShape, the engine's rule).
+        if (sp.kind === 'blend') {
+          const part = (b: SpreadBasis): ((c: number) => string) | null => {
+            const k = sp.parts?.[b];
+            if (!k || !w.has(`cxw:${k}`)) return null;
+            const a0 = w.addr(`cxw:${k}`);
+            return (c: number) => w.refP({ sheet: a0.sheet, row: a0.row, col: c }, S);
+          };
+          const sF = part('sold'), cF = part('cash'), hF = part('rec');
+          const pct = `MAX(0,MIN(1,N(${w.ref(`ctin|${sp.assetId}|pct`)})))`;
+          const rem = w.ref(`ctin|${sp.assetId}|rem`);
+          const any = (sF ?? cF ?? hF)!;
+          const remF = (c: number): string => { const h = hF ?? cF ?? any, co = cF ?? hF ?? any; return h === co ? co(c) : `IF(${rem}="At handover",${h(c)},${co(c)})`; };
+          for (let t = 0; t < N; t++) {
+            const c = cP(t);
+            w.fA({ sheet: S, row: r, col: c }, !sF ? remF(c) : (!cF && !hF) ? sF(c) : `${pct}*${sF(c)}+(1-${pct})*${remF(c)}`);
+          }
+          w.fA({ sheet: S, row: r, col: C_TOT }, `SUM(${w.rangeA(S, r, cP(0), cP(N - 1)).replace(/^'?[^!]+'?!/, '')})`);
+          continue;
+        }
         if (sp.kind !== 'collections') return values(`the spend share "${sp.label}" is on ${S}`);
         const rule = followedRule(sp.baseId);
         let B: string, C: string;
@@ -295,7 +317,7 @@ export const stage2Capex: LiveLayer = {
         const i1 = (c: number): string => `(${yr(c)}-${first}+1)`;
         const p0 = sp.win !== 'follows' || rule === 'land';
         const even = (c: number): string => `(${p0 ? `(${yr(c)}=MAX(${axis()},${first}-1))*(${B}<=0)+` : ''}(${i1(c)}>=MAX(1,${B}))*(${i1(c)}<=MAX(${B},${C})))/(MAX(${B},${C})-${B}+1)`;
-        const cash = w.addr(`rvc:${sp.assetId}:cash`);
+        const cash = w.addr(`rvc:${sp.assetId}:${SPREAD_BASIS_ROW[sp.basis ?? 'cash']}`);
         const slots = `${cp()}+${w.ref(`tl:phase:${ph.id}:op`)}+1`;
         // The phase's years (1 = yes) on their own row (2026-11-15: short formulas).
         const inK = `cxw:${sp.key}|in`;
@@ -366,7 +388,7 @@ export const stage2Capex: LiveLayer = {
         }
       } else {
         // The line's sales collections inside the phase's years, over their total there.
-        const cash = w.addr(`rvc:${sp.assetId}:cash`);
+        const cash = w.addr(`rvc:${sp.assetId}:${SPREAD_BASIS_ROW[sp.basis ?? 'cash']}`);
         const yrs = w.rangeA(CAPEX, 3, cP(0), cP(N - 1)).replace(/^'?Capex'?!/, '');
         const cashRng = w.rangeA(cash.sheet, cash.row, cP(0), cP(N - 1));
         const slots = `${cp()}+${w.ref(`tl:phase:${ph.id}:op`)}+1`;

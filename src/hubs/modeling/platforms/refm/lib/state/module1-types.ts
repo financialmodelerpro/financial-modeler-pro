@@ -1444,6 +1444,9 @@ export function isParcelSentinel(id: string | undefined): boolean {
 }
 
 export interface Asset {
+  /** THE COMMISSION TERMS (2026-11-18): read where the commission line follows 'commission_terms'; written to
+   *  every member of a residential line from the Revenue tab. */
+  commissionTiming?: CommissionTiming;
   id: string;
   phaseId: string;
   name: string;
@@ -2466,17 +2469,35 @@ export function normalizeCostPhasing(p: CostPhasing | undefined): CostPhasing {
  * ABSENT MEANS `inherit`, and inherit with no asset curve means "keep what you
  * had". That is deliberate: every pre-existing line carries undefined here.
  */
-export type CapexPhasingSource = 'inherit' | 'own' | 'land_cash' | 'collections';
+export type CapexPhasingSource = 'inherit' | 'own' | 'land_cash' | 'collections' | 'sales' | 'commission_terms';
 
+/**
+ * THE SELLING COSTS' CASH TIMING (2026-11-18, founder):
+ *   - 'sales': paid in the year units are sold (the value contracted that year), as marketing is incurred;
+ *   - 'commission_terms': the commission terms of each residential line (Asset.commissionTiming): a share on
+ *     contract (the sale year) and the remainder with customer collections or at handover.
+ * 'collections' stays the legacy timing every existing project carries, so nothing that exists moves.
+ */
 export const CAPEX_PHASING_SOURCES: readonly CapexPhasingSource[] =
-  ['inherit', 'own', 'land_cash', 'collections'] as const;
+  ['inherit', 'own', 'land_cash', 'collections', 'sales', 'commission_terms'] as const;
 
 export const CAPEX_PHASING_SOURCE_LABELS: Record<CapexPhasingSource, string> = {
   inherit: 'Inherit asset curve',
   own: 'Own curve',
   land_cash: 'Follows land cash',
   collections: 'Follows collections',
+  sales: 'Paid as units are sold',
+  commission_terms: 'Commission terms (per residential line)',
 };
+
+/** How a residential line pays its sales commission (2026-11-18, founder). */
+export type CommissionRemainder = 'collections' | 'handover';
+export interface CommissionTiming {
+  /** The share paid on contract, in the sale year, 0 to 100. Absent = 100. */
+  onContractPct?: number;
+  /** When the rest is paid. Absent = with customer collections. */
+  remainder?: CommissionRemainder;
+}
 
 /** One phasing curve, held on an asset and inherited by its cost lines. */
 export interface AssetCapexPhasing {
@@ -3946,7 +3967,8 @@ export function makeDefaultCostLines(
       method: 'percent_of_revenue_sale', value: 0,
       stage: 'soft', scope: 'indirect', allocationBasis: 'per_asset',
       ...win('commission'), phasing: 'even',
-      phasingSource: 'collections',
+      // NEW PHASES (2026-11-18): the residential line's commission terms (100% on contract by default).
+      phasingSource: 'commission_terms',
     },
     // ── Developer Fee (% of the construction and soft costs above) ──────
     // 2026-08-17. New to the catalog. It seeds at ZERO like every other
@@ -3990,7 +4012,8 @@ export function makeDefaultCostLines(
       // 2026-08-16: its own stage, so it stays OUT of construction cost.
       stage: 'marketing', scope: 'indirect', allocationBasis: 'per_asset',
       ...win('marketing'), phasing: 'even',
-      phasingSource: 'collections',
+      // NEW PHASES (2026-11-18): incurred and paid as units are sold.
+      phasingSource: 'sales',
     },
   ];
   // Every seeded line tracks the phase construction length until the user types

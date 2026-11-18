@@ -527,7 +527,8 @@ export const stage3Revenue: LiveLayer = {
         lineRows.push(rowOf(key));
         const a = earning(l)[0];
         if (id === 'sv') { claim(`rvc:${l.key}:salesValue`, key); if (l.form === 'sell' && a) claim(`rvc:${a.id}:saleRev`, key); }
-        if (id === 'rec') claim(`rvc:${l.key}:recognised`, key);
+        // The sell line's revenue recognised, by plot too (2026-11-18): a commission paid at handover spreads on it.
+        if (id === 'rec') { claim(`rvc:${l.key}:recognised`, key); if (l.form === 'sell' && a) claim(`rvc:${a.id}:rec`, key); }
         if (id === 'cash') { claim(`rvc:${l.key}:collected`, key); if (l.form === 'sell' && a) claim(`rvc:${a.id}:cash`, key); }
       }
       const aeK = `rev|__project__|sum-${id}|Hotel and lease lines (collected as earned)`;

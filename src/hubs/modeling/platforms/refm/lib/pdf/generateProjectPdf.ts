@@ -2447,6 +2447,8 @@ import { assetPlotLabel } from '@/src/core/calculations/assetName';
 import { poolResults, planReportLines, lineTitle } from '../reports/lineRows';
 import { METRIC_CAPTIONS, METRIC_LABELS, capRateAtExitCaption, exitYearAnalysisNote } from '../reports/metricCaptions';
 import { projectLocationLabel } from '@/src/core/countries';
+import { resolvePhasingSource } from '@/src/core/calculations/capexPhasing';
+import { resolveCatalogId } from '../state/costCatalog';
 
 /** A builder row, with the two number kinds M4Row has no word for. */
 type ScreenRow = M4Row & { fmt?: 'factor' | 'dec2' };
@@ -2670,6 +2672,23 @@ function buildModule2(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
         if (w.operations.length > 0) {
           items.push(tTable(T1, 'inputs', periodTable(`${ln}: Sales During Operation, ${span(w.operations)}`, py, yl, paceRows('post', w.operations))));
           items.push(tItem(T1, 'inputs', { type: 'paragraph', text: REVENUE_CAPTIONS.salesDuringOperation }));
+        }
+        // THE SELLING COSTS' CASH TIMING (2026-11-18), as the Revenue card and Inputs state it.
+        {
+          const srcOf = (ident: string): string => {
+            const cl = state.costLines.find((l) => l.phaseId === phase.id && resolveCatalogId(l) === ident);
+            if (!cl) return '';
+            const ov = state.costOverrides.find((o) => o.assetId === a.id && o.lineId === cl.id);
+            return resolvePhasingSource(cl, ov);
+          };
+          const cs = srcOf('commission'), ms = srcOf('marketing');
+          const t = a.commissionTiming;
+          const pct = cs === 'commission_terms' ? Math.max(0, Math.min(100, t?.onContractPct ?? 100)) : 0;
+          const rem = cs === 'commission_terms' && t?.remainder === 'handover' ? 'at handover' : 'with customer collections';
+          if (cs || ms) items.push(tTable(T1, 'inputs', kvTable(`${ln}: Selling cost timing`, [
+            ...(cs ? [['Commission paid on contract', `${pct.toFixed(0)}%`] as [string, string], ['Remainder paid', rem] as [string, string]] : []),
+            ...(ms ? [['Marketing paid', ms === 'sales' ? 'as units are sold (the sale year)' : 'with customer collections'] as [string, string]] : []),
+          ])));
         }
         const idx = sell?.indexation ?? { method: 'none' as const };
         const idxAxis = expandIndexationToAxis(idx, sell?.indexation?.growthPerPeriodByPhase, w.phaseOffset, N);

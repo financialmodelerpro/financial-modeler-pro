@@ -75,7 +75,7 @@ import { METRIC_CAPTIONS, METRIC_LABELS, returnsNpvNote, capRateAtExitCaption, e
 import { buildSellingCostReport, SELLING_COSTS_CAPTION, SELLING_COSTS_YOY_CAPTION } from '../reports/sellingCostReports';
 import {
   emitProjectSection, emitPhasesSection, emitStandardsSection, emitPlotsSection, emitAssetEntrySection, emitSubUnitSection,
-  emitRevenueInputs, emitEscrowInputs, emitOpexInputs, emitStatementInputsSection, emitDepreciationSection, emitReturnsSection,
+  emitRevenueInputs, emitCommissionTermsInputs, emitEscrowInputs, emitOpexInputs, emitStatementInputsSection, emitDepreciationSection, emitReturnsSection,
   emitLandTables, emitSubUnitAreas, LAND_CHAIN_COLS, utcMonthYear, utcYear, phaseStatusLabel, type SheetCursor,
 } from './inputsSheetSections';
 import { buildAssetAreaTables, buildAssetLandView } from '../../components/modules/_shared/assetInputsView';
@@ -416,10 +416,20 @@ function buildModelWorkbookInner(opts: BuildModelOptions): ExcelJS.Workbook {
 /** SELLING COSTS, HANDED FROM THE CAPEX BUILD TO REVENUE (2026-11-15, founder): each line's collections
  *  share and each selling cost row, which Revenue lays out as its last section. */
 interface SellingSection {
-  shares: Array<{ key: string; label: string; shares: number[]; window: number; inPhase: number[]; even: number[] }>;
+  shares: Array<{ key: string; label: string; shares: number[]; window: number; inPhase: number[]; even: number[]; blend?: boolean }>;
   costs: Array<{ key: string; label: string; rate: number; qty: number; per: number[]; amount: number }>;
 }
 const SELLING_SECTION = new WeakMap<ExcelJS.Workbook, SellingSection>();
+
+/** THE PROJECT-AXIS SERIES A 'collections' SPREAD READS (2026-11-18): cash collected, the value sold (pre-sales plus
+ * post-handover sales) or the revenue recognised, by its basis. */
+function basisAxisOf(snap: { revenue?: unknown }, sp: { assetId?: string; basis?: 'cash' | 'sold' | 'rec' }): number[] {
+  const r = (snap.revenue as { bySellAsset?: Map<string, { cashCollectedPerPeriod?: number[]; presalesRevenuePerPeriod?: number[]; postSalesRevenuePerPeriod?: number[]; recognitionPerPeriod?: number[] } | undefined> } | undefined)?.bySellAsset?.get(sp.assetId ?? '');
+  if (!r) return [];
+  if (sp.basis === 'rec') return r.recognitionPerPeriod ?? [];
+  if (sp.basis === 'sold') { const a = r.presalesRevenuePerPeriod ?? [], b = r.postSalesRevenuePerPeriod ?? []; return Array.from({ length: Math.max(a.length, b.length) }, (_, t) => (a[t] ?? 0) + (b[t] ?? 0)); }
+  return r.cashCollectedPerPeriod ?? [];
+}
 
 /**
  * REVENUE'S LAST SECTION, THE SELLING COSTS (2026-11-15, founder): each sell line's collections share
@@ -438,12 +448,21 @@ function emitSellingSection(wb: ExcelJS.Workbook, ws: ExcelJS.Worksheet, r0: num
   for (const [c, text, align] of [[LBL_COL, 'Line', 'left'], [2, 'Rate', 'right'], [3, 'Sale value', 'right'], [TOTAL_COL, 'Total', 'right'], [OPEN_COL, 'Window total', 'right']] as const) setColHeader(ws.getCell(r, c), text, align);
   r += 1;
   for (const x of sec.shares) {
+    if (x.blend) {
+      // THE COMMISSION TERMS (2026-11-18): one row combining the shares above it as Inputs says.
+      setLabel(ws.getCell(r, LBL_COL), x.label, { indent: 1 });
+      registerCell(x.key, ws, ws.getCell(r, LBL_COL));
+      for (let t = 0; t < N; t++) put(r, cP(t), x.shares[t] ?? 0, NUMFMT.pct2);
+      put(r, TOTAL_COL, x.shares.reduce((a, v) => a + (v ?? 0), 0), NUMFMT.pct2);
+      r += 1;
+      continue;
+    }
     // The phase's years (1 = yes) the share reads (2026-11-15: short formulas).
-    setLabel(ws.getCell(r, LBL_COL), `${x.label.replace(/^Collections share, /, '')}: in its phase's years (1 = yes)`, { indent: 1 });
+    setLabel(ws.getCell(r, LBL_COL), `${x.label.replace(/^(Collections|Units sold|Handover) share, /, '')}: in its phase's years (1 = yes)`, { indent: 1 });
     registerCell(`${x.key}|in`, ws, ws.getCell(r, LBL_COL));
     for (let t = 0; t < N; t++) put(r, cP(t), x.inPhase[t] ?? 0, NUMFMT.int);
     r += 1;
-    setLabel(ws.getCell(r, LBL_COL), `${x.label.replace(/^Collections share, /, '')}: even over its window, if it collects nothing`, { indent: 1 });
+    setLabel(ws.getCell(r, LBL_COL), `${x.label.replace(/^(Collections|Units sold|Handover) share, /, '')}: even over its window, if it collects nothing`, { indent: 1 });
     registerCell(`${x.key}|even`, ws, ws.getCell(r, LBL_COL));
     for (let t = 0; t < N; t++) put(r, cP(t), x.even[t] ?? 0, NUMFMT.pct2);
     r += 1;
@@ -1652,6 +1671,7 @@ function addAssumptions(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFin
   // ── Module 2: Revenue inputs per line, then Escrow ─────────────────────────
   inputDivider('REVENUE INPUTS');
   section((c) => emitRevenueInputs(c, state, snap));
+  section((c) => emitCommissionTermsInputs(c, state));
   section((c) => emitEscrowInputs(c, state, snap));
 
   // ── Module 3: Opex inputs per line and accounts payable ────────────────────
@@ -2394,7 +2414,11 @@ function addCapex(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancial
       const lineName = state.costLines.find((c) => c.id === sp.lineId)?.name ?? '';
       const pairIn = [...landWindowCanon(state).values()].includes(sp.lineId);
       const win = sp.win === 'follows' ? ruleWords[followedRule(sp.baseId)] : pairIn ? 'land (cash and in-kind) window' : `${lineName} window`;
-      if (sp.kind === 'collections') { const rl = a ? lineForAsset(revLines, a.id) : undefined; return `Collections, ${rl ? revenueLineName(rl) : a?.name ?? ''}`; }
+      if (sp.kind === 'collections' || sp.kind === 'blend') {
+        const rl = a ? lineForAsset(revLines, a.id) : undefined;
+        const head = sp.kind === 'blend' ? 'Commission terms' : sp.basis === 'sold' ? 'Units sold' : sp.basis === 'rec' ? 'Handover' : 'Collections';
+        return `${head}, ${rl ? revenueLineName(rl) : a?.name ?? ''}`;
+      }
       if (sp.kind === 'curve') {
         const grp = curveGroups(state).get(sp.assetId ?? '') ?? [];
         const who = grp.length > 1 ? `${grp.length} assets` : a ? assetLabel(a, ctxNames) : '';
@@ -2432,15 +2456,19 @@ function addCapex(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancial
       const off = ph ? Math.max(0, new Date(ph.startDate as string).getUTCFullYear() - snap.projectStartYear) : 0;
       // A LINE'S COLLECTIONS SHARE IS WORKED OUT ON REVENUE (2026-11-15, founder), beside the
       // selling costs it spreads, which Revenue now charges: the row is handed to it.
+      if (sp.kind === 'blend') {
+        selling.shares.push({ key: `cxw:${sp.key}`, label: `${spreadLabel(sp)}, the share paid each year`, shares: sp.shares.slice(0, N), window: 0, inPhase: [], even: [], blend: true });
+        continue;
+      }
       if (sp.kind === 'collections') {
-        const cash = (snap.revenue as { bySellAsset?: Map<string, { cashCollectedPerPeriod?: number[] } | undefined> }).bySellAsset?.get(sp.assetId ?? '')?.cashCollectedPerPeriod ?? [];
+        const cash = basisAxisOf(snap as never, sp);
         const slots = ph ? (ph.constructionPeriods ?? 0) + (ph.operationsPeriods ?? 0) + 2 : 0;
         let w0 = 0; for (let t = 0; t < N; t++) { const i = t - off + 1; if (i >= 1 && i < slots) w0 += Math.max(0, cash[t] ?? 0); }
         const inPhase = Array.from({ length: N }, (_, t) => { const i = t - off + 1; return i >= 1 && i < slots ? 1 : 0; });
         // The even spread over the line's window, the share's fallback where it collects nothing.
         const lo = Math.max(1, sp.start), hi = Math.max(sp.start, sp.end);
         const even = Array.from({ length: N }, (_, t) => { const i = t - off + 1; return (i >= lo && i <= hi ? 1 : 0) / (hi - sp.start + 1); });
-        selling.shares.push({ key: `cxw:${sp.key}`, label: spreadLabel(sp).replace(/^Collections, /, 'Collections share, '), shares: sp.shares.slice(0, N), window: w0, inPhase, even });
+        selling.shares.push({ key: `cxw:${sp.key}`, label: spreadLabel(sp).replace(/^(Collections|Units sold|Handover), /, '$1 share, '), shares: sp.shares.slice(0, N), window: w0, inPhase, even });
         continue;
       }
       setLabel(ws.getCell(r, C_LBL), spreadLabel(sp), { indent: 1 });
@@ -2836,7 +2864,7 @@ function addCapex(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancial
       if (sp.kind === 'collections' && ph) {
         // The plot's sales collections inside the phase's years (projectAxisToPhaseLocal: local
         // period i is model year off + i - 1, for i from 1 to construction + operations + 1).
-        const cash = (snap.revenue as { bySellAsset?: Map<string, { cashCollectedPerPeriod?: number[] } | undefined> }).bySellAsset?.get(sp.assetId ?? '')?.cashCollectedPerPeriod ?? [];
+        const cash = basisAxisOf(snap as never, sp);
         const slots = (ph.constructionPeriods ?? 0) + (ph.operationsPeriods ?? 0) + 2;
         const inside = zeros();
         for (let t = 0; t < N; t++) { const i = t - off + 1; if (i >= 1 && i < slots) inside[t] = Math.max(0, cash[t] ?? 0); }

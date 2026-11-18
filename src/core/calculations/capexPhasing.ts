@@ -80,6 +80,38 @@ export interface CapexPhasingContext {
   landCashPerPeriod?: number[];
   /** Sales cash collected per PHASE-RELATIVE period, for THIS asset. */
   collectionsPerPeriod?: number[];
+  /** THE VALUE CONTRACTED per PHASE-RELATIVE period (2026-11-18): the year units are sold, for THIS asset. */
+  salesPerPeriod?: number[];
+  /** REVENUE RECOGNISED per PHASE-RELATIVE period (2026-11-18): handover, for THIS asset. */
+  handoverPerPeriod?: number[];
+}
+
+/** A shape as shares summing to 1 over its own length, or undefined when it carries nothing. */
+function sharesOf(shape: number[] | undefined): number[] | undefined {
+  if (!shape) return undefined;
+  const pos = shape.map((v) => Math.max(0, v ?? 0));
+  const tot = pos.reduce((s, v) => s + v, 0);
+  return tot > 0 ? pos.map((v) => v / tot) : undefined;
+}
+
+/**
+ * THE COMMISSION'S CASH SHAPE (2026-11-18, founder), the ONE rule the engine and the workbook builder share:
+ * the share paid on contract follows the year units are sold, the remainder follows customer collections or
+ * the handover, each normalised to its own total, so the weights always sum to 1. Absent terms = 100% on
+ * contract. A side with nothing to follow hands its weight to the other.
+ */
+export function commissionShape(
+  timing: { onContractPct?: number; remainder?: 'collections' | 'handover' } | undefined,
+  ctx: Pick<CapexPhasingContext, 'salesPerPeriod' | 'collectionsPerPeriod' | 'handoverPerPeriod'>,
+): number[] | undefined {
+  const p = Math.max(0, Math.min(1, (timing?.onContractPct ?? 100) / 100));
+  const s = sharesOf(ctx.salesPerPeriod);
+  const r = sharesOf(timing?.remainder === 'handover' ? ctx.handoverPerPeriod : ctx.collectionsPerPeriod);
+  if (!s && !r) return undefined;
+  if (!r || p >= 1) return s ?? r;
+  if (!s || p <= 0) return r;
+  const n = Math.max(s.length, r.length);
+  return Array.from({ length: n }, (_, i) => p * (s[i] ?? 0) + (1 - p) * (r[i] ?? 0));
 }
 
 /** Normalise a shape into a window plus weights, or undefined when it carries
@@ -166,7 +198,10 @@ export interface CollectionsSource {
     cashCollectedPerPeriod?: number[];
     presalesRevenuePerPeriod?: number[];
     postSalesRevenuePerPeriod?: number[];
+    recognitionPerPeriod?: number[];
   } | undefined>;
+  /** The model's first year (the revenue snapshot carries it), to place an asset's series in its phase. */
+  projectStartYear?: number;
   /** Present on the real revenue snapshot; absent on the narrow stubs some
    *  callers build. Used only by `totalRevenueTotalForAsset` below. */
   byHospitalityAsset?: Map<string, { totalRevenuePerPeriod?: number[] } | undefined>;
@@ -216,6 +251,28 @@ export function collectionsForAssetAtOffset(
   if (!series || series.length === 0) return undefined;
   const slots = (phase.constructionPeriods ?? 0) + (phase.operationsPeriods ?? 0) + 2;
   return projectAxisToPhaseLocal(series, offset, slots);
+}
+
+/**
+ * THE SALE YEAR AND THE HANDOVER, phase-local, beside the collections (2026-11-18): the value contracted each
+ * year (pre-sales plus post-handover sales) and the revenue recognised, windowed exactly as the collections are.
+ */
+export function sellShapesForAssetAtOffset(
+  revenue: CollectionsSource | undefined,
+  assetId: string,
+  offset: number,
+  phase: { constructionPeriods?: number; operationsPeriods?: number },
+): { sales?: number[]; handover?: number[] } {
+  const r = revenue?.bySellAsset?.get(assetId);
+  if (!r) return {};
+  const slots = (phase.constructionPeriods ?? 0) + (phase.operationsPeriods ?? 0) + 2;
+  const pre = r.presalesRevenuePerPeriod ?? [], post = r.postSalesRevenuePerPeriod ?? [];
+  const n = Math.max(pre.length, post.length);
+  const sold = Array.from({ length: n }, (_, t) => (pre[t] ?? 0) + (post[t] ?? 0));
+  return {
+    sales: n ? projectAxisToPhaseLocal(sold, offset, slots) : undefined,
+    handover: r.recognitionPerPeriod?.length ? projectAxisToPhaseLocal(r.recognitionPerPeriod, offset, slots) : undefined,
+  };
 }
 
 /**
@@ -287,6 +344,8 @@ export function resolvePhasingSource(
 const SOURCE_LABELS: Record<string, string> = {
   land_cash: 'the land cash outflow',
   collections: 'sales collections',
+  sales: 'the years units are sold',
+  commission_terms: 'the commission terms',
 };
 
 /**
@@ -360,6 +419,8 @@ export function resolveLinePhasing(
     derived: {
       land_cash: () => shapeToPhasing(ctx.landCashPerPeriod),
       collections: () => shapeToPhasing(ctx.collectionsPerPeriod),
+      sales: () => shapeToPhasing(ctx.salesPerPeriod),
+      commission_terms: () => shapeToPhasing(commissionShape(asset.commissionTiming, ctx)),
     },
     fallback,
     groupEmpty,

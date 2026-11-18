@@ -28,12 +28,16 @@
 import { assetLabel } from '@/src/core/calculations/assetName';
 import { isLandValueLine } from '@/src/core/calculations';
 import { assetVisibleLines } from '@/src/core/calculations/selectedBase';
-import { isParcelDrivenLandLine, resolvePhasingSource, collectionsForAsset, phaseLocalToProjectIndex } from '@/src/core/calculations/capexPhasing';
+import { isParcelDrivenLandLine, resolvePhasingSource, collectionsForAsset, phaseLocalToProjectIndex, sellShapesForAssetAtOffset, commissionShape } from '@/src/core/calculations/capexPhasing';
 import { lineEscalates } from '@/src/core/calculations/costEscalation';
 import { deriveLineBaseId } from '../../state/module1-types';
 import type { Asset, CostLine, CostOverride, Phase, Parcel } from '../../state/module1-types';
 
-export type SpreadKind = 'even' | 'curve' | 'collections';
+export type SpreadKind = 'even' | 'curve' | 'collections' | 'blend';
+/** WHICH REVENUE ROW A 'collections' SPREAD READS (2026-11-18): cash collected, the value sold, or the revenue recognised. */
+export type SpreadBasis = 'cash' | 'sold' | 'rec';
+/** The Revenue row each basis reads (rvc:<asset>:<key>). */
+export const SPREAD_BASIS_ROW: Record<SpreadBasis, string> = { cash: 'cash', sold: 'saleRev', rec: 'rec' };
 export interface SpreadRow {
   key: string;
   label: string;
@@ -51,6 +55,10 @@ export interface SpreadRow {
   baseId: string;
   /** The plot whose curve or collections it reads. */
   assetId?: string;
+  /** A 'collections' spread's basis (absent = cash collected, the original). */
+  basis?: SpreadBasis;
+  /** A 'blend' (the commission terms): the spreads it combines, by basis (2026-11-18). */
+  parts?: Partial<Record<SpreadBasis, string>>;
   /** The platform's shares on the project axis. */
   shares: number[];
 }
@@ -210,6 +218,44 @@ export function planCapexSpread(
     }
     return key;
   };
+  /** The phase-local series of a basis (the engine's own placement, capexPhasing.ts). */
+  const basisSeries = (a: Asset, p: Phase, basis: SpreadBasis): number[] | undefined => {
+    if (basis === 'cash') return collectionsForAsset(revenue, a.id, p, projectStartYear);
+    const sh = sellShapesForAssetAtOffset(revenue as never, a.id, offsetOf(p), p);
+    return basis === 'sold' ? sh.sales : sh.handover;
+  };
+  /** A share row on a basis other than cash collected (the sale year, the handover), same shape as collections. */
+  const basisRow = (a: Asset, line: CostLine, p: Phase, basis: SpreadBasis): string | null => {
+    if (basis === 'cash') return collectionsRow(a, line, p);
+    const pos = (basisSeries(a, p, basis) ?? []).map((v) => Math.max(0, v ?? 0));
+    const sum = pos.reduce((s, v) => s + v, 0);
+    if (!(sum > 0)) return null;
+    const win = windowOf(line, p, a);
+    const key = `coll|${basis}|${a.id}|${winTag(line, win, a)}`;
+    if (!rows.has(key)) rows.set(key, {
+      key, phaseId: p.id, kind: 'collections', basis, start: win.start, end: Math.max(win.start, win.end), win: win.win, follows: win.follows, lineId: line.id, baseId: deriveLineBaseId(line.id), assetId: a.id,
+      label: `${basis === 'sold' ? 'Units sold' : 'Handover'}, ${assetLabel(a, names)}`,
+      shares: toAxis(pos.map((v) => v / sum), offsetOf(p)),
+    });
+    return key;
+  };
+  /** THE COMMISSION TERMS (2026-11-18): the share on contract on the sale year, the rest on collections or the
+   *  handover, as Inputs says; the platform's shares are commissionShape, the engine's own rule. */
+  const commissionRow = (a: Asset, line: CostLine, p: Phase): string | null => {
+    const parts: Partial<Record<SpreadBasis, string>> = {};
+    for (const b of ['sold', 'cash', 'rec'] as const) { const k = basisRow(a, line, p, b); if (k) parts[b] = k; }
+    if (!parts.sold && !parts.cash && !parts.rec) return null;
+    const local = commissionShape(a.commissionTiming, { salesPerPeriod: basisSeries(a, p, 'sold'), collectionsPerPeriod: basisSeries(a, p, 'cash'), handoverPerPeriod: basisSeries(a, p, 'rec') });
+    if (!local) return null;
+    const win = windowOf(line, p, a);
+    const key = `ctb|${a.id}|${winTag(line, win, a)}`;
+    if (!rows.has(key)) rows.set(key, {
+      key, phaseId: p.id, kind: 'blend', parts, start: win.start, end: Math.max(win.start, win.end), win: win.win, follows: win.follows, lineId: line.id, baseId: deriveLineBaseId(line.id), assetId: a.id,
+      label: `Commission terms, ${assetLabel(a, names)}`,
+      shares: toAxis(local, offsetOf(p)),
+    });
+    return key;
+  };
   const collectionsRow = (a: Asset, line: CostLine, p: Phase): string | null => {
     const series = collectionsForAsset(revenue, a.id, p, projectStartYear);
     const pos = (series ?? []).map((v) => Math.max(0, v ?? 0));
@@ -242,6 +288,8 @@ export function planCapexSpread(
         if (src === 'inherit') spread = curveRow(a, line, p) ?? evenRow(line, p, a);
         else if (src === 'land_cash') spread = landCash ? evenRow(landCash, p, a) : evenRow(line, p, a);
         else if (src === 'collections') spread = collectionsRow(a, line, p) ?? evenRow(line, p, a);
+        else if (src === 'sales') spread = basisRow(a, line, p, 'sold') ?? evenRow(line, p, a);
+        else if (src === 'commission_terms') spread = commissionRow(a, line, p) ?? evenRow(line, p, a);
         else spread = evenRow(line, p, a);
         plotLine.set(`${a.id}|${line.id}`, { assetId: a.id, lineId: line.id, spread, method, disabled, escalates: !disabled && lineEscalates({ method, isLandValue: isLandValueLine(line) }) });
       }

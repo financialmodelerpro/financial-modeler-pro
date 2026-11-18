@@ -46,6 +46,8 @@ import { buildSaleCohortTermsBlock, saleCohortRuleText } from '../reports/saleCo
 import { OPEX_CATEGORY_LABELS, OPEX_MODE_LABELS, isFixedCostOpexMode, summarizeOpexIndexation } from '../reports/opexInputLabels';
 import { resolveReturnsConfig, computeReturnsSnapshot } from '../returns-resolvers';
 import { statedLineReceivableDays } from '../receivableDays';
+import { resolvePhasingSource } from '@/src/core/calculations/capexPhasing';
+import { resolveCatalogId } from '../state/costCatalog';
 
 type Snap = ReturnType<typeof computeFinancialsSnapshot>;
 
@@ -1509,5 +1511,36 @@ function totalRow(c: SheetCursor, label: string, t: { landSqm: number; pooled: P
   chainCells(ws, c.r, 2 + pad, t.landSqm, t.pooled, { landscapePct: t.landscapePct, unitSize: t.avgUnitSize, slotRatio: t.slotsPerUnit }, true, absent);
   if (regPrefix) registerChainRow(ws, c.r, 2 + pad, regPrefix);
   fillRange(ws, c.r, 1, c.r, LAND_CHAIN_COLS + pad, ARGB.subtotal);
+  c.r += 1;
+}
+
+/**
+ * THE SALES COMMISSION TERMS (2026-11-18, founder), one row per residential line whose commission follows them:
+ * the share paid on contract (the sale year) and when the rest is paid ("With customer collections" or "At
+ * handover"). Revenue's commission-terms share reads both; a line on any other timing has none here.
+ */
+export function emitCommissionTermsInputs(c: SheetCursor, state: FinancialsResolverState): void {
+  if (!isLiveLayout()) return;
+  const visible = state.assets.filter((a) => a.visible !== false);
+  const lines = planRevenueLines(visible, state.subUnits, state.phases, state.project).filter((l) => l.form === 'sell');
+  const reportLines = planReportLines({ assets: visible, phases: state.phases, parcels: state.parcels });
+  const follows = (a: { id: string; phaseId: string }): boolean => state.costLines.some((cl) => {
+    if (cl.phaseId !== a.phaseId || resolveCatalogId(cl) !== 'commission') return false;
+    const ov = state.costOverrides.find((o) => o.assetId === a.id && o.lineId === cl.id);
+    return resolvePhasingSource(cl, ov) === 'commission_terms';
+  });
+  const rows = lines.map((l) => ({ l, members: l.members.filter((m) => follows(m)) })).filter((x) => x.members.length > 0);
+  if (!rows.length) return;
+  setSectionHeader(c.ws.getRow(c.r), 'Sales commission terms (per residential line)', 3); c.r += 1;
+  headers(c, ['Line', 'Paid on contract (%)', 'Remainder paid']);
+  for (const { l, members } of rows) {
+    const rl = reportLines.find((x) => x.assetIds.includes(l.host.id));
+    setLabel(c.ws.getCell(c.r, 1), rl ? lineTitle(rl, { assets: visible, phases: state.phases, parcels: state.parcels }) : l.label);
+    const t = (members[0] as { commissionTiming?: { onContractPct?: number; remainder?: string } }).commissionTiming;
+    setInput(c.ws.getCell(c.r, 2), Math.max(0, Math.min(100, t?.onContractPct ?? 100)) / 100, NUMFMT.pct2);
+    setInput(c.ws.getCell(c.r, 3), t?.remainder === 'handover' ? 'At handover' : 'With customer collections', '@');
+    for (const m of members) { registerCell(`ctin|${m.id}|pct`, c.ws, c.ws.getCell(c.r, 2)); registerCell(`ctin|${m.id}|rem`, c.ws, c.ws.getCell(c.r, 3)); }
+    c.r += 1;
+  }
   c.r += 1;
 }

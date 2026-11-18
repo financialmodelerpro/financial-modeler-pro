@@ -55,6 +55,8 @@ export interface CostCatalogEntry {
   stage: CostStage;
   /** Absent means `inherit`, which is what most construction lines want. */
   phasingSource?: CapexPhasingSource;
+  /** The source the seed carried BEFORE 2026-11-18, for restoring a stripped field on an old line. */
+  legacyPhasingSource?: CapexPhasingSource;
   allocationBasis: AllocationBasis;
   scope: CostScope;
   /**
@@ -181,16 +183,16 @@ export const BUILT_IN_COST_CATALOG: readonly CostCatalogEntry[] = [
   },
   {
     id: 'commission', label: 'Sales commission', method: 'percent_of_revenue_sale', stage: 'soft',
-    phasingSource: 'collections', allocationBasis: 'per_asset', scope: 'indirect', builtIn: true,
+    phasingSource: 'commission_terms', legacyPhasingSource: 'collections', allocationBasis: 'per_asset', scope: 'indirect', builtIn: true,
     assetScope: 'selling',
-    hint: 'A selling cost on the assets that SELL, paid out of cash received, so it follows sales collections.',
+    hint: 'A selling cost on the assets that SELL, paid on the residential line\'s commission terms (a share on contract, the rest with collections or at handover).',
   },
   // ── Marketing stage ─────────────────────────────────────────────────────
   {
     id: 'marketing', label: 'Marketing', method: 'percent_of_revenue_sale', stage: 'marketing',
-    phasingSource: 'collections', allocationBasis: 'per_asset', scope: 'indirect', builtIn: true,
+    phasingSource: 'sales', legacyPhasingSource: 'collections', allocationBasis: 'per_asset', scope: 'indirect', builtIn: true,
     assetScope: 'selling',
-    hint: 'A selling cost on the assets that SELL, outside construction cost, following sales collections.',
+    hint: 'A selling cost on the assets that SELL, outside construction cost, incurred and paid as units are sold.',
   },
 ];
 
