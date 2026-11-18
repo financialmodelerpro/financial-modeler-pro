@@ -75,9 +75,10 @@ function buildRealEstateMetrics(input: ReturnsInput): RealEstateMetrics {
 /** Compute the full M5 returns result from a resolved input. */
 export function computeReturns(input: ReturnsInput): ReturnsResult {
   return {
+    // The project stream at the discount rate; the equity streams at the cost of equity (2026-11-18).
     fcff: summariseStream(input.fcff, input.discountRate),
-    fcfe: summariseStream(input.fcfe, input.discountRate),
-    dividends: summariseStream(input.dividends, input.discountRate),
+    fcfe: summariseStream(input.fcfe, input.costOfEquity ?? input.discountRate),
+    dividends: summariseStream(input.dividends, input.costOfEquity ?? input.discountRate),
     realEstate: buildRealEstateMetrics(input),
   };
 }

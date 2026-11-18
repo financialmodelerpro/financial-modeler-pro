@@ -158,13 +158,15 @@ export function returnsPlan(state: FinancialsResolverState, snap: Snap, rs: RS, 
 
   // Each stream's IRR, MOIC and NPV, computed once, in the row under the stream (2026-11-16, founder).
   const rate = (E: REnv): string => E.ref('inp=ret|Discount Rate (%)@4');
-  const results = (key: string, label: string, src: string, r: RS['result']['fcff']): void => {
+  // THE EQUITY STREAMS DISCOUNT AT THE COST OF EQUITY (2026-11-18); the project stream at the discount rate.
+  const coe = (E: REnv): string => E.ref('ret:coe');
+  const results = (key: string, label: string, src: string, r: RS['result']['fcff'], rateOf: (E: REnv) => string = rate): void => {
     rows.push({ key: `${key}#cols`, label: '', kind: 'cols', cols: [[D, 'IRR'], [D + 1, 'MOIC'], [D + 2, 'NPV']] });
     const rng = (E: REnv): string => E.rng(src);
     rows.push({ key, label, kind: 'cells', style: 'subtotal', cells: [
       { col: D, v: irrNum(r.irr), fmt: RF.pct, f: (E) => `IFERROR(IRR(${rng(E)},0.1),"n/a")`, bold: true },
       { col: D + 1, v: r.moic, fmt: RF.mult, f: (E) => `IF(-SUMIF(${rng(E)},"<0")>0,SUMIF(${rng(E)},">0")/-SUMIF(${rng(E)},"<0"),0)` },
-      { col: D + 2, v: r.npv, fmt: RF.money, f: (E) => `${E.sA(src, 0)}+NPV(${rate(E)},${E.rngFrom(src, 1)})` },
+      { col: D + 2, v: r.npv, fmt: RF.money, f: (E) => `${E.sA(src, 0)}+NPV(${rateOf(E)},${E.rngFrom(src, 1)})` },
     ] });
   };
 
@@ -172,6 +174,7 @@ export function returnsPlan(state: FinancialsResolverState, snap: Snap, rs: RS, 
   section('ret|#section', 'Returns');
   head('ret|#assumptions', 'Assumptions (from Inputs)');
   one('ret|Discount Rate (%)', 'Discount rate', cfg.discountRate, undefined, RF.pct);
+  one('ret|Cost of equity (%)', 'Cost of equity (the equity NPVs)', cfg.costOfEquity, (E) => E.ref('ret:coe'), RF.pct);
   one('ret|Exit Year', 'Exit year', exitYear, undefined, RF.year);
   const methodLabel: Record<string, string> = { exit_multiple: 'Exit Multiple', cap_rate: 'Exit Cap Rate', perpetuity: 'Perpetuity (Gordon)', none: 'None' };
   one('ret|Terminal Value Method', 'Terminal value method', methodLabel[cfg.terminalMethod] ?? cfg.terminalMethod, (E) => E.ref('ret:tvMethod'), RF.text);
@@ -198,12 +201,15 @@ export function returnsPlan(state: FinancialsResolverState, snap: Snap, rs: RS, 
   head('ret|#exit', 'Exit value');
   pRow('rs|noi', 'Held assets\' income (NOI)', yearsToStream(rs.noiPerPeriod), (E, s) => E.loop('fnc:noi', s), { total: 'sum' });
   one('ret|x|inc', 'Income capitalised (the NOI of the year above)', d.exitMetric, (E) => atBasis(E, E.rngY('rs|noi')));
-  one('ret|x|tv', cfg.terminalMethod === 'exit_multiple' ? 'Terminal value (income x the exit multiple)' : 'Terminal value (income / the exit cap rate)', d.proceeds,
+  one('ret|x|tv', cfg.terminalMethod === 'exit_multiple' ? 'Terminal value, gross (income x the exit multiple)' : 'Terminal value, gross (income / the exit cap rate)', d.grossValue,
     (E) => E.tvOf(E.d('ret|x|inc')), RF.money, { style: 'subtotal' });
+  // SELLING COSTS AT EXIT (2026-11-18): the gross less the share on Inputs is the net exit value, the proceeds.
+  one('ret|x|cost', 'Less: selling costs at exit', -d.sellingCosts, (E) => `-${E.d('ret|x|tv')}*MAX(0,MIN(1,N(${E.ref('ret:sellCost')})))`);
+  one('ret|x|net', 'Net exit value', d.proceeds, (E) => `${E.d('ret|x|tv')}+${E.d('ret|x|cost')}`, RF.money, { style: 'subtotal' });
   pRow('rs|debt', 'Debt outstanding', yearsToStream(snap.bs.debtOutstandingPerPeriod), (E, s) => E.x(bsTotalDebtKey(state), s), { total: 'none' });
   const debtX = Math.max(0, snap.bs.debtOutstandingPerPeriod[X] ?? 0);
   one('ret|x|debtX', 'Less: debt at the exit', debtX, (E) => `MAX(0,${atExit(E, E.rngY('rs|debt'))})`);
-  one('ret|x|eq', 'Exit equity value', Math.max(0, d.proceeds - debtX), (E) => `MAX(0,${E.d('ret|x|tv')}-${E.d('ret|x|debtX')})`, RF.money, { style: 'subtotal' });
+  one('ret|x|eq', 'Exit equity value', Math.max(0, d.proceeds - debtX), (E) => `MAX(0,${E.d('ret|x|net')}-${E.d('ret|x|debtX')})`, RF.money, { style: 'subtotal' });
   gap('ret|gap|b');
 
   // ════ FCFF ══════════════════════════════════════════════════════════════
@@ -240,7 +246,7 @@ export function returnsPlan(state: FinancialsResolverState, snap: Snap, rs: RS, 
   pRow('rs|fe:rel', 'Cash held back, released at the exit', [null, ...Array.from({ length: N }, (_, t) => (t === X ? (level[X] ?? 0) : 0))],
     (E, s) => `${E.ex(s)}*${E.s('rs|level', s)}`, { indent: 1 });
   pRow('rs|fcfe', 'FCFE', stream(rs.fcfePerPeriod), (E, s) => `${E.s('rs|fe:pre', s)}+${E.s('rs|fe:tv', s)}+${E.s('rs|fe:rel', s)}`, { from: 0, style: 'total' });
-  results('ret|h|fcfe', 'Equity returns (FCFE)', 'rs|fcfe', rs.result.fcfe);
+  results('ret|h|fcfe', 'Equity returns (FCFE)', 'rs|fcfe', rs.result.fcfe, coe);
   gap('ret|gap|d');
 
   // ════ DISTRIBUTIONS AND THE PERFORMANCE FEE ═════════════════════════════
@@ -252,7 +258,7 @@ export function returnsPlan(state: FinancialsResolverState, snap: Snap, rs: RS, 
     (E, s) => `IF(${E.ref('fin:in:divOn')}=1,0,${E.s('rs|fe:tv', s)})`, { indent: 1 });
   pRow('rs|ddm', 'Distributions, net cash flow to equity', stream(rs.dividendStreamPerPeriod),
     (E, s) => (s === 0 ? (exOn ? `-(${E.ref('retin:hist')}-${E.ref('retin:debt')})` : '0') : `SUM(${E.s('rs|dd:cash', s)}:${E.s('rs|dd:tv', s)})`), { from: 0, style: 'total' });
-  results('ret|h|ddm', fundOn ? 'Distribution returns, before the performance fee' : 'Distribution returns', 'rs|ddm', rs.result.dividends);
+  results('ret|h|ddm', fundOn ? 'Distribution returns, before the performance fee' : 'Distribution returns', 'rs|ddm', rs.result.dividends, coe);
 
   if (fundOn) {
     const w = rs.waterfall;
@@ -275,7 +281,7 @@ export function returnsPlan(state: FinancialsResolverState, snap: Snap, rs: RS, 
     pRow('rs|wf:net', 'Distributions net of the fee', W(w.netDistributionPerPeriod), (E, s) => `${E.s('rs|wf:gross', s)}-${E.s('rs|wf:fee', s)}`, { from: 0, indent: 1 });
     pRow('rs|ddmnet', 'Distributions net of the fee, net cash flow to equity', W(rs.netDividendStreamPerPeriod),
       (E, s) => `${E.s('rs|wf:net', s)}-${E.s('rs|wf:drawn', s)}`, { from: 0, style: 'total' });
-    results('ret|h|net', 'Distribution returns, net of the performance fee', 'rs|ddmnet', rs.resultNetDividends);
+    results('ret|h|net', 'Distribution returns, net of the performance fee', 'rs|ddmnet', rs.resultNetDividends, coe);
   }
   gap('ret|gap|e');
 

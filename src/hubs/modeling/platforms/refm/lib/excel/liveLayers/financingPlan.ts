@@ -218,7 +218,7 @@ export function financingPlan(state: FinancialsResolverState, snap: Snap = compu
     per('fl:noi', 'Income of the held assets (NOI)', noi, 'Revenue less opex of the hotel and lease lines');
     const proceeds = zeros();
     if (snap.disposal.booked) proceeds[snap.disposal.exitIdx] = snap.disposal.proceeds;
-    per('fl:proceeds', 'Exit proceeds (the held assets sold, in the exit year)', proceeds, 'Timeline\'s exit year: the income of the year Inputs names (the exit year or the year before) valued at the exit terms');
+    per('fl:proceeds', 'Exit proceeds (the held assets sold, net of selling costs)', proceeds, 'Timeline\'s exit year: the income of the year Inputs names valued at the exit terms, less the selling costs at exit');
     // EXIT PROCEEDS BY PHASE (2026-10-29): each phase's share of the proceeds is its held lines'
     // income in the basis year over the project's, so the phases add to the project exactly.
     if (state.phases.length > 1) {

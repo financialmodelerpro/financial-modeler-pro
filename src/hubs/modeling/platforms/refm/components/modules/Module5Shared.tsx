@@ -129,6 +129,11 @@ export interface AssumptionsValue {
   applyGrowthToTerminal: boolean;
   /** Which year's income the terminal value capitalises (2026-09-14). */
   terminalValueBasis: 'prior_year' | 'exit_year';
+  /** Selling costs at exit as a PERCENT of the gross exit value (2026-11-18). */
+  exitSellingCostPct: number;
+  /** The equity NPVs' rate as a PERCENT (2026-11-18); follows the discount rate until typed. */
+  costOfEquityPct: number;
+  costOfEquityStated: boolean;
 }
 
 /** Returns assumptions panel (discount rate / exit year / terminal value). */
@@ -164,6 +169,13 @@ export function AssumptionsPanel(props: {
         <div>
           <label style={labelStyle}>Discount Rate (%)<OverrideBadge path="project.returns.discountRate" /><FieldComment path="project.returns.discountRate" /></label>
           {numInput(value.discountRatePct, (n) => onChange({ discountRatePct: Math.max(0, n) }))}
+        </div>
+        <div>
+          <label style={labelStyle}>Cost of Equity (%)<OverrideBadge path="project.returns.costOfEquity" /><FieldComment path="project.returns.costOfEquity" /></label>
+          {numInput(value.costOfEquityPct, (n) => onChange({ costOfEquityPct: Math.max(0, n), costOfEquityStated: true }))}
+          <div style={{ fontSize: 10, color: 'var(--color-meta)', marginTop: 2 }}>
+            {value.costOfEquityStated ? 'Discounts the equity NPVs; the project NPV uses the discount rate.' : 'Follows the discount rate until typed. Equity NPVs only.'}
+          </div>
         </div>
         <div>
           <label style={labelStyle}>Exit Year</label>
@@ -276,6 +288,15 @@ export function AssumptionsPanel(props: {
               {value.applyGrowthToTerminal
                 ? `Capitalises forward income: exit metric x (1 + ${value.perpetuityGrowthPct.toFixed(2)}%).`
                 : 'Capitalises the exit year figure itself.'}
+            </div>
+          </div>
+        )}
+        {value.terminalMethod !== 'none' && (
+          <div>
+            <label style={labelStyle}>Selling Costs at Exit (%)<OverrideBadge path="project.returns.exitSellingCostRate" /><FieldComment path="project.returns.exitSellingCostRate" /></label>
+            {numInput(value.exitSellingCostPct, (n) => onChange({ exitSellingCostPct: Math.max(0, Math.min(100, n)) }), 0.25)}
+            <div style={{ fontSize: 10, color: 'var(--color-meta)', marginTop: 2 }}>
+              Share of the gross exit value. The net is booked as proceeds and drives the gain.
             </div>
           </div>
         )}

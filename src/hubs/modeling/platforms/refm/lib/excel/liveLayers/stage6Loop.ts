@@ -281,7 +281,9 @@ export const stage6Loop: LiveLayer = {
     put('fl:proceeds', (t) => {
       if (!booked) return '0';
       const income = `IF(${IN('ret:tvBasis')}="Exit year",${P('fl:noi', t)},N(${P('fl:noi', t, -1)}))`;
-      return `${exitF(t)}*${terminalValueFormula(w, retCfg, income, true)}`;
+      // NET OF SELLING COSTS (2026-11-18): the gross value less the share on Inputs.
+      const cost = has('ret:sellCost') ? `*(1-MAX(0,MIN(1,N(${IN('ret:sellCost')}))))` : '';
+      return `${exitF(t)}*${terminalValueFormula(w, retCfg, income, true)}${cost}`;
     });
     // Exit proceeds by phase: the proceeds x the phase's share of the held income in the basis year.
     {

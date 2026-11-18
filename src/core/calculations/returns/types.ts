@@ -110,6 +110,8 @@ export interface ReturnsInput {
   fcfe: CashFlowStream;
   dividends: CashFlowStream;
   discountRate: number;
+  /** THE COST OF EQUITY (2026-11-18): the equity streams' NPV rate. Absent = discountRate. */
+  costOfEquity?: number;
   /** Real-estate metric feeders. */
   metrics: {
     stabilisedNOI: number;

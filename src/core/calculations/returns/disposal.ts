@@ -54,12 +54,19 @@ export interface TerminalValuationInput {
   discountRate?: number;
   capRate?: number;
   applyGrowth?: boolean;
+  /** Selling costs at exit, a decimal share of the gross value (2026-11-18). Absent = 0. */
+  sellingCostRate?: number;
 }
 
 export interface TerminalValuation {
   metricIdx: number;
   /** The income (or free cash flow, for perpetuity) that was capitalised. */
   exitMetric: number;
+  /** The capitalised value before selling costs. */
+  grossValue: number;
+  /** Gross value x the selling cost rate. */
+  sellingCosts: number;
+  /** THE NET EXIT VALUE (2026-11-18): gross less selling costs, the figure every reader books. */
   enterpriseValue: number;
 }
 
@@ -68,7 +75,7 @@ export function valueAtExit(i: TerminalValuationInput): TerminalValuation {
   const exitMetric = i.method === 'perpetuity'
     ? (i.fcffPerPeriod?.[metricIdx] ?? 0)
     : (i.noiPerPeriod[metricIdx] ?? 0);
-  const enterpriseValue = terminalEnterpriseValue({
+  const grossValue = terminalEnterpriseValue({
     method: i.method,
     exitMetric,
     exitMultiple: i.exitMultiple,
@@ -77,7 +84,9 @@ export function valueAtExit(i: TerminalValuationInput): TerminalValuation {
     capRate: i.capRate,
     applyGrowth: i.applyGrowth,
   });
-  return { metricIdx, exitMetric, enterpriseValue };
+  const rate = Math.max(0, Math.min(1, i.sellingCostRate ?? 0));
+  const sellingCosts = grossValue * rate;
+  return { metricIdx, exitMetric, grossValue, sellingCosts, enterpriseValue: grossValue - sellingCosts };
 }
 
 export interface WriteOff {

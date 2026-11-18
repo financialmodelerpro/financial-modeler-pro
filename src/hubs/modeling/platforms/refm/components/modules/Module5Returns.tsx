@@ -106,6 +106,9 @@ export default function Module5Returns({ activeProjectId = null }: { activeProje
     capRateOverride: cfg.capRateSource === 'manual',
     applyGrowthToTerminal: cfg.applyGrowthToTerminal,
     terminalValueBasis: cfg.terminalValueBasis,
+    exitSellingCostPct: cfg.exitSellingCostRate * 100,
+    costOfEquityPct: cfg.costOfEquity * 100,
+    costOfEquityStated: project.returns?.costOfEquity !== undefined,
   };
   const onAssumptions = (patch: Partial<AssumptionsValue>): void => {
     const next = { ...assumptions, ...patch };
@@ -123,6 +126,9 @@ export default function Module5Returns({ activeProjectId = null }: { activeProje
         capRate: next.capRateOverride ? Math.max(0, next.capRatePct / 100) : undefined,
         applyGrowthToTerminal: next.applyGrowthToTerminal,
         terminalValueBasis: next.terminalValueBasis,
+        exitSellingCostRate: next.exitSellingCostPct > 0 || project.returns?.exitSellingCostRate !== undefined ? Math.max(0, next.exitSellingCostPct / 100) : undefined,
+        // Stored only once typed; until then it follows the discount rate.
+        costOfEquity: next.costOfEquityStated ? Math.max(0, next.costOfEquityPct / 100) : undefined,
       },
     });
   };

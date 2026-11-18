@@ -632,6 +632,8 @@ export function emitReturnsSection(c: SheetCursor, state: FinancialsResolverStat
   setSectionHeader(c.ws.getRow(c.r), 'Returns Assumptions', 3); c.r += 1;
   const drRow = kv(c, 'Discount Rate (%)', cfg.discountRate, NUMFMT.pct, stored.discountRate !== undefined, 'DiscountRate', undefined, 'inp=ret|Discount Rate (%)@4');
   void drRow;
+  // THE COST OF EQUITY (2026-11-18): the equity NPVs' rate; the discount rate when none is typed.
+  kv(c, 'Cost of equity (%)', cfg.costOfEquity, NUMFMT.pct, true, undefined, stored.costOfEquity === undefined ? 'The discount rate, as none is typed.' : undefined, 'ret:coe');
   kv(c, 'Exit Year', snap.projectStartYear + cfg.exitYearOffset, NUMFMT.year, stored.exitYearOffset !== undefined, 'ExitYear', undefined, 'inp=ret|Exit Year@4');
   kv(c, 'Terminal Value Method', TERMINAL_METHOD_LABELS[cfg.terminalMethod] ?? cfg.terminalMethod, '@', stored.terminalMethod !== undefined, undefined, undefined, isLiveLayout() ? 'ret:tvMethod' : undefined);
   if (cfg.terminalMethod === 'exit_multiple') kv(c, 'Exit Multiple (x stabilised NOI)', cfg.exitMultiple, NUMFMT.mult, stored.exitMultiple !== undefined, 'ExitMultiple', undefined, 'inp=ret|Exit Multiple (x stabilised NOI)@4');
@@ -652,6 +654,8 @@ export function emitReturnsSection(c: SheetCursor, state: FinancialsResolverStat
   }
   if (cfg.terminalMethod !== 'none') {
     kv(c, 'Terminal metric', cfg.applyGrowthToTerminal ? 'Grown by (1 + g)' : 'As stated, not grown', '@', stored.applyGrowthToTerminal !== undefined, undefined, undefined, isLiveLayout() ? 'ret:tvMetric' : undefined);
+    // SELLING COSTS AT EXIT (2026-11-18): a share of the gross exit value; the net is the proceeds.
+    kv(c, 'Selling costs at exit (% of gross value)', cfg.exitSellingCostRate, NUMFMT.pct2, true, undefined, undefined, 'ret:sellCost');
   }
   c.r += 1;
   if (!isLiveLayout()) return;

@@ -106,6 +106,8 @@ export interface TerminalConfig {
   /** Which year's income the terminal value capitalises (2026-09-14). Absent
    *  means the year before the exit, as the financials composer books it. */
   basis?: TerminalValueBasis;
+  /** Selling costs at exit, a decimal share of the gross value (2026-11-18). */
+  sellingCostRate?: number;
   /** When set (> 0), FORCES the cap-rate valuation whatever the method. Used by
    *  the exit-cap-rate sensitivity axis, which sweeps the rate on a model whose
    *  own method may be something else. It routes through the SAME
@@ -162,6 +164,7 @@ export function buildSponsorStreamsForExit(
     exitIdx: exit, basis: term.basis, method, noiPerPeriod: noi, fcffPerPeriod: fcffForMetric,
     exitMultiple: term.exitMultiple, perpetuityGrowth: term.perpetuityGrowth, discountRate: term.discountRate,
     capRate: sweeping ? term.capRateOverride : term.capRate, applyGrowth: term.applyGrowth,
+    sellingCostRate: term.sellingCostRate,
   });
   const tvEnterprise = valuation.enterpriseValue;
   // The income that was capitalised, so the implied cap rate is the one used. It

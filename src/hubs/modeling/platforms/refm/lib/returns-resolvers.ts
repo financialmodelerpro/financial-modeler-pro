@@ -83,6 +83,10 @@ export interface ReturnsConfig {
   /** Which year's income is capitalised (2026-09-14): the year before the exit
    *  by default, as the reference does, or the exit year. */
   terminalValueBasis: TerminalValueBasis;
+  /** Selling costs at exit, a decimal share of the gross exit value (2026-11-18). */
+  exitSellingCostRate: number;
+  /** The equity NPVs' rate (2026-11-18); the discount rate when none is typed. */
+  costOfEquity: number;
 }
 
 export const DEFAULT_RETURNS_CONFIG: Omit<ReturnsConfig, 'exitYearOffset'> = {
@@ -100,6 +104,8 @@ export const DEFAULT_RETURNS_CONFIG: Omit<ReturnsConfig, 'exitYearOffset'> = {
   // project exactly where it was.
   applyGrowthToTerminal: false,
   terminalValueBasis: 'prior_year',
+  exitSellingCostRate: 0,
+  costOfEquity: 0.10,
 };
 
 /** Resolve the stored project config + defaults into a concrete config. */
@@ -128,6 +134,8 @@ export function resolveReturnsConfig(project: Project, axisLength: number): Retu
     capRateDerived: cap.derived,
     capRateSource: cap.source,
     applyGrowthToTerminal: resolveApplyGrowth(terminalMethod, r.applyGrowthToTerminal),
+    exitSellingCostRate: Math.max(0, Math.min(1, r.exitSellingCostRate ?? 0)),
+    costOfEquity: Math.max(0, r.costOfEquity ?? discountRate),
   };
 }
 
@@ -329,7 +337,7 @@ export function trappedCashFrom(
  *  a snapshot, for the sensitivity grid (resolver default + UI re-runs). */
 function sponsorInputsFromSnap(snap: ProjectFinancialsSnapshot, project: Project): {
   inputs: SponsorStreamInputs; exitIdx: number; discountRate: number;
-  terminal: { method: TerminalMethod; exitMultiple: number; perpetuityGrowth: number; discountRate: number; capRate?: number; applyGrowth?: boolean; basis?: TerminalValueBasis };
+  terminal: { method: TerminalMethod; exitMultiple: number; perpetuityGrowth: number; discountRate: number; capRate?: number; applyGrowth?: boolean; basis?: TerminalValueBasis; sellingCostRate?: number };
 } {
   const N = snap.axisLength;
   const cfg = resolveReturnsConfig(project, N);
@@ -358,7 +366,7 @@ function sponsorInputsFromSnap(snap: ProjectFinancialsSnapshot, project: Project
     },
     exitIdx: cfg.exitYearOffset,
     discountRate: cfg.discountRate,
-    terminal: { method: cfg.terminalMethod, exitMultiple: cfg.exitMultiple, perpetuityGrowth: cfg.perpetuityGrowth, discountRate: cfg.discountRate, capRate: cfg.capRate, applyGrowth: cfg.applyGrowthToTerminal, basis: cfg.terminalValueBasis },
+    terminal: { method: cfg.terminalMethod, exitMultiple: cfg.exitMultiple, perpetuityGrowth: cfg.perpetuityGrowth, discountRate: cfg.discountRate, capRate: cfg.capRate, applyGrowth: cfg.applyGrowthToTerminal, basis: cfg.terminalValueBasis, sellingCostRate: cfg.exitSellingCostRate },
   };
 }
 
@@ -482,6 +490,7 @@ export function computeReturnsSnapshot(snap: ProjectFinancialsSnapshot, project:
     perpetuityGrowth: cfg.perpetuityGrowth, discountRate: cfg.discountRate,
     capRate: cfg.capRate, applyGrowth: cfg.applyGrowthToTerminal,
     basis: cfg.terminalValueBasis,
+    sellingCostRate: cfg.exitSellingCostRate,
   };
   const streams = buildSponsorStreamsForExit(sponsorInputs, exit, terminalCfg);
   const stabilisedNOI = streams.stabilisedNOI;
@@ -673,6 +682,7 @@ export function computeReturnsSnapshot(snap: ProjectFinancialsSnapshot, project:
     fcfe: { perPeriod: fcfe },
     dividends: { perPeriod: dividendStream },
     discountRate: cfg.discountRate,
+    costOfEquity: cfg.costOfEquity,
     metrics: {
       stabilisedNOI,
       totalDevelopmentCost,
@@ -942,7 +952,7 @@ export function computeReturnsSnapshot(snap: ProjectFinancialsSnapshot, project:
     // Summarised with the SAME function and the same discount rate the gross
     // streams use, so net and gross are comparable numbers rather than two
     // metrics that merely share a name.
-    resultNetDividends: summariseStream({ perPeriod: netDividendStream }, cfg.discountRate),
+    resultNetDividends: summariseStream({ perPeriod: netDividendStream }, cfg.costOfEquity),
     feeEarners,
     performanceFeeDefaultedToManager: fundTerms.enabled && performanceFeeDefaultsToManager(fundTerms),
     performanceFeeDefaultShare: fundTerms.enabled ? performanceFeeDefaultShare(fundTerms) : 0,

@@ -508,6 +508,9 @@ export interface TerminalDisposal {
   basis: TerminalValueBasis;
   metricIdx: number;
   exitMetric: number;
+  /** The exit value before selling costs, and the selling costs (2026-11-18); proceeds is the net. */
+  grossValue: number;
+  sellingCosts: number;
   proceeds: number;
   netBookValue: { building: number; land: number; capitalisedInterest: number; total: number };
   gain: number;
@@ -2388,6 +2391,7 @@ function computeFinancialsSnapshotOnce(
     noiPerPeriod: noiForExit, fcffPerPeriod: fcffForExit,
     exitMultiple: returnsCfg.exitMultiple, perpetuityGrowth: returnsCfg.perpetuityGrowth,
     discountRate: returnsCfg.discountRate, capRate: returnsCfg.capRate, applyGrowth: returnsCfg.applyGrowthToTerminal,
+    sellingCostRate: returnsCfg.exitSellingCostRate,
   });
   const buildingWriteOff = writeOffAtExit(fixedAssets.projectTotals.depreciable.closingNBVPerPeriod, fixedAssets.projectTotals.depreciable.depreciationPerPeriod, exitIdx, N);
   const landWriteOff = writeOffAtExit(fixedAssets.projectTotals.land.closingPerPeriod, undefined, exitIdx, N);
@@ -3052,6 +3056,8 @@ function computeFinancialsSnapshotOnce(
     basis: returnsCfg.terminalValueBasis,
     metricIdx: exitValuation.metricIdx,
     exitMetric: exitValuation.exitMetric,
+    grossValue: disposalBooked ? exitValuation.grossValue : 0,
+    sellingCosts: disposalBooked ? exitValuation.sellingCosts : 0,
     proceeds: proceedsFromDisposal[exitIdx] ?? 0,
     netBookValue: {
       building: buildingWriteOff.disposedAtExit,

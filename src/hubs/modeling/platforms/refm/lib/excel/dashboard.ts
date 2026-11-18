@@ -278,7 +278,7 @@ export function buildDashboard(wb: ExcelJS.Workbook, ctx: DashboardContext): { c
   const retDist = L.section(RET, /^Distributions before/), retFee = L.section(RET, /^Performance fee/), retPart = L.section(RET, /^Equity partners$/);
   const retFees = L.section(RET, /^Fund fees and who earns them$/), retSU = L.section(RET, /^Sources and uses/), retKM = L.section(RET, /^Key metrics$/);
   const rDisc = L.need(RET, 'Discount rate', retA), rExitY = L.need(RET, 'Exit year', retA), rCap = L.row(RET, 'Exit cap rate', retA);
-  const rNoi = L.need(RET, 'Income capitalised', retExit), rTv = L.need(RET, 'Terminal value', retExit);
+  const rNoi = L.need(RET, 'Income capitalised', retExit), rTv = L.need(RET, 'Net exit value', retExit);
   const rFcff = L.need(RET, 'FCFF', retFcff), rFcffRet = L.need(RET, 'Project returns (FCFF)', retFcff);
   const rFcfe = L.need(RET, 'FCFE', retFcfe), rFcfeRet = L.need(RET, 'Equity returns (FCFE)', retFcfe);
   const rDistNet = retDist ? L.row(RET, 'NET DISTRIBUTIONS', retDist) : null, rDistRet = retDist ? L.row(RET, 'Distribution returns, before the fee', retDist) : null;

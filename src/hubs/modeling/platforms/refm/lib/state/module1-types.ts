@@ -825,6 +825,18 @@ export interface Project {
      * The value is booked as proceeds from disposal in the exit year.
      */
     terminalValueBasis?: 'prior_year' | 'exit_year';
+    /**
+     * SELLING COSTS AT EXIT (2026-11-18), a decimal share of the gross exit value (0.01 = 1%).
+     * Net exit value = gross less these costs; the net is what the disposal books as proceeds,
+     * what the gain is measured on, and what Returns and the Dashboard carry. Absent = 0.
+     */
+    exitSellingCostRate?: number;
+    /**
+     * THE COST OF EQUITY (2026-11-18), a decimal annual rate. The equity NPVs (FCFE, the
+     * distributions, and the distributions after the performance fee) discount at it; the
+     * project NPV keeps `discountRate`. Absent = the discount rate. IRR and MOIC are untouched.
+     */
+    costOfEquity?: number;
   };
   /**
    * Fund layer, Step 1 (2026-08-03): the standalone-vs-fund toggle, and

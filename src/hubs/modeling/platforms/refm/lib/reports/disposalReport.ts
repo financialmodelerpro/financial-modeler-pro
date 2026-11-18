@@ -96,7 +96,10 @@ export function buildDisposalWorking(
   if (cfg.applyGrowthToTerminal && cfg.terminalMethod !== 'perpetuity') {
     rows.push({ label: 'Income grown by (1 + g) before capitalising', value: cfg.perpetuityGrowth, format: 'pct', indent: 1 });
   }
-  rows.push({ label: 'Terminal value, booked as proceeds from disposal', value: d.proceeds, format: 'money', kind: 'total' });
+  // SELLING COSTS AT EXIT (2026-11-18): the gross value less them is the net exit value, the proceeds.
+  rows.push({ label: 'Gross exit value', value: d.grossValue, format: 'money', indent: 1, kind: 'subtotal' });
+  rows.push({ label: 'Less: selling costs at exit', value: -d.sellingCosts, format: 'money', indent: 1 });
+  rows.push({ label: 'Net exit value, booked as proceeds from disposal', value: d.proceeds, format: 'money', kind: 'total' });
 
   // ── 2. What was sold ──
   rows.push({ label: '2. Net book value disposed at the exit', kind: 'section' });

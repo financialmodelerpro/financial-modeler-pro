@@ -3485,8 +3485,11 @@ function buildModule5(returns: ReturnsSnapshot, snap: ProjectFinancialsSnapshot,
         : [['Terminal value method', methodName], ['Exit multiple', `${(cfg.exitMultiple ?? 0).toFixed(2)}x`]];
   items.push(tTable(m5Tab('Returns'), 'inputs', kvTable('Returns Assumptions', [
     ['Discount rate', fmt.pct(cfg.discountRate, 2)],
+    ['Cost of equity (equity NPVs)', fmt.pct(returns.config.costOfEquity, 2)],
+    ['NPV convention', 'End of year, valued at the project start (first model year discounted once)'],
     ['Exit year', String(returns.exitYearLabel)],
     ...methodRows,
+    ['Selling costs at exit', `${fmt.pct(returns.config.exitSellingCostRate, 2)} of the gross exit value`],
   ])));
 
   items.push(tCards(m5Tab('Returns'), 'outputs', 'Headline Returns', headlineReturnCards(returns, fmt)));
