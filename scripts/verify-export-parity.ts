@@ -114,6 +114,14 @@ async function loadWb(buf: ArrayBuffer | Buffer): Promise<ExcelJS.Workbook> {
   return wb;
 }
 
+/** The input tabs: "Project Inputs" and "Operating Inputs" since 2026-11-18 (founder item 5), or one "Inputs" before. */
+const INPUT_TABS = ['Project Inputs', 'Operating Inputs', 'Inputs'];
+const inputTabs = (wb: ExcelJS.Workbook): ExcelJS.Worksheet[] => INPUT_TABS.map((n) => wb.getWorksheet(n)).filter((x): x is ExcelJS.Worksheet => !!x);
+function valueOnInputs(wb: ExcelJS.Workbook, label: string): Cell | undefined {
+  for (const ws of inputTabs(wb)) { const v = valueBeside(ws, label); if (v !== undefined) return v; }
+  return undefined;
+}
+
 /** The value beside a label on a sheet: the first non-empty cell to the label's right. */
 function valueBeside(ws: ExcelJS.Worksheet | undefined, label: string): Cell | undefined {
   if (!ws) return undefined;
@@ -213,7 +221,7 @@ async function runVersion(inp: LiveExportInputs, title: string): Promise<void> {
   const badIn: string[] = [];
   for (const x of inputs) {
     for (const [nm, wb] of [['live', live], ['values', vals]] as const) {
-      const got = valueBeside(wb.getWorksheet('Inputs'), x.label);
+      const got = valueOnInputs(wb, x.label);
       const ok = typeof x.want === 'number' ? typeof got === 'number' && close(got, x.want) : got === x.want;
       if (!ok) badIn.push(`${x.name}: ${nm} Inputs has ${JSON.stringify(got)}, the model ${JSON.stringify(x.want)}`);
     }
@@ -222,18 +230,21 @@ async function runVersion(inp: LiveExportInputs, title: string): Promise<void> {
   check(`I1 ${inputs.length} settings are in the live and values Inputs and the PDF, with the model's value`, badIn.length === 0, badIn.join('\n'));
   // Every input-styled cell of the live Inputs sheet is the same in the values file.
   {
-    const li = live.getWorksheet('Inputs'), vi = vals.getWorksheet('Inputs');
     const bad: string[] = []; let n = 0;
-    li?.eachRow((row, r) => row.eachCell((c, col) => {
+    for (const li of inputTabs(live)) {
+    const vi = vals.getWorksheet(li.name);
+    if (!vi) bad.push(`the values file has no ${li.name} tab`);
+    li.eachRow((row, r) => row.eachCell((c, col) => {
       const v = c.value as unknown;
       if (v && typeof v === 'object' && 'formula' in (v as object)) return;
       const a = cellVal(c); if (a === null || a === '') return;
       n++;
       const b = vi ? cellVal(vi.getCell(r, col)) : null;
       const ok = typeof a === 'number' ? typeof b === 'number' && close(a, b) : a === b;
-      if (!ok && bad.length < 20) bad.push(`Inputs!${c.address}: live ${JSON.stringify(a)} values ${JSON.stringify(b)}`);
+      if (!ok && bad.length < 20) bad.push(`${li.name}!${c.address}: live ${JSON.stringify(a)} values ${JSON.stringify(b)}`);
     }));
-    check(`I2 every typed cell of the live Inputs sheet is the same in the values file (${n} cells)`, bad.length === 0 && n > 200, bad.join('\n'));
+    }
+    check(`I2 every typed cell of the live input tabs is the same in the values file (${n} cells)`, bad.length === 0 && n > 200, bad.join('\n'));
   }
 
   // ── O. Outputs ──

@@ -43,6 +43,8 @@ function check(name: string, ok: boolean, detail = ''): void {
  * carry. Key: "Tab!A1" or "Tab!*" with a category; the reason is printed.
  */
 // mayNotOccur: an entry that depends on the day (the export date matches the reference's on the day it was made).
+/** A formula with every reference into the input tabs replaced by one token (the cells moved when Inputs split). */
+const inputsAgnostic = (f: string): string => f.replace(/(?:'(?:Project|Operating) Inputs'|'Inputs'|Inputs)!\$?[A-Z]{1,3}\$?\d+(?::\$?[A-Z]{1,3}\$?\d+)?/g, 'INPUT_CELL');
 const isNum = (s: string): boolean => s.trim() !== '' && Number.isFinite(Number(s));
 /** Two texts the same but for their figures ("NPV 189.9m" and "NPV 186.0m"). */
 const sameButFigures = (a: string, b: string): boolean => a !== b && a.replace(/-?[0-9][0-9.,]*/g, '#') === b.replace(/-?[0-9][0-9.,]*/g, '#');
@@ -74,7 +76,23 @@ const ACCEPTED: Array<{ at: RegExp; cat?: RegExp; why: string; mode?: 'live' | '
   // The export date on the Cover is the day the file is made.
   { at: /^Cover!D12$/, cat: /^value$/, why: 'the Cover states the day the file is exported', mayNotOccur: true },
   // 6. The Cover footer: the reference wrote it navy on its navy band, which cannot be read; ours is white and pale.
-  { at: /^Cover!C(39|40)$/, cat: /^font$/, why: 'the Cover footer is readable on its navy band (the reference wrote it navy on navy)' },
+  { at: /^Cover!C(39|40)(\(ours (40|41)\))?$/, cat: /^font$/, why: 'the Cover footer is readable on its navy band (the reference wrote it navy on navy)' },
+  // TWO INPUT TABS (2026-11-18, founder item 5): Inputs is "Project Inputs" and "Operating Inputs" in the training
+  // layout. The reference's Inputs is not compared cell for cell (its cells moved; the parity verifier holds the two
+  // files to each other, and D1/D2 recalculate every figure); a formula that reads an input compares with the input
+  // cell's address taken out (its RESULT is still compared); the Cover's navigation lists both tabs, so every line
+  // under it sits one row lower.
+  { at: /^Inputs!\*$/, cat: /^missing tab$/, why: 'Inputs is split into Project Inputs and Operating Inputs (training layout)' },
+  { at: /!/, cat: /^formula$/, why: 'the formula reads a cell on the input tabs, which moved when Inputs split (its result is compared)', test: (d) => d.ref !== d.ours && inputsAgnostic(d.ref) === inputsAgnostic(d.ours) },
+  { at: /^Cover!([C-H](2[4-9]|3\d|4[0-2]))$/, cat: /^(value|font|alignment|merge|fill|border|height)$/, why: 'the Cover navigation lists both input tabs, so the lines under it sit one row lower' },
+  // ONE LAND TABLE (2026-11-18, founder item 6): a plot drawn in part is its plot's land area x its share of the plot,
+  // a formula and not a link to a typed area.
+  { at: /^Land & Area!G\d+$/, cat: /^formula$/, why: 'a typed draw is the plot area x its share of the plot (one land table)', test: (d) => { const a = inputsAgnostic(d.ref), b = inputsAgnostic(d.ours.replace(/('Project Inputs'!\$G\$(\d+))\*'Project Inputs'!\$P\$\2(?!\d)/g, '$1')); return b === a || b === `MAX(0,${a})`; } },
+  // The construction phasing grid starts at year 1 when no curve has a year 0 (2026-11-18): the curve's index loses its +1.
+  { at: /^Capex!/, cat: /^formula$/, why: 'the phasing grid has no year 0 column, so the curve index loses its +1', test: (d) => inputsAgnostic(d.ref).replace(/INDEX\(INPUT_CELL,1,((?:[^()]|\([^()]*\))*?)\+1\)/g, 'INDEX(INPUT_CELL,1,$1)') === inputsAgnostic(d.ours) },
+  // THE EXIT SETTLES WORKING CAPITAL (2026-11-18): a line's collections take the whole receivable in the exit year.
+  { at: /^Revenue!/, cat: /^formula$/, why: 'collections take the whole receivable in the exit year (the exit settles working capital)', test: (d) => /^SUM\([A-Z]+\$\d+:[A-Z]+\$\d+\)$/.test(d.ref) && d.ours.includes(d.ref) && /Timeline!/.test(d.ours) },
+  { at: /^Land & Area!G\d+$/, cat: /^font$/, why: 'a typed draw is the plot area x its share of the plot (one land table), a formula, not a link', test: (d) => /2E8B3A/.test(d.ref) && /000000/.test(d.ours) },
   // 1. "Freeze panes G7 on every time tab (Returns too)": the reference froze Returns at G6.
   { at: /^Returns!freeze$/, why: 'freeze panes G7 on every time tab, Returns too' },
   // ── THE 2026-11-18 METHOD CHANGES (founder: A1 to A7, and the item 8 data fixes on this version) ──
@@ -94,9 +112,6 @@ const ACCEPTED: Array<{ at: RegExp; cat?: RegExp; why: string; mode?: 'live' | '
   { at: /^Returns!/, cat: /^(formula|extra|value|font|fill|border|numFmt|alignment|height)$/, why: 'A3, A6, A7: exit net of selling costs, equity NPVs at the cost of equity, who gets what', noB4: true },
   // The Dashboard reads the moved Returns rows (the net exit value, who gets what) and lists the earners.
   { at: /^Dashboard!/, cat: /^(formula|extra|merge|cf|font|fill|border|numFmt|alignment|height)$/, why: 'the Dashboard reads the moved Returns rows and lists who gets what', noB4: true },
-  // New settings on Inputs (the IDC method, dividends above retained earnings, the cost of equity, selling costs
-  // at exit, the fee bases and shares), and the new check (cash never below zero).
-  { at: /^Inputs!/, cat: /^(value|font|fill|border|numFmt|alignment|height)$/, why: 'A1 to A7: new settings on Inputs', noB4: true },
   { at: /^Checks!/, cat: /^(extra|formula|value|font|fill|border|numFmt|alignment|height)$/, why: 'the new check: cash never goes below zero', noB4: true },
   // The Guide: no circular reference (A1), the NPV convention (A7), the dividend cap's link (A2).
   { at: /^Guide!/, cat: /^(value|extra|merge|font|fill|alignment|height)$/, why: 'the Guide: no circular reference, the NPV convention, the dividend cap link', noB4: true },
@@ -361,7 +376,8 @@ function report(label: string, diffs: Diff[]): void {
   setRowShifts(ref, ours);
 
   console.log('\n--- A. the live export against the reference ---');
-  const order = (wb: ExcelJS.Workbook): string => wb.worksheets.map((w) => w.name).join(', ');
+  // The reference's Inputs is ours "Project Inputs" and "Operating Inputs", in that place (2026-11-18, founder item 5).
+  const order = (wb: ExcelJS.Workbook): string => wb.worksheets.map((w) => w.name).join(', ').replace('Project Inputs, Operating Inputs', 'Inputs');
   check('A1 the tabs, in order', order(ref) === order(ours), `ref:  ${order(ref)}\nours: ${order(ours)}`);
   const [rc, oc] = [await chartsOf(refBuf), await chartsOf(liveBuf)];
   check('A2 the charts (type and series ranges)', rc.join('\n') === oc.join('\n'), `ref:\n${rc.join('\n')}\nours:\n${oc.join('\n')}`);
