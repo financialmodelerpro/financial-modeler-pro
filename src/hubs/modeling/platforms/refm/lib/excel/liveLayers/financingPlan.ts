@@ -19,7 +19,7 @@
 import { escrowInForce, featureUsed } from '../exportScope';
 import { computeFinancialsSnapshot, computeFundingGap, type FinancialsResolverState } from '../../financials-resolvers';
 import { heldIncomePerPeriod, phaseProceedsShare } from '../../reports/phaseProceeds';
-import { resolveFundTerms, FUND_FEE_SPECS } from '../../fundTerms';
+import { resolveFundTerms, FUND_FEE_SPECS, FEE_BASE_LABELS, feeBaseFor } from '../../fundTerms';
 import { resolveReturnsConfig } from '../../returns-resolvers';
 import { planReportLines, lineTitle } from '../../reports/lineRows';
 import { buildIdcAllocationTables } from '../../reports/financingReports';
@@ -353,12 +353,33 @@ export function financingPlan(state: FinancialsResolverState, snap: Snap = compu
 
   // ── The fund fees ─────────────────────────────────────────────────────────
   if (feeOn) {
-    title('fl:t:fee', 'Fund fees (on the funding need with the fees left out)');
+    title('fl:t:fee', 'Fund fees (on bases worked out with no fund fee in the funding)');
     const ff = snap.fundFees;
-    scalar('fl:feeEq', 'Capex equity', ff.totalEquity.amount, 'money', 'The fee base x the equity share');
-    scalar('fl:feeDebt', 'Debt facility', ff.debtFacility.amount, 'money', 'The fee base x the debt share');
-    scalar('fl:feeFund', '= Fund size', ff.fundSize.amount, 'money', fundTerms.fundSizeOverride ? 'The fund size typed on Inputs' : 'Capex equity plus the debt facility');
-    FUND_FEE_SPECS.forEach((spec, i) => per(`fl:fee:${i}`, spec.label, sl(ff.lines[i]?.amountPerPeriod), spec.kind === 'amount' ? 'The amount on Inputs, each year to the exit' : spec.timing === 'one_time' ? `The rate on Inputs x the ${spec.base.replace(/_/g, ' ')}, in the first draw year` : `The rate on Inputs x the ${spec.base.replace(/_/g, ' ')}, each year to the exit`, { indent: 1 }));
+    scalar('fl:feeEq', 'Capex equity of the funding need', ff.totalEquity.amount, 'money', 'The fee-free funding need x the equity share');
+    scalar('fl:feeDebt', 'Capex debt of the funding need', ff.debtFacility.amount, 'money', 'The fee-free funding need x the debt share');
+    scalar('fl:feeFund', '= Fund size (debt + equity funding need)', ff.fundSize.amount, 'money', fundTerms.fundSizeOverride ? 'The fund size typed on Inputs' : 'The two rows above');
+    scalar('fl:feeTdc', 'Total development cost (excl. IDC)', ff.totalDevelopmentCost, 'money', 'Capex Table 2: all capex including land, no capitalised interest');
+    scalar('fl:feeDsc', 'Debt share x cash development cost', ff.debtShareCashCost, 'money', 'The debt share x the capex paid in cash');
+    if (method === 3 && !feeByEquity) {
+      // THE SHADOW FACILITY (2026-11-18): the fee-free draws and the interest capitalised on them.
+      let wS = 0, rS = 0;
+      for (const t of tranches) { if (t.origin === 'existing') continue; const sh = fin.shares.get(t.id) ?? 0; wS += sh; rS += sh * effectiveTrancheRatePct(t) / 100; }
+      const rW = wS > 0 ? rS / wS : 0;
+      scalar('fl:xRate', 'Interest rate, share-weighted across the loans', rW, 'pct', 'Each new loan\'s rate on Inputs, weighted by its share of the debt');
+      const dFv = Math.max(0, fin.funding.debtPct ?? 0) / 100;
+      const xIdc = zeros(), xBal = zeros();
+      { let b = 0; const excl = p.idcConfig?.interestMethod === 'mid_year_excl'; const need = sl(w.feeBaseRequirementPerPeriod);
+        for (let t = 0; t < N; t++) { const d = (need[t] ?? 0) * dFv; const i = fin.idcPeriodMask[t] ? rW * (b + d / 2) / (excl ? 1 : 1 - rW / 2) : 0; b += d + i; xIdc[t] = i; xBal[t] = b; } }
+      per('fl:xIdc', 'Capitalised interest on the fee-free debt', xIdc, 'In a year construction runs: the rate x (last year\'s balance + the fee-free debt drawn / 2), by the IDC method');
+      per('fl:xBal', 'Fee-free debt balance (construction)', xBal, 'Last year\'s balance plus the fee-free debt drawn and its capitalised interest', { balance: true });
+    }
+    scalar('fl:feeFac', 'Total facility (capex debt + IDC)', ff.totalFacility, 'money', method === 3 && !feeByEquity ? 'The fee-free debt drawn plus its capitalised interest' : 'Every new loan\'s capex drawdown plus its interest drawn as debt');
+    per('fl:feeEtd', 'Equity to date (cash equity for capex plus land in kind)', sl(ff.equityToDatePerPeriod), 'Cumulative capex equity of the fee-free funding plus land in kind, up to the exit');
+    scalar('fl:feeEtdPeak', 'Equity to date, at its peak', Math.max(0, ...sl(ff.equityToDatePerPeriod)), 'money', 'The largest balance above');
+    FUND_FEE_SPECS.forEach((spec, i) => {
+      const base = (FEE_BASE_LABELS[feeBaseFor(spec, fundTerms)] ?? spec.base).toLowerCase();
+      per(`fl:fee:${i}`, spec.label, sl(ff.lines[i]?.amountPerPeriod), spec.kind === 'amount' ? 'The amount on Inputs, each year to the exit' : spec.timing === 'one_time' ? `The rate on Inputs x the basis on Inputs, in the first draw year (now the ${base})` : `The rate on Inputs x the ${base}, each year to the exit`, { indent: 1 });
+    });
     per('fl:feeTot', 'Total fund fees', sl(ff.totalPerPeriod), 'The fees above', { style: 'subtotal' });
     gapRow();
   }

@@ -628,14 +628,24 @@ export interface FundCapitalRow {
 export function buildFundCapitalRows(snap: ProjectFinancialsSnapshot): FundCapitalRow[] {
   const sched = snap.fundFees;
   if (!sched.active) return [];
-  const equity = sched.totalEquity.amount, debt = sched.debtFacility.amount;
-  if (Math.abs(equity + debt - sched.fundSize.amount) > 0.01) return [];
-  return [
-    { label: 'Capex equity', amount: equity, isTotal: false, note: sched.totalEquity.explanation },
-    { label: 'Debt facility', amount: debt, isTotal: false, note: sched.debtFacility.explanation },
-    { label: 'Fund size', amount: sched.fundSize.amount, isTotal: true, note: 'Total equity plus the debt facility.' },
-  ];
+  // THE BASES THE FEES ACTUALLY CHARGE ON (2026-11-18), each once, in the fee table's order.
+  const bases = new Set(sched.lines.map((l) => l.base));
+  const rows: FundCapitalRow[] = [];
+  if (bases.has('fund_size')) rows.push({ label: FUND_CAPITAL_LABELS.fundSize, amount: sched.fundSize.amount, isTotal: false, note: sched.fundSize.source === 'manual' ? 'The fund size typed on the Fund Terms tab.' : 'The debt plus the equity of the funding need, with no fund fee in it.' });
+  if (bases.has('total_development_cost')) rows.push({ label: FUND_CAPITAL_LABELS.tdc, amount: sched.totalDevelopmentCost, isTotal: false, note: 'Capex including all land, excluding capitalised interest.' });
+  if (bases.has('equity_to_date')) rows.push({ label: FUND_CAPITAL_LABELS.etdPeak, amount: Math.max(0, ...sched.equityToDatePerPeriod), isTotal: false, note: 'Cash equity drawn for capex plus land in kind, to date; the annual fees charge on each year\'s balance. Never the equity drawn to pay these fees.' });
+  if (bases.has('total_facility')) rows.push({ label: FUND_CAPITAL_LABELS.facility, amount: sched.totalFacility, isTotal: false, note: 'The debt drawn for capex plus the interest capitalised on it, with no fund fee in the funding.' });
+  if (bases.has('debt_share_cash_cost')) rows.push({ label: FUND_CAPITAL_LABELS.dsc, amount: sched.debtShareCashCost, isTotal: false, note: 'The debt share of the funding x the capex paid in cash.' });
+  return rows;
 }
+/** The capital base labels, ONE wording for every surface (2026-11-18). */
+export const FUND_CAPITAL_LABELS = {
+  fundSize: 'Fund size (debt + equity funding need)',
+  tdc: 'Total development cost (excl. IDC)',
+  etdPeak: 'Equity to date, at its peak',
+  facility: 'Total facility (capex debt + IDC)',
+  dsc: 'Debt share x cash development cost',
+} as const;
 
 /**
  * The capital bases are their OWN block, above the fee basis table, on every
@@ -652,7 +662,7 @@ export function buildFundCapitalRows(snap: ProjectFinancialsSnapshot): FundCapit
 export const FUND_CAPITAL_BASES_TITLE = 'Capital Bases (the quantities the fees are charged on)';
 export const FUND_CAPITAL_BASE_TAG = 'capital base';
 export const FUND_CAPITAL_BASES_NOTE =
-  'These three rows are amounts of CAPITAL, not fees. Capex equity and the debt facility are what the model raises to BUILD; the fund size is their sum. Each fee below states which of them it is charged on. Capex equity is deliberately less than the cash equity on Financing: it excludes the equity raised to pay these fees, because charging a fee on the money raised to pay it would be circular.';
+  'These rows are amounts of CAPITAL, not fees: the quantities the fees below are charged on. Each is worked out with no fund fee in the funding, so no fee is charged on the money raised to pay it.';
 /** The Fund Fee Basis table's title and caption, as the Module 4 P&L tab prints
  *  them. One wording for the screen and the PDF (2026-09-17). */
 export const FUND_FEE_BASIS_TITLE = 'Fund Fee Basis';
@@ -695,6 +705,13 @@ export function buildFundFeeBasisRows(snap: ProjectFinancialsSnapshot): FundFeeB
     else if (line.base === 'facility_limit') note = sched.facilityLimit.explanation;
     else if (line.base === 'opening_nav') note = 'NAV at the start of each year (net assets), so the fee is known before the year\'s cash moves.';
     else if (line.base === 'flat_amount') note = 'A fixed amount per annum.';
+    else if (line.base === 'equity_to_date') note = 'Cash equity drawn for capex plus land in kind, to date, each year to the exit; the basis shown is its peak.';
+    else if (line.base === 'total_development_cost') note = 'Capex including all land, excluding capitalised interest.';
+    else if (line.base === 'total_facility') note = 'The debt drawn for capex plus the interest capitalised on it, with no fund fee in the funding.';
+    else if (line.base === 'debt_share_cash_cost') note = 'The debt share of the funding x the capex paid in cash.';
+    // A MOVING BASE SHOWS ITS PEAK (2026-11-18): the sum of a balance over the years is not a quantity.
+    const moving = line.base === 'equity_to_date' && !constant;
+    const peak = Math.max(0, ...line.basisPerPeriod.map((v) => v ?? 0));
     return {
       label: line.label,
       timing: FEE_TIMING_LABELS[line.timing] ?? line.timing,
@@ -703,7 +720,7 @@ export function buildFundFeeBasisRows(snap: ProjectFinancialsSnapshot): FundFeeB
       hasRate: line.base !== 'flat_amount',
       basis,
       basisPerPeriod: constant ? first : null,
-      basisDisplay: constant ? first : basis,
+      basisDisplay: constant ? first : moving ? peak : basis,
       basisIsPerPeriod: constant && charged.length > 1,
       periodsCharged: charged.length,
       charged: line.total,

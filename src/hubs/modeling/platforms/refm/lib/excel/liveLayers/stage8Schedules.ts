@@ -51,7 +51,14 @@ export const stage8FundFees: LiveLayer = {
       const m = /^plfee\|(cap|basis|fee)\|(.+)$/.exec(k);
       if (m?.[1] === 'cap' && !capKey(m[2])) refuse.push(`the capital base "${m[2]}" is not on the Inputs sheet`);
       if (m && m[1] !== 'cap' && !has(`fnc:fee:${m[2]}`)) refuse.push(`fee ${m[2]} has no row in the solve`);
-      if (m?.[1] === 'basis') { const spec = FUND_FEE_SPECS[Number(m[2])]; if (!spec || !baseLabel[spec.base] || !capKey(baseLabel[spec.base])) refuse.push(`fee ${m[2]}'s base is not on the Inputs sheet`); }
+      if (m?.[1] === 'basis') {
+        const spec = FUND_FEE_SPECS[Number(m[2])];
+        const ok = !!spec && (spec.base === 'equity_to_date' ? has('fnc:feeEtd')
+          : spec.key === 'fundStructureFeePct' ? has('fnc:feeFund') && has('fnc:feeTdc') && has('fnc:firstDraw')
+            : spec.key === 'debtArrangingFeePct' ? has('fnc:feeFac') && has('fnc:feeDsc') && has('fnc:firstDraw')
+              : !!baseLabel[spec.base] && !!capKey(baseLabel[spec.base]));
+        if (!ok) refuse.push(`fee ${m[2]}'s base is not on the Financing sheet`);
+      }
     }
     if (refuse.length) return [{ sheet: PL, status: 'partial' as const, formulas: 0, note: `The Fund Fee Basis block stays the platform's values: ${[...new Set(refuse)].join('; ')}.` }];
 
@@ -68,10 +75,23 @@ export const stage8FundFees: LiveLayer = {
         // In force through the exit year, a one-time fee in the first year only: the Timeline's years, one formula across.
         const TY = (t: number): string => w.refP({ sheet: 'Timeline', row: 3, col: pc(t) }, PL);
         const TYA = (t: number): string => w.refA({ sheet: 'Timeline', row: 3, col: pc(t) }, PL);
-        const gate = (t: number): string => `${booked ? `(${TY(t)}<=${TYA(X)})*` : ''}${spec.timing === 'one_time' ? `(${TY(t)}=${TYA(0)})*` : ''}`;
-        for (let t = 0; t < N; t++) w.fA({ sheet: PL, row: r, col: pc(t) }, `${gate(t)}${cap(baseLabel[spec.base])}`);
+        // THE BASES OF 2026-11-18: each year's basis is the one the Financing fee row charges on. Equity to
+        // date moves every year; a one-time fee's basis sits in the first draw year, on the basis Inputs names.
+        if (spec.base === 'equity_to_date') {
+          for (let t = 0; t < N; t++) w.fA({ sheet: PL, row: r, col: pc(t) }, `N(${w.perP('fnc:feeEtd', t)})`);
+          w.fA({ sheet: PL, row: r, col: TOTAL_COL }, `MAX(${rng(r)})`);
+          continue;
+        }
+        const strB = has('ft:Structure fee basis') ? `ISNUMBER(SEARCH("development",${w.ref('ft:Structure fee basis')}))` : 'FALSE';
+        const arrB = has('ft:Arranging fee basis') ? `ISNUMBER(SEARCH("cash",${w.ref('ft:Arranging fee basis')}))` : 'FALSE';
+        const baseF = spec.key === 'fundStructureFeePct' ? `IF(${strB},N(${w.ref('fnc:feeTdc')}),N(${w.ref('fnc:feeFund')}))`
+          : spec.key === 'debtArrangingFeePct' ? `IF(${arrB},N(${w.ref('fnc:feeDsc')}),N(${w.ref('fnc:feeFac')}))`
+            : cap(baseLabel[spec.base]);
+        const first = spec.timing === 'one_time' && has('fnc:firstDraw') ? `N(${w.ref('fnc:firstDraw')})` : TYA(0);
+        const gate = (t: number): string => `${booked ? `(${TY(t)}<=${TYA(X)})*` : ''}${spec.timing === 'one_time' ? `(${TY(t)}=${first})*` : ''}`;
+        for (let t = 0; t < N; t++) w.fA({ sheet: PL, row: r, col: pc(t) }, `${gate(t)}${baseF}`);
         // A base is a stock: the lead cell is the base, not a sum of its copies.
-        w.fA({ sheet: PL, row: r, col: TOTAL_COL }, cap(baseLabel[spec.base]));
+        w.fA({ sheet: PL, row: r, col: TOTAL_COL }, baseF);
         continue;
       }
       if (kind === 'fee') {

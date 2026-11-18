@@ -164,13 +164,22 @@ export function computeFinancingResult(ctx: FinancingContext): FinancingComputat
   }
 
   const combined = combineDebtService(facilities, axis, ctx.tranches);
+  // THE PERIODS WHOSE INTEREST IS CAPITALISED (2026-11-18): inside the construction window and
+  // spending, the schedule's own test, exposed so a fee-free shadow facility applies it too.
+  let constructionEnd = 0;
+  for (const ph of ctx.phases) {
+    if (ph.status === 'operational') continue;
+    const end = (axis.phaseOffsets.get(ph.id) ?? 0) + Math.max(0, (ph.constructionPeriods ?? 0) - (ph.overlapPeriods ?? 0));
+    if (end > constructionEnd) constructionEnd = end;
+  }
+  const idcPeriodMask = constructionSpendByPeriod.map((v, i) => i < constructionEnd && (v ?? 0) > 0);
   const equity = computeEquityMovement(split, existing, axis);
   const reconciliation = reconcile(axis, capex, funding, split, shares, facilities, ctx.tranches, equity, existing);
 
   return {
     axis, capex, funding, debtEquitySplit: split,
     shares, facilities, combined, equity, existing,
-    reconciliation,
+    reconciliation, idcPeriodMask,
   };
 }
 

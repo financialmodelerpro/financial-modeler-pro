@@ -37,7 +37,7 @@ import {
   computeAllFixedAssetResults,
   type ProjectFixedAssetSnapshot,
 } from './fixed-assets-resolvers';
-import { computeFinancingResult, type FinancingComputation, type FundingGapInputs } from '@/src/core/calculations/financing';
+import { computeFinancingResult, effectiveTrancheRatePct, type FinancingComputation, type FundingGapInputs } from '@/src/core/calculations/financing';
 import {
   computeAssetFixedAssets,
 } from '@/src/core/calculations/depreciation';
@@ -3332,6 +3332,41 @@ export function computeFinancialsSnapshot(
       // ONE-OFF FEES ARE CHARGED IN THE YEAR OF THE FIRST DRAW (2026-10-29, founder), the first
       // year the base requirement is drawn, never simply the first model year.
       const firstDraw = perPeriod.findIndex((v) => (v ?? 0) > 0);
+      // THE BASES OF 2026-11-18 (founder), every one from the fee-free funding or from capex.
+      const nAx = src.axisLength;
+      const dFr = Math.max(0, fnd.debtPct ?? 0) / 100, eFr = Math.max(0, fnd.equityPct ?? 0) / 100;
+      const m3 = fnd.selectedMethodId === 3;
+      const eqCapex = Array.from({ length: nAx }, (_, t) => (m3 ? (perPeriod[t] ?? 0) * eFr : (src.financing.equity.developmentPerPeriod[t] ?? 0)));
+      const debtCapex = Array.from({ length: nAx }, (_, t) => (m3 ? (perPeriod[t] ?? 0) * dFr : (src.financing.debtEquitySplit.debt[t] ?? 0)));
+      // Equity to date: cash equity for capex plus land in kind, cumulative, while the fund runs.
+      const equityToDatePerPeriod: number[] = [];
+      { let run = 0; for (let t = 0; t < nAx; t++) { run += (eqCapex[t] ?? 0) + (src.financing.equity.inKindPerPeriod[t] ?? 0); equityToDatePerPeriod.push(t > feeStopIdx ? 0 : run); } }
+      const totalDevelopmentCost = Math.max(0, src.financing.capex.totals.inclAllLand);
+      const debtShareCashCost = dFr * Math.max(0, src.financing.capex.totals.exclLandInKind);
+      // The total facility: capex debt plus the interest capitalised on it. Equity-funded fees never
+      // enter the funding, so the real facility IS fee-free; deficit-funded fees do, so a shadow
+      // facility on the fee-free draws carries the IDC at the facilities' share-weighted rate.
+      let totalFacility: number;
+      if ((state.project.fundTerms?.managementFeeFunding ?? 'deficit') === 'equity') {
+        const c = src.financing.combined;
+        totalFacility = c.totalDrawdown.reduce((a, v) => a + (v ?? 0), 0) + c.totalInterestCapitalized.reduce((a, v) => a + (v ?? 0), 0);
+      } else {
+        let wSum = 0, rSum = 0;
+        for (const t of state.financingTranches) {
+          if (t.origin === 'existing') continue;
+          const sh = src.financing.shares.get(t.id) ?? 0;
+          wSum += sh; rSum += sh * effectiveTrancheRatePct(t) / 100;
+        }
+        const r = wSum > 0 ? rSum / wSum : 0;
+        const excl = state.project.idcConfig?.interestMethod === 'mid_year_excl';
+        let bal = 0, idc = 0, drawn = 0;
+        for (let t = 0; t < nAx; t++) {
+          const d = debtCapex[t] ?? 0;
+          const i = src.financing.idcPeriodMask[t] ? r * (bal + d / 2) / (excl ? 1 : 1 - r / 2) : 0;
+          bal += d + i; idc += i; drawn += d;
+        }
+        totalFacility = drawn + idc;
+      }
       const schedule = computeFundFeeSchedule({
         terms: fundTerms,
         axisLength: src.axisLength,
@@ -3368,6 +3403,10 @@ export function computeFinancialsSnapshot(
           source: baseDebtRequirement > 0 ? 'model' : 'none',
           explanation: `From your model: the debt share (${fnd.debtPct.toFixed(0)}%) of the selected method's funding requirement, with the fund fees left out. Not the facility ceiling.`,
         },
+        equityToDatePerPeriod,
+        totalDevelopmentCost,
+        totalFacility,
+        debtShareCashCost,
       });
       if (!(feeStopIdx < src.axisLength - 1)) return schedule;
       const lines = schedule.lines.map((l) => {

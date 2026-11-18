@@ -293,6 +293,8 @@ export interface Reconciliation {
 }
 
 export interface FinancingComputation {
+  /** Periods whose new-loan interest is capitalised (2026-11-18): inside construction and spending. */
+  idcPeriodMask: boolean[];
   axis: ProjectAxis;
   capex: CapexAggregate;
   funding: FundingRequirement;

@@ -927,10 +927,13 @@ function addAssumptions(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFin
       r += 1;
     };
     termRow('Fund layer enabled', 'Yes', '@', '', 'When off, every fund figure disappears from the model and this band is not written.');
-    termRow('Fund structure fee', fundTerms.fundStructureFeePct, NUMFMT.pct2, 'of fund size', 'One time, charged on the fee-free fund size.');
-    termRow('Fund management fee', fundTerms.fundManagementFeePct, NUMFMT.pct2, 'of total equity pa', 'Annual, charged on total equity in every period.');
-    termRow('Custody and admin fee', fundTerms.custodyAdminFeePct, NUMFMT.pct2, 'of total equity pa', 'Annual, charged on total equity in every period.');
-    termRow('Debt arranging fee', fundTerms.debtArrangingFeePct, NUMFMT.pct2, 'of debt facility', 'One time, charged on debt actually raised, NOT on the facility limit.');
+    // THE BASES OF 2026-11-18 (founder): each fee's base, worked out with no fund fee in the funding.
+    termRow('Fund structure fee', fundTerms.fundStructureFeePct, NUMFMT.pct2, 'of its basis', 'One time, in the first draw year, on the basis below.');
+    termRow('Structure fee basis', fundTerms.structureFeeBasis === 'total_development_cost' ? 'Total development cost (excl. IDC)' : 'Fund size (debt + equity funding need)', '@', '', 'Type "Fund size (debt + equity funding need)" or "Total development cost (excl. IDC)".');
+    termRow('Fund management fee', fundTerms.fundManagementFeePct, NUMFMT.pct2, 'of equity to date pa', 'Annual, on the cash equity drawn for capex plus land in kind to date, while the fund runs.');
+    termRow('Custody and admin fee', fundTerms.custodyAdminFeePct, NUMFMT.pct2, 'of equity to date pa', 'Annual, on the cash equity drawn for capex plus land in kind to date, while the fund runs.');
+    termRow('Debt arranging fee', fundTerms.debtArrangingFeePct, NUMFMT.pct2, 'of its basis', 'One time, in the first draw year, on the basis below.');
+    termRow('Arranging fee basis', fundTerms.arrangingFeeBasis === 'debt_share_cash_cost' ? 'Debt share x cash development cost' : 'Total facility (capex debt + IDC)', '@', '', 'Type "Total facility (capex debt + IDC)" or "Debt share x cash development cost".');
     termRow('Other expenses', fundTerms.otherExpensesPerAnnum, NUMFMT.money, 'per annum', 'A flat amount each period; no rate applies.');
     termRow('Hurdle rate (preferred return)', fundTerms.hurdleRatePct, NUMFMT.pct2, 'per annum', 'Accrues on the unpaid hurdle balance plus the same-period equity draw, and compounds.');
     termRow('Performance fee on the excess', fundTerms.performanceFeePct, NUMFMT.pct2, 'of excess', 'Flat on distributions above the hurdle owed. No catch-up, no residual split.');

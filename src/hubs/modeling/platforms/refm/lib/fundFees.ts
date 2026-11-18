@@ -47,14 +47,14 @@
  * No em dashes in this file.
  */
 
-import { FUND_FEE_SPECS, type FeeSpec, type FundTerms } from './fundTerms';
+import { FUND_FEE_SPECS, feeBaseFor, type FeeSpec, type FeeBaseKind, type FundTerms } from './fundTerms';
 
 /** One fee's resolved schedule. */
 export interface FundFeeLine {
   key: FeeSpec['key'];
   label: string;
   timing: FeeSpec['timing'];
-  base: FeeSpec['base'];
+  base: FeeBaseKind;
   /** The rate applied (decimal fraction), or 0 for a flat-amount fee. */
   rate: number;
   /** The base amount used in each period. Zero where the fee does not apply. */
@@ -81,6 +81,11 @@ export interface FundFeeSchedule {
   facilityLimit: ResolvedFacilityLimit;
   /** The fund size the structure fee charged on, and where it came from. */
   fundSize: ResolvedFundSize;
+  /** THE BASES OF 2026-11-18, as resolved (zeros / 0 when unused or off). */
+  equityToDatePerPeriod: number[];
+  totalDevelopmentCost: number;
+  totalFacility: number;
+  debtShareCashCost: number;
   /**
    * The two components of the fund size, resolved as bases in their own right
    * (2026-08-10) because the annual fees charge on equity alone and the
@@ -364,6 +369,11 @@ export interface FundFeeInputs {
   debtFacility?: ResolvedCapital;
   /** The period a one-off fee is charged in: the year of the first draw (2026-10-29). Absent, the first period. */
   firstChargeIdx?: number;
+  /** THE NEW BASES (2026-11-18), each from the fee-free walk or capex. */
+  equityToDatePerPeriod?: readonly number[];
+  totalDevelopmentCost?: number;
+  totalFacility?: number;
+  debtShareCashCost?: number;
 }
 
 /**
@@ -392,7 +402,8 @@ export function computeFundFeeSchedule(input: FundFeeInputs): FundFeeSchedule {
   const debtFacility: ResolvedCapital = input.debtFacility
     ?? { amount: Math.max(0, fundSize.debtTotal), source: fundSize.debtTotal > 0 ? 'model' : 'none', explanation: 'Total debt raised over the life of the fund.' };
 
-  const lines: FundFeeLine[] = FUND_FEE_SPECS.map((spec) => {
+  const lines: FundFeeLine[] = FUND_FEE_SPECS.map((spec0) => {
+    const spec = { ...spec0, base: feeBaseFor(spec0, terms) };
     const rate = spec.kind === 'rate' ? (terms[spec.key] as number) : 0;
     const flat = spec.kind === 'amount' ? (terms[spec.key] as number) : 0;
     const basis = zeros(N);
@@ -410,6 +421,10 @@ export function computeFundFeeSchedule(input: FundFeeInputs): FundFeeSchedule {
           case 'facility_limit': basis[t] = facilityLimit.amount; break;
           case 'opening_nav':    basis[t] = Math.max(0, openingNav[t] ?? 0); break;
           case 'flat_amount':    basis[t] = flat; break;
+          case 'equity_to_date': basis[t] = Math.max(0, input.equityToDatePerPeriod?.[t] ?? 0); break;
+          case 'total_development_cost': basis[t] = Math.max(0, input.totalDevelopmentCost ?? 0); break;
+          case 'total_facility': basis[t] = Math.max(0, input.totalFacility ?? 0); break;
+          case 'debt_share_cash_cost': basis[t] = Math.max(0, input.debtShareCashCost ?? 0); break;
         }
       }
       // Timing decides WHICH periods actually carry the charge.
@@ -450,6 +465,10 @@ export function computeFundFeeSchedule(input: FundFeeInputs): FundFeeSchedule {
     openingNavPerPeriod: terms.enabled ? openingNav : zeros(N),
     facilityLimit,
     fundSize,
+    equityToDatePerPeriod: terms.enabled ? Array.from({ length: N }, (_, t) => Math.max(0, input.equityToDatePerPeriod?.[t] ?? 0)) : zeros(N),
+    totalDevelopmentCost: terms.enabled ? Math.max(0, input.totalDevelopmentCost ?? 0) : 0,
+    totalFacility: terms.enabled ? Math.max(0, input.totalFacility ?? 0) : 0,
+    debtShareCashCost: terms.enabled ? Math.max(0, input.debtShareCashCost ?? 0) : 0,
     totalEquity,
     debtFacility,
   };
@@ -472,5 +491,6 @@ export function emptyFundFeeSchedule(axisLength: number): FundFeeSchedule {
     fundSize: { amount: 0, source: 'none', amountKnown: true, equityTotal: 0, debtTotal: 0, explanation: 'The fund layer is off.' },
     totalEquity: { amount: 0, source: 'none', explanation: 'The fund layer is off.' },
     debtFacility: { amount: 0, source: 'none', explanation: 'The fund layer is off.' },
+    equityToDatePerPeriod: zeros(N), totalDevelopmentCost: 0, totalFacility: 0, debtShareCashCost: 0,
   };
 }

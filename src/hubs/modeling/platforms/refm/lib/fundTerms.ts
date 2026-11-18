@@ -52,6 +52,8 @@ import { PARTY_ROLES } from './parties';
 export const LINEAR_FEE_BASES = [
   'fund_size', 'total_equity', 'debt_facility',
   'opening_nav', 'facility_limit', 'flat_amount',
+  // 2026-11-18 (founder): each read from the FEE-FREE walk or from capex, never from a pass a fee moved.
+  'equity_to_date', 'total_development_cost', 'total_facility', 'debt_share_cash_cost',
 ] as const;
 export type FeeBaseKind = typeof LINEAR_FEE_BASES[number];
 
@@ -76,6 +78,10 @@ export const FEE_BASE_LABELS: Record<FeeBaseKind, string> = {
   opening_nav: 'Opening NAV',
   facility_limit: 'Facility limit',
   flat_amount: 'Flat amount',
+  equity_to_date: 'Equity to date',
+  total_development_cost: 'Total development cost (excl. IDC)',
+  total_facility: 'Total facility (capex debt + IDC)',
+  debt_share_cash_cost: 'Debt share x cash development cost',
 };
 
 export const FEE_BASE_HELP: Record<FeeBaseKind, string> = {
@@ -85,7 +91,23 @@ export const FEE_BASE_HELP: Record<FeeBaseKind, string> = {
   opening_nav: 'NAV at the START of each year, so the fee is known before the year`s cash moves.',
   facility_limit: 'The facility limit you enter below, not the drawn balance.',
   flat_amount: 'A fixed amount you enter, per annum.',
+  equity_to_date: 'The cash equity drawn for capex to date plus the land contributed in kind to date, while the fund runs. Never the equity drawn to pay these fees.',
+  total_development_cost: 'Capex including all land, excluding capitalised interest.',
+  total_facility: 'The debt drawn for capex plus the interest capitalised on it, with no fund fee in the funding.',
+  debt_share_cash_cost: 'The debt share of the funding x the capex paid in cash.',
 };
+
+/** THE STRUCTURE FEE'S BASIS (2026-11-18): fund size by default, or total development cost. */
+export type StructureFeeBasis = 'fund_size' | 'total_development_cost';
+/** THE ARRANGING FEE'S BASIS (2026-11-18): the total facility by default, or debt share x cash cost. */
+export type ArrangingFeeBasis = 'total_facility' | 'debt_share_cash_cost';
+
+/** The base a fee charges on under these terms: the spec's, unless the terms choose one. */
+export function feeBaseFor(spec: Pick<FeeSpec, 'key' | 'base'>, terms: Pick<FundTerms, 'structureFeeBasis' | 'arrangingFeeBasis'>): FeeBaseKind {
+  if (spec.key === 'fundStructureFeePct') return terms.structureFeeBasis === 'total_development_cost' ? 'total_development_cost' : 'fund_size';
+  if (spec.key === 'debtArrangingFeePct') return terms.arrangingFeeBasis === 'debt_share_cash_cost' ? 'debt_share_cash_cost' : 'total_facility';
+  return spec.base;
+}
 
 export type FeeTiming = 'one_time' | 'annual';
 export const FEE_TIMING_LABELS: Record<FeeTiming, string> = {
@@ -122,7 +144,7 @@ export interface FeeSpec {
 export const FUND_FEE_SPECS: readonly FeeSpec[] = [
   {
     key: 'fundStructureFeePct', label: 'Fund structure fee', timing: 'one_time', base: 'fund_size', kind: 'rate',
-    help: 'Charged once on the fund size, for establishing the vehicle.',
+    help: 'Charged once, in the first draw year, on the fund size (debt plus equity funding need) or on the total development cost.',
   },
   // THREE DISTINCT CAPITAL BASES, matching the reference exactly (2026-08-10).
   //
@@ -146,12 +168,12 @@ export const FUND_FEE_SPECS: readonly FeeSpec[] = [
   // All three are lifetime totals resolved ONCE in the fee-free pass and then
   // frozen, so the freeze is unchanged.
   {
-    key: 'fundManagementFeePct', label: 'Fund management fee', timing: 'annual', base: 'total_equity', kind: 'rate',
-    help: 'Charged each year on total equity (all equity injected over the life of the fund).',
+    key: 'fundManagementFeePct', label: 'Fund management fee', timing: 'annual', base: 'equity_to_date', kind: 'rate',
+    help: 'Charged each year on the equity to date: cash equity drawn for capex plus land in kind contributed, while the fund runs.',
   },
   {
-    key: 'custodyAdminFeePct', label: 'Custody and admin fee', timing: 'annual', base: 'total_equity', kind: 'rate',
-    help: 'Charged each year on total equity (all equity injected over the life of the fund).',
+    key: 'custodyAdminFeePct', label: 'Custody and admin fee', timing: 'annual', base: 'equity_to_date', kind: 'rate',
+    help: 'Charged each year on the equity to date: cash equity drawn for capex plus land in kind contributed, while the fund runs.',
   },
   // On the DEBT FACILITY (total debt raised), not the facility limit. On the
   // reference project the limit resolves from an LTV cap to 4,273.8m against
@@ -159,8 +181,8 @@ export const FUND_FEE_SPECS: readonly FeeSpec[] = [
   // interchangeable and the fee would have been charged on a ceiling the fund
   // never drew.
   {
-    key: 'debtArrangingFeePct', label: 'Debt arranging fee', timing: 'one_time', base: 'debt_facility', kind: 'rate',
-    help: 'Charged once on the debt facility (total debt raised over the life of the fund).',
+    key: 'debtArrangingFeePct', label: 'Debt arranging fee', timing: 'one_time', base: 'total_facility', kind: 'rate',
+    help: 'Charged once, in the first draw year, on the total facility (capex debt plus IDC) or on the debt share x cash development cost.',
   },
   {
     key: 'otherExpensesPerAnnum', label: 'Other expenses', timing: 'annual', base: 'flat_amount', kind: 'amount',
@@ -399,6 +421,9 @@ export interface FundTerms {
   custodyAdminFeePct: number;
   debtArrangingFeePct: number;
   otherExpensesPerAnnum: number;
+  /** The structure and arranging fees' bases (2026-11-18). */
+  structureFeeBasis: StructureFeeBasis;
+  arrangingFeeBasis: ArrangingFeeBasis;
 
   /** Performance fee. `carryPct` on the row is the same number: carry IS the
    *  performance fee, so it keeps its migration-208 column rather than gaining
@@ -436,6 +461,8 @@ export const DEFAULT_FUND_TERMS: FundTerms = {
   custodyAdminFeePct: 0,
   debtArrangingFeePct: 0,
   otherExpensesPerAnnum: 0,
+  structureFeeBasis: 'fund_size',
+  arrangingFeeBasis: 'total_facility',
   performanceFeePct: 0,
   hurdleRatePct: 0,
   feeDistribution: [],
@@ -570,6 +597,8 @@ export function resolveFundTerms(project: Pick<Project, 'fundTerms'> | null | un
     custodyAdminFeePct: clamp01(raw.custodyAdminFeePct),
     debtArrangingFeePct: clamp01(raw.debtArrangingFeePct),
     otherExpensesPerAnnum: nonNegative(raw.otherExpensesPerAnnum),
+    structureFeeBasis: raw.structureFeeBasis === 'total_development_cost' ? 'total_development_cost' : 'fund_size',
+    arrangingFeeBasis: raw.arrangingFeeBasis === 'debt_share_cash_cost' ? 'debt_share_cash_cost' : 'total_facility',
     // carryPct is the stored name for the performance fee; performanceFeePct is
     // accepted too so a payload written against the newer field still resolves.
     performanceFeePct: clamp01(raw.performanceFeePct ?? raw.carryPct),
@@ -610,6 +639,8 @@ export function toFundTermsPatch(t: FundTerms): FundTermsPatch {
     custodyAdminFeePct: t.custodyAdminFeePct,
     debtArrangingFeePct: t.debtArrangingFeePct,
     otherExpensesPerAnnum: t.otherExpensesPerAnnum,
+    structureFeeBasis: t.structureFeeBasis,
+    arrangingFeeBasis: t.arrangingFeeBasis,
     performanceFeePct: t.performanceFeePct,
     carryPct: t.performanceFeePct,
     hurdleRatePct: t.hurdleRatePct,
@@ -650,6 +681,9 @@ export interface FundTermsRow {
   fund_size_override?: boolean;
   // Migration 215
   management_fee_funding?: string | null;
+  // Migration 258 (2026-11-18)
+  structure_fee_basis?: string | null;
+  arranging_fee_basis?: string | null;
 }
 
 export function fromRow(row: Partial<FundTermsRow> | null | undefined): FundTerms {
@@ -670,6 +704,8 @@ export function fromRow(row: Partial<FundTermsRow> | null | undefined): FundTerm
     custodyAdminFeePct: clamp01(row.custody_admin_fee_pct),
     debtArrangingFeePct: clamp01(row.debt_arranging_fee_pct),
     otherExpensesPerAnnum: nonNegative(row.other_expenses_per_annum),
+    structureFeeBasis: row.structure_fee_basis === 'total_development_cost' ? 'total_development_cost' : 'fund_size',
+    arrangingFeeBasis: row.arranging_fee_basis === 'debt_share_cash_cost' ? 'debt_share_cash_cost' : 'total_facility',
     performanceFeePct: clamp01(row.carry_pct),
     hurdleRatePct: clamp01(row.hurdle_rate_pct),
     feeDistribution: sanitizeFeeDistribution(row.fee_distribution),
@@ -702,14 +738,25 @@ export function toRow(t: FundTerms): Required<FundTermsRow> {
     fund_manager_name: t.fundManagerName,
     facility_limit_override: t.facilityLimitOverride,
     management_fee_funding: t.managementFeeFunding,
+    structure_fee_basis: t.structureFeeBasis,
+    arranging_fee_basis: t.arrangingFeeBasis,
   };
+}
+
+/** The migrations 208 through 215 subset, for a database where 258 is not applied. The two fee
+ *  bases still ride in the version snapshot, which is what the engine reads. */
+export function toRow215(t: FundTerms): FundTermsRow {
+  const row: Record<string, unknown> = { ...toRow(t) };
+  delete row.structure_fee_basis;
+  delete row.arranging_fee_basis;
+  return row as unknown as FundTermsRow;
 }
 
 /** The migrations 208 through 211 subset, for a database where 215 is not
  *  applied. The fee-funding choice still rides in the version snapshot, which
  *  is what the engine reads. */
 export function toRow211(t: FundTerms): FundTermsRow {
-  const row: Record<string, unknown> = { ...toRow(t) };
+  const row: Record<string, unknown> = { ...toRow215(t) };
   delete row.management_fee_funding;
   return row as unknown as FundTermsRow;
 }

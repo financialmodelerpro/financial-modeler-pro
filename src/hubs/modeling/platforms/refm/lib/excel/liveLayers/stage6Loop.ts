@@ -38,6 +38,7 @@ import { withResolvedAssetNames } from '@/src/core/calculations/assetName';
 import { sharesCapitalisedInterest } from '@/src/core/calculations/capitalisedInterest';
 import { computeFinancialsSnapshot } from '../../financials-resolvers';
 import { resolveFundTerms, FUND_FEE_SPECS } from '../../fundTerms';
+import { FUND_CAPITAL_LABELS } from '../../reports/m4Reports';
 import { resolveReturnsConfig } from '../../returns-resolvers';
 import { planRevenueLines, lineForAsset } from '../../revenueLines';
 import { buildFixedAssetReport, idcRowIsHeld } from '../../reports/fixedAssetReports';
@@ -482,7 +483,29 @@ export const stage6Loop: LiveLayer = {
       putS('fl:feeEq', `${R()}*${eF()}`);
       putS('fl:feeDebt', `${R()}*${dF()}`);
       putS('fl:feeFund', fundTerms.fundSizeOverride ? `MAX(0,N(${w.ref('ft:Fund size (typed target)')}))` : `${T('fl:feeEq')}+${T('fl:feeDebt')}`);
-      const baseOf = (base: string): string => (base === 'fund_size' ? T('fl:feeFund') : base === 'total_equity' ? T('fl:feeEq') : base === 'debt_facility' ? T('fl:feeDebt') : '0');
+      // THE BASES OF 2026-11-18 (founder): total development cost, debt share x cash cost, the total
+      // facility (fee-free), and equity to date; the Inputs text picks the structure and arranging bases.
+      putS('fl:feeTdc', `SUM(${rowRange('cx2:total')})`);
+      putS('fl:feeDsc', `${dF()}*SUM(${rowRange('fl:capex')})`);
+      if (has('fl:xIdc')) {
+        const newT = tranches.filter((t) => t.origin !== 'existing');
+        const shares = newT.map((t) => (anyShareTyped && has(`tr:${t.id}:share`) ? `MAX(0,N(${w.ref(`tr:${t.id}:share`)}))` : String(1 / Math.max(1, newT.length))));
+        putS('fl:xRate', `IF((${shares.join('+')})>0,(${newT.map((t, j) => `${shares[j]}*${T(`fl:tr:${t.id}:rate`)}`).join('+')})/(${shares.join('+')}),0)`);
+        const excl = has('fl:idcExcl') ? T('fl:idcExcl') : '0';
+        put('fl:xIdc', (t) => `IF(${running(t)},${T('fl:xRate')}*(N(${P('fl:xBal', t, -1)})+${P('fl:needExFee', t)}*${dF()}/2)/(1-(1-${excl})*${T('fl:xRate')}/2),0)`);
+        put('fl:xBal', (t) => `N(${P('fl:xBal', t, -1)})+${P('fl:needExFee', t)}*${dF()}+${P('fl:xIdc', t)}`, 'last');
+        putS('fl:feeFac', `SUM(${rowRange('fl:needExFee')})*${dF()}+SUM(${rowRange('fl:xIdc')})`);
+      } else {
+        putS('fl:feeFac', fac.filter((f) => !f.isEx).map((f) => `SUM(${rowRange(f.draw)})+SUM(${rowRange(f.idc)})`).join('+') || '0');
+      }
+      const eqBase = (t: number): string => (baseKey ? `SUM(${toNow(baseKey, t)})*${eF()}` : `SUM(${toNow('fl:eqDraw', t)})`);
+      put('fl:feeEtd', (t) => `${has('tl:flag:upto') ? P('tl:flag:upto', t) : alive(t)}*(${eqBase(t)}+SUM(${toNow('fl:inKind', t)}))`);
+      putS('fl:feeEtdPeak', `MAX(${rowRange('fl:feeEtd')})`);
+      const strBasis = has('ft:Structure fee basis') ? `ISNUMBER(SEARCH("development",${w.ref('ft:Structure fee basis')}))` : 'FALSE';
+      const arrBasis = has('ft:Arranging fee basis') ? `ISNUMBER(SEARCH("cash",${w.ref('ft:Arranging fee basis')}))` : 'FALSE';
+      const baseOf = (base: string, key: string): string => (key === 'fundStructureFeePct' ? `IF(${strBasis},${T('fl:feeTdc')},${T('fl:feeFund')})`
+        : key === 'debtArrangingFeePct' ? `IF(${arrBasis},${T('fl:feeDsc')},${T('fl:feeFac')})`
+        : base === 'fund_size' ? T('fl:feeFund') : base === 'total_equity' ? T('fl:feeEq') : base === 'debt_facility' ? T('fl:feeDebt') : '0');
       const feeKeys: string[] = [];
       FUND_FEE_SPECS.forEach((spec, i) => {
         const k = `fl:fee:${i}`;
@@ -490,7 +513,8 @@ export const stage6Loop: LiveLayer = {
         const rateIn = has(`ft:${spec.label}`) ? `N(${w.ref(`ft:${spec.label}`)})` : '0';
         put(k, (t) => {
           const when = spec.timing === 'one_time' ? `(${Y(t)}=${T('fl:firstDraw')})*` : '';
-          return `${has('tl:flag:upto') ? P('tl:flag:upto', t) : alive(t)}*${when}${rateIn}${spec.kind === 'amount' ? '' : `*${baseOf(spec.base)}`}`;
+          if (spec.base === 'equity_to_date') return `${rateIn}*${P('fl:feeEtd', t)}`;
+          return `${has('tl:flag:upto') ? P('tl:flag:upto', t) : alive(t)}*${when}${rateIn}${spec.kind === 'amount' ? '' : `*${baseOf(spec.base, spec.key)}`}`;
         });
         feeKeys.push(k);
         w.claim(`fnc:fee:${i}`, FIN, w.addr(k).row, 1);
@@ -499,9 +523,14 @@ export const stage6Loop: LiveLayer = {
       why('fl:feeTot', CHAIN);
       claim('fnc:fee:base', baseKey ?? 'fl:debtDraw');
       claim('fnc:fee:fundsize', 'fl:feeFund');
-      w.claim('ftcap:Capex equity', FIN, w.addr('fl:feeEq').row, TOTAL_COL);
-      w.claim('ftcap:Debt facility', FIN, w.addr('fl:feeDebt').row, TOTAL_COL);
-      w.claim('ftcap:Fund size', FIN, w.addr('fl:feeFund').row, TOTAL_COL);
+      // The capital bases the P&L block lists (FUND_CAPITAL_LABELS), each at its Financing cell.
+      w.claim(`ftcap:${FUND_CAPITAL_LABELS.fundSize}`, FIN, w.addr('fl:feeFund').row, TOTAL_COL);
+      w.claim(`ftcap:${FUND_CAPITAL_LABELS.tdc}`, FIN, w.addr('fl:feeTdc').row, TOTAL_COL);
+      w.claim(`ftcap:${FUND_CAPITAL_LABELS.facility}`, FIN, w.addr('fl:feeFac').row, TOTAL_COL);
+      w.claim(`ftcap:${FUND_CAPITAL_LABELS.dsc}`, FIN, w.addr('fl:feeDsc').row, TOTAL_COL);
+      w.claim(`ftcap:${FUND_CAPITAL_LABELS.etdPeak}`, FIN, w.addr('fl:feeEtdPeak').row, TOTAL_COL);
+      claim('fnc:feeEtd', 'fl:feeEtd');
+      for (const k of ['fl:feeFund', 'fl:feeTdc', 'fl:feeFac', 'fl:feeDsc', 'fl:firstDraw']) w.claim(`fnc:${k.slice(3)}`, FIN, w.addr(k).row, TOTAL_COL);
     }
 
     // ── The cash waterfall, the sweep and the dividends ──────────────────────

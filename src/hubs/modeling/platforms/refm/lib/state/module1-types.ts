@@ -892,6 +892,10 @@ export interface Project {
      *  Absent means 'deficit'. 'debt' is accepted as a legacy alias for
      *  'deficit' from the 18b build and normalised on read. */
     managementFeeFunding?: 'deficit' | 'equity' | 'debt';
+    /** The structure fee's basis (2026-11-18): absent = 'fund_size'. */
+    structureFeeBasis?: 'fund_size' | 'total_development_cost';
+    /** The arranging fee's basis (2026-11-18): absent = 'total_facility'. */
+    arrangingFeeBasis?: 'total_facility' | 'debt_share_cash_cost';
 
     // ── Fee bases the user TYPES. Never solved outputs: that is what keeps
     //    every fee linear and out of the M4 circular solve.

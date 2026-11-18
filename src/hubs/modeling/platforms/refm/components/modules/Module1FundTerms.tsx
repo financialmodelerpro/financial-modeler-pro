@@ -49,7 +49,7 @@ import { useModule1Store } from '../../lib/state/module1-store';
 import { FAST_INPUT } from './_shared/inputStyles';
 import type { Party } from '../../lib/parties';
 import {
-  FUND_FEE_SPECS, FEE_BASE_LABELS, FEE_TIMING_LABELS, FEE_DISTRIBUTION_COLUMNS,
+  FUND_FEE_SPECS, FEE_BASE_LABELS, feeBaseFor, FEE_TIMING_LABELS, FEE_DISTRIBUTION_COLUMNS,
   FUND_MANAGER_ROW_ID, DEFAULT_FUND_MANAGER_NAME, isFundManagerRow,
   resolveFundTerms, toFundTermsPatch, feeColumnTotal, feeColumnBalanced, performanceFeeShortfallShare, performanceFeeDefaultsToManager,
   performanceFeeSharesTotal, performanceFeeOverallocated, performanceFeeOverMessage, PERFORMANCE_FEE_SHARES_MAX,
@@ -477,7 +477,30 @@ export default function Module1FundTerms({ projectId }: { projectId: string | nu
                     <div style={helpText}>{spec.help}</div>
                   </td>
                   <td style={{ ...td, fontSize: 11 }}>{FEE_TIMING_LABELS[spec.timing]}</td>
-                  <td style={{ ...td, fontSize: 11 }}>{FEE_BASE_LABELS[spec.base]}</td>
+                  <td style={{ ...td, fontSize: 11 }}>
+                    {/* THE BASIS IS A CHOICE FOR TWO FEES (2026-11-18, founder); the rest are fixed. */}
+                    {spec.key === 'fundStructureFeePct' ? (
+                      <select
+                        value={terms.structureFeeBasis}
+                        data-testid="fund-terms-structure-basis"
+                        onChange={(e) => patch({ structureFeeBasis: e.target.value as FundTerms['structureFeeBasis'] })}
+                        style={{ fontSize: 11, width: '100%' }}
+                      >
+                        <option value="fund_size">{FEE_BASE_LABELS.fund_size} (debt + equity funding need)</option>
+                        <option value="total_development_cost">{FEE_BASE_LABELS.total_development_cost}</option>
+                      </select>
+                    ) : spec.key === 'debtArrangingFeePct' ? (
+                      <select
+                        value={terms.arrangingFeeBasis}
+                        data-testid="fund-terms-arranging-basis"
+                        onChange={(e) => patch({ arrangingFeeBasis: e.target.value as FundTerms['arrangingFeeBasis'] })}
+                        style={{ fontSize: 11, width: '100%' }}
+                      >
+                        <option value="total_facility">{FEE_BASE_LABELS.total_facility}</option>
+                        <option value="debt_share_cash_cost">{FEE_BASE_LABELS.debt_share_cash_cost}</option>
+                      </select>
+                    ) : FEE_BASE_LABELS[feeBaseFor(spec, terms)]}
+                  </td>
                   <td style={td}>
                     {spec.kind === 'rate' ? (
                       <PctInput
