@@ -2457,7 +2457,7 @@ function addCapex(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancial
       // A LINE'S COLLECTIONS SHARE IS WORKED OUT ON REVENUE (2026-11-15, founder), beside the
       // selling costs it spreads, which Revenue now charges: the row is handed to it.
       if (sp.kind === 'blend') {
-        selling.shares.push({ key: `cxw:${sp.key}`, label: `${spreadLabel(sp)}, the share paid each year`, shares: sp.shares.slice(0, N), window: 0, inPhase: [], even: [], blend: true });
+        selling.shares.push({ key: `cxw:${sp.key}`, label: spreadLabel(sp), shares: sp.shares.slice(0, N), window: 0, inPhase: [], even: [], blend: true });
         continue;
       }
       if (sp.kind === 'collections') {
