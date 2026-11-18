@@ -2016,6 +2016,8 @@ export interface Asset {
       /** When false, engine uses this line's own indexation. Otherwise
        *  the asset defaultIndexation wins. (Pass 3, 2026-05-19.) */
       useAssetDefault?: boolean;
+      /** INFLATE FROM (2026-11-18): the calendar year this line inflates from; absent = the first model year. */
+      inflateFromYear?: number;
       /** Value entry mode (Pass 4, 2026-05-19). 'single' = use value
        *  every year (with inflation if any). 'yoy' = use yoyRates[t]
        *  directly per period; engine ignores inflation. Default 'single'. */
@@ -3390,6 +3392,10 @@ export interface ProjectFinancingConfig {
   // projects; migrateM20mPass2Financing lifts any legacy
   // cashDeficitConfig.minimumCashReserve into this field.
   minimumCashReserve?: number;
+  /** THE YEAR THE MINIMUM CASH APPLIES FROM (2026-11-18, founder). A calendar year; before it the minimum is
+   *  zero (no cash is held back, raised or kept from a distribution for it). Absent = from the start of the
+   *  model, the first construction year, which is the behaviour every project had before the input existed. */
+  minimumCashFromYear?: number;
   /** @deprecated Tab 4 is project-wide only (2026-05-13). Field kept for snapshot back-compat. Not consumed by UI. */
   phaseFilter?: string;
   /** @deprecated Tab 4 is project-wide only (2026-05-13). Field kept for snapshot back-compat. Not consumed by UI. */

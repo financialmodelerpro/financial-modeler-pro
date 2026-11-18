@@ -2176,6 +2176,7 @@ function buildModule1(
   // 1. Project Financing Settings + 1b. IDC policy.
   items.push(tTable(M1_TABS.finInputs, 'inputs', kvTable('1. Project Financing Settings', [
     ['Minimum Cash Reserve', fmt.money(cfg?.minimumCashReserve ?? fnd.minCashReserve ?? 0)],
+    ['Minimum cash applies from (year)', cfg?.minimumCashFromYear ? String(cfg.minimumCashFromYear) : 'The first construction year'],
   ])));
   items.push(tTable(M1_TABS.finInputs, 'inputs', kvTable('1b. IDC (Interest During Construction) Policy', [
     ['Allocation Basis', (p.idcConfig?.allocationBasis ?? 'land') === 'bua' ? 'Total GFA' : 'Land Area'],

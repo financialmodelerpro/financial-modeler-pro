@@ -87,6 +87,8 @@ export interface FinancingContext {
   sweepBudget?: number[];
   /** The exit year's index (2026-11-18): no sweep from it on; the exit repays the balance. */
   sweepStopIdx?: number;
+  /** The first index the minimum cash applies in (2026-11-18, minCashFromIndex); absent = 0. */
+  minCashFromIdx?: number;
 }
 
 export function computeFinancingResult(ctx: FinancingContext): FinancingComputation {
@@ -108,7 +110,7 @@ export function computeFinancingResult(ctx: FinancingContext): FinancingComputat
     revenue:            ctx.revenue,
   }, axis);
 
-  const funding = computeFundingRequirement(capex, ctx.financingConfig, ctx.fundingGap);
+  const funding = computeFundingRequirement(capex, ctx.financingConfig, ctx.fundingGap, ctx.minCashFromIdx ?? 0);
 
   const split = computeDebtEquitySplit(
     capex,
@@ -184,6 +186,7 @@ export function computeFinancingResult(ctx: FinancingContext): FinancingComputat
 }
 
 export type { FundingGapInputs } from './funding';
+export { minCashFromIndex } from './funding';
 export { effectiveTrancheRatePct } from './schedule';
 
 export type {

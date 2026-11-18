@@ -82,6 +82,9 @@ export interface OpexLine {
    *  useAssetDefault === false. %-of-revenue + pct_of_gop modes never
    *  index: their auto-escalation comes through the revenue stream. */
   indexation: IndexationConfig;
+  /** INFLATE FROM (2026-11-18, founder): a calendar year this line's inflation counts from. Absent = the first
+   *  model year (inputs are in today's money, as capex rates are). */
+  inflateFromYear?: number;
   /** When false, the engine uses this line's own `indexation`. When
    *  undefined or true, the engine uses the asset-level
    *  defaultIndexation passed in inputs (and falls back to the line's
@@ -142,6 +145,8 @@ export interface AssetOpexInputs {
   leasableSqm: number;
   /** Project-axis index of first operations year. */
   opsStartIdx: number;
+  /** The calendar year of axis index 0 (2026-11-18), so a line's "inflate from" year resolves to an index. */
+  axisStartYear?: number;
   /** Project-axis index of last operations year (inclusive). */
   opsEndIdx: number;
   /** Total project axis length. */

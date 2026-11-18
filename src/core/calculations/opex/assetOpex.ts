@@ -98,8 +98,13 @@ export function computeAssetOpex(inputs: AssetOpexInputs): AssetOpexResult {
     // its first-year costs, while its ADR and rent index from operations start.
     // A start year later than operations start is still honoured. HQ overheads
     // (hqOpex.ts) are project-wide from year 0 and are not changed.
+    // SUPERSEDED 2026-11-18 (founder): inputs are in TODAY'S money, so a fixed cost inflates from the FIRST MODEL
+    // YEAR, consistent with the capex rates, and a hotel opening in year 4 starts with four years of inflation.
+    // A line may name its own year ("Inflate from"); otherwise the stored start year (0 = the first model year).
     const lineIdx = resolveLineIndexation(line, defaultIndexation);
-    const idx = { ...lineIdx, startYear: Math.max(lineIdx.startYear ?? 0, start) };
+    const own = line.inflateFromYear != null && Number.isFinite(line.inflateFromYear) && line.inflateFromYear > 0 && inputs.axisStartYear != null
+      ? Math.max(0, Math.round(line.inflateFromYear) - inputs.axisStartYear) : undefined;
+    const idx = { ...lineIdx, startYear: own ?? Math.max(0, lineIdx.startYear ?? 0) };
     const isYoy = line.rateMode === 'yoy';
     const yoy = line.yoyRates ?? [];
     const out = perLine[i];

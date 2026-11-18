@@ -246,8 +246,8 @@ export function buildFundGrossNetRows(ctx: FundReportCtx): FundGridRow[] {
  * Without this the section reads as broken: two identical IRR rows labelled
  * "gross" and "net" look like a copied row, not like a fund whose hurdle was
  * never cleared. On the reference project excess distributions are zero in
- * EVERY period because the hurdle accrues on (opening unpaid + same-period
- * draw) and compounds, so `paid = MIN(distribution, owed)` binds throughout and
+ * EVERY period because the hurdle accrued (until 2026-11-18) on the opening unpaid plus the same-period
+ * draw and compounds, so `paid = MIN(distribution, owed)` binds throughout and
  * 1,477.0m of hurdle is still unpaid at exit.
  *
  * Shared rather than written per surface, because it is a statement about the

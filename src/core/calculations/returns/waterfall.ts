@@ -10,7 +10,7 @@
  * ── THE MECHANIC, PER PERIOD ───────────────────────────────────────────────
  *
  *   unpaidHurdleBoP    carried from the prior period's EoP
- *   hurdleAccrued    = (unpaidHurdleBoP + equityDrawn) x hurdleRate
+ *   hurdleAccrued    = unpaidHurdleBoP x hurdleRate   (from the year AFTER a contribution, 2026-11-18)
  *   totalHurdleOwed  = equityDrawn + unpaidHurdleBoP + hurdleAccrued
  *   hurdlePaid       = MIN(distributions, totalHurdleOwed)
  *   unpaidHurdleEoP  = totalHurdleOwed - hurdlePaid
@@ -33,25 +33,17 @@
  *   above the hurdle. What is left of the excess after the fee is simply what
  *   is left; it is not a second party's share of a split.
  *
- * ── THE ACCRUAL COMPOUNDS, AND IT CHARGES THE SAME-PERIOD DRAW ─────────────
+ * ── THE ACCRUAL COMPOUNDS FROM THE YEAR AFTER EACH CONTRIBUTION (2026-11-18) ─
  *
- * The accrual base is the opening balance PLUS the equity drawn in this same
- * period, so capital earns a full period of hurdle in the period it is called.
- * Substituting, the whole mechanic collapses to one identity:
+ * The accrual base is the OPENING balance only, so a contribution earns hurdle from the
+ * following year, compounding annually:
  *
- *   totalHurdleOwed = (unpaidHurdleBoP + equityDrawn) x (1 + hurdleRate)
+ *   totalHurdleOwed = unpaidHurdleBoP x (1 + hurdleRate) + equityDrawn
  *
- * which is to say the balance compounds at exactly (1 + r) per period. A single
- * draw C held for n periods therefore owes C x (1+r)^(n+1), one power more than
- * an opening-balance-only convention would give.
- *
- * A CONSEQUENCE WORTH KNOWING RATHER THAN REDISCOVERING: because of that extra
- * power, an investor paid exactly the hurdle balance earns MORE than the hurdle
- * rate as an IRR (16.64% on an 8% hurdle over one period, 8.83% over ten,
- * converging down towards the rate as the horizon lengthens). The hurdle here
- * is a stated accrual convention, not an IRR the payment reproduces. That is
- * the reference's behaviour and it is deliberate; the verifier pins the
- * compounding identity above rather than an IRR equality that does not hold.
+ * Under the end-of-year cash flow convention (A7) a draw C in year t paid in year t + n owes
+ * C x (1+r)^n, so an investor paid exactly the hurdle balance earns exactly the hurdle rate
+ * as an IRR. Until 2026-11-18 the same-year draw accrued too, which gave one power more
+ * (16.64% on an 8% hurdle over one period).
  *
  * ── WHY THIS IS NOT INSIDE THE CIRCULAR SOLVE ──────────────────────────────
  *
@@ -96,7 +88,7 @@ export interface WaterfallPeriod {
    * is no separate return-of-capital tier, so this one balance carries both.
    */
   openingUnpaidHurdle: number;
-  /** (openingUnpaidHurdle + equityDrawn) x hurdleRate. */
+  /** openingUnpaidHurdle x hurdleRate (2026-11-18: no accrual on the year's own contribution). */
   hurdleAccrued: number;
   /** equityDrawn + openingUnpaidHurdle + hurdleAccrued. */
   totalHurdleOwed: number;
@@ -225,11 +217,11 @@ export function computeDistributionWaterfall(input: WaterfallInputs): WaterfallS
 
     const openingUnpaidHurdle = unpaidHurdle;
 
-    // Accrue on the opening balance PLUS this period's draw, so capital earns a
-    // full period of hurdle in the period it is called. Equivalent to
-    // (opening + drawn) x (1 + rate), which is the compounding identity the
-    // verifier pins.
-    const hurdleAccrued = (openingUnpaidHurdle + equityDrawn) * hurdleRate;
+    // FROM THE YEAR AFTER EACH CONTRIBUTION (2026-11-18, founder), compounding annually: the accrual base is the
+    // OPENING balance only. With the end-of-year cash flow convention (A7) a contribution in year t and a payment
+    // in year t + n are n years apart, so a balance paid in full returns exactly the hurdle rate as an IRR
+    // (8% hurdle = 8% IRR on the contributions). The same-year accrual this replaces gave one power more.
+    const hurdleAccrued = openingUnpaidHurdle * hurdleRate;
     const totalHurdleOwed = equityDrawn + openingUnpaidHurdle + hurdleAccrued;
 
     // One line settles capital and preferred together. There is no separate

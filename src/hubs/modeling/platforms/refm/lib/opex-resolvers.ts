@@ -83,6 +83,7 @@ function resolveAssetOpexLines(asset: Asset): OpexLine[] {
       rateMode: l.rateMode,
       yoyRates: l.yoyRates,
       disabled: l.disabled,
+      inflateFromYear: l.inflateFromYear,
     }));
   }
   if (asset.strategy === 'Operate') return defaultHospitalityOpexLines();
@@ -295,6 +296,7 @@ export function computeAllOpexResults(
       opsStartIdx,
       opsEndIdx,
       axisLength: N,
+      axisStartYear: new Date(project.startDate).getUTCFullYear(),
       revenue,
     };
 

@@ -692,6 +692,20 @@ function OpexLineTable({
                         </button>
                       </div>
                     )}
+                    {fixedMode && !isYoy && (
+                      // INFLATE FROM (2026-11-18): the year this line inflates from; blank = the first model year.
+                      <label style={{ display: 'flex', gap: 4, alignItems: 'center', marginTop: 4, fontSize: 10, color: 'var(--color-meta)' }}>
+                        Inflate from (year)
+                        <input
+                          type="number"
+                          value={l.inflateFromYear ?? ''}
+                          placeholder="First model year"
+                          onChange={(e) => { const n = Number(e.target.value); updateLine(idx, { inflateFromYear: e.target.value === '' || !Number.isFinite(n) || n <= 0 ? undefined : Math.round(n) }); }}
+                          style={{ width: 90, fontSize: 10, padding: '2px 4px' }}
+                          data-testid={`${testidPrefix}-infl-from-${idx}`}
+                        />
+                      </label>
+                    )}
                   </td>
                   <td style={{ padding: '4px 6px', textAlign: 'center' }}>
                     <input

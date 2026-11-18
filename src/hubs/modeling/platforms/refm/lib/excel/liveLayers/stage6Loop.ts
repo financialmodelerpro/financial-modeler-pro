@@ -185,6 +185,9 @@ export const stage6Loop: LiveLayer = {
     };
     const claim = (name: string, key: string | undefined): void => { if (key && has(key)) { const a = w.addr(key); w.claim(name, a.sheet, a.row, 1); } };
     const MIN = (): string => `MAX(0,N(${IN('fin:in:min')}))`;
+    // THE MINIMUM IN YEAR t (2026-11-18): from the year typed on Inputs, zero before it.
+    const FROM = (): string => (has('fin:in:minFrom') ? `N(${IN('fin:in:minFrom')})` : '0');
+    const MINT = (t: number): string => (has('fin:in:minFrom') ? `${MIN()}*(${Y(t)}>=${FROM()})` : MIN());
     const chain = (keys: Array<string | undefined>, t: number): string => keys.filter((k): k is string => !!k && has(k)).map((k) => P(k, t)).join('+') || '0';
     const CHAIN = 'Not a SUM: inside the financing loop a total adds its rows with + (Excel\'s iteration stalls on SUM there).';
 
@@ -328,17 +331,18 @@ export const stage6Loop: LiveLayer = {
     put('fl:avail', (t) => win(t, `${P('fl:open', t)}+${P('fl:opSize', t)}${feeInNeed ? `-${fee(t)}` : ''}-${P('fl:capex', t)}+${P('fl:proceeds', t)}`), 'last');
     // A year needs funding only while capex (net of exit proceeds) is paid, to the cent.
     const spending = (t: number): string => `(ROUND(${P('fl:capex', t)}-${P('fl:proceeds', t)},2)>0)`;
-    put('fl:need', (t) => `IF(${spending(t)},MAX(0,${MIN()}-${P('fl:avail', t)}),0)`);
+    put('fl:need', (t) => `IF(${spending(t)},MAX(0,${MINT(t)}-${P('fl:avail', t)}),0)`);
     // The fee-free walk: its own opening (last year's cash plus its need), no fee anywhere in it.
     put('fl:xAvail', (t) => win(t, `N(${P('fl:xAvail', t, -1)})+N(${P('fl:needExFee', t, -1)})+${P('fl:opSize', t)}-${P('fl:capex', t)}+${P('fl:proceeds', t)}`), 'last');
-    put('fl:needExFee', (t) => `IF(${spending(t)},MAX(0,${MIN()}-${P('fl:xAvail', t)}),0)`);
+    put('fl:needExFee', (t) => `IF(${spending(t)},MAX(0,${MINT(t)}-${P('fl:xAvail', t)}),0)`);
     // Methods 1 and 2: the minimum cash, drawn in the first year capex is paid.
     // THE FIRST YEAR A ROW IS POSITIVE, WITH NO ARRAY FORMULA (2026-11-04): MATCH(TRUE, INDEX(...,0))
     // read #VALUE! outside Excel. SUMPRODUCT evaluates its argument as an array in Excel and LibreOffice
     // alike: the smallest year, every year where the test fails pushed out of reach; none, the first year.
     const firstYearWhere = (notIt: string): string => { const m = `SUMPRODUCT(MIN(${yearRow()}+(${notIt})*100000))`; return `IF(${m}>99999,${Y0()},${m})`; };
     const firstCapex = (): string => firstYearWhere(`${rowRange('fl:capex')}<=0`);
-    const minAt = (t: number): string => `IF(${Y(t)}=${firstCapex()},${MIN()},0)`;
+    // Raised in the first capex year, or the year the minimum starts to apply if later (2026-11-18).
+    const minAt = (t: number): string => `IF(${Y(t)}=MAX(${firstCapex()},${FROM()}),${MIN()},0)`;
     if (METHOD === 2) {
       const cashPre = [...new Set(visible.filter((a) => a.strategy === 'Sell' || a.strategy === 'Sell + Manage').map((a) => lineForAsset(lines, a.id)).filter((l): l is NonNullable<typeof l> => !!l && has(`rvc:${l.key}:cashPre`)).map((l) => `rvc:${l.key}:cashPre`))];
       const escB = (label: string): string => `esc||B. Escrow Balance Roll-Forward|${label}`;
@@ -387,7 +391,7 @@ export const stage6Loop: LiveLayer = {
     const schedTot = (t: number): string => fac.filter((f) => f.kind !== 'sweep').map((f) => `(-${P(f.repaid, t)})`).join('+') || '0';
     // NOT IN THE EXIT YEAR (2026-11-18): the exit repays the balance from the proceeds, so the sweep
     // never reads the exit repayment, which reads the balance the sweep sets.
-    const preSweep = (t: number): string => `(1-${exitF(t)})*MAX(0,${P('fl:cash', t)}-(${schedTot(t)})-${MIN()})`;
+    const preSweep = (t: number): string => `(1-${exitF(t)})*MAX(0,${P('fl:cash', t)}-(${schedTot(t)})-${MINT(t)})`;
     // Its own row (2026-11-15): the cash above the minimum a sweep may take.
     put('fl:sweepLeft', (t) => preSweep(t));
     const pre = (t: number): string => (has('fl:sweepLeft') ? P('fl:sweepLeft', t) : preSweep(t));
@@ -556,7 +560,7 @@ export const stage6Loop: LiveLayer = {
     put('fl:forDiv', (t) => `${P('fl:cash', t)}+${P('fl:repaidCash', t)}`, 'last');
     // The cash above the minimum, to the cent: its own row, which every dividend reads.
     if (!has('fl:excess')) return values('The financing could not be made live for this model: the cash above the minimum has no row.');
-    put('fl:excess', (t) => `IF(ROUND(${P('fl:forDiv', t)}-${MIN()},2)<=0,0,${P('fl:forDiv', t)}-${MIN()})`, 'last');
+    put('fl:excess', (t) => `IF(ROUND(${P('fl:forDiv', t)}-${MINT(t)},2)<=0,0,${P('fl:forDiv', t)}-${MINT(t)})`, 'last');
     const excess = (t: number): string => P('fl:excess', t);
     // ONE PROJECT DIVIDEND (2026-11-18, founder): a payout of the cash above the minimum, capped at the
     // retained earnings available (the Balance Sheet's own figure, which reads no dividend of this year)

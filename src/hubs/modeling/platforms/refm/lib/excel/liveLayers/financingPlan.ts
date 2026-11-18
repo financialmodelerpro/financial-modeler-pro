@@ -419,7 +419,8 @@ export function financingPlan(state: FinancialsResolverState, snap: Snap = compu
   {
     // The cash above the minimum (2026-11-07): each phase's dividend and the exit sweep read this row.
     const minRes = Math.max(0, Number(state.project.financing?.minimumCashReserve ?? fin.funding.minCashReserve ?? 0) || 0);
-    per('fl:excess', 'Cash above the minimum balance', forDiv.map((v) => (Math.round((v - minRes) * 100) / 100 <= 0 ? 0 : v - minRes)), 'Cash available for dividends less the minimum cash on Inputs, never below zero', { indent: 1, balance: true });
+    const from = snap.cashSweep.minCashFromIdx ?? 0;
+    per('fl:excess', 'Cash above the minimum balance', forDiv.map((v, t) => { const m = t >= from ? minRes : 0; return Math.round((v - m) * 100) / 100 <= 0 ? 0 : v - m; }), 'Cash available for dividends less the minimum cash on Inputs, never below zero', { indent: 1, balance: true });
   }
   {
     // ONE PROJECT DIVIDEND, CAPPED AT THE RETAINED EARNINGS (2026-11-18, founder): no per-phase cap.

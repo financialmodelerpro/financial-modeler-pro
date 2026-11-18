@@ -364,6 +364,17 @@ export default function Module1Financing({ projectId = null }: { projectId?: str
                   style={inputStyle}
                 />
               </div>
+              {/* FROM A YEAR (2026-11-18): blank = from the first construction year, as before. */}
+              <label style={{ fontSize: 12, fontWeight: 600, marginLeft: 16 }}>Minimum cash applies from (year)</label>
+              <div style={{ width: 110 }}>
+                <input
+                  type="number"
+                  value={financingConfig.minimumCashFromYear ?? ''}
+                  placeholder="First construction year"
+                  onChange={(e) => { const n = Number(e.target.value); setFinancingConfigPatch({ minimumCashFromYear: e.target.value === '' || !Number.isFinite(n) || n <= 0 ? undefined : Math.round(n) }); }}
+                  style={{ ...inputStyle, width: '100%' }}
+                />
+              </div>
             </div>
           </section>
 

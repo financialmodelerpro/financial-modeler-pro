@@ -62,10 +62,21 @@ function ratioFractions(
  *
  * `selected` mirrors the method the user picked in financingConfig.
  */
+/**
+ * THE MINIMUM CASH APPLIES FROM A YEAR (2026-11-18, founder): the axis index of
+ * `minimumCashFromYear`, 0 when it is absent (the minimum applies from the start, as it always did).
+ */
+export function minCashFromIndex(fromYear: number | undefined, projectStartYear: number): number {
+  if (fromYear == null || !Number.isFinite(fromYear) || fromYear <= 0) return 0;
+  return Math.max(0, Math.round(fromYear) - projectStartYear);
+}
+
 export function computeFundingRequirement(
   capex: CapexAggregate,
   financingConfig: ProjectFinancingConfig,
   gapInputs?: FundingGapInputs,
+  /** The first index the minimum cash applies in (minCashFromIndex); 0 = from the start. */
+  minCashFromIdx = 0,
 ): FundingRequirement {
   const exclLandInKindByPeriod = capex.perPeriod.exclLandInKind;
   const N = exclLandInKindByPeriod.length;
@@ -177,7 +188,8 @@ export function computeFundingRequirement(
     for (let i = 0; i < N; i++) {
       if ((exclLandInKindByPeriod[i] ?? 0) > 0) { firstCapexIdx = i; break; }
     }
-    minCashByPeriod[firstCapexIdx >= 0 ? firstCapexIdx : 0] = minCashReserve;
+    // Raised in the first capex year, or in the year it starts to apply if that is later (2026-11-18).
+    minCashByPeriod[Math.min(N - 1, Math.max(firstCapexIdx >= 0 ? firstCapexIdx : 0, minCashFromIdx))] = minCashReserve;
   }
   const totalFundingNeedByPeriod = selectedByPeriod.map((v, i) => v + (minCashByPeriod[i] ?? 0));
   const selectedWithMinCash = selected + (selectedMethodId === 3 ? 0 : minCashReserve);

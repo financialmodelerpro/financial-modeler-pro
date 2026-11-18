@@ -37,7 +37,7 @@ import {
   computeAllFixedAssetResults,
   type ProjectFixedAssetSnapshot,
 } from './fixed-assets-resolvers';
-import { computeFinancingResult, effectiveTrancheRatePct, type FinancingComputation, type FundingGapInputs } from '@/src/core/calculations/financing';
+import { computeFinancingResult, effectiveTrancheRatePct, minCashFromIndex, type FinancingComputation, type FundingGapInputs } from '@/src/core/calculations/financing';
 import {
   computeAssetFixedAssets,
 } from '@/src/core/calculations/depreciation';
@@ -956,6 +956,8 @@ export interface CashSweepSnapshot {
   cashBeforeAllocationPerPeriod: number[];
   /** Excess available per period before sweep (capped at 0 from below). */
   excessAvailablePerPeriod: number[];
+  /** The first index the minimum cash applies in (2026-11-18); absent = 0. Every reader of the floor uses it. */
+  minCashFromIdx?: number;
   /** WHAT A SWEEP MAY TAKE (2026-11-18): the excess above, none from the exit year (sweepStopIdx), so the
    *  workbook's "Cash above the minimum, before the sweep" prints the engine's figure. */
   sweepAvailablePerPeriod?: number[];
@@ -1118,6 +1120,8 @@ export function computeCashWaterfall(args: {
   projectDividendPolicy?: { enabled?: boolean; payoutRatio?: number; mode?: 'cash_above_min' | 'pct_of_ebitda'; allowAboveRetainedEarnings?: boolean };
   /** The retained earnings rule (2026-11-18): the cap reads `available(t)`. Absent = no cap. */
   equitySplitter?: EquitySplitter;
+  /** The first index the minimum cash applies in (2026-11-18); before it the floor is zero. Absent = 0. */
+  minCashFromIdx?: number;
   /** The project EBITDA per period (the P&L's, after the fund fees), for a payout of EBITDA. */
   projectEbitdaPerPeriod?: number[];
   /** Project-level cash-sweep settings (2026-06-03): one Starting Year + Sweep
@@ -1125,6 +1129,7 @@ export function computeCashWaterfall(args: {
   projectSweep?: { startingYear?: number; sweepRatioPct?: number };
 }): { cashSweep: CashSweepSnapshot; dividends: DividendSnapshot } {
   const { axisLength: N, projectStartYear, tranches, phases, facilityOutstanding, preSweepClosingCash, minCashReserve, phaseEbitdaPerPeriod, engineSweepByTranche, terminalPayoutPeriod, terminalCashFloor, dividendStartYear, projectDividendPolicy, projectSweep, equitySplitter, projectEbitdaPerPeriod } = args;
+  const minCashFromIdx = Math.max(0, args.minCashFromIdx ?? 0);
   void phaseEbitdaPerPeriod;
   const sweepInEngine = engineSweepByTranche !== undefined;
 
@@ -1304,7 +1309,7 @@ export function computeCashWaterfall(args: {
     // few hundred-millionths above the floor in a year with nothing to distribute, and
     // a 0.00000003 dividend then counted as a distribution year (cash on cash averaged
     // over eight years instead of seven on Marina Gate). Below half a cent is none.
-    let excess = Math.max(0, cashBefore - minCashReserve);
+    let excess = Math.max(0, cashBefore - (t >= minCashFromIdx ? minCashReserve : 0));
     if (excess < DISTRIBUTION_SNAP) excess = 0;
     excessAvailablePerPeriod[t] = excess;
     if (excess <= 0) {
@@ -1448,6 +1453,7 @@ export function computeCashWaterfall(args: {
     preSweepClosingCash: preSweepClosingCash.slice(0, N),
     cashBeforeAllocationPerPeriod,
     excessAvailablePerPeriod,
+    minCashFromIdx,
     totalSweepPerPeriod,
     totalSweep: totalSweepPerPeriod.reduce((s, v) => s + v, 0),
     adjustedClosingCash,
@@ -1610,7 +1616,11 @@ export function computeFundingGap(snap: ProjectFinancialsSnapshot): FundingGapSn
     for (let t = 0; t < N; t++) dividendsBeforeSweepPerPeriod[t] -= row.dividendsPerPeriod[t] ?? 0;
   }
   // Forward-walk the waterfall.
-  const minCashReserve = Math.max(0, snap.cashSweep.minCashReserve ?? 0);
+  const minCashReserveIn = Math.max(0, snap.cashSweep.minCashReserve ?? 0);
+  const minFrom = Math.max(0, snap.cashSweep.minCashFromIdx ?? 0);
+  /** The floor in year t: the minimum from the year it applies (2026-11-18), zero before. */
+  const minAt = (t: number): number => (t >= minFrom ? minCashReserveIn : 0);
+  const minCashReserve = minCashReserveIn;
   const openingCashPerPeriod = zeros(N);
   const cashAvailableBeforeNewDebtPerPeriod = zeros(N);
   const netCashRequiredPerPeriod = zeros(N);
@@ -1679,12 +1689,12 @@ export function computeFundingGap(snap: ProjectFinancialsSnapshot): FundingGapSn
     // is raised, whatever cash does. Reads the CASH capex (R105 is construction
     // + land cash + RETT), which is what `cashFromInvPerPeriod` carries.
     const spendingThisPeriod = (cashFromInvPerPeriod[t] ?? 0) < -0.005;
-    const netReq = spendingThisPeriod ? Math.max(0, minCashReserve - cashAvail) : 0;
+    const netReq = spendingThisPeriod ? Math.max(0, minAt(t) - cashAvail) : 0;
     netCashRequiredPerPeriod[t] = netReq;
     {
       const availX = openingX + opsForSizing + (feeFundedByEquity ? 0 : fee) + (cashFromInvPerPeriod[t] ?? 0)
         + (existingEquityDrawdownPerPeriod[t] ?? 0) + (existingDebtDrawdownPerPeriod[t] ?? 0);
-      const needX = spendingThisPeriod ? Math.max(0, minCashReserve - availX) : 0;
+      const needX = spendingThisPeriod ? Math.max(0, minAt(t) - availX) : 0;
       feeBaseRequirementPerPeriod[t] = needX;
       feeFreeCashAvailablePerPeriod[t] = availX;
       openingX = availX + needX;
@@ -1863,6 +1873,7 @@ function computeFinancialsSnapshotOnce(
     // NO SWEEP FROM THE EXIT YEAR ON (2026-11-18): the exit repays what is left from the
     // proceeds, so the sweep never reads cash that the exit repayment has already moved.
     sweepStopIdx: exitCfgAtSource.terminalMethod !== 'none' && exitAxisLength > 0 ? exitCfgAtSource.exitYearOffset : undefined,
+    minCashFromIdx: minCashFromIndex(project.financing?.minimumCashFromYear, revenueAsComputed.projectStartYear),
   });
 
   // NO DOWNPAYMENT STATED (2026-08-20, Option B Step 3). Appended to the
@@ -2736,6 +2747,7 @@ function computeFinancialsSnapshotOnce(
     facilityOutstanding: facilityOutstandingForSweep,
     preSweepClosingCash: closingCash,
     minCashReserve: Math.max(0, (project.financing ?? DEFAULT_PROJECT_FINANCING_CONFIG).minimumCashReserve ?? 0),
+    minCashFromIdx: minCashFromIndex(project.financing?.minimumCashFromYear, projectStartYear),
     phaseEbitdaPerPeriod: phaseEbitdaForWaterfall,
     engineSweepByTranche,
     // Terminal 100% payout in the exit period (default last axis year): no
@@ -3134,8 +3146,10 @@ function computeFinancialsSnapshotOnce(
     // less the scheduled principal (not the sweep) and the minimum cash, none in the exit year, where the facility
     // stops sweeping (sweepStopIdx) and the balance is repaid. The workbook's row is this formula.
     const c = financing.combined;
-    const minR = Math.max(0, project.financing?.minimumCashReserve ?? financing.funding.minCashReserve ?? 0);
+    const minR0 = Math.max(0, project.financing?.minimumCashReserve ?? financing.funding.minCashReserve ?? 0);
+    const from = cashSweep.minCashFromIdx ?? 0;
     cashSweep.sweepAvailablePerPeriod = Array.from({ length: N }, (_, t) => {
+      const minR = t >= from ? minR0 : 0;
       if (disposalBooked && t === exitIdx) return 0;
       const cash = (directCF.openingCashPerPeriod[t] ?? 0) + (directCF.cashFromOperationsPerPeriod[t] ?? 0)
         + (directCF.cashFromInvestmentPerPeriod[t] ?? 0) + (directCF.equityDrawdownPerPeriod[t] ?? 0)
@@ -3262,7 +3276,7 @@ function deriveCircularInputs(
     let hasBudget = false;
     for (let t = 0; t < N; t++) {
       const preDist = (closing[t] ?? 0) + (sweepArr[t] ?? 0) + (divArr[t] ?? 0);
-      const v = Math.max(0, preDist - minCash);
+      const v = Math.max(0, preDist - (t >= (snap.cashSweep.minCashFromIdx ?? 0) ? minCash : 0));
       budget[t] = v;
       if (v > 0) hasBudget = true;
     }

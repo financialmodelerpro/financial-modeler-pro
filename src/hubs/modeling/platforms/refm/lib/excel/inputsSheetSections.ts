@@ -1136,7 +1136,7 @@ function opexInflationInputs(c: SheetCursor, who: string, key: string, cfg: unkn
   if (ix.method !== 'yoy_compound' && ix.method !== 'single_rate') return;
   kv(c, `${who} inflation: rate %`, ix.rate ?? 0, NUMFMT.pct2, true, undefined, undefined, `oxin|${key}|rate`);
   // An asset's inflation never counts from before it operates (assetOpex.ts); the label says so.
-  kv(c, key === 'hq' ? `${who} inflation: counted from year` : 'Inflation counted from (or the operations start, if later)', axisYear + (ix.startYear ?? 0), NUMFMT.year, true, undefined, undefined, `oxin|${key}|from`);
+  kv(c, `${who} inflation: counted from year`, axisYear + (ix.startYear ?? 0), NUMFMT.year, true, undefined, undefined, `oxin|${key}|from`);
 }
 
 export function emitOpexInputs(c: SheetCursor, state: FinancialsResolverState, axisYear: number): void {
@@ -1161,7 +1161,7 @@ export function emitOpexInputs(c: SheetCursor, state: FinancialsResolverState, a
     for (const x of infHosts) { const k = sigOf(x.host.opex?.defaultIndexation); groups.set(k, [...(groups.get(k) ?? []), x]); }
     const sorted = [...groups.values()].sort((a, b) => b.length - a.length);
     setSectionHeader(c.ws.getRow(c.r), 'Opex inflation (the default for fixed-cost lines)', 3); c.r += 1;
-    headers(c, ['Applies to', 'Inflation', 'Rate %', 'Counted from (or the operations start, if later)']);
+    headers(c, ['Applies to', 'Inflation', 'Rate %', 'Counted from (year)']);
     for (const [gi, g] of sorted.entries()) {
       const cfg = g[0].host.opex?.defaultIndexation;
       const ix = normalizeOpexIndexation(cfg) as { method?: string; rate?: number; startYear?: number };
@@ -1242,6 +1242,25 @@ export function emitOpexInputs(c: SheetCursor, state: FinancialsResolverState, a
       c.r += 1;
     });
     c.r += 1;
+  }
+  // A LINE'S OWN "INFLATE FROM" YEAR (2026-11-18, founder): only lines that state one, each read by its row on
+  // Opex in place of the line's asset inflation start. Fixed-cost lines on a single rate inheriting a compounding
+  // or one-step inflation (any other line is not built live or does not inflate).
+  if (isLiveLayout()) {
+    const own: Array<{ label: string; key: string; year: number }> = [];
+    for (const { line, host } of ordered) {
+      const m = (normalizeOpexIndexation(host.opex?.defaultIndexation) as { method?: string }).method;
+      if (m !== 'yoy_compound' && m !== 'single_rate') continue;
+      (host.opex?.lines ?? []).forEach((l, i) => {
+        if (!l.inflateFromYear || opexLineIsZero(l) || !isFixedCostOpexMode(l.mode) || l.rateMode === 'yoy' || l.useAssetDefault === false) return;
+        own.push({ label: `${lineTitle(line, ctx)}: ${l.name}`, key: `oxfrom|${host.id}|${i}`, year: l.inflateFromYear });
+      });
+    }
+    if (own.length) {
+      setSectionHeader(c.ws.getRow(c.r), 'Opex lines inflating from their own year', 3); c.r += 1;
+      for (const o of own) kv(c, o.label, o.year, NUMFMT.year, true, undefined, undefined, o.key);
+      c.r += 1;
+    }
   }
   // HQ NOT USED (every line off or zero) is not built in the live layout (2026-11-15, founder): the
   // Inputs line "Not used in this project" says so.

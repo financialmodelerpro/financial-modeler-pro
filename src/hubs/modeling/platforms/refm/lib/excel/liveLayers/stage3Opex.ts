@@ -186,16 +186,18 @@ export const stage3Opex: LiveLayer = {
       const upto = (t: number): string => (has('tl:flag:upto') ? `*${P('tl:flag:upto', t)}` : '');
       row(K('io'), (t) => (has(startKey) ? `(${hand(t)}+${ops(t)})*(${yearHere(t)}>=${A(startKey, TOTAL_COL)})${upto(t)}` : `${ops(t)}${upto(t)}`));
       const IO = (t: number): string => P(K('io'), t);
-      // Inflation counts from the later of the year on Inputs and the first operating year (assetOpex.ts):
-      // the operations start on Revenue, never before the handover year.
+      // INFLATION COUNTS FROM THE YEAR ON INPUTS (2026-11-18, founder: inputs are today's money, so the first
+      // model year unless a year is typed), no longer from the operations start (assetOpex.ts).
       const ix = idxOf(a.opex?.defaultIndexation);
-      if (has(K('fac'))) {
-        const rate = IN(`oxin|${a.id}|rate`), from = IN(`oxin|${a.id}|from`);
-        const hy = has(`tl:phase:${p.id}:hy`) ? `,${w.ref(`tl:phase:${p.id}:hy`)}` : '';
-        const base = has(startKey) ? `MAX(${from},${A(startKey, TOTAL_COL)}${hy})` : from;
-        row(K('fac'), (t) => (ix.method === 'yoy_compound' ? `${IO(t)}*(1+${rate})^MAX(0,${yearHere(t)}-${base})` : `${IO(t)}*IF(${yearHere(t)}>=${base},1+${rate},1)`), 'none');
-      }
+      const facOf = (base: string, t: number): string => {
+        const rate = IN(`oxin|${a.id}|rate`);
+        return ix.method === 'yoy_compound' ? `${IO(t)}*(1+${rate})^MAX(0,${yearHere(t)}-${base})` : `${IO(t)}*IF(${yearHere(t)}>=${base},1+${rate},1)`;
+      };
+      if (has(K('fac'))) row(K('fac'), (t) => facOf(IN(`oxin|${a.id}|from`), t), 'none');
       const FAC = (t: number): string => (has(K('fac')) ? P(K('fac'), t) : IO(t));
+      // A line with its own "inflate from" year (Inputs) carries its own factor in its formula.
+      const FACi = (i: number, t: number): string => (has(`oxfrom|${a.id}|${i}`) && has(`oxin|${a.id}|rate`) ? `(${facOf(IN(`oxfrom|${a.id}|${i}`), t)})` : FAC(t));
+      void startKey;
 
       // Revenue, from the Revenue tab.
       const revRows: Record<string, string> = {};
@@ -231,9 +233,9 @@ export const stage3Opex: LiveLayer = {
         // A revenue row is zero outside operations, and so is GOP: neither needs the flag.
         const rate = IN(vK);
         let v: string;
-        if (ln.mode === 'fixed_baseline') v = `${rate}*${FAC(t)}`;
-        else if (ln.mode === 'per_room_year') v = keys === '0' ? '0' : `${rate}*${keys}*${FAC(t)}`;
-        else if (ln.mode === 'per_sqm_year') v = gla === '0' ? '0' : `${rate}*${gla}*${FAC(t)}`;
+        if (ln.mode === 'fixed_baseline') v = `${rate}*${FACi(i, t)}`;
+        else if (ln.mode === 'per_room_year') v = keys === '0' ? '0' : `${rate}*${keys}*${FACi(i, t)}`;
+        else if (ln.mode === 'per_sqm_year') v = gla === '0' ? '0' : `${rate}*${gla}*${FACi(i, t)}`;
         else if (ln.mode === 'pct_of_gop') v = `${rate}*MAX(0,${P(K('gop'), t)})`;
         else if (revRows[ln.mode]) v = `${rate}*${P(revRows[ln.mode], t)}`;
         else return '0';

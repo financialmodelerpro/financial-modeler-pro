@@ -87,9 +87,11 @@ export function summarizeOpexIndexation(cfg: IndexationConfig | undefined): stri
 }
 
 /** What the Inflation column says for one line, in the screen's words. */
-export function opexLineInflationText(line: Pick<OpexLine, 'mode' | 'rateMode' | 'useAssetDefault' | 'indexation'>, defaultIndexation: IndexationConfig | undefined): string {
+export function opexLineInflationText(line: Pick<OpexLine, 'mode' | 'rateMode' | 'useAssetDefault' | 'indexation' | 'inflateFromYear'>, defaultIndexation: IndexationConfig | undefined): string {
   if (!isFixedCostOpexMode(line.mode)) return 'auto via revenue';
   if (line.rateMode === 'yoy') return 'supplied by YoY rates';
-  if (line.useAssetDefault !== false) return `Inherits: ${summarizeOpexIndexation(defaultIndexation)}`;
-  return `Override active: ${summarizeOpexIndexation(line.indexation)}`;
+  // The line's own "inflate from" year (2026-11-18), else the first model year.
+  const from = line.inflateFromYear ? `, from ${line.inflateFromYear}` : '';
+  if (line.useAssetDefault !== false) return `Inherits: ${summarizeOpexIndexation(defaultIndexation)}${from}`;
+  return `Override active: ${summarizeOpexIndexation(line.indexation)}${from}`;
 }

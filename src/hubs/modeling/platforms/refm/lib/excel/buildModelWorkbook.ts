@@ -1289,6 +1289,8 @@ function addAssumptions(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFin
     addKV('Debt share', fin.funding.debtPct / 100, NUMFMT.pct, 'DebtPct', 'fin:in:debt');
     addKV('Equity share', fin.funding.equityPct / 100, NUMFMT.pct, 'EquityPct', 'fin:in:equity');
     addKV('Minimum cash reserve', p.financing?.minimumCashReserve ?? fin.funding.minCashReserve ?? 0, NUMFMT.money, 'MinCashReserve', 'fin:in:min');
+    // FROM A YEAR (2026-11-18): the first model year when none is typed, which is every year, as before.
+    addKV('Minimum cash applies from (year)', p.financing?.minimumCashFromYear ?? snap.projectStartYear, NUMFMT.year, undefined, 'fin:in:minFrom');
     fixedText('Capitalised interest shared on', (p.idcConfig?.allocationBasis ?? 'land') === 'bua' ? 'Total GFA' : 'Land area');
     // THE IDC METHOD (2026-11-18): typed here and read by Financing (the word "excluding" picks the second).
     addKV('IDC method', IDC_INTEREST_METHOD_LABELS[resolveIdcInterestMethod(p)], '@', undefined, 'fin:in:idcMethod');

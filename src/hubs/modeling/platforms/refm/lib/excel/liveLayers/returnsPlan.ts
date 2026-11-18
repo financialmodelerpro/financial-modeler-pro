@@ -273,7 +273,7 @@ export function returnsPlan(state: FinancialsResolverState, snap: Snap, rs: RS, 
     pRow('rs|wf:gross', 'Distributions before the fee', W(w.distributionPerPeriod),
       (E, s) => (s === 0 ? '0' : `MAX(0,${E.s('rs|dd:div', s)})+MAX(0,${E.s('rs|dd:cash', s)}+${E.s('rs|dd:kind', s)})+MAX(0,${E.s('rs|dd:tv', s)})`), { from: 0, indent: 1 });
     pRow('rs|wf:bop', 'Unpaid hurdle, opening', unpaid.map((_, s) => (s === 0 ? 0 : unpaid[s - 1] ?? 0)), (E, s) => (s === 0 ? '0' : E.s('rs|wf:eop', s - 1)), { from: 0, indent: 1, total: 'none' });
-    pRow('rs|wf:acc', 'Hurdle accrued', W(w.hurdleAccruedPerPeriod), (E, s) => `(${E.s('rs|wf:bop', s)}+${E.s('rs|wf:drawn', s)})*${h(E)}`, { from: 0, indent: 1 });
+    pRow('rs|wf:acc', 'Hurdle accrued', W(w.hurdleAccruedPerPeriod), (E, s) => `${E.s('rs|wf:bop', s)}*${h(E)}`, { from: 0, indent: 1 });
     pRow('rs|wf:owed', 'Hurdle owed', W(w.totalHurdleOwedPerPeriod), (E, s) => `${E.s('rs|wf:drawn', s)}+${E.s('rs|wf:bop', s)}+${E.s('rs|wf:acc', s)}`, { from: 0, indent: 1, total: 'none' });
     pRow('rs|wf:paid', 'Hurdle paid', W(w.hurdlePaidPerPeriod), (E, s) => `MIN(${E.s('rs|wf:gross', s)},${E.s('rs|wf:owed', s)})`, { from: 0, indent: 1 });
     pRow('rs|wf:eop', 'Unpaid hurdle, closing', unpaid, (E, s) => `${E.s('rs|wf:owed', s)}-${E.s('rs|wf:paid', s)}`, { from: 0, indent: 1, total: 'last' });
