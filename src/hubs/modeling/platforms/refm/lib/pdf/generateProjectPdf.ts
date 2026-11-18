@@ -64,7 +64,7 @@ import {
   DEFAULT_COVENANTS, type FundingMethodId, type Asset,
 } from '../state/module1-types';
 import {
-  resolveFundTerms, FUND_FEE_SPECS, FEE_TIMING_LABELS, FEE_BASE_LABELS, isFundManagerRow,
+  resolveFundTerms, FUND_FEE_SPECS, FEE_TIMING_LABELS, FEE_BASE_LABELS, isFundManagerRow, feeBaseFor,
   DEFAULT_FUND_MANAGER_NAME,
 } from '../fundTerms';
 import {
@@ -888,6 +888,9 @@ function headlineReturnCards(returns: ReturnsSnapshot, fmt: Fmt, opts: { omitDis
   ];
   return [
     { label: 'Project IRR', value: fmt.pct(r.fcff.irr, 1), sub: 'unlevered, FCFF' },
+    // THE NPVs (2026-11-18, A7): the project at the discount rate, the equity at the cost of equity.
+    { label: 'Project NPV', value: fmt.money(r.fcff.npv), sub: `FCFF at ${fmt.pct(r.fcff.discountRate, 1)}` },
+    { label: 'Equity NPV', value: fmt.money(r.fcfe.npv), sub: `FCFE at the cost of equity, ${fmt.pct(r.fcfe.discountRate, 1)}` },
     { label: 'Equity IRR', value: fmt.pct(r.fcfe.irr, 1), sub: 'levered, FCFE' },
     { label: 'Equity Multiple (FCFE)', value: fmt.mult(r.fcfe.moic), sub: METRIC_CAPTIONS.equityMultipleFcfe },
     ...distribution,
@@ -1620,7 +1623,8 @@ function buildModule1(
         title: 'Fund management fees', kind: 'grid', align: 'data',
         columns: ['Fee', 'When', 'Charged on', 'Rate'],
         rows: FUND_FEE_SPECS.map((spec) => row([
-          spec.label, FEE_TIMING_LABELS[spec.timing], FEE_BASE_LABELS[spec.base], rateOf(spec),
+          // THE BASIS IN FORCE (2026-11-18): the structure and arranging fees each choose theirs.
+          spec.label, FEE_TIMING_LABELS[spec.timing], FEE_BASE_LABELS[feeBaseFor(spec, ft)], rateOf(spec),
         ])),
       }));
       items.push(tTable(M1_TABS.fund, 'inputs', kvTable('Fund structure, fee bases and the performance fee', [

@@ -104,6 +104,7 @@ try {
     '`revalidate = 0` on all CMS pages.',
     "Never add `.eq('visible', true)` to home page queries.",
     'Push to main deploys automatically; confirm via /api/health on the main and learn domains showing the new commit.',
+    'Every platform change updates the live Excel, values Excel and PDF exports in the same commit; verify-export-parity must pass.',
   ];
 
   // ── Email templates ─────────────────────────────────────────────────────────

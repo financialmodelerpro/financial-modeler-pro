@@ -25,6 +25,8 @@ import JSZip from 'jszip';
 import { FormulaEvaluator, workbookReader } from '../src/hubs/modeling/platforms/refm/lib/excel/formulaEval';
 
 const REF_PATH = 'docs/refm-export-reference.xlsx';
+/** The saved version the reference was exported from: FMP - MARINA GATE v1.1, "With Fund". */
+const REFERENCE_VERSION_ID = '56c55440-5e32-4ffe-bdde-8a97030c2803';
 const argv = process.argv.slice(2);
 const arg = (k: string): string | undefined => { const i = argv.indexOf(k); return i >= 0 ? argv[i + 1] : undefined; };
 const ONLY_TAB = arg('--tab');
@@ -41,7 +43,10 @@ function check(name: string, ok: boolean, detail = ''): void {
  * carry. Key: "Tab!A1" or "Tab!*" with a category; the reason is printed.
  */
 // mayNotOccur: an entry that depends on the day (the export date matches the reference's on the day it was made).
-const ACCEPTED: Array<{ at: RegExp; cat?: RegExp; why: string; mode?: 'live' | 'values'; mayNotOccur?: boolean }> = [
+const isNum = (s: string): boolean => s.trim() !== '' && Number.isFinite(Number(s));
+/** Two texts the same but for their figures ("NPV 189.9m" and "NPV 186.0m"). */
+const sameButFigures = (a: string, b: string): boolean => a !== b && a.replace(/-?[0-9][0-9.,]*/g, '#') === b.replace(/-?[0-9][0-9.,]*/g, '#');
+const ACCEPTED: Array<{ at: RegExp; cat?: RegExp; why: string; mode?: 'live' | 'values'; mayNotOccur?: boolean; test?: (d: { ref: string; ours: string }) => boolean; noB4?: boolean }> = [
   // 7. "Guide section 3 wording adjusted for values (no iterative calc needed)"; and the values file says it was exported
   // with its values, not with live formulas.
   { at: /^Guide![C-K]25$/, cat: /^value$/, why: 'the values file needs no iterative calculation (Guide section 3)', mode: 'values' },
@@ -58,15 +63,10 @@ const ACCEPTED: Array<{ at: RegExp; cat?: RegExp; why: string; mode?: 'live' | '
   // The risk triggers moved to Inputs (founder): the note under the flags and the Guide's "What to change" say so.
   { at: /^Dashboard!G45$/, cat: /^value$/, why: 'the triggers are inputs on Inputs, not on the Dashboard' },
   { at: /^Guide![D-K]27(\(ours 28\))?$/, cat: /^value$/, why: 'the triggers are inputs on Inputs, not on the Dashboard' },
-  // 8. "document it in the Guide section 3": the circularity switch's row, under "Iterative calculation" (live file).
-  { at: /^Guide!(row26|D26)$/, cat: /^(extra|merge)$/, why: 'Guide section 3 says how to use the circularity switch', mode: 'live' },
+
   // 8. "Financing 'Cash above the minimum, before the sweep': no Total (it sums to 1,785m, which means nothing)".
-  { at: /^Financing!F100\(ours 99\)$/, cat: /^(formula|value|result|numFmt)$/, why: 'a balance-like row takes no Total (founder, open fix 8)' },
-  // 8. "If it drifts, add a circularity switch on Inputs (1 = on), with interest using the switch": a cold start drifted
-  // (every loop held #VALUE!), so interest, the sweep, the fund fees total and the zakat read back from the P&L each
-  // read the switch (IF(switch=1, ..., 0)), and the switch sits on Inputs (section 13, below the reference's rows).
-  // The phase EBITDA links (each phase's dividend cap reads its P&L) are read back from the P&L too, and cut the same way.
-  { at: /^Financing![G-S](41|43|74|86|104|106)\(ours (40|42|73|85|103|105)\)$/, cat: /^formula$/, why: 'the circularity switch cuts the financing loops (open fix 8, TRAPS 3.46)' },
+  { at: /^Financing!F100(\(ours \d+\))?$/, cat: /^(formula|value|result|numFmt)$/, why: 'a balance-like row takes no Total (founder, open fix 8)', mayNotOccur: true },
+
   // Print set-up (2026-11-17, founder): the Cover on one page; the Guide fitted to the width on two pages.
   { at: /^(Cover|Guide)!print$/, cat: /^print$/, why: 'the Cover prints on one page and the Guide on two (founder)' },
   // The Dashboard at a fixed scale, fit off, so Excel keeps its two manual breaks: three pages in real Excel (founder).
@@ -77,6 +77,29 @@ const ACCEPTED: Array<{ at: RegExp; cat?: RegExp; why: string; mode?: 'live' | '
   { at: /^Cover!C(39|40)$/, cat: /^font$/, why: 'the Cover footer is readable on its navy band (the reference wrote it navy on navy)' },
   // 1. "Freeze panes G7 on every time tab (Returns too)": the reference froze Returns at G6.
   { at: /^Returns!freeze$/, why: 'freeze panes G7 on every time tab, Returns too' },
+  // ── THE 2026-11-18 METHOD CHANGES (founder: A1 to A7, and the item 8 data fixes on this version) ──
+  // Every figure that moved. The figures themselves are proven elsewhere: live = engine by the cold start (D2)
+  // and the LibreOffice recalculation, values = live by B4. This rule accepts a moved NUMBER only.
+  { at: /./, cat: /^(result|value)$/, test: (d) => (isNum(d.ref) || d.ref === '') && (isNum(d.ours) || d.ours === ''), why: 'figures moved by the 2026-11-18 method changes (A1 to A7) and the item 8 data fixes', noB4: true },
+  // A sentence or label whose only change is its figures (the Dashboard's tiles and messages, the scenarios).
+  { at: /./, cat: /^(result|value)$/, test: (d) => sameButFigures(d.ref, d.ours), why: 'texts whose figures moved with the 2026-11-18 method changes', noB4: true },
+  // A1, A2, A4: the financing rows rewritten (interest on opening plus half the draw, IDC drawn in full, the funding
+  // test before zakat and fees, the fee-free walk, the fee bases, the sweep stopped in the exit year, one project
+  // dividend capped at retained earnings).
+  { at: /^Financing!/, cat: /^(formula|extra|value|font|fill|border|numFmt|alignment|height)$/, why: 'A1, A2, A4: the financing rows rewritten (no circularity, one dividend, the fee bases)', noB4: true },
+  // No loop: a year with nothing to release or depreciate reads no base (2026-11-18).
+  { at: /^Schedules!/, cat: /^formula$/, why: 'cost of sales and depreciation read no base in a year with nothing to release', noB4: true },
+  // A3, A6, A7 on Returns: the exit value gross, less selling costs, net; the equity NPVs at the cost of equity;
+  // who gets what carries the developer fee and the sales commission.
+  { at: /^Returns!/, cat: /^(formula|extra|value|font|fill|border|numFmt|alignment|height)$/, why: 'A3, A6, A7: exit net of selling costs, equity NPVs at the cost of equity, who gets what', noB4: true },
+  // The Dashboard reads the moved Returns rows (the net exit value, who gets what) and lists the earners.
+  { at: /^Dashboard!/, cat: /^(formula|extra|merge|cf|font|fill|border|numFmt|alignment|height)$/, why: 'the Dashboard reads the moved Returns rows and lists who gets what', noB4: true },
+  // New settings on Inputs (the IDC method, dividends above retained earnings, the cost of equity, selling costs
+  // at exit, the fee bases and shares), and the new check (cash never below zero).
+  { at: /^Inputs!/, cat: /^(value|font|fill|border|numFmt|alignment|height)$/, why: 'A1 to A7: new settings on Inputs', noB4: true },
+  { at: /^Checks!/, cat: /^(extra|formula|value|font|fill|border|numFmt|alignment|height)$/, why: 'the new check: cash never goes below zero', noB4: true },
+  // The Guide: no circular reference (A1), the NPV convention (A7), the dividend cap's link (A2).
+  { at: /^Guide!/, cat: /^(value|extra|merge|font|fill|alignment|height)$/, why: 'the Guide: no circular reference, the NPV convention, the dividend cap link', noB4: true },
 ];
 
 /**
@@ -88,14 +111,38 @@ const ACCEPTED: Array<{ at: RegExp; cat?: RegExp; why: string; mode?: 'live' | '
  *     End of sheet band sit under it (its rows are checked by the Dashboard links that read them).
  */
 const rowShift = new Map<string, (r: number) => number | null>();
+/**
+ * ROWS MATCHED BY THEIR LABELS (2026-11-18). The founder's later changes add rows (A1 to A7: Inputs settings,
+ * Financing's funding test and fee bases, Returns' exit and earner rows), so a hand-written shift per tab cannot
+ * keep up. Each tab's rows are aligned to the reference by the longest common run of row labels (columns B and C),
+ * a label only ever matching the same label, and every reference row moves to the row it matched; a reference row
+ * with no match is a row ours dropped, and a row of ours with no match is an extra row.
+ */
+function alignRows(ref: ExcelJS.Worksheet, ours: ExcelJS.Worksheet): (r: number) => number | null {
+  const lab = (ws: ExcelJS.Worksheet, r: number): string => {
+    const t = (c: number): string => { const v = ws.getCell(r, c).value as unknown; return typeof v === 'string' ? v.trim() : v && typeof v === 'object' && 'richText' in (v as object) ? (v as { richText: Array<{ text: string }> }).richText.map((x) => x.text).join('').trim() : ''; };
+    return `${t(2)}|${t(3)}`;
+  };
+  const n = ref.rowCount, m = ours.rowCount;
+  const A = Array.from({ length: n }, (_, i) => lab(ref, i + 1)), B = Array.from({ length: m }, (_, j) => lab(ours, j + 1));
+  const L: Uint16Array[] = Array.from({ length: n + 1 }, () => new Uint16Array(m + 1));
+  for (let i = n - 1; i >= 0; i--) for (let j = m - 1; j >= 0; j--) L[i][j] = A[i] === B[j] ? L[i + 1][j + 1] + 1 : Math.max(L[i + 1][j], L[i][j + 1]);
+  const map = new Map<number, number>();
+  const pairs: Array<[number, number]> = [];
+  for (let i = 0, j = 0; i < n && j < m;) {
+    if (A[i] === B[j]) { map.set(i + 1, j + 1); pairs.push([i + 1, j + 1]); i++; j++; }
+    else if (L[i + 1][j] >= L[i][j + 1]) i++; else j++;
+  }
+  // A RELABELLED ROW IS STILL ITS ROW: between two matched rows, gaps of the same size pair up in order.
+  pairs.unshift([0, 0]); pairs.push([n + 1, m + 1]);
+  for (let k = 1; k < pairs.length; k++) {
+    const [ra, oa] = pairs[k - 1], [rb, ob] = pairs[k];
+    if (rb - ra === ob - oa) for (let x = 1; x < rb - ra; x++) map.set(ra + x, oa + x);
+  }
+  return (r) => map.get(r) ?? null;
+}
 function setRowShifts(ref: ExcelJS.Workbook, ours: ExcelJS.Workbook): void {
-  rowShift.set('Financing', (r) => (r === 35 ? null : r > 35 ? r - 1 : r));
-  // Guide section 3 of the live file says how to use the circularity switch (open fix 8): one row more, after the
-  // reference's "Iterative calculation" row 25. The values file needs no switch, so its Guide keeps the reference's rows.
-  rowShift.set('Guide', (r) => (mode === 'live' && r >= 26 ? r + 1 : r));
-  const endOf = (ws?: ExcelJS.Worksheet): number => { let e = 0; ws?.eachRow((row, r) => { if (row.getCell(2).value === 'End of sheet') e = r; }); return e; };
-  const re = endOf(ref.getWorksheet('Inputs')), oe = endOf(ours.getWorksheet('Inputs'));
-  if (re && oe) rowShift.set('Inputs', (r) => (r < re - 1 ? r : oe - (re - r)));
+  for (const ws of ref.worksheets) { const o = ours.getWorksheet(ws.name); if (o) rowShift.set(ws.name, alignRows(ws, o)); }
 }
 const COLR = /(?<![A-Za-z0-9_.$!'])((?:'(?:[^']|'')+'|[A-Za-z_][A-Za-z0-9_.&]*)!)?(\$?[A-Z]{1,3}\$?)(\d+)(?::(\$?[A-Z]{1,3}\$?)(\d+))?(?![A-Za-z0-9_(!])/g;
 /** A reference formula with its references to a moved tab's rows moved as the tab's rows were. */
@@ -111,10 +158,13 @@ function shiftRefFormula(f: string, own: string): string {
 }
 const used = new Set<number>();
 let mode: 'live' | 'values' = 'live';
-function accepted(at: string, cat: string): boolean {
+function accepted(at: string, cat: string, d?: { ref: string; ours: string }, forB4 = false): boolean {
   for (let i = 0; i < ACCEPTED.length; i++) {
     const a = ACCEPTED[i];
     if (a.mode && a.mode !== mode) continue;
+    // B4 compares the values file with the live file, not with the reference: the method rules say nothing there.
+    if (forB4 && a.noB4) continue;
+    if (a.test && !(d && a.test(d))) continue;
     if (a.at.test(at) && (!a.cat || a.cat.test(cat))) { used.add(i); return true; }
   }
   return false;
@@ -266,7 +316,7 @@ function compareSheet(ref: ExcelJS.Worksheet, ours: ExcelJS.Worksheet, opts: { f
 }
 
 function report(label: string, diffs: Diff[]): void {
-  const open = diffs.filter((x) => !accepted(x.at, x.cat));
+  const open = diffs.filter((x) => !accepted(x.at, x.cat, x));
   const byTab = new Map<string, Diff[]>();
   for (const x of open) { const t = x.at.split('!')[0]; byTab.set(t, [...(byTab.get(t) ?? []), x]); }
   const lines: string[] = [];
@@ -296,7 +346,9 @@ function report(label: string, diffs: Diff[]): void {
     const { loadLiveExportInputs } = await import('./fixtures/liveExportInputs');
     const { generateLiveWorkbook } = await import('../src/hubs/modeling/platforms/refm/lib/excel/formulaWorkbook');
     const { generateValuesWorkbookBuffer } = await import('../src/hubs/modeling/platforms/refm/lib/excel/valuesWorkbook');
-    const live = await loadLiveExportInputs();
+    // THE REFERENCE WAS MADE FROM MARINA GATE v1.1 (2026-11-17); since 2026-11-18 a later version exists
+    // (the training model match), so the version is named rather than taken as the latest.
+    const live = await loadLiveExportInputs(undefined, REFERENCE_VERSION_ID);
     const common = { state: live.state, projectName: live.projectName, dateLabel: 'reference', displayScale: 'millions' as const,
       caseComparison: live.caseComparison ?? undefined, parties: live.parties as never, includeSensitivity: true };
     const built = await generateLiveWorkbook(common);
@@ -351,7 +403,7 @@ function report(label: string, diffs: Diff[]): void {
           if (!v || typeof v !== 'object' || typeof v.formula !== 'string') return;
           if (c.isMerged && c.master.address !== c.address) return;
           // A cell whose values-file words the founder asked to differ (the Guide's purpose line) is named above.
-          if (accepted(`${ws.name}!${c.address}`, 'value')) return;
+          if (accepted(`${ws.name}!${c.address}`, 'value', undefined, true)) return;
           cells++;
           const res = v.result;
           // ExcelJS keeps no cached "" either: a missing result is a formula's 0 or its "", told apart by working the
@@ -383,10 +435,10 @@ function report(label: string, diffs: Diff[]): void {
       // cells, which Excel reads as text, and keeps the #VALUE! it makes for ever (TRAPS 3.46). The circularity switch
       // at 0 cuts every loop, so the file opens to figures; set back to 1, the loop iterates from them. The cold copy
       // is saved with the switch at 0, and Excel sets it to 1 and recalculates.
-      const inputs = ours.getWorksheet('Inputs');
-      let swAt = '';
-      inputs?.eachRow((row, r) => row.eachCell((c, col) => { if (c.value === 'Circularity switch (1 = on)') swAt = `${colL(col + 1)}${r}`; }));
-      check('D0 Inputs carries the circularity switch, at 1', !!swAt && inputs?.getCell(swAt).value === 1, swAt || '(none)');
+      // NO SWITCH (2026-11-18): the model has no circular reference, so the file opens with iteration off.
+      const swAt = '';
+      const wbXml = await (await JSZip.loadAsync(liveBuf)).file('xl/workbook.xml')!.async('string');
+      check('D0 the file asks for no iterative calculation', !/iterate="1"/.test(wbXml), (/<calcPr[^>]*>/.exec(wbXml) ?? [''])[0]);
       const z = await JSZip.loadAsync(liveBuf);
       const wbXml0 = await z.file('xl/workbook.xml')!.async('string');
       const relsXml = await z.file('xl/_rels/workbook.xml.rels')!.async('string');
@@ -412,7 +464,7 @@ function report(label: string, diffs: Diff[]): void {
       try {
         const rec = recalcInExcel(p, swAt ? [{ ref: `Inputs!${swAt}`, value: 1 }] : []);
         const errs = [...rec.cells].filter(([, v]) => typeof v === 'object').map(([k]) => k);
-        check('D1 no cell recalculates to an Excel error from a cold start (switch 0, then 1)', errs.length === 0, `${errs.length} errors: ${errs.slice(0, 8).join(', ')}`);
+        check('D1 no cell recalculates to an Excel error from a cold start (no circular reference, iteration off)', errs.length === 0, `${errs.length} errors: ${errs.slice(0, 8).join(', ')}`);
         // Every figure against the value the platform stored (the warm file).
         let worst = { at: '', gap: 0 }, compared = 0;
         for (const ws of ours.worksheets) ws.eachRow((row, r) => row.eachCell((c, col) => {
