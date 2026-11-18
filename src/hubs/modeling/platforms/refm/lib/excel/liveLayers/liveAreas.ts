@@ -44,9 +44,10 @@ export interface FigureTools {
  */
 export function nsaUsedFormula(assetId: string, subUnits: readonly SubUnit[], ref: (key: string) => string | null): string | null {
   const stated = ref(`entry:${assetId}:nsa`);
-  if (!stated) return null;
   const areas = subUnits.filter((u) => u.assetId === assetId && NSA_CATEGORIES.has(String(u.category))).map((u) => ref(`su:${u.id}:area`));
   if (areas.some((x) => !x)) return null;
+  // NO STATED NSA COLUMN (2026-11-18: shown only where a project uses it): the sub-units' area is the NSA.
+  if (!stated) return areas.length ? `SUM(${areas.join(',')})` : null;
   return `MAX(${areas.length ? `SUM(${areas.join(',')})` : '0'},MAX(0,N(${stated})))`;
 }
 const NSA_CATEGORIES = new Set(['Sellable', 'Operable', 'Leasable']);

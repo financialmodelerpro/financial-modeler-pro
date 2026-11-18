@@ -172,6 +172,20 @@ export const stage1LandArea: LiveLayer = {
     livePeriodFlags(w, reg, state.phases.map((ph) => ph.id), yearCols);
 
     // ── Inputs: plots (value = area x rate, cash / in-kind at the plot's split) ──
+    // ONE LAND TABLE (2026-11-18): in-kind is 1 less cash, a plot's later rows link its first, the shares check.
+    const isOneLandTable = (visible as Asset[]).some((a) => w.has(`entry:${a.id}:util`)) && !(visible as Asset[]).some((a) => w.has(`entry:${a.id}:plot`));
+    for (const pa of state.parcels as Parcel[]) {
+      const k = (x: string): string => `parcel:${pa.id}:${x}`;
+      const onPlot = visible.filter((a) => a.landAllocation?.parcelId === pa.id);
+      const links = onPlot.flatMap((a) => (['area', 'rate', 'cash', 'inkind'] as const).map((f) => ({ key: `landlink:${pa.id}:${a.id}:${f}`, f }))).filter((x) => w.has(x.key));
+      // The one land table carries in-kind as a formula (the older layout typed it).
+      if (isOneLandTable && w.has(k('inkind')) && w.has(k('cash'))) w.f(k('inkind'), `1-${R(k('cash'))}`);
+      for (const x of links) w.f(x.key, x.f === 'inkind' ? `1-${R(k('cash'))}` : R(k(x.f)));
+      if (w.has('plotchk:' + pa.id)) {
+        const shares = (visible as Asset[]).filter((a) => a.landAllocation?.parcelId === pa.id && w.has(`entry:${a.id}:share`)).map((a) => R(`entry:${a.id}:share`));
+        if (shares.length) w.f('plotchk:' + pa.id, `IF(ABS(${shares.join('+')}-1)<0.000001,"OK","FIX")`);
+      }
+    }
     for (const pa of state.parcels as Parcel[]) {
       const k = (x: string): string => `parcel:${pa.id}:${x}`;
       if (w.has(k('areaEcho'))) { w.f(k('areaEcho'), `MAX(0,${R(k('area'))})`); w.f(k('rateEcho'), R(k('rate'))); }
@@ -198,9 +212,10 @@ export const stage1LandArea: LiveLayer = {
     };
     for (const a of hosts) {
       const e = (x: string): string => `entry:${a.id}:${x}`;
-      if (!w.has(e('plot'))) continue;
+      // ONE LAND TABLE (2026-11-18): the land area is typed once on the plot; an asset's own plot-area cell exists
+      // only on the older two-table layout, so its absence no longer skips the inherited massing below.
       const draw = resolveAssetPlotDraw(a, state.parcels as Parcel[], visible);
-      if (draw?.source === 'whole_plot') w.f(e('plot'), R(`parcel:${a.landAllocation?.parcelId}:area`));
+      if (w.has(e('plot')) && draw?.source === 'whole_plot') w.f(e('plot'), R(`parcel:${a.landAllocation?.parcelId}:area`));
       const inherit = (field: 'util' | 'cov' | 'far' | 'svc', typed: number | undefined): void => {
         if (typeof typed === 'number') return;
         const tr = typeRef(a, field);
@@ -234,6 +249,8 @@ export const stage1LandArea: LiveLayer = {
 
     const grossRef = (a: Asset): string => {
       const draw = resolveAssetPlotDraw(a, state.parcels as Parcel[], visible);
+      // A typed draw is the plot's land area x the share of the plot typed beside it (one land table, 2026-11-18).
+      if (draw?.source === 'typed' && w.has(`entry:${a.id}:share`)) return `${R(`parcel:${a.landAllocation?.parcelId}:area`)}*${R(`entry:${a.id}:share`)}`;
       return draw?.source === 'typed' ? R(`entry:${a.id}:plot`) : R(`parcel:${a.landAllocation?.parcelId}:area`);
     };
     // THE RETAIL CARVE-OUT IS ITS OWN ROW (2026-10-26; retailCarveContext / carveRetailLand): what a

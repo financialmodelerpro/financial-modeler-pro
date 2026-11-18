@@ -1553,3 +1553,107 @@ export function emitCommissionTermsInputs(c: SheetCursor, state: FinancialsResol
   }
   c.r += 1;
 }
+
+// ── ONE LAND TABLE (2026-11-18, founder item 6) ─────────────────────────────
+/**
+ * Plots and the assets on them in ONE table, the land area typed once: Plot | Phase | Asset type | Strategy |
+ * Land area | Land rate | Cash % | In-kind % (1 less cash, a formula) | Utilisation % | Coverage % | FAR (x) |
+ * Retail % | Service %, then "Share of plot %" with its check where an asset types its own draw, and Stated NSA
+ * only where the project uses it. A plot with several assets gives each its own row; the plot's figures are typed
+ * on the first and linked on the others. Below it, the model lines (line, phase, strategy, built on), links only.
+ * Live layout only; the formulas (in-kind, the links, the check) are written by Land & Area's stage.
+ */
+export function emitLandPlotsTable(c: SheetCursor, tables: AssetAreaTables, state: FinancialsResolverState): void {
+  const cur = state.project.currency ?? 'SAR';
+  const visible = state.assets.filter((a) => a.visible !== false);
+  const parcels = state.parcels as Array<{ id: string; name: string; area?: number; rate?: number; cashPct?: number; inKindPct?: number; phaseId?: string }>;
+  const byKey = new Map(tables.plots.map((g) => [g.key, g] as const));
+  const typedDraw = (assetId: string): boolean => (tables.plots.flatMap((g) => g.entries).find((e) => e.assetId === assetId)?.plotAreaSqm.typed ?? false);
+  const anyShare = tables.plots.some((g) => g.entries.some((e) => e.plotAreaSqm.typed));
+  const anyNsa = visible.some((a) => Math.max(0, a.sellableBuaSqm ?? 0) > 0);
+  const heads = ['Plot', 'Phase', 'Asset type', 'Strategy', 'Land area (sqm)', `Land rate (${cur}/sqm)`, 'Cash %', 'In-kind %', 'Utilisation %', 'Coverage %', 'FAR (x)', 'Retail % (ground floor)', 'Service %', ...(anyShare ? ['Share of plot %', 'Check'] : []), ...(anyNsa ? ['Stated NSA (sqm)'] : [])];
+  setSectionHeader(c.ws.getRow(c.r), 'Land and plots', heads.length); c.r += 1;
+  headers(c, heads);
+  const SH = 14, NSA = anyShare ? 16 : 14;
+  const plotRow = (pa: (typeof parcels)[number] | undefined, first: boolean, assetId?: string): void => {
+    if (!pa) return;
+    if (first) {
+      setInput(c.ws.getCell(c.r, 5), pa.area ?? 0, NUMFMT.int);
+      setInput(c.ws.getCell(c.r, 6), pa.rate ?? 0, NUMFMT.rate);
+      setInput(c.ws.getCell(c.r, 7), (pa.cashPct ?? 0) / 100, '0.0%');
+      derived(c.ws.getCell(c.r, 8), 1 - (pa.cashPct ?? 0) / 100, '0.0%');
+      (['area', 'rate', 'cash', 'inkind'] as const).forEach((k, i) => registerCell(`parcel:${pa.id}:${k}`, c.ws, c.ws.getCell(c.r, 5 + i)));
+    } else if (assetId) {
+      derived(c.ws.getCell(c.r, 5), pa.area ?? 0, NUMFMT.int);
+      derived(c.ws.getCell(c.r, 6), pa.rate ?? 0, NUMFMT.rate);
+      derived(c.ws.getCell(c.r, 7), (pa.cashPct ?? 0) / 100, '0.0%');
+      derived(c.ws.getCell(c.r, 8), 1 - (pa.cashPct ?? 0) / 100, '0.0%');
+      (['area', 'rate', 'cash', 'inkind'] as const).forEach((k, i) => registerCell(`landlink:${pa.id}:${assetId}:${k}`, c.ws, c.ws.getCell(c.r, 5 + i)));
+    }
+  };
+  const groups = [...parcels.map((pa) => ({ pa, g: byKey.get(pa.id) })), ...tables.plots.filter((g) => !parcels.some((pa) => pa.id === g.key)).map((g) => ({ pa: undefined, g }))];
+  for (const { pa, g } of groups) {
+    const entries = g?.entries ?? [];
+    const label = pa?.name ?? g?.plotLabel ?? 'No plot';
+    const phaseName = state.phases.find((ph) => ph.id === pa?.phaseId)?.name ?? g?.phaseName ?? '';
+    if (entries.length === 0) {
+      setLabel(c.ws.getCell(c.r, 1), label);
+      if (pa) setInput(c.ws.getCell(c.r, 2), phaseName || '-', '@');
+      plotRow(pa, true);
+      c.r += 1;
+      continue;
+    }
+    const shareRows: number[] = [];
+    entries.forEach((e, i) => {
+      setLabel(c.ws.getCell(c.r, 1), label);
+      if (i === 0 && pa) setInput(c.ws.getCell(c.r, 2), phaseName || '-', '@'); else derived(c.ws.getCell(c.r, 2), phaseName, '@');
+      setLabel(c.ws.getCell(c.r, 3), e.typeLabel);
+      setInput(c.ws.getCell(c.r, 4), e.strategy, '@');
+      plotRow(pa, i === 0, e.assetId);
+      viewCell(c.ws.getCell(c.r, 9), e.utilisationPct, '0.0%', 100);
+      viewCell(c.ws.getCell(c.r, 10), e.coveragePct, '0.0%', 100);
+      viewCell(c.ws.getCell(c.r, 11), e.far, '0.00');
+      viewCell(c.ws.getCell(c.r, 12), e.retailPct, '0.0%', 100);
+      viewCell(c.ws.getCell(c.r, 13), e.servicePct, '0.0%', 100);
+      (['util', 'cov', 'far', 'retail', 'svc'] as const).forEach((k, j) => registerCell(`entry:${e.assetId}:${k}`, c.ws, c.ws.getCell(c.r, 9 + j)));
+      if (anyShare && typedDraw(e.assetId) && pa) {
+        const area = Math.max(0, pa.area ?? 0);
+        setInput(c.ws.getCell(c.r, SH), area > 0 ? (e.plotAreaSqm.value ?? 0) / area : 0, '0.0%');
+        registerCell(`entry:${e.assetId}:share`, c.ws, c.ws.getCell(c.r, SH));
+        shareRows.push(c.r);
+      }
+      if (anyNsa) {
+        const a = visible.find((x) => x.id === e.assetId);
+        const sc = c.ws.getCell(c.r, NSA);
+        if (a && Math.max(0, a.sellableBuaSqm ?? 0) > 0) setInput(sc, a.sellableBuaSqm ?? 0, NUMFMT.int); else { markInput(sc); sc.numFmt = NUMFMT.int; }
+        registerCell(`entry:${e.assetId}:nsa`, c.ws, sc);
+      }
+      c.r += 1;
+    });
+    if (shareRows.length && pa) {
+      const ck = c.ws.getCell(shareRows[shareRows.length - 1], SH + 1);
+      derived(ck, 'OK', '@');
+      registerCell(`plotchk:${pa.id}`, c.ws, ck);
+    }
+  }
+  if (tables.plots.some((g) => g.entries.some((e) => [e.utilisationPct, e.coveragePct, e.far, e.servicePct].some((x) => x.note === 'from the type')))) {
+    note(c, 'Unshaded utilisation, coverage, FAR or service figures are inherited from the asset type; the plot states none.');
+  }
+  if (anyShare) note(c, 'Share of plot %: the part of the plot\'s land an asset draws; the shares of one plot add to 100% (Check).');
+  c.r += 1;
+  // The model lines: what the model groups the assets into, links only.
+  const lines = planReportLines({ assets: visible, phases: state.phases, parcels: state.parcels });
+  if (lines.length) {
+    setSectionHeader(c.ws.getRow(c.r), 'Model lines', 4); c.r += 1;
+    headers(c, ['Model line', 'Phase', 'Strategy', 'Built on']);
+    for (const l of lines) {
+      const members = visible.filter((a) => l.assetIds.includes(a.id));
+      setLabel(c.ws.getCell(c.r, 1), lineTitle(l, { assets: visible, phases: state.phases, parcels: state.parcels }));
+      derived(c.ws.getCell(c.r, 2), state.phases.find((ph) => ph.id === members[0]?.phaseId)?.name ?? '', '@');
+      derived(c.ws.getCell(c.r, 3), String(members[0]?.strategy ?? ''), '@');
+      derived(c.ws.getCell(c.r, 4), [...new Set(members.map((a) => parcels.find((p) => p.id === a.landAllocation?.parcelId)?.name).filter(Boolean))].join(', ') || 'No plot', '@');
+      c.r += 1;
+    }
+    c.r += 1;
+  }
+}

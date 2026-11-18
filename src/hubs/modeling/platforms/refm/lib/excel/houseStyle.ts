@@ -311,8 +311,16 @@ function restyleFormats(row: ExcelJS.Row, fmts: ReturnType<typeof houseFormats>,
     return typeof v === 'number' && Math.abs(Math.round(v * 1000) - v * 1000) > 1e-6;
   };
   row.eachCell({ includeEmpty: false }, (c) => {
+    // AN INPUT CARRIES NO COMMENT (2026-11-18, founder): an explanation sits in the notes column, not a red marker.
+    if (fillOf(c) === HOUSE.input && c.note) c.note = undefined as never;
     const nf = c.numFmt ?? '';
     if (!nf || nf === '@' || nf === 'General') return;
+    // A PERCENTAGE INPUT SHOWS ITS ZERO (2026-11-18, founder): 0.0%, centred, never "-".
+    if (fillOf(c) === HOUSE.input && (/^0.0+%/.test(nf) || nf === '0%')) {
+      c.numFmt = needs2(c) ? '0.00%' : '0.0%';
+      c.alignment = { ...(c.alignment ?? {}), horizontal: 'center' };
+      return;
+    }
     const acc = /^_\(\* #,##0(?:\.(0+))?(,*)_\)/.exec(nf);
     if (acc) {
       const dec = acc[1]?.length ?? 0;

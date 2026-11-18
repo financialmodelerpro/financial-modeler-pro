@@ -74,7 +74,7 @@ import { buildConsolidatedReport, perAssetCostsFromTreatment, consolidatedCaptio
 import { METRIC_CAPTIONS, METRIC_LABELS, returnsNpvNote, capRateAtExitCaption, exitYearAnalysisNote } from '../reports/metricCaptions';
 import { buildSellingCostReport, SELLING_COSTS_CAPTION, SELLING_COSTS_YOY_CAPTION } from '../reports/sellingCostReports';
 import {
-  emitProjectSection, emitPhasesSection, emitStandardsSection, emitPlotsSection, emitAssetEntrySection, emitSubUnitSection,
+  emitProjectSection, emitPhasesSection, emitStandardsSection, emitPlotsSection, emitAssetEntrySection, emitLandPlotsTable, emitSubUnitSection,
   emitRevenueInputs, emitCommissionTermsInputs, emitEscrowInputs, emitOpexInputs, emitStatementInputsSection, emitDepreciationSection, emitReturnsSection,
   emitLandTables, emitSubUnitAreas, LAND_CHAIN_COLS, utcMonthYear, utcYear, phaseStatusLabel, type SheetCursor,
 } from './inputsSheetSections';
@@ -1042,9 +1042,13 @@ function addAssumptions(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFin
 
   // ── Module 1, tab 5: Assets & Sub-units (Tables 1, 2 and 5; 3 and 4 are on Land & Area) ──
   inputDivider('ASSETS & SUB-UNITS');
-  section((c) => emitPlotsSection(c, state));
   const areaTables = buildAssetAreaTables(state);
-  section((c) => emitAssetEntrySection(c, areaTables, state));
+  // ONE LAND TABLE in the live layout (2026-11-18, founder item 6): the land area typed once.
+  if (isLiveLayout() && state.parcels.length > 0) section((c) => emitLandPlotsTable(c, areaTables, state));
+  else {
+    section((c) => emitPlotsSection(c, state));
+    section((c) => emitAssetEntrySection(c, areaTables, state));
+  }
   section((c) => emitSubUnitSection(c, state));
   // The link registry the downstream tabs key on (formulas are not live in the
   // hardcoded workbook, so the addresses are placeholders; ids and strategies

@@ -1745,82 +1745,44 @@ function buildModule1(
 
   // ── TAB 5: ASSETS & SUB-UNITS (the screen's five tables) ──────────────────
   const areaTables = buildAssetAreaTables(viewState);
-  // Table 1: the plots.
+  // ONE LAND TABLE (2026-11-18, founder item 6): plots and the assets on them, the land area once, as the
+  // workbook's Inputs lays it out; in-kind is 1 less cash. A plot's figures print on its first row only.
   if (state.parcels.length) {
-    let area = 0; let value = 0; let cash = 0; let inKind = 0;
-    const rows = state.parcels.map((pa) => {
-      const a = Math.max(0, pa.area ?? 0); const rate = Math.max(0, pa.rate ?? 0);
-      const lv = a * rate;
-      const cv = lv * (Math.max(0, pa.cashPct ?? 0) / 100);
-      const iv = lv * (Math.max(0, pa.inKindPct ?? 0) / 100);
-      area += a; value += lv; cash += cv; inKind += iv;
-      return row([pa.name, state.phases.find((ph) => ph.id === pa.phaseId)?.name ?? '-', fmt.area(a),
-        fmt.int(rate), fmt.pctRaw(pa.cashPct ?? 0, 0), fmt.pctRaw(pa.inKindPct ?? 0, 0),
-        fmt.money(lv), fmt.money(cv), fmt.money(iv)]);
-    });
-    rows.push(row(['Totals', '', fmt.area(area), fmt.int(area > 0 ? value / area : 0), '', '',
-      fmt.money(value), fmt.money(cash), fmt.money(inKind)], 'total'));
+    const rows: PdfTableRow[] = [];
+    let inherited = false;
+    const byKey = new Map(areaTables.plots.map((g) => [g.key, g] as const));
+    const anyShare = areaTables.plots.some((g) => g.entries.some((e) => e.plotAreaSqm.typed));
+    for (const pa of state.parcels) {
+      const g = byKey.get(pa.id);
+      const ph = state.phases.find((x) => x.id === pa.phaseId)?.name ?? '-';
+      const plotCells = [fmt.area(Math.max(0, pa.area ?? 0)), fmt.int(Math.max(0, pa.rate ?? 0)), fmt.pctRaw(pa.cashPct ?? 0, 1), fmt.pctRaw(100 - (pa.cashPct ?? 0), 1)];
+      const entries = g?.entries ?? [];
+      if (!entries.length) { rows.push(row([pa.name, ph, '', '', ...plotCells, '', '', '', '', '', ...(anyShare ? [''] : [])])); continue; }
+      entries.forEach((e, i) => {
+        if ([e.utilisationPct, e.coveragePct, e.far, e.servicePct].some((x) => x.note === 'from the type')) inherited = true;
+        const area = Math.max(0, pa.area ?? 0);
+        rows.push(row([
+          i === 0 ? pa.name : '', i === 0 ? ph : '', e.typeLabel, e.strategy,
+          ...(i === 0 ? plotCells : ['', '', '', '']),
+          viewText(e.utilisationPct, (x) => fmt.pctRaw(x, 1)),
+          viewText(e.coveragePct, (x) => fmt.pctRaw(x, 1)),
+          viewText(e.far, (x) => x.toFixed(2)),
+          viewText(e.retailPct, (x) => fmt.pctRaw(x, 1)),
+          viewText(e.servicePct, (x) => fmt.pctRaw(x, 1)),
+          ...(anyShare ? [e.plotAreaSqm.typed && area > 0 ? fmt.pctRaw(100 * (e.plotAreaSqm.value ?? 0) / area, 1) : ''] : []),
+        ]));
+      });
+    }
     items.push(tTable(M1_TABS.assets, 'inputs', {
-      title: 'Table 1 - Plots, the land', kind: 'grid', align: 'data',
-      columns: ['Plot', 'Phase', 'Area (sqm)', `${cur}/sqm`, 'Cash %', 'In-Kind %', 'Land Value', 'Cash Value', 'In-Kind Value'],
+      title: 'Land and plots', kind: 'grid', align: 'data',
+      columns: ['Plot', 'Phase', 'Asset type', 'Strategy', 'Land area (sqm)', `Land rate (${cur}/sqm)`, 'Cash %', 'In-kind %', 'Utilisation %', 'Coverage %', 'FAR (x)', 'Retail %', 'Service %', ...(anyShare ? ['Share of plot %'] : [])],
       rows,
     }));
-    items.push(tItem(M1_TABS.assets, 'inputs', {
-      type: 'paragraph',
-      text: 'Land is allocated by sqm only: each asset draws from its plot on Table 2. The debt / equity split of the land cash is on the Financing tab (Land Funding).',
-    }));
-  }
-  // Table 2: what you enter, per plot.
-  {
-    const rows: PdfTableRow[] = [];
-    let inherited = false; let whole = false;
-    for (const g of areaTables.plots) {
-      rows.push(row([`${g.plotLabel}${g.phaseName ? `, ${g.phaseName}` : ''}. ${g.check}`, '', '', '', '', '', '', '', ''], 'heading'));
-      if (g.entries.length === 0) { rows.push(row(['No assets drawing from this plot yet.', '', '', '', '', '', '', '', ''])); continue; }
-      for (const e of g.entries) {
-        if ([e.utilisationPct, e.coveragePct, e.far, e.servicePct].some((x) => x.note === 'from the type')) inherited = true;
-        if (e.plotAreaSqm.note) whole = true;
-        rows.push(row([
-          e.typeLabel, e.strategy,
-          viewText(e.plotAreaSqm, (x) => fmt.area(x)),
-          viewText(e.utilisationPct, (x) => fmt.pctRaw(x, 2)),
-          viewText(e.coveragePct, (x) => fmt.pctRaw(x, 2)),
-          viewText(e.far, (x) => String(x)),
-          viewText(e.maxFloors, (x) => fmt.int(x)),
-          viewText(e.retailPct, (x) => fmt.pctRaw(x, 2)),
-          viewText(e.servicePct, (x) => fmt.pctRaw(x, 2)),
-        ]));
-      }
+    if (inherited) {
+      items.push(tItem(M1_TABS.assets, 'inputs', { type: 'paragraph', text: 'A figure marked "from the type" is inherited from the asset type; the plot states none of its own.' }));
     }
-    if (rows.length) {
-      items.push(tItem(M1_TABS.assets, 'inputs', {
-        type: 'paragraph',
-        text: 'Utilisation is the screen\'s Land Utilisation %, Coverage its Ground Coverage %, and Retail % the ground-floor retail share.',
-      }));
-      items.push(tTable(M1_TABS.assets, 'inputs', {
-        title: 'Table 2 - Assets by plot, what you enter', kind: 'grid', align: 'data',
-        columns: ['Type', 'Strategy', 'Plot Area (sqm)', 'Utilisation %', 'Coverage %', 'FAR',
-          'Max Floors', 'Retail %', 'Service %'],
-        rows,
-      }));
-      if (inherited) {
-        items.push(tItem(M1_TABS.assets, 'inputs', {
-          type: 'paragraph',
-          text: 'A figure marked "from the type" is inherited from the asset type on Asset Types & Standards; the plot states none of its own.',
-        }));
-      }
-      if (whole) {
-        items.push(tItem(M1_TABS.assets, 'inputs', {
-          type: 'paragraph',
-          text: 'A Plot Area shown as "blank, draws the whole plot" is a blank on the platform: the asset takes the whole plot.',
-        }));
-      }
-      if (areaTables.companions.length > 0) {
-        items.push(tItem(M1_TABS.assets, 'inputs', {
-          type: 'paragraph',
-          text: `Ground-floor retail strips (${areaTables.companions.map((x) => x.name).join('; ')}) are derived from the retail share above, not typed: their areas and the land they carve from their hosts are on Tables 3 and 4.`,
-        }));
-      }
+    if (areaTables.companions.length > 0) {
+      items.push(tItem(M1_TABS.assets, 'inputs', { type: 'paragraph', text: `Ground-floor retail strips (${areaTables.companions.map((x) => x.name).join('; ')}) are derived from the retail share above, not typed.` }));
     }
   }
   // Tables 3 and 4: the chain per plot, then the same rows merged by line. Each
