@@ -33,6 +33,8 @@ import {
   operationsStartIndex,
   computeProjectTimeline,
   resolveUsefulLifeYears,
+  deriveCostStage,
+  isLandValueLine,
 } from '@/src/core/calculations';
 import { collectionsForAssetAtOffset, phaseLocalToProjectIndex, type CollectionsSource } from '@/src/core/calculations/capexPhasing';
 import {
@@ -271,7 +273,16 @@ export function computeAllFixedAssetResults(state: ResolverState): ProjectFixedA
 
     // Project onto the project axis.
     const additionsAll = projectOntoAxis(breakdown.perPeriod, offset, N);
-    const additionsLand = projectOntoAxis(breakdown.perPeriodLandTotal, offset, N);
+    // RETT AND EVERY LAND-STAGE COST IS CAPITALISED WITH THE LAND (2026-11-19, founder C8, the training model): never
+    // depreciated. The engine's land total stays the land VALUE (funding reads it); only this roll-forward adds the rest.
+    const landStageLocal = new Array<number>((breakdown.perPeriod ?? []).length).fill(0);
+    for (const [lineId, dist] of Object.entries(breakdown.perLinePerPeriod ?? {})) {
+      const cl = state.costLines.find((c) => c.id === lineId);
+      if (!cl || isLandValueLine(cl) || deriveCostStage(cl) !== 'land') continue;
+      for (let i = 0; i < dist.length && i < landStageLocal.length; i++) landStageLocal[i] += dist[i] ?? 0;
+    }
+    const landStage = projectOntoAxis(landStageLocal, offset, N);
+    const additionsLand = projectOntoAxis(breakdown.perPeriodLandTotal, offset, N).map((v, i) => v + (landStage[i] ?? 0));
     const additionsDepreciable = additionsAll.map((v, i) => Math.max(0, v - (additionsLand[i] ?? 0)));
 
     // Existing operations: Pass 56 split.

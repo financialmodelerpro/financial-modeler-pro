@@ -2807,22 +2807,23 @@ function addCapex(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancial
     // LAND AND DEVELOPMENT COST BY LINE (2026-11-19, founder B8): one row each per line, the rows Fixed Assets &
     // Inventory links (its land and capex additions), so no reader adds a line's Capex rows again.
     {
-      setLabel(ws.getCell(r, C_LBL), 'By line: land and development cost excl. land', { bold: true }); r += 1;
+      setLabel(ws.getCell(r, C_LBL), 'By line: land and RETT, and development cost excl. land', { bold: true }); r += 1;
       subHeader(r, [[C_LBL, 'Line', 'left'], [C_UOM, 'Phase', 'left'], [C_TOT, 'Total', 'right']]);
       r += 1;
-      const landOf = (m: LineMeta): number[] => { const acc = zeros(); for (const ln of m.ref.lines) { const cl = costLineById.get(ln.id); if (cl && isLandValueLine(cl)) addInto(acc, inputLine(m.hostId, ln.id)?.perPeriod); } return acc; };
+      // Land and every land-stage cost (RETT) with it (2026-11-19, founder C8): capitalised with the land, never depreciated.
+      const landOf = (m: LineMeta): number[] => { const acc = zeros(); for (const ln of m.ref.lines) { const cl = costLineById.get(ln.id); if (cl && (isLandValueLine(cl) || deriveCostStage(cl) === 'land')) addInto(acc, inputLine(m.hostId, ln.id)?.perPeriod); } return acc; };
       const held = zeros(); let anyHeld = false;
       for (const m of lines) {
         const land = landOf(m), dev = m.incl.map((v, t) => v - (land[t] ?? 0));
         if (Math.abs(sumN(m.incl)) <= 0.5) continue;
         registerCell(`cxl:land:${m.hostId}`, ws, ws.getCell(r, C_LBL));
-        moneyRow(r, `Land: ${m.label}`, land, { b: m.phaseName, indent: 1 }); r += 1;
+        moneyRow(r, `Land and RETT: ${m.label}`, land, { b: m.phaseName, indent: 1 }); r += 1;
         registerCell(`cxl:dev:${m.hostId}`, ws, ws.getCell(r, C_LBL));
         moneyRow(r, `Development cost excl. land: ${m.label}`, dev, { b: m.phaseName, indent: 1 }); r += 1;
         const st = state.assets.find((a) => a.id === m.hostId)?.strategy;
         if (st === 'Operate' || st === 'Lease') { addInto(held, land); anyHeld = true; }
       }
-      if (anyHeld) { registerCell('cxl:land:held', ws, ws.getCell(r, C_LBL)); moneyRow(r, 'Land: held lines (fixed assets)', held, { style: 'subtotal' }); r += 1; }
+      if (anyHeld) { registerCell('cxl:land:held', ws, ws.getCell(r, C_LBL)); moneyRow(r, 'Land and RETT: held lines (fixed assets)', held, { style: 'subtotal' }); r += 1; }
       r += 1;
     }
 

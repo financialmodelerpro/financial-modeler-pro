@@ -2313,6 +2313,16 @@ export function computeAssetCost(input: ComputeAssetCostInput): AssetCostBreakdo
     if (escFactor !== undefined && escFactor !== 0) {
       dist = dist.map((v, i) => (v / escFactor) * escalationFactorAt(phaseLocalToProjectIndex(i, escOffset), escalationRatePct));
     }
+    // A % OF SELECTED LINES SPENDS AS ITS BASE SPENDS (2026-11-19, founder C9): soft costs, the developer fee and the
+    // contingency follow, year by year, the escalated spend of the lines they charge on; the total is unchanged.
+    if (r.method === 'percent_of_selected') {
+      const ids = allowedSelectedIds(visibleForBase, r.line.id, r.line.selectedLineIds);
+      const len = Math.max(dist.length, ...ids.map((id) => perLinePerPeriod[id]?.length ?? 0));
+      const shape = new Array<number>(len).fill(0);
+      for (const id of ids) (perLinePerPeriod[id] ?? []).forEach((v, i) => { shape[i] += v ?? 0; });
+      const base = shape.reduce((a, v) => a + v, 0);
+      if (base > 0) dist = shape.map((v) => (v / base) * t);
+    }
     perLinePerPeriod[r.line.id] = dist;
     // LAND VALUE, NOT THE LAND STAGE (2026-09-12). The stage holds every
     // land-related cost the user files there, RETT included, and the tab's

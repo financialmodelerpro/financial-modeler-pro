@@ -550,6 +550,9 @@ export const stage2Capex: LiveLayer = {
         if (off || spRow === undefined) { w.valueA({ sheet: CAPEX, row, col: c }, 0); continue; }
         // Rate x quantity x the year's spend share x the year's escalation factor.
         const share = spAddr && spAddr.sheet !== CAPEX ? w.refP({ sheet: spAddr.sheet, row: spAddr.row, col: c }, CAPEX) : P(spRow, c);
+        // A % of selected lines spends as its base spends (2026-11-19, founder C9): the rate x the selected rows' year.
+        const selRows = rep.base.kind === 'selected' ? rep.base.ids.map((id) => rowOf.get(`${rep.asset.id}|${id}`)).filter((x): x is number => x !== undefined) : [];
+        if (selRows.length) { w.fA({ sheet: CAPEX, row, col: c }, `${A(row, 2)}*(${sumCol(selRows, c)})`); continue; }
         w.fA({ sheet: CAPEX, row, col: c }, `${A(row, 2)}*${A(row, C_QTY)}*${share}${esc ? `*${P(escRow, c)}` : ''}`);
       }
       w.fA({ sheet: CAPEX, row, col: C_TOT }, sumAcross(row));
@@ -653,7 +656,7 @@ export const stage2Capex: LiveLayer = {
       for (const h of hosts) {
         const lk = `cxl:land:${h}`, dk = `cxl:dev:${h}`;
         if (!w.has(lk) || !w.has(dk)) continue;
-        sumKeys(lk, landKeys(h, (l) => isLandValueLine(l)));
+        sumKeys(lk, landKeys(h, (l) => isLandValueLine(l) || deriveCostStage(l) === 'land'));
         const dr = w.addr(dk).row;
         for (let t = 0; t < N; t++) w.fA({ sheet: CAPEX, row: dr, col: cP(t) }, `${KP(`cx1sub:${h}`, cP(t))}-${KP(lk, cP(t))}`);
         w.fA({ sheet: CAPEX, row: dr, col: C_TOT }, sumAcross(dr));

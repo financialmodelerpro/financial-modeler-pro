@@ -183,7 +183,8 @@ export const stage4Schedules: LiveLayer = {
         const adds = addKeys.filter(has).map((k) => { const a = w.addr(k); return w.rangeA(a.sheet, a.row, pc(0), pc(t)); });
         const sum = adds.length > 1 ? `(${adds.join('+')})` : adds[0];
         const idxT = w.rangeA('Timeline', 3, pc(0), pc(t));
-        const startT = `(${idxT}+(${first}-${idxT})*(${idxT}<${first}))`;
+        // Before the start year it starts then; after it, the year after it is incurred (2026-11-19, founder C10).
+        const startT = `(${idxT}+(${first}-${idxT})*(${idxT}<${first})+(${idxT}>${first}))`;
         return `${upto(t)}IF(${life}>0,SUMPRODUCT((${sum}>0)*${sum}*(${startT}<=${idxNow(t)})*(${startT}+MAX(1,INT(${life}))>${idxNow(t)}))/MAX(1,${life}),0)`;
       };
       void startR;

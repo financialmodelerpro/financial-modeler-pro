@@ -69,7 +69,9 @@ export function computeAssetFixedAssets(
     const add = additions[t] ?? 0;
     if (add <= 0) continue;
     totalDepreciableBase += add;
-    const start = Math.max(t, startIdx);
+    // AN ADDITION AFTER DEPRECIATION STARTS DEPRECIATES FROM THE YEAR AFTER IT IS INCURRED (2026-11-19, founder C10);
+    // one made before (or in) the start year from the start year.
+    const start = t > startIdx ? t + 1 : startIdx;
     vintages.push(buildVintage(
       add, usefulLife, start, N, method, effectiveRate ?? 0,
     ));
