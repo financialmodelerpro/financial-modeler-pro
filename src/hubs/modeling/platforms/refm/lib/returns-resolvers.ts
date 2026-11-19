@@ -674,6 +674,35 @@ export function computeReturnsSnapshot(snap: ProjectFinancialsSnapshot, project:
     heldAssetCost += Math.max(0, (acf?.capexPerPeriod ?? []).reduce((s, v) => s + (v ?? 0), 0));
   }
   const totalRevenue = pl.totalRevenuePerPeriod.slice(0, E).reduce((s, v) => s + v, 0);
+  // ── ONE GDV, ONE DEVELOPMENT COST (2026-11-19, founder, the training model's definitions) ──────────
+  // GDV: the residential sales value plus the held assets' gross exit value. Development cost: land, hard, soft,
+  // developer fee and contingency, no capitalised interest and no sales commission (a cost to sell).
+  let saleValueAll = 0;
+  for (const r0 of snap.revenue.bySellAsset.values()) {
+    const pre = r0?.presalesRevenuePerPeriod ?? [], post = r0?.postSalesRevenuePerPeriod ?? [];
+    for (let t = 0; t < Math.max(pre.length, post.length); t++) saleValueAll += (pre[t] ?? 0) + (post[t] ?? 0);
+  }
+  const grossExitAll = snap.disposal.booked ? snap.disposal.grossValue : 0;
+  const commissionAll = (fin.capex.commissionPerPeriod ?? []).reduce((a, v) => a + (v ?? 0), 0);
+  const devCostAll = Math.max(0, fin.capex.totals.inclAllLand - commissionAll);
+  const idcAll = (snap.idc.totalIdcPerPeriod ?? []).slice(0, N).reduce((a, v) => a + (v ?? 0), 0);
+  const marketingAll = (snap.directCF.sellingExpensePaidPerPeriod ?? []).slice(0, N).reduce((a, v) => a + Math.abs(v ?? 0), 0);
+  const sellingAll = marketingAll + commissionAll;
+  const devProfitAll = saleValueAll + grossExitAll - devCostAll - idcAll - sellingAll;
+  // THE STABILISED YEAR (2026-11-19): the first year every held asset runs at the top of its occupancy ramp, no
+  // later than the exit; its held NOI over the held assets' cost including their capitalised interest.
+  const heldNoiPer = new Array<number>(N).fill(0);
+  let heldIdc = 0, stabIdx = -1;
+  for (const apl of snap.perAssetPL.values()) {
+    if (apl.strategy !== 'Operate' && apl.strategy !== 'Lease') continue;
+    for (let t = 0; t < N; t++) heldNoiPer[t] += (apl.revenuePerPeriod[t] ?? 0) - (apl.opexPerPeriod[t] ?? 0);
+    heldIdc += (snap.idc.byAsset.get(apl.assetId)?.idcPerPeriod ?? []).slice(0, N).reduce((a: number, v: number) => a + (v ?? 0), 0);
+    const occ = (snap.revenue.byHospitalityAsset?.get(apl.assetId)?.occupancyPerPeriod ?? snap.revenue.byLeaseAsset?.get(apl.assetId)?.occupancyPerPeriod ?? []).slice(0, Math.min(N, exit + 1));
+    const top = Math.max(0, ...occ.map((v) => v ?? 0));
+    const at = top > 0 ? occ.findIndex((v) => (v ?? 0) >= top - 1e-9) : -1;
+    if (at > stabIdx) stabIdx = at;
+  }
+  if (stabIdx < 0 || stabIdx > exit) stabIdx = exit;
   const totalPAT = pl.patPerPeriod.slice(0, E).reduce((s, v) => s + v, 0);
   const totalEquityInvested = Math.max(0, fin.equity.grandTotal);
   const totalDividends = dividendsPaid.slice(0, E).reduce((s, v) => s + v, 0);
@@ -704,6 +733,12 @@ export function computeReturnsSnapshot(snap: ProjectFinancialsSnapshot, project:
     costOfEquity: cfg.costOfEquity,
     metrics: {
       stabilisedNOI,
+      stabilisedYearNOI: heldNoiPer[stabIdx] ?? 0,
+      stabilisedYear: snap.yearLabels[stabIdx] ?? snap.projectStartYear + stabIdx,
+      heldAssetCostInclIdc: heldAssetCost + heldIdc,
+      capRateInput: cfg.terminalMethod === 'cap_rate' ? cfg.capRate : null,
+      developmentProfit: devProfitAll,
+      totalCapitalisedCost: devCostAll + idcAll,
       totalDevelopmentCost,
       heldAssetCost,
       totalRevenue,
@@ -735,12 +770,10 @@ export function computeReturnsSnapshot(snap: ProjectFinancialsSnapshot, project:
 
   // ── M5 Pass 1 analytics (2026-06-02) ──────────────────────────────────
   const sum = (arr: number[], len = N): number => arr.slice(0, len).reduce((s, v) => s + (v ?? 0), 0);
-  const gdv = totalRevenue; // total project revenue over the hold = GDV
-  const totalFinancingCost = sum(fin.combined.totalInterestAccrued);
-  // The operating expenses over the same years the GDV counts revenue (2026-10-08): the surplus deducts what
-  // earning that revenue cost, selling and marketing (expensed as incurred) included.
-  const operatingExpenses = pl.totalOpexPerPeriod.slice(0, E).reduce((s, v) => s + (v ?? 0), 0);
-  const devEconomics = developmentEconomics(gdv, totalDevelopmentCost, totalFinancingCost, operatingExpenses);
+  // THE TRAINING MODEL'S DEVELOPMENT ECONOMICS (2026-11-19, founder): GDV = sales value + gross exit value; less
+  // development cost, the capitalised interest and the selling costs (marketing and commission) = development profit.
+  void sum;
+  const devEconomics = developmentEconomics(saleValueAll + grossExitAll, devCostAll, idcAll, sellingAll, { saleValue: saleValueAll, grossExitValue: grossExitAll, totalRevenueOverHold: totalRevenue });
 
   const exitAnalysisBlock = exitAnalysis({
     exitYearLabel,

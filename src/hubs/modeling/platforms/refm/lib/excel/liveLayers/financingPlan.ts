@@ -29,7 +29,9 @@ import { expensedRowsOf } from '../expensedRows';
 import { effectiveTrancheRatePct } from '@/src/core/calculations/financing';
 
 type Snap = ReturnType<typeof computeFinancialsSnapshot>;
-export type FinFmt = 'money' | 'pct' | 'year' | 'int';
+export type FinFmt = 'money' | 'pct' | 'year' | 'int' | 'idc';
+/** The IDC method's 1 / 0 printed as its words. */
+export const IDC_METHOD_FMT = '"Mid-year on draws, excluding same-year IDC";;"Mid-year on draws, including same-year IDC"';
 export interface FinRow {
   key: string;
   label: string;
@@ -41,6 +43,8 @@ export interface FinRow {
   fmt?: FinFmt;
   /** A balance: its Total is the last year, never a sum. */
   balance?: boolean;
+  /** A balance shown with its peak in the Total column, "peak" in the Input column (2026-11-19, founder). */
+  peak?: boolean;
   /** A value the row reads from another tab, shown in its Input column (a line's land, 2026-11-15). */
   metaB?: number;
   style?: 'total' | 'subtotal';
@@ -79,7 +83,7 @@ export interface FinPlanContext {
   anySweep: boolean;
   booked: boolean;
   /** Lines that share capitalised interest, in Financing's order: their title and asset ids. */
-  idcLines: Array<{ title: string; assetIds: string[] }>;
+  idcLines: Array<{ title: string; assetIds: string[]; key: string }>;
 }
 
 export function financingPlan(state: FinancialsResolverState, snap: Snap = computeFinancialsSnapshot(state)): { rows: FinRow[]; ctx: FinPlanContext } {
@@ -133,7 +137,8 @@ export function financingPlan(state: FinancialsResolverState, snap: Snap = compu
   const dF = Math.max(0, fin.funding.debtPct ?? 0) / 100;
   scalar('fl:dF', 'Debt share of the funding', dF, 'pct', 'Debt % over debt % plus equity % on Inputs; 0 where neither is typed');
   scalar('fl:eF', 'Equity share of the funding', 1 - dF, 'pct', 'One less the debt share');
-  scalar('fl:idcExcl', 'IDC method: excludes same-year IDC (1 = yes)', p.idcConfig?.interestMethod === 'mid_year_excl' ? 1 : 0, 'int', 'The IDC method on Inputs: 1 where it reads "excluding same-year IDC"');
+  // SHOWN AS ITS WORDS (2026-11-19, founder): the cell holds 1 or 0 for the formulas and its format prints the method.
+  scalar('fl:idcExcl', 'IDC method', p.idcConfig?.interestMethod === 'mid_year_excl' ? 1 : 0, 'idc', 'The IDC method on Project Inputs');
   if (method !== 3) {
     const pf = p.financing?.parcelFunding ?? [];
     const typed = (c: { debtPct?: number; equityPct?: number }): boolean => typeof c.debtPct === 'number' || typeof c.equityPct === 'number';
@@ -198,7 +203,7 @@ export function financingPlan(state: FinancialsResolverState, snap: Snap = compu
   let idcSqmTot = 0;
   const idcAssets = [...snap.idc.byAsset.values()];
   const lineState = { assets: state.assets, phases: state.phases, parcels: state.parcels };
-  const idcLines = planReportLines(lineState, (a) => snap.idc.byAsset.has(a.id)).map((l) => ({ title: lineTitle(l, lineState).replace(/\s*\((?:Land|Plot)[^)]*\)\s*$/, ''), assetIds: [...l.assetIds] }));
+  const idcLines = planReportLines(lineState, (a) => snap.idc.byAsset.has(a.id)).map((l) => ({ title: lineTitle(l, lineState).replace(/\s*\((?:Land|Plot)[^)]*\)\s*$/, ''), assetIds: [...l.assetIds], key: l.key }));
   if (idcAssets.length) {
     // ONE LAND ROW PER LINE (2026-11-07): the total, the land under construction and each line's
     // share of the interest read these, so no formula repeats every plot's land.
@@ -311,9 +316,11 @@ export function financingPlan(state: FinancialsResolverState, snap: Snap = compu
     per(`fl:tr:${t.id}:draw`, isEx ? 'Drawn in its origination year' : 'Capex drawdown', sl(f.drawSchedule), isEx ? 'The opening balance on Inputs, in the origination year on Inputs' : 'Debt drawn for the funding x the facility\'s share');
     per(`fl:tr:${t.id}:idc`, 'IDC added', sl(f.interestCapitalized), isEx ? 'None: an existing loan pays its interest in cash' : 'The interest charged in a year construction runs, capitalised in full');
     per(`fl:tr:${t.id}:repaid`, kind === 'sweep' ? 'Swept from cash above the minimum' : 'Scheduled principal repaid', neg(sl(f.principalRepaid)), kind === 'sweep' ? 'From the sweep start, the cash above the minimum after debt service x the sweep %' : 'The repayment terms on Inputs');
-    per(`fl:tr:${t.id}:close`, 'Closing', closing, 'Opening plus the draws less the principal repaid', { balance: true, style: 'subtotal' });
-    const afterX = closing.map((x, u) => (snap.disposal.booked && u >= snap.disposal.exitIdx ? 0 : x));
-    per(`fl:tr:${t.id}:bs`, `${t.name}: outstanding after the exit repayment`, afterX, 'Its closing balance, nothing from the exit year (the Balance Sheet)', { balance: true });
+    // THE EXIT REPAYMENT IN THE FACILITY (2026-11-19, founder: one closing balance, the one the Balance Sheet links).
+    const X0 = snap.disposal.booked ? snap.disposal.exitIdx : -1;
+    if (X0 >= 0) per(`fl:tr:${t.id}:exitRepaid`, 'Repaid at the exit', closing.map((x, u) => (u === X0 ? -x : 0)), 'Timeline\'s exit year: the balance still outstanding, from the exit proceeds');
+    const afterX = closing.map((x, u) => (X0 >= 0 && u >= X0 ? 0 : x));
+    per(`fl:tr:${t.id}:close`, 'Closing', afterX, 'Opening plus the draws less the principal repaid, and nothing from the exit (the Balance Sheet)', { balance: true, style: 'subtotal' });
     per(`fl:tr:${t.id}:left`, `Check: ${t.name} after the exit, should be 0`, zeros(), 'Its closing balance in and after the exit year', { balance: true });
     chargeRows.push({ key: `fl:tr:${t.id}:charge`, label: tranches.length > 1 ? `Interest charged: ${t.name}` : 'Interest charged', values: sl(f.interestAccrued), basis: isEx ? 'Opening plus the drawdown, at the rate on Inputs (interbank plus spread)' : 'Construction: rate x (opening + drawdown / 2), divided by (1 - rate / 2) unless the IDC method excludes same-year IDC. Otherwise rate x opening' });
   }
@@ -409,7 +416,7 @@ export function financingPlan(state: FinancialsResolverState, snap: Snap = compu
       let wS = 0, rS = 0;
       for (const t of tranches) { if (t.origin === 'existing') continue; const sh = fin.shares.get(t.id) ?? 0; wS += sh; rS += sh * effectiveTrancheRatePct(t) / 100; }
       const rW = wS > 0 ? rS / wS : 0;
-      per('fl:feeEtd', 'Equity to date (cash equity for capex plus land in kind)', sl(ff.equityToDatePerPeriod), 'Cumulative capex equity of the fee-free funding plus land in kind, up to the exit; its peak in Total', { balance: true });
+      per('fl:feeEtd', 'Equity to date (cash equity for capex plus land in kind)', sl(ff.equityToDatePerPeriod), 'Cumulative capex equity of the fee-free funding plus land in kind, up to the exit; its peak in Total', { peak: true });
       sub('fl:t:fee:2', 'Fee-free facility, for the arranging fee only', CCY);
       scalar('fl:xRate', 'Interest rate, share-weighted across the loans', rW, 'pct', 'Each new loan\'s rate on Inputs, weighted by its share of the debt');
       const dFv = Math.max(0, fin.funding.debtPct ?? 0) / 100;
@@ -423,7 +430,7 @@ export function financingPlan(state: FinancialsResolverState, snap: Snap = compu
       per('fl:xBal', 'Fee-free debt balance (construction)', xBal, 'Last year\'s balance plus the fee-free debt drawn and its capitalised interest', { balance: true });
     }
     scalar('fl:feeFac', 'Total facility (capex debt + IDC)', ff.totalFacility, 'money', method === 3 ? 'The fee-free debt drawn plus its capitalised interest' : 'Every new loan\'s capex drawdown plus its interest drawn as debt');
-    if (!rows.some((x) => x.key === 'fl:feeEtd')) per('fl:feeEtd', 'Equity to date (cash equity for capex plus land in kind)', sl(ff.equityToDatePerPeriod), 'Cumulative capex equity of the fee-free funding plus land in kind, up to the exit; its peak in Total', { balance: true });
+    if (!rows.some((x) => x.key === 'fl:feeEtd')) per('fl:feeEtd', 'Equity to date (cash equity for capex plus land in kind)', sl(ff.equityToDatePerPeriod), 'Cumulative capex equity of the fee-free funding plus land in kind, up to the exit; its peak in Total', { peak: true });
     if (method === 3) note('fl:xNote', 'Shadow walk without fees or the sweep, so the arranging fee does not depend on itself (keeps the model non-circular).');
     sub('fl:t:fee:3', 'Fees', CCY);
     FUND_FEE_SPECS.forEach((spec, i) => {

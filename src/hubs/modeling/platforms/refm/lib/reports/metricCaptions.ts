@@ -26,10 +26,15 @@ import { terminalMetricIndex, type TerminalValueBasis } from '@/src/core/calcula
  *  item 9). It is GDV less development cost (less finance cost, after): no operating cost, no fund fee,
  *  no tax. Called "Profit after Financing", it read 653.6m with the fund and 654.1m without, beside a PAT
  *  that moves 50m, so the fund looked nearly free. One label for every surface that prints it. */
+// THE TRAINING MODEL'S BLOCK (2026-11-19, founder): GDV less development cost, the capitalised interest and the
+// selling costs is the DEVELOPMENT PROFIT; "surplus" and "operating expenses over the hold" are retired.
 export const METRIC_LABELS = {
-  developmentSurplusBefore: 'Development Surplus before Finance',
-  developmentSurplusAfter: 'Development Surplus after Finance',
-  operatingExpenses: 'Operating Expenses',
+  developmentSurplusBefore: 'Profit before IDC',
+  developmentSurplusAfter: 'Development Profit',
+  operatingExpenses: 'Marketing and Sales Commission',
+  financeCostCapitalised: 'Finance Cost Capitalised (IDC)',
+  profitOnCost: 'Profit on Cost',
+  totalRevenueOverHold: 'Total revenue over the hold',
   /** Each one's SHARE OF ALL SOURCES (2026-09-29, export review item 10), not a debt-to-equity ratio:
    *  called "Debt / Equity" it read 35.8% / 20.8% two rows above a capital stack of 63.3 / 25.6 / 11.1. */
   shareOfSources: 'Debt / equity, share of all sources',
@@ -38,11 +43,13 @@ export const METRIC_LABELS = {
 export const METRIC_CAPTIONS = {
   /** GDV less development cost and the operating expenses over the same years (2026-10-08: the GDV counts
    *  operating revenue, so the surplus deducts what earning it cost, selling and marketing included). */
-  developmentSurplusBefore: 'GDV less development cost and operating expenses',
+  developmentSurplusBefore: 'GDV less development cost and selling costs',
   // No fund words here: the caption prints on every project, and the fund fees tile states their exclusion.
-  developmentSurplusAfter: 'less finance cost; before tax',
-  operatingExpenses: 'to the exit, selling and marketing included',
-  developmentMargin: 'surplus after finance / GDV',
+  developmentSurplusAfter: 'GDV less cost, IDC and selling costs',
+  operatingExpenses: 'the selling costs',
+  developmentMargin: 'development profit / GDV',
+  profitOnCost: 'development profit / cost incl. IDC',
+  gdv: 'sales value + gross exit value',
   shareOfSources: 'not a D/E ratio; sales and operations fund the rest',
   /** MOIC on the levered free-cash-flow stream. */
   equityMultipleFcfe: 'equity out / equity in, at the selected exit',
@@ -55,7 +62,7 @@ export const METRIC_CAPTIONS = {
   dscrMin: 'worst operating year with debt service',
   /** Both sides cover the HELD assets only (2026-09-22): dividing held NOI by
    *  the whole project's cost charged it with the for-sale units. */
-  yieldOnCost: 'stabilised NOI / held-asset cost',
+  yieldOnCost: 'stabilised-year NOI / held cost incl. IDC',
   developmentSpread: 'yield on cost less exit cap rate',
 } as const;
 
@@ -80,7 +87,9 @@ export function returnsNpvNote(hasCaseComparison: boolean): string {
  * under the default basis is the year BEFORE the exit, so it reads back the input. The caption names
  * that year through the same `terminalMetricIndex` the valuation uses, so it follows the basis.
  */
-export function capRateAtExitCaption(rs: { config: { terminalValueBasis?: TerminalValueBasis }; exitYearLabel: number | string; yearLabels: ReadonlyArray<number | string> }): string {
+export function capRateAtExitCaption(rs: { config: { terminalValueBasis?: TerminalValueBasis; terminalMethod?: string }; exitYearLabel: number | string; yearLabels: ReadonlyArray<number | string> }): string {
+  // THE CAP RATE IS THE INPUT (2026-11-19, founder) where the method is a cap rate.
+  if (rs.config.terminalMethod === 'cap_rate') return 'the exit cap rate typed';
   const exitIdx = rs.yearLabels.findIndex((y) => String(y) === String(rs.exitYearLabel));
   if (exitIdx < 0) return 'capitalised NOI / exit value';
   const year = rs.yearLabels[terminalMetricIndex(exitIdx, rs.config.terminalValueBasis)];

@@ -450,11 +450,13 @@ export function planPhasingTable(
   const offOf = (p: Phase): number => Math.max(0, new Date(p.startDate as string).getUTCFullYear() - projectStartYear);
   const cpOf = (p: Phase): number => Math.max(1, p.constructionPeriods ?? 0);
   const phaseById = new Map(phases.map((p) => [p.id, p] as const));
-  const implied = (values: Map<number, number>, off: number): number[] => {
-    let tot = 0; for (const v of values.values()) tot += Math.max(0, v);
+  // A STANDARD ROW IS READ ONLY OVER ITS PHASE'S CONSTRUCTION YEARS (2026-11-19): the engine slices a curve to the
+  // line's window, 1 to the construction years, so a phase built in fewer years reads fewer of the row's years.
+  const implied = (values: Map<number, number>, off: number, cap?: number): number[] => {
+    let tot = 0; for (const [k, v] of values) if (cap === undefined || k <= cap) tot += Math.max(0, v);
     const out = new Array<number>(N).fill(0);
     if (!(tot > 0)) return out;
-    for (let t = 0; t < N; t++) out[t] = Math.max(0, values.get(t - off + 1) ?? 0) / tot;
+    for (let t = 0; t < N; t++) { const k = t - off + 1; out[t] = cap !== undefined && k > cap ? 0 : Math.max(0, values.get(k) ?? 0) / tot; }
     return out;
   };
   const same = (a: number[], b: number[]): boolean => a.every((v, t) => Math.abs(v - (b[t] ?? 0)) < 1e-9);
@@ -490,11 +492,11 @@ export function planPhasingTable(
     const off = offOf(ph);
     const shares = sp.shares.slice(0, N);
     // 1. A row already made reproduces it: a curve row in any phase, any other row in its own phase.
-    let at = rows.findIndex((r) => (r.kind === 'curve' || r.phaseIds.includes(ph.id)) && same(implied(r.values, off), shares));
+    let at = rows.findIndex((r) => (r.kind === 'curve' || r.phaseIds.includes(ph.id)) && same(implied(r.values, off, r.standard ? cpOf(ph) : undefined), shares));
     // 2. A curve not yet on the table reproduces it (its own plot's first).
     if (at < 0) {
       const own = sp.kind === 'curve' ? curveCand.find((c) => c.ids.includes(sp.assetId ?? '')) : undefined;
-      const cand = [own, ...curveCand].filter((c): c is typeof curveCand[number] => !!c && !curveRowOf.has(c.first)).find((c) => same(implied(c.values, off), shares));
+      const cand = [own, ...curveCand].filter((c): c is typeof curveCand[number] => !!c && !curveRowOf.has(c.first)).find((c) => same(implied(c.values, off, cpOf(ph)), shares));
       if (cand) {
         const who = cand.ids.map((id) => state.assets.find((x) => x.id === id)).filter((x): x is Asset => !!x);
         rows.push({ keys: cand.ids.map((id) => `inpcurve:${id}`), label: '', short: '', phaseIds: [...cand.phaseIds], kind: 'curve', standard: true, values: cand.values, spreads: [], who });
@@ -536,7 +538,7 @@ export function planPhasingTable(
       const named = curvesIn.some((n) => n > 1) && r.who ? `, ${[...new Set(r.who.map((a) => String(a.type ?? '').trim() || assetLabel(a, names)))].join(', ')}` : '';
       r.standard = true;
       r.label = `${multi ? `${phs} curve` : 'Phase curve'}${named} (all other ${multi ? `${phs} ` : ''}lines)`;
-      r.short = `curve${named}`;
+      r.short = `construction curve${named}`;
       continue;
     }
     if (r.kind === 'land') {
@@ -550,7 +552,7 @@ export function planPhasingTable(
     }
     const nm = [...new Set(lines.map((l) => l.name))];
     r.label = `${nm.join(', ') || 'Cost line'}${multi ? `, ${phs}` : ''}`;
-    r.short = `${nm.join(', ').toLowerCase() || 'line'} override`;
+    r.short = `${nm.join(', ').toLowerCase() || 'line'}, own timing`;
   }
   // Order: the curves, then land, then the other lines, each by phase.
   const rank = (r: Row): number => (r.standard ? 0 : r.kind === 'land' ? 1 : 2);

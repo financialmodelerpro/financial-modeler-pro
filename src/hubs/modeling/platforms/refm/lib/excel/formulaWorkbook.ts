@@ -33,11 +33,11 @@ import type ExcelJS from 'exceljs';
 import { buildModelWorkbook, finalizeCalcSettings, houseContextOf, type BuildModelOptions } from './buildModelWorkbook';
 import { applyHouseStyle, timelinePhaseFormula } from './houseStyle';
 import { CellRegistry, setCellSink } from './cellRegistry';
-import { applyReferenceLayout, composeMoves } from './referenceLayout';
+import { applyReferenceLayout, composeMoves, echoesToInputColumn } from './referenceLayout';
 import { buildFrontTabs } from './referenceFront';
 import { addRiskTriggers, addDashboardCharts, type ChartSpec } from './dashboard';
 import { applyTabFrame, tilesInMillions, blankNonFlowTotals, type FrameMoves } from './tabFrame';
-import { dropInputGuards, simplifySumproducts, finalPasses } from './readability';
+import { dropInputGuards, simplifySumproducts, finalPasses, plainSalesWords } from './readability';
 import { inlineCells } from './relayout';
 import { settlePending } from './liveLayers/writer';
 import { stage1LandArea } from './liveLayers/stage1LandArea';
@@ -236,12 +236,17 @@ export function buildFormulaWorkbook(opts: BuildModelOptions): FormulaWorkbookRe
     dropInputGuards(wb);
     simplifySumproducts(wb);
     finalPasses(wb, house.scale);
+    plainSalesWords(wb);
     // THE REFERENCE LAYOUT (2026-11-17, founder): columns A and B narrow, numbered bars, End of sheet; the registry
     // and the frame's moves follow it.
     addRiskTriggers(wb);
     const refMoves = applyReferenceLayout(wb);
     registry.remap(refMoves.move);
     frame = frame ? composeMoves(frame, refMoves) : refMoves;
+    // Echoed settings in the Input column (2026-11-19, founder B7); the registry follows.
+    const echoMoves = echoesToInputColumn(wb);
+    registry.remap(echoMoves.move);
+    frame = composeMoves(frame, echoMoves);
     // THE FRONT TABS (2026-11-17, founder): the Guide, the Dashboard in place of the Summary, the Cover's navigation.
     const front = buildFrontTabs(wb, { valuesOutput: !!opts.valuesOutput, scale: house.scale });
     charts = front.charts;

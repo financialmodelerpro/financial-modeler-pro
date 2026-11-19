@@ -107,7 +107,7 @@ export function bsPlan(state: FinancialsResolverState, snap: Snap = computeFinan
     const f = snap.financing.facilities.get(t.id);
     const v = sl(f?.outstanding).map((x, i) => (i >= exitFrom ? 0 : x));
     const k = BS(`debt:${t.id}`);
-    row(k, t.name, v, { kind: 'link', key: `fl:tr:${t.id}:bs` }, { indent: 1 });
+    row(k, t.name, v, { kind: 'link', key: `fl:tr:${t.id}:close` }, { indent: 1 }); // Closing, repaid at the exit (2026-11-19)
     debtKeys.push(k);
   }
   const debtOne = debtKeys.length === 1;

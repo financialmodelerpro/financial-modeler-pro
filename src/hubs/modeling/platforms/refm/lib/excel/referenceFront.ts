@@ -256,8 +256,8 @@ function buildGuide(ws: ExcelJS.Worksheet, wb: ExcelJS.Workbook, ctx: FrontConte
   line('NPV', 'End of year, valued at the project start: each model year is discounted by its full years, the first year once (as Excel NPV() from the first model year). The project NPV uses the discount rate; the equity NPVs use the cost of equity on Inputs.', { height: 27 });
   line('Distributions', 'What investors actually receive: dividends plus the exit value, before and after the performance fee.');
   line('Performance fee', "The manager's share of distributions above the hurdle return, worked out in the hurdle waterfall on Returns.");
-  line('Development margin', 'Surplus after finance divided by GDV. Profit on cost divides the same surplus by total development cost.');
-  line('Yield on cost', "Held assets' NOI divided by their cost. Below the exit cap rate, the assets are worth less than they cost.");
+  line('GDV and development profit', 'GDV is the residential sales value plus the gross exit value of the held assets. Development profit is GDV less the development cost, the capitalised interest (IDC) and the selling costs; the margin divides it by GDV, profit on cost by the cost plus IDC.', { height: 27 });
+  line('Yield on cost', "Held assets' NOI in the stabilised year (every held asset at its top occupancy) divided by their cost including IDC. Below the exit cap rate typed, the assets are worth less than they cost.", { height: 27 });
   line('DSCR, ICR, LTV, debt yield', "The lender's tests, each against its covenant on Inputs; the Dashboard shows the worst year.");
   line('IDC, RETT, NSA, GFA', 'Capitalised interest during construction; real estate transfer tax; net saleable or leasable area; gross floor area.');
   r++;

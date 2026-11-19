@@ -338,7 +338,7 @@ export function buildOverviewReport(
  * page now says what the surplus excludes and prints the fees beside it.
  */
 export const FUND_FEES_TILE_LABEL = 'Fund fees (life)';
-export const FUND_FEES_TILE_SUB = 'charged in the P&L; not in the surplus';
+export const FUND_FEES_TILE_SUB = 'charged in the P&L; not in the development profit';
 export function fundFeesLife(snap: Pick<ProjectFinancialsSnapshot, 'fundFees'>): number {
   const f = snap.fundFees;
   return f?.active ? (f.totalPerPeriod ?? []).reduce((s, v) => s + (v ?? 0), 0) : 0;
@@ -355,5 +355,5 @@ export function surplusCaption(operatingExpenses: number, fees: number, money: (
   // The deduction, short enough for a summary tile at every display scale. Where a fund charges fees, the
   // FUND_FEES_TILE beside it states that they are not in the surplus, so the caption does not repeat it.
   void fees;
-  return operatingExpenses > 0 ? `after opex of ${money(operatingExpenses)}` : undefined;
+  return operatingExpenses > 0 ? `after selling costs of ${money(operatingExpenses)}` : undefined;
 }

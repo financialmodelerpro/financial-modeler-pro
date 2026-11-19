@@ -33,9 +33,9 @@ import { buildModelWorkbook, houseContextOf, finalizeCalcSettings, applyPartVisi
 import { CellRegistry, setCellSink } from './cellRegistry';
 import { deleteRowAt } from './liveFrontMatter';
 import { applyHouseStyle } from './houseStyle';
-import { applyReferenceLayout } from './referenceLayout';
+import { applyReferenceLayout, echoesToInputColumn } from './referenceLayout';
 import { applyTabFrame, tilesInMillions, blankNonFlowTotals } from './tabFrame';
-import { finalPasses } from './readability';
+import { finalPasses, plainSalesWords } from './readability';
 import { TAB_ORDER, buildFormulaWorkbook } from './formulaWorkbook';
 import { emptyProjectRefusal, liveWorkbookRefusal } from './liveWorkbookAvailability';
 import { addDashboardCharts, addRiskTriggers, type ChartSpec } from './dashboard';
@@ -205,8 +205,10 @@ export function buildValuesModeWorkbook(opts: BuildModelOptions): ValuesWorkbook
     tilesInMillions(wb);
     blankNonFlowTotals(wb);
     finalPasses(wb, house.scale);
+    plainSalesWords(wb);
     addRiskTriggers(wb);
     applyReferenceLayout(wb);
+    echoesToInputColumn(wb);
   }
   orderTabs(wb);
   let charts: ChartSpec[] = [];

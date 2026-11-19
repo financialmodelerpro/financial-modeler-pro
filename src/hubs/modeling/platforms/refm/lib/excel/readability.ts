@@ -310,3 +310,23 @@ export function simplifySumproducts(wb: ExcelJS.Workbook): number {
   }));
   return changed;
 }
+
+/**
+ * THE SALES WORDS OF OPERATING INPUTS, ON EVERY TAB (2026-11-19, founder B6): "Down %" is the share collected in the
+ * sale year, "velocity" the share of NSA sold, and sales during operation are sales after handover. Display only: the
+ * registry keys keep their words, so every formula and check that reads a row by key is untouched.
+ */
+export function plainSalesWords(wb: ExcelJS.Workbook): void {
+  const swap = (s: string): string => s
+    .replace(/^Down %$/, 'Collected in the sale year (%)')
+    .replace(/^Velocity$/, 'Share of NSA sold (%)')
+    .replace(/^Velocity in model years/, 'Share of NSA sold in model years')
+    .replace(/: velocity$/, ': share of NSA sold (%)')
+    .replace(/Sales during operation/g, 'Sales after handover')
+    .replace(/sales during operation/g, 'sales after handover');
+  for (const ws of wb.worksheets) ws.eachRow((row) => row.eachCell((c) => {
+    if (typeof c.value !== 'string') return;
+    const t = swap(c.value);
+    if (t !== c.value) c.value = t;
+  }));
+}

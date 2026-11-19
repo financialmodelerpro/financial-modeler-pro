@@ -47,8 +47,8 @@ import type { LiveExportInputs } from './fixtures/liveExportInputs';
 import { applyHouseStyle } from '../src/hubs/modeling/platforms/refm/lib/excel/houseStyle';
 import { applyTabFrame } from '../src/hubs/modeling/platforms/refm/lib/excel/tabFrame';
 import { featureUsed } from '../src/hubs/modeling/platforms/refm/lib/excel/exportScope';
-import { finalPasses } from '../src/hubs/modeling/platforms/refm/lib/excel/readability';
-import { applyReferenceLayout } from '../src/hubs/modeling/platforms/refm/lib/excel/referenceLayout';
+import { finalPasses, plainSalesWords } from '../src/hubs/modeling/platforms/refm/lib/excel/readability';
+import { applyReferenceLayout, echoesToInputColumn } from '../src/hubs/modeling/platforms/refm/lib/excel/referenceLayout';
 import { buildFrontTabs } from '../src/hubs/modeling/platforms/refm/lib/excel/referenceFront';
 import { addRiskTriggers } from '../src/hubs/modeling/platforms/refm/lib/excel/dashboard';
 import { freezeFormulas } from '../src/hubs/modeling/platforms/refm/lib/excel/valuesWorkbook';
@@ -68,11 +68,11 @@ function framedPlain(o: Parameters<typeof buildModelWorkbook>[0], live?: ExcelJS
   const house = houseContextOf(w);
   if (house) { applyHouseStyle(w, house); if (house.frame) applyTabFrame(w, house.frame); }
   // The last passes the live file ends with (2026-11-17): labels, formats and the Inputs bars, so labels pair.
-  if (house) finalPasses(w, house.scale);
+  if (house) { finalPasses(w, house.scale); plainSalesWords(w); }
   // THE REFERENCE LAYOUT AND THE FRONT TABS (2026-11-17, founder): the twin ends as the live file does, so a cell
   // and its platform figure still sit at one address (Inputs' risk triggers and switch, columns A and B, the bars,
   // the Dashboard in place of the Summary).
-  if (house) { addRiskTriggers(w); applyReferenceLayout(w, { mirror: live }); buildFrontTabs(w, { valuesOutput: false, scale: house.scale, splitReadFrom: live }); }
+  if (house) { addRiskTriggers(w); applyReferenceLayout(w, { mirror: live }); echoesToInputColumn(w); buildFrontTabs(w, { valuesOutput: false, scale: house.scale, splitReadFrom: live }); }
   // The twin stands for the hardcoded figures: its front tabs hold their values (the live file's are formulas over them).
   freezeFormulas(w); // ExcelJS reports a cached 0 as no result (TRAPS 3.45)
   if (live) mirrorBlankTotals(w, live);
@@ -1098,7 +1098,7 @@ function formulaCells(wb: ExcelJS.Workbook): Map<string, { formula: string; resu
     // ONE PROJECT DIVIDEND (2026-11-18, founder decision 3): the per-phase EBITDA cap is gone, so no phase EBITDA
     // link is left and the one Financing row that reads the P&L is the zakat.
     check('A12h no phase dividend cap reads the P&L any more, and the one Financing row reading it is the zakat',
-      capReads.length > 0 && [...capLabels].every((l) => l === 'Zakat, from the P&L'), [...capLabels].join('; '));
+      capReads.length > 0 && [...capLabels].every((l) => /^(Zakat|Tax)( charge)?, from the P&L$/.test(l)), [...capLabels].join('; ')); // 5.1 "Zakat charge, from the P&L" since 2026-11-19
     const copy2 = buildModelWorkbook({ ...opts, liveLayout: true });
     copy2.getWorksheet('Financing')!.getCell(2, 9).value = { formula: "'P&L'!F20+1", result: 0 } as unknown as ExcelJS.CellValue;
     const p2 = exportShapeProblems(copy2);

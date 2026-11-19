@@ -28,11 +28,22 @@ export function developmentEconomics(
    * Fund fees are not here; the summary states them beside the surplus. Defaults to 0 for a caller with none.
    */
   operatingExpenses = 0,
+  /** The GDV's two halves and the revenue over the hold (2026-11-19); absent = the GDV is all sale value. */
+  parts: { saleValue?: number; grossExitValue?: number; totalRevenueOverHold?: number } = {},
 ): DevelopmentEconomics {
+  // THE TRAINING MODEL'S BLOCK (2026-11-19, founder): GDV less development cost less selling costs, then less the
+  // capitalised interest, is the development profit; margin on GDV, profit on the capitalised cost.
   const profitBeforeFinancing = gdv - totalDevelopmentCost - operatingExpenses;
   const profitAfterFinancing = profitBeforeFinancing - totalFinancingCost;
+  const totalCapitalisedCost = totalDevelopmentCost + totalFinancingCost;
   return {
     gdv,
+    saleValue: parts.saleValue ?? gdv,
+    grossExitValue: parts.grossExitValue ?? 0,
+    totalRevenueOverHold: parts.totalRevenueOverHold ?? gdv,
+    developmentProfit: profitAfterFinancing,
+    totalCapitalisedCost,
+    profitOnCost: totalCapitalisedCost > 0 ? profitAfterFinancing / totalCapitalisedCost : null,
     totalDevelopmentCost,
     totalFinancingCost,
     operatingExpenses,

@@ -51,7 +51,7 @@ import { buildCostOfSalesReport } from '../reports/cosReports';
 import { buildOpexReport, OPEX_AP_BASIS, OPEX_AP_TOTAL_BASIS } from '../reports/opexReports';
 import { planCapexSpread, planCapexBlends, followedRule, type SpreadRow } from './liveLayers/capexSpread';
 import { planOpexStatement, oxKey, type OpexCostRow } from './liveLayers/opexPlan';
-import { financingPlan } from './liveLayers/financingPlan';
+import { financingPlan, IDC_METHOD_FMT, orderedFacilities } from './liveLayers/financingPlan';
 import { plPlan } from './liveLayers/plPlan';
 import { cfPlan } from './liveLayers/cfPlan';
 import { bsPlan } from './liveLayers/bsPlan';
@@ -2473,7 +2473,7 @@ function addCapex(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancial
     // ── Spend shares (2026-11-19, founder): one row per profile a cost line reads, each the year's % on the phasing
     // table over the row's total; the shares driven by revenue are worked out on Revenue beside the selling costs.
     setSectionHeader(ws.getRow(r), 'Spend shares by year', cLast); r += 1;
-    subHeader(r, [[C_LBL, 'Spend share', 'left'], [C_TOT, 'Total', 'right']]);
+    subHeader(r, [[C_LBL, 'Spend share', 'left'], [C_UOM, 'Row total', 'right'], [C_TOT, 'Total', 'right']]);
     registerCell('cxwhead', ws, ws.getCell(r, C_LBL));
     r += 1;
     const phT = phasingFor(wb, state, refs.capexMembers ?? new Map(), snap).table;
@@ -2491,9 +2491,11 @@ function addCapex(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancial
       const ph = state.phases.find((p) => p.id === x.phaseId)!;
       const sps = x.row.spreads.filter((sp) => sp.phaseId === x.phaseId).map((sp) => plan.rows.get(sp.key)).filter((sp): sp is SpreadRow => !!sp);
       if (!sps.length) continue;
-      const nm = multiPhase ? `${ph.name} ${x.row.short}` : x.row.short.charAt(0).toUpperCase() + x.row.short.slice(1);
+      const nm = `Spend share: ${multiPhase ? `${ph.name} ` : ''}${x.row.short}`;
       setLabel(ws.getCell(r, C_LBL), nm, { indent: 1 });
       for (const sp of sps) registerCell(`cxw:${sp.key}`, ws, ws.getCell(r, C_LBL));
+      // The row's total over the years it reads (the denominator), in the Input column.
+      { const cpN = Math.max(1, ph.constructionPeriods ?? 0); let den = 0; for (const [k, v] of x.row.values) if (!x.row.standard || k <= cpN) den += Math.max(0, v); put(r, C_UOM, den, NUMFMT.pct2); }
       for (let t = 0; t < N; t++) put(r, cP(t), sps[0].shares[t] ?? 0, NUMFMT.pct2);
       put(r, C_TOT, sumN(sps[0].shares), NUMFMT.pct2);
       r += 1;
@@ -5127,7 +5129,7 @@ function addFinancingLive(ctx: EmitCtx): FinLinks {
   const ws = wb.addWorksheet(SHEETS.financing, { properties: { tabColor: { argb: ARGB.navy } } });
   writeSheetHeader(ws, snap, N, 'Financing', 'One loop: operating cash, the funding need, the equity and debt drawn, interest and the interest drawn as debt, the sweep, zakat, dividends and closing cash. Every input is typed on Inputs.', { label: 'Line', feeds: 'Sourced from Capex, Revenue, Opex and the input tabs. Feeds Fixed Assets & Inventory (capitalised interest), the P&L, Cash Flow, Balance Sheet and Returns.' });
   const last = lastActiveCol(N);
-  const FMT = { money: NUMFMT.money, pct: NUMFMT.pct2, year: NUMFMT.year, int: NUMFMT.int } as const;
+  const FMT = { money: NUMFMT.money, pct: NUMFMT.pct2, year: NUMFMT.year, int: NUMFMT.int, idc: IDC_METHOD_FMT } as const;
   const put = (r: number, c: number, v: number, fmt: string): void => {
     const cell = ws.getCell(r, c);
     cell.value = v; cell.numFmt = fmt; cell.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } };
@@ -5162,7 +5164,8 @@ function addFinancingLive(ctx: EmitCtx): FinLinks {
       const fmtY = row.fmt === 'pct' ? '0.0%;-0.0%;"-"' : fmt;
       for (let t = 0; t < N; t++) put(r, pcol(t), vals[t] ?? 0, fmtY);
       // A TOTAL ONLY FOR A FLOW (2026-11-17, founder): an area or a share has none, so no typed number sits there.
-      if (row.fmt !== 'int' && row.fmt !== 'pct') put(r, TOTAL_COL, row.balance ? (vals[N - 1] ?? 0) : vals.slice(0, N).reduce((s, v) => s + (v ?? 0), 0), fmt);
+      if (row.peak) { put(r, TOTAL_COL, Math.max(0, ...vals.slice(0, N)), fmt); setLabel(ws.getCell(r, META_B), 'peak'); }
+      else if (row.fmt !== 'int' && row.fmt !== 'pct') put(r, TOTAL_COL, row.balance ? (vals[N - 1] ?? 0) : vals.slice(0, N).reduce((s, v) => s + (v ?? 0), 0), fmt);
     }
     if (row.style === 'total') {
       fillRange(ws, r, 1, r, last, ARGB.navy);
@@ -5937,7 +5940,8 @@ function addSchedulesLive(ctx: EmitCtx, ws: ExcelJS.Worksheet, E: ReturnType<typ
       const lrow = E.cursor(); setLabel(ws.getCell(lrow, LBL_COL), 'Useful life (years)', { indent: 1 }); num(lrow, META_B, input.lifeEffective); E.jump(lrow + 1);
       keyed(`fa|${l.hostId}|life`, lrow);
       registerCell(`fain:${l.hostId}`, ws, ws.getCell(lrow, LBL_COL));
-      const hrow = E.cursor(); setLabel(ws.getCell(hrow, LBL_COL), 'Depreciation starts (year no.)', { indent: 1 }); num(hrow, META_B, first); E.jump(hrow + 1);
+      // A YEAR, NOT A PERIOD NUMBER (2026-11-19, founder B7): "Depreciation starts: 2031".
+      const hrow = E.cursor(); setLabel(ws.getCell(hrow, LBL_COL), 'Depreciation starts', { indent: 1 }); num(hrow, META_B, snap.projectStartYear + first - 1); ws.getCell(hrow, META_B).numFmt = NUMFMT.year; E.jump(hrow + 1);
       keyed(`fa|${l.hostId}|help`, hrow);
       registerCell(`fafirst:${l.hostId}`, ws, ws.getCell(hrow, META_B));
       // DEPRECIATING (1 = YES) (2026-11-15, founder): from the first year, for the life, until the exit.
@@ -6650,8 +6654,7 @@ function addReturns(ctx: EmitCtx, revLinks: RevLinks, opexLinks: OpexLinks, fin:
   kpiStrip('Development Economics', [
     { label: 'Total Development Cost', value: cMoney(de.totalDevelopmentCost), sub: 'incl. land' },
     { label: METRIC_LABELS.operatingExpenses, value: cMoney(de.operatingExpenses), sub: METRIC_CAPTIONS.operatingExpenses },
-    { label: 'Total Financing Cost', value: cMoney(de.totalFinancingCost), sub: 'all interest over the hold' },
-    { label: METRIC_LABELS.developmentSurplusBefore, value: cMoney(de.profitBeforeFinancing), sub: METRIC_CAPTIONS.developmentSurplusBefore, tone: de.profitBeforeFinancing >= 0 ? 'good' : 'bad' },
+    { label: METRIC_LABELS.financeCostCapitalised, value: cMoney(de.totalFinancingCost), sub: 'interest capitalised in construction' },
     { label: METRIC_LABELS.developmentSurplusAfter, value: cMoney(de.profitAfterFinancing), sub: METRIC_CAPTIONS.developmentSurplusAfter, tone: de.profitAfterFinancing >= 0 ? 'good' : 'bad' },
     { label: 'Development Margin', value: cPct(de.developmentMargin), sub: 'profit / GDV', tone: de.developmentMargin == null ? undefined : de.developmentMargin >= 0 ? 'good' : 'bad' },
   ]);
@@ -7394,7 +7397,9 @@ function addChecks(ctx: EmitCtx, capexAddrs: CapexAddrs, retLinks: RetLinks): vo
       // The shares' scale is the first line's largest share, the row Checks reads it from.
       const sh0 = financingPlan(ctx.state, snap).rows.find((x) => x.key === 'fl:idcShare:0')?.values ?? [];
       if (idcPk > 0) { ok(FIN_CHECKS.shares, pk(sh0)); ok(FIN_CHECKS.lines, idcPk); }
-      if (fin0.facilities.size && snap.disposal.booked) ok(FIN_CHECKS.debt, pk([...fin0.facilities.values()].reduce<number[]>((acc, f) => acc.map((v, t) => v + (f.outstanding[t] ?? 0)), new Array<number>(N0).fill(0))));
+      // The scale is the first facility's closing balance (the engine's order), the row Checks reads it from.
+      const f0 = orderedFacilities(ctx.state.financingTranches ?? []).map((t) => fin0.facilities.get(t.id)).find((x) => !!x);
+      if (f0 && snap.disposal.booked) ok(FIN_CHECKS.debt, pk(f0.outstanding.slice(0, N0).map((v, t) => (t >= snap.disposal.exitIdx ? 0 : v))));
     }
     // SOURCES EQUAL USES (2026-11-03): each total sums its own rows on Returns, so a flow left out shows here.
     const su = (() => { try { return computeReturnsSnapshot(snap, ctx.state.project).sourcesUses; } catch { return null; } })();
@@ -8235,7 +8240,7 @@ function addSummary(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinanci
       { label: 'Capex (construction)', value: m(su.construction), sub: 'excl. land' },
       { label: METRIC_LABELS.shareOfSources, value: `${pct(debtPct)} / ${pct(cashEquityPct + inKindPct)}`, sub: METRIC_CAPTIONS.shareOfSources },
       { label: 'Peak Equity', value: m(re.peakEquity) },
-      { label: 'Total Financing Cost', value: m(de.totalFinancingCost) },
+      { label: METRIC_LABELS.financeCostCapitalised, value: m(de.totalFinancingCost) },
       { label: 'Cap Rate at Exit', value: pct(re.capRateAtExit) },
     ], 3);
     // The capital stack the overview's donut draws: debt, cash equity and

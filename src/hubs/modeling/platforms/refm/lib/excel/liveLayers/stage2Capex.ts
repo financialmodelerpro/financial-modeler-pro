@@ -365,9 +365,14 @@ export const stage2Capex: LiveLayer = {
       const head = w.addr('inpph:head').row, tr = w.addr(trow.keys[0]).row;
       const c1 = 2, c2 = 1 + (table.kMax - table.kMin + 1);
       const hdr = w.rangeA(INPUTS, head, c1, c2), rng = w.rangeA(INPUTS, tr, c1, c2);
+      w.fA({ sheet: CAPEX, row: r, col: 2 }, trow.standard ? `SUMIF(${hdr},"<="&${w.ref(`tl:phase:${ph.id}:cp`)},${rng})` : `SUM(${rng})`);
       for (let t = 0; t < N; t++) {
         const c = cP(t);
-        w.fA({ sheet: CAPEX, row: r, col: c }, `IFERROR(SUMIF(${hdr},${P(ppr, c)},${rng})/SUM(${rng}),0)`);
+        // A standard row (a curve, or even over the construction years) is read over the phase's construction years only;
+        // the row's total over the years it reads sits in the Input column (2026-11-19, founder: no formula over 150).
+        const k = P(ppr, c), cp = trow.standard ? w.ref(`tl:phase:${ph.id}:cp`) : '';
+        const den = A(r, 2);
+        w.fA({ sheet: CAPEX, row: r, col: c }, cp ? `IF(${k}>${cp},0,IFERROR(SUMIF(${hdr},${k},${rng})/${den},0))` : `IFERROR(SUMIF(${hdr},${k},${rng})/${den},0)`);
       }
       w.fA({ sheet: CAPEX, row: r, col: C_TOT }, sumAcross(r));
     }

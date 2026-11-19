@@ -296,3 +296,55 @@ export function composeMoves(a: FrameMoves, b: FrameMoves): FrameMoves {
     newCol: (sheet, c) => b.newCol(sheet, a.newCol(sheet, c)),
   };
 }
+
+/**
+ * ECHOED INPUTS SIT IN THE INPUT COLUMN (2026-11-19, founder B7): on Revenue, Opex and Fixed Assets & Inventory a
+ * single value read from another tab for reference (key size, operations start year, receivable days, lettable area)
+ * is in column D, green, never under Total. A row qualifies when its only figure is in the Total column (F), nothing
+ * is in its years or in D, and the figure is a formula reading another tab. Moved through relayout, so every formula
+ * that reads it follows, and the moves are returned for the registry.
+ */
+const ECHO_LABEL = /^(Key size|Operations start year|Receivable days|Lettable area|Average unit size)/i;
+export function echoesToInputColumn(wb: ExcelJS.Workbook): FrameMoves {
+  const TABS = ['Revenue', 'Opex', 'Fixed Assets & Inventory'];
+  const D = 4, F = 6, FIRST_YEAR = 8;
+  const moved = new Map<string, Set<number>>();
+  for (const name of TABS) {
+    const ws = wb.getWorksheet(name);
+    if (!ws) continue;
+    const rows = new Set<number>();
+    ws.eachRow({ includeEmpty: false }, (row, r) => {
+      if (r <= 5) return;
+      // By what the row is (the same in a values twin, which has no formulas): an echoed setting, one figure under Total.
+      if (!ECHO_LABEL.test(String(row.getCell(3).value ?? '').trim())) return;
+      const f = row.getCell(F).value;
+      if (f === null || f === undefined || f === '') return;
+      const dv = row.getCell(D).value;
+      if (dv !== null && dv !== undefined && dv !== '') return;
+      let years = false;
+      row.eachCell({ includeEmpty: false }, (c, col) => { if (col >= FIRST_YEAR && c.value !== null && c.value !== undefined && c.value !== '') years = true; });
+      if (!years) rows.add(r);
+    });
+    if (rows.size) moved.set(name, rows);
+  }
+  const plans = new Map<string, SheetPlan>();
+  for (const [name, rows] of moved) plans.set(name, {
+    map: (r, c) => (rows.has(r) && c === F ? { r, c: D } : { r, c }),
+    rowOf: (r) => r, colOf: (c) => c,
+  });
+  const relayout = new Relayout(wb, plans);
+  if (plans.size) relayout.run();
+  for (const [name, rows] of moved) {
+    const ws = wb.getWorksheet(name)!;
+    for (const r of rows) {
+      const c = ws.getCell(r, D);
+      c.font = { ...(c.font ?? {}), color: { argb: 'FF008000' } };
+      c.alignment = { ...(c.alignment ?? {}), horizontal: 'right' };
+    }
+  }
+  return {
+    move: (sheet, r, c) => relayout.moveCell(sheet, r, c),
+    oldCol: (_s, c) => c,
+    newCol: (_s, c) => c,
+  };
+}

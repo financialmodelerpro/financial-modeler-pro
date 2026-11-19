@@ -207,8 +207,7 @@ export default function Module5Returns({ activeProjectId = null }: { activeProje
       <MetricGrid min={155}>
         <MetricCard label="Total Development Cost" value={fmt(de.totalDevelopmentCost)} sub="incl. land" />
         <MetricCard label={METRIC_LABELS.operatingExpenses} value={fmt(de.operatingExpenses)} sub={METRIC_CAPTIONS.operatingExpenses} />
-        <MetricCard label="Total Financing Cost" value={fmt(de.totalFinancingCost)} sub="all interest over the hold" tooltip="Total interest accrued over the whole hold (lifetime finance cost), construction + operations, whether paid in cash or capitalised. The construction portion capitalised to the asset is shown separately in Sources & Uses as 'IDC Capitalized During Construction'." />
-        <MetricCard label={METRIC_LABELS.developmentSurplusBefore} value={fmt(de.profitBeforeFinancing)} sub={METRIC_CAPTIONS.developmentSurplusBefore} tone={de.profitBeforeFinancing >= 0 ? 'good' : 'bad'} />
+        <MetricCard label={METRIC_LABELS.financeCostCapitalised} value={fmt(de.totalFinancingCost)} sub="interest capitalised in construction" tooltip="Total interest accrued over the whole hold (lifetime finance cost), construction + operations, whether paid in cash or capitalised. The construction portion capitalised to the asset is shown separately in Sources & Uses as 'IDC Capitalized During Construction'." />
         <MetricCard label={METRIC_LABELS.developmentSurplusAfter} value={fmt(de.profitAfterFinancing)} sub={METRIC_CAPTIONS.developmentSurplusAfter} tone={de.profitAfterFinancing >= 0 ? 'good' : 'bad'} />
         <MetricCard label="Development Margin" value={fmtPct(de.developmentMargin)} sub="profit / GDV" tone={de.developmentMargin == null ? 'neutral' : de.developmentMargin >= 0 ? 'good' : 'bad'} />
       </MetricGrid>

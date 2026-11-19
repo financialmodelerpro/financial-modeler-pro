@@ -423,7 +423,10 @@ export const stage6Loop: LiveLayer = {
         ? `-IF(AND(${Y(t)}>=${T('fl:sweepStart')},${owed(f, t)}>0),MIN(${owed(f, t)},${left(t)}*${sweepRatio()},${left(t)}),0)`
         : `-${sched(f, t)}`));
       // The platform's rule: a balance under 0.01% of the total drawn (between 1 and 1,000) is rounding and closes at zero.
-      const bal = (t: number): string => `(${owed(f, t)}+${P(f.repaid, t)})`;
+      // The exit repayment inside the facility (2026-11-19): in the exit year it takes what is left, so Closing reads 0 from the exit.
+      const xk = `fl:tr:${f.t.id}:exitRepaid`;
+      put(xk, (t) => `-${exitF(t)}*(${owed(f, t)}+${P(f.repaid, t)})`);
+      const bal = (t: number): string => `(${owed(f, t)}+${P(f.repaid, t)}${has(xk) ? `+${P(xk, t)}` : ''})`;
       put(f.close, (t) => `IF(ABS(${bal(t)})<MAX(1,MIN(1000,0.0001*${T(f.td)})),0,${bal(t)})`, 'last');
       why(f.close, 'Opening plus the draws less the principal repaid; a remainder under 0.01% of the total drawn (between 1 and 1,000) closes at zero, the platform\'s rule.');
     }
@@ -455,7 +458,10 @@ export const stage6Loop: LiveLayer = {
     const tabled = areaK.length === lineAssets.length && flagK.length === lineAssets.length && lineAssets.length > 0;
     if (tabled) {
       lineAssets.forEach((as, i) => {
-        w.fA({ sheet: FIN, row: w.addr(`fl:idcArea:${i}`).row, col: 2 }, as.map(sqm).join('+') || '0', { numFmt: '#,##0' });
+        // A GREEN LINK (2026-11-19, founder): the line's land on Land & Area (its one line row where it pools plots).
+        const lk = `landline:${pc0.idcLines[i].key}:sqm`;
+        const link = as.length === 1 && has(`land:${as[0].id}:sqm`) ? w.ref(`land:${as[0].id}:sqm`) : has(lk) ? w.ref(lk) : as.map(sqm).join('+') || '0';
+        w.fA({ sheet: FIN, row: w.addr(`fl:idcArea:${i}`).row, col: 2 }, link, { numFmt: '#,##0' });
         put(`fl:idcFlag:${i}`, (t) => (as[0] ? conFlag(as[0], t) : '0'), 'none');
       });
       const areas = span(areaK, DIN);
@@ -581,7 +587,8 @@ export const stage6Loop: LiveLayer = {
     put('fl:intPaid', (t) => `-(${interest(t)})`);
     put('fl:cash', (t) => chain(['fl:cwOpen', 'fl:cfo', 'fl:cfiCapex', 'fl:cfiExit', 'fl:eqCash', 'fl:debtCash', 'fl:intPaid'], t), 'last');
     why('fl:cash', CHAIN);
-    put('fl:exitRepay', (t) => `${exitF(t)}*MAX(0,${sumF(fac, 'close', t)})`);
+    const exitKs = fac.map((f) => `fl:tr:${f.t.id}:exitRepaid`).filter(has);
+    put('fl:exitRepay', (t) => (exitKs.length ? `-(${exitKs.map((k) => P(k, t)).join('+')})` : `${exitF(t)}*MAX(0,${sumF(fac, 'close', t)})`));
     put('fl:repaidCash', (t) => `${sumF(fac, 'repaid', t)}-${P('fl:exitRepay', t)}`);
     put('fl:forDiv', (t) => `${P('fl:cash', t)}+${P('fl:repaidCash', t)}`, 'last');
     // The cash above the minimum, to the cent: its own row, which every dividend reads.
@@ -617,7 +624,7 @@ export const stage6Loop: LiveLayer = {
     put('fl:close', (t) => `${P('fl:forDiv', t)}+${P('fl:div', t)}`, 'last');
     for (const f of fac) put(`fl:tr:${f.t.id}:left`, (t) => `${booked ? `SUM(${toNow('tl:flag:exit', t)})` : '0'}*${P(f.close, t)}`, 'none');
     for (const f of fac) put(`fl:tr:${f.t.id}:bs`, (t) => `(1-${booked ? `SUM(${toNow('tl:flag:exit', t)})` : '0'})*${P(f.close, t)}`, 'last');
-    put('fl:debtBs', (t) => { const ks = fac.map((f) => `fl:tr:${f.t.id}:bs`).filter(has); const rs = ks.map((k) => w.addr(k).row); const tog = rs.length > 1 && rs.every((r, i) => i === 0 || r === rs[i - 1] + 1); return tog ? `SUM(${P(ks[0], t)}:${P(ks[ks.length - 1], t)})` : ks.map((k) => P(k, t)).join('+') || '0'; }, 'last');
+    put('fl:debtBs', (t) => { const ks = fac.map((f) => f.close).filter(has); const rs = ks.map((k) => w.addr(k).row); const tog = rs.length > 1 && rs.every((r, i) => i === 0 || r === rs[i - 1] + 1); return tog ? `SUM(${P(ks[0], t)}:${P(ks[ks.length - 1], t)})` : ks.map((k) => P(k, t)).join('+') || '0'; }, 'last');
 
     // ── The keys the later layers read ───────────────────────────────────────
     claim('fnc:capex', 'fl:capex');

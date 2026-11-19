@@ -63,10 +63,16 @@ export interface TerminalValueInput {
 
 /** Real-estate point/period metrics derived from the snapshot. */
 export interface RealEstateMetrics {
-  /** Stabilised NOI / total development cost (going-in yield on cost). */
+  /** Stabilised-year NOI / the held assets' cost including their capitalised interest (2026-11-19). */
   yieldOnCost: number | null;
-  /** Exit NOI / exit enterprise value (exit cap rate). */
+  /** The exit cap rate: the INPUT where the method is a cap rate (2026-11-19, founder), else the implied yield. */
   capRateAtExit: number | null;
+  /** The exit-year NOI over the gross exit value (the implied figure, named as such). */
+  impliedExitYield?: number | null;
+  /** The calendar year of the stabilised NOI (every held asset at the top of its occupancy ramp). */
+  stabilisedYear?: number;
+  /** The stabilised-year NOI the yield on cost reads. */
+  stabilisedYearNOI?: number;
   /** yieldOnCost − capRateAtExit (development spread, decimal). */
   developmentSpread: number | null;
   /** (total revenue − total cost) / total cost (profit on cost). */
@@ -115,6 +121,15 @@ export interface ReturnsInput {
   /** Real-estate metric feeders. */
   metrics: {
     stabilisedNOI: number;
+    /** The NOI of the first year every held asset is stabilised, and the held assets' cost with their IDC (2026-11-19). */
+    stabilisedYearNOI?: number;
+    stabilisedYear?: number;
+    heldAssetCostInclIdc?: number;
+    /** The cap rate typed (the cap rate method), shown as the exit cap rate. */
+    capRateInput?: number | null;
+    /** Development profit and total capitalised cost, profit on cost's two sides. */
+    developmentProfit?: number;
+    totalCapitalisedCost?: number;
     totalDevelopmentCost: number;
     totalRevenue: number;
     totalCost: number;
@@ -171,17 +186,35 @@ export interface ReturnsInput {
 
 /** Development economics (project profitability before/after financing). */
 export interface DevelopmentEconomics {
-  /** Gross Development Value = total project revenue over the hold. */
+  /**
+   * ONE GDV (2026-11-19, founder, as the training model): the residential sales value plus the gross exit value of
+   * the held assets. The revenue over the hold is a different figure, kept as `totalRevenueOverHold` and never
+   * called GDV.
+   */
   gdv: number;
+  /** The residential (Sell) sales value, the first half of the GDV. */
+  saleValue: number;
+  /** The held assets' gross exit value (before selling costs at exit), the second half. */
+  grossExitValue: number;
+  /** Total revenue over the hold, for the surfaces that still show it under that name. */
+  totalRevenueOverHold: number;
+  /** Development profit = GDV less total development cost, IDC and selling costs (2026-11-19). */
+  developmentProfit: number;
+  /** Total development cost plus the capitalised interest. */
+  totalCapitalisedCost: number;
+  /** Development profit / total capitalised cost; null if that cost is not positive. */
+  profitOnCost: number | null;
+  /** Land, hard, soft, developer fee and contingency: no capitalised interest and no selling costs (2026-11-19). */
   totalDevelopmentCost: number;
+  /** The finance cost capitalised (IDC) since 2026-11-19 (it was all interest charged). */
   totalFinancingCost: number;
-  /** Operating expenses over the same years as the GDV (2026-10-08), selling and marketing included. */
+  /** The selling costs since 2026-11-19: marketing and sales commission (it was the operating expenses over the hold). */
   operatingExpenses: number;
-  /** GDV less total development cost less operating expenses (unlevered profit). */
+  /** GDV less total development cost less the selling costs (before the capitalised interest). */
   profitBeforeFinancing: number;
-  /** The same less total financing cost (levered profit). */
+  /** The development profit (less the capitalised interest too). */
   profitAfterFinancing: number;
-  /** profitAfterFinancing / GDV (decimal); null if GDV ≤ 0. */
+  /** Development profit / GDV (decimal); null if GDV ≤ 0. */
   developmentMargin: number | null;
   /** total development cost / GDV (decimal); null if GDV ≤ 0. */
   costToValue: number | null;

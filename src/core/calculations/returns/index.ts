@@ -41,13 +41,17 @@ function buildRealEstateMetrics(input: ReturnsInput): RealEstateMetrics {
   const m = input.metrics;
   // HELD-ASSET NOI OVER HELD-ASSET COST (2026-09-22). Both sides of the ratio
   // now cover the same assets; see ReturnsInput.metrics.heldAssetCost.
-  const yoc = yieldOnCost(m.stabilisedNOI, m.heldAssetCost);
+  // THE STABILISED YEAR OVER THE HELD COST WITH ITS IDC (2026-11-19, founder): the first year every held asset is at
+  // the top of its occupancy ramp, over what the held assets cost including the interest capitalised on them.
+  const yoc = yieldOnCost(m.stabilisedYearNOI ?? m.stabilisedNOI, m.heldAssetCostInclIdc ?? m.heldAssetCost);
   // THE CAPITALISED INCOME over the value (2026-09-14): `stabilisedNOI` is now
   // the income the terminal value capitalised (the year before the exit by
   // default), so this reads back the cap rate the model used. Exit-year NOI
   // over a value built on the prior year would not.
   // A CAP RATE IS INCOME OVER THE GROSS VALUE (2026-11-18): before the selling costs at exit.
-  const cap = capRate(m.stabilisedNOI, m.exitGrossValue ?? m.exitEnterpriseValue);
+  const implied = capRate(m.stabilisedNOI, m.exitGrossValue ?? m.exitEnterpriseValue);
+  // THE EXIT CAP RATE IS THE INPUT (2026-11-19, founder); the implied figure keeps its own name.
+  const cap = m.capRateInput ?? implied;
   const dscr = dscrSeries(m.cfadsPerPeriod, m.debtServicePerPeriod, m.operatingPerPeriod);
   const icr = icrSeries(m.ebitdaPerPeriod, m.interestPerPeriod);
   const coc = cashOnCashSeries(m.distributionPerPeriod, m.cumulativeEquityPerPeriod);
@@ -55,8 +59,13 @@ function buildRealEstateMetrics(input: ReturnsInput): RealEstateMetrics {
   return {
     yieldOnCost: yoc,
     capRateAtExit: cap,
+    impliedExitYield: implied,
+    stabilisedYear: m.stabilisedYear,
+    stabilisedYearNOI: m.stabilisedYearNOI,
     developmentSpread: yoc !== null && cap !== null ? yoc - cap : null,
-    profitOnCost: profitOnCost(m.totalRevenue, m.totalCost),
+    profitOnCost: m.developmentProfit !== undefined && m.totalCapitalisedCost !== undefined
+      ? (m.totalCapitalisedCost > 0 ? m.developmentProfit / m.totalCapitalisedCost : null)
+      : profitOnCost(m.totalRevenue, m.totalCost),
     profitMargin: profitMargin(m.totalPAT, m.totalRevenue),
     cashOnCashAvg: coc.avg,
     ltvAtExit: loanToValue(m.debtOutstandingAtExit, m.exitEnterpriseValue),

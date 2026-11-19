@@ -153,7 +153,8 @@ export const stage4Schedules: LiveLayer = {
     };
     const exit = (t: number): string => (booked ? w.refP({ sheet: 'Timeline', row: w.addr('tl:flag:exit').row, col: pc(t) }, here) : '0');
     const upto = (t: number): string => (has('tl:flag:upto') ? `${w.refP({ sheet: 'Timeline', row: w.addr('tl:flag:upto').row, col: pc(t) }, here)}*` : '');
-    const idxNow = (t: number): string => w.refP({ sheet: SCH, row: 4, col: pc(t) }, here);
+    // CALENDAR YEARS (2026-11-19, founder B7): the start is a year, so every comparison reads Timeline's years.
+    const idxNow = (t: number): string => w.refP({ sheet: 'Timeline', row: 3, col: pc(t) }, here);
     const claim = (name: string, key: string): void => { if (has(key)) w.claim(name, SCH, w.addr(key).row, 1); };
     const costLineOf = (id: string): Pick<CostLine, 'id' | 'catalogId'> => (state.costLines as CostLine[]).find((x) => x.id === id) ?? { id };
     const ROWS = ['landOpen', 'landAdd', 'landDisp', 'landClose', 'open', 'capAdd', 'idcAdd', 'dep', 'disp', 'close', 'idcDep', 'idcNbv'] as const;
@@ -168,7 +169,7 @@ export const stage4Schedules: LiveLayer = {
       const ov = w.ref(`falife:${host.id}`), dflt = w.ref(`fadefault:${usefulLifeCategory(host)}`);
       w.fA({ sheet: SCH, row: w.addr(lk).row, col: META_B }, `IF(N(${ov})>0,N(${ov}),${dflt})`);
       const hand = w.addr(`tl:flag:${host.phaseId}:hand`);
-      const idxR = w.rangeA('Timeline', 4, pc(0), pc(N - 1));
+      const idxR = w.rangeA('Timeline', 3, pc(0), pc(N - 1));
       w.fA({ sheet: SCH, row: w.addr(hk).row, col: META_B }, `SUMPRODUCT(${w.rangeA('Timeline', hand.row, pc(0), pc(N - 1))},${idxR})+1`);
       const life = fx(lk, META_B), first = fx(hk, META_B);
       // Each year's additions start depreciating in the later of that year and the first year (2026-11-15:
@@ -180,7 +181,7 @@ export const stage4Schedules: LiveLayer = {
       const dep = (addKeys: string[]) => (t: number): string => {
         const adds = addKeys.filter(has).map((k) => { const a = w.addr(k); return w.rangeA(a.sheet, a.row, pc(0), pc(t)); });
         const sum = adds.length > 1 ? `(${adds.join('+')})` : adds[0];
-        const idxT = w.rangeA('Timeline', 4, pc(0), pc(t));
+        const idxT = w.rangeA('Timeline', 3, pc(0), pc(t));
         const startT = `(${idxT}+(${first}-${idxT})*(${idxT}<${first}))`;
         return `${upto(t)}IF(${life}>0,SUMPRODUCT((${sum}>0)*${sum}*(${startT}<=${idxNow(t)})*(${startT}+MAX(1,INT(${life}))>${idxNow(t)}))/MAX(1,${life}),0)`;
       };
@@ -206,14 +207,14 @@ export const stage4Schedules: LiveLayer = {
       // the asset depreciates. An addition in or after the first year (none on most models) keeps the exact
       // vintage formula, since its own years would need rows of their own.
       const onK = K('on');
-      const late = flows.some((k) => { const r = w.addr(k).row; for (let t = 0; t < N; t++) { const v = Number(w.platformValue({ sheet: SCH, row: r, col: pc(t) }) ?? 0); if (v !== 0 && t + 1 >= Number(w.platformValue({ sheet: SCH, row: w.addr(hk).row, col: META_B }) ?? 0)) return true; } return false; });
+      const late = flows.some((k) => { const r = w.addr(k).row; for (let t = 0; t < N; t++) { const v = Number(w.platformValue({ sheet: SCH, row: r, col: pc(t) }) ?? 0); if (v !== 0 && snap.projectStartYear + t >= Number(w.platformValue({ sheet: SCH, row: w.addr(hk).row, col: META_B }) ?? 0)) return true; } return false; });
       const simple = has(onK) && !late;
       if (simple) row(onK, (t) => `${upto(t)}IF(${life}>0,(${idxNow(t)}>=${first})*(${idxNow(t)}<${first}+MAX(1,INT(${life}))),0)`, 'none');
       // TO DATE ONLY (2026-11-18): a year that depreciates reads the additions of the years up to itself, never a
       // later year. A year depreciating has started (first <= now), so nothing later is ever in the sum; reading
       // the whole row made every later year's capitalised interest a precedent, which with overlapping phases
       // (one operating while the next builds) closed a loop through the zakat and the sweep.
-      const before0 = (ks: string[], t: number): string => ks.filter(has).map((k) => { const a = w.addr(k); return `SUMIF(${w.rangeA('Timeline', 4, pc(0), pc(t))},"<"&${first},${w.rangeA(a.sheet, a.row, pc(0), pc(t))})`; }).join('+') || '0';
+      const before0 = (ks: string[], t: number): string => ks.filter(has).map((k) => { const a = w.addr(k); return `SUMIF(${w.rangeA('Timeline', 3, pc(0), pc(t))},"<"&${first},${w.rangeA(a.sheet, a.row, pc(0), pc(t))})`; }).join('+') || '0';
       void idxR;
       // A YEAR THAT DOES NOT DEPRECIATE NEVER READS THE BASE (2026-11-18): the base holds later years'
       // capitalised interest, which reads the debt the sweep sets from this year's cash, after this year's zakat.

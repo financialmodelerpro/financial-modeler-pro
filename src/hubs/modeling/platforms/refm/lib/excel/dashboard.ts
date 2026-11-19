@@ -283,8 +283,10 @@ export function buildDashboard(wb: ExcelJS.Workbook, ctx: DashboardContext): { c
   const rFcfe = L.need(RET, 'FCFE', retFcfe), rFcfeRet = L.need(RET, 'Equity returns (FCFE)', retFcfe);
   const rDistNet = retDist ? L.row(RET, 'NET DISTRIBUTIONS', retDist) : null, rDistRet = retDist ? L.row(RET, 'Distribution returns, before the fee', retDist) : null;
   const rFeeNet = retFee ? L.row(RET, 'NET DISTRIBUTIONS AFTER THE FEE', retFee) : null, rFeeRet = retFee ? L.row(RET, 'Distribution returns, net of the fee', retFee) : null;
-  const rGdv = L.need(RET, 'Gross development value', retKM), rTdc = L.need(RET, 'Total development cost', retKM), rOpex = L.need(RET, 'Operating expenses over the hold', retKM);
-  const rFin = L.need(RET, 'Total financing cost', retKM), rSurplus = L.need(RET, 'Development surplus after finance', retKM), rMargin = L.need(RET, 'Development margin', retKM);
+  // THE TRAINING MODEL'S BLOCK (2026-11-19, founder): GDV, development cost, IDC, selling costs, development profit.
+  const rGdv = L.need(RET, 'Gross development value', retKM), rTdc = L.need(RET, 'Total development cost', retKM), rOpex = L.need(RET, 'Marketing and sales commission', retKM);
+  const rFin = L.need(RET, 'Finance cost capitalised (IDC)', retKM), rSurplus = L.need(RET, 'DEVELOPMENT PROFIT', retKM), rMargin = L.need(RET, 'Development margin', retKM);
+  const rPoc = L.need(RET, 'Profit on cost', retKM);
   const yoc = L.rowsAll(RET, 'Yield on cost', retKM).filter((r) => numOf(L.ws(RET).getCell(r, 6)) !== null);
   const rYoc = yoc[0] ?? null, rCapX = L.row(RET, 'Cap rate at exit', retKM), rSpread = L.row(RET, 'Development spread', retKM);
   const rDscrY = L.row(RET, 'DSCR', retKM);
@@ -350,7 +352,7 @@ export function buildDashboard(wb: ExcelJS.Workbook, ctx: DashboardContext): { c
   const firstYear = A(TL, L.need(TL, 'First model year'), 6);
   tile(7, 3, 'GROSS DEVELOPMENT VALUE', `=${A(PL, rRev, 6)}`, cx.tile, `="Total revenue, "&${firstYear}&" to "&${A(RET, rExitY, 6)}`);
   tile(7, 5, 'TOTAL DEVELOPMENT COST', `=${A(CAP, rCapTot, 6)}`, cx.tile, '="Land, build, fees and contingency"');
-  tile(7, 9, 'DEVELOPMENT MARGIN', `=${A(RET, rMargin, 6)}`, '0.0%', `="Surplus after finance "&TEXT(${A(RET, rSurplus, 6)}/1000000,"#,##0.0")&"m"`);
+  tile(7, 9, 'DEVELOPMENT MARGIN', `=${A(RET, rMargin, 6)}`, '0.0%', `="Development profit "&TEXT(${A(RET, rSurplus, 6)}/1000000,"#,##0.0")&"m"`);
   const kindPart = rInKind && (numOf(L.ws(RET).getCell(rInKind, 6)) ?? 0) !== 0 ? `&"m + land in kind "&TEXT(${A(RET, rInKind, 6)}/1000000,"#,##0.0")&"m"` : '&"m"';
   tile(7, 13, 'EQUITY INVESTED', `=${A(RET, rPeakEq, 6)}`, cx.tile, rNewCash ? `="Cash "&TEXT(${A(RET, rNewCash, 6)}/1000000,"#,##0.0")${kindPart}` : '=""');
   for (const r of [7, 9]) ws.getRow(r).height = 14;
@@ -647,12 +649,13 @@ export function buildDashboard(wb: ExcelJS.Workbook, ctx: DashboardContext): { c
   if (rLandCash && rLandKind) econ.push({ label: 'Land, cash and in kind', value: `=${A(CAP, rLandCash, 6)}+${A(CAP, rLandKind, 6)}`, kind: 'line' });
   if (rRett) econ.push({ label: 'Transfer tax (RETT)', value: `=${A(CAP, rRett, 6)}`, kind: 'line' });
   for (const [l, r] of [['Hard costs', rHard], ['Soft costs', rSoft], ['Contingency', rCont], ['Developer fee', rFee]] as const) if (r) econ.push({ label: l, value: `=${A(CAP, r, 6)}`, kind: 'line' });
-  if (rTypeTot) econ.push({ label: 'TOTAL DEVELOPMENT COST', value: `=${A(CAP, rTypeTot, 6)}`, kind: 'key' });
-  econ.push({ label: 'Operating expenses over the hold', value: `=${A(RET, rOpex, 6)}`, kind: 'line' });
-  econ.push({ label: 'Financing cost', value: `=${A(RET, rFin, 6)}`, kind: 'line' });
-  econ.push({ label: 'SURPLUS AFTER FINANCE', value: `=${A(RET, rSurplus, 6)}`, kind: 'key' });
-  econ.push({ label: 'Development margin (surplus / GDV)', value: `=${A(RET, rMargin, 6)}`, kind: 'pct' });
-  econ.push({ label: 'Profit on cost (surplus / total development cost)', value: `=IFERROR(${A(RET, rSurplus, 6)}/${A(RET, rTdc, 6)},0)`, kind: 'pct' });
+  void rTypeTot;
+  econ.push({ label: 'TOTAL DEVELOPMENT COST', value: `=${A(RET, rTdc, 6)}`, kind: 'key' });
+  econ.push({ label: 'Finance cost capitalised (IDC)', value: `=${A(RET, rFin, 6)}`, kind: 'line' });
+  econ.push({ label: 'Marketing and sales commission', value: `=${A(RET, rOpex, 6)}`, kind: 'line' });
+  econ.push({ label: 'DEVELOPMENT PROFIT', value: `=${A(RET, rSurplus, 6)}`, kind: 'key' });
+  econ.push({ label: 'Development margin (profit / GDV)', value: `=${A(RET, rMargin, 6)}`, kind: 'pct' });
+  econ.push({ label: 'Profit on cost (profit / cost incl. IDC)', value: `=${A(RET, rPoc, 6)}`, kind: 'pct' });
   if (rYoc) econ.push({ label: 'Yield on cost, held assets', value: `=${A(RET, rYoc, 6)}`, kind: 'pct' });
   if (rSpread) econ.push({ label: 'Development spread (yield on cost less exit cap)', value: `=${A(RET, rSpread, 6)}`, kind: 'pct' });
   let zi = 0;
@@ -710,9 +713,9 @@ export function buildDashboard(wb: ExcelJS.Workbook, ctx: DashboardContext): { c
   if (rHard) steps.push(['Hard costs', `=${A(CAP, rHard, 6)}`]);
   if (rSoft) steps.push(['Soft costs', `=${A(CAP, rSoft, 6)}`]);
   if (rCont || rFee) steps.push(['Cont. and fee', `=${[rCont, rFee].filter((x): x is number => !!x).map((x) => A(CAP, x, 6)).join('+')}`]);
-  steps.push(['Opex (hold)', `=${A(RET, rOpex, 6)}`]);
-  steps.push(['Finance', `=${A(RET, rFin, 6)}`]);
-  steps.push(['Surplus', `=${A(RET, rSurplus, 6)}`]);
+  steps.push(['IDC', `=${A(RET, rFin, 6)}`]);
+  steps.push(['Selling costs', `=${A(RET, rOpex, 6)}`]);
+  steps.push(['Profit', `=${A(RET, rSurplus, 6)}`]);
   const b0 = p2a + 2;
   steps.forEach(([label, f], i) => {
     const rr = b0 + i, fl = z(i);
@@ -845,13 +848,14 @@ export function buildDashboard(wb: ExcelJS.Workbook, ctx: DashboardContext): { c
     const cos = psec ? L.row(PL, 'Cost of sales', psec) ?? L.row(PL, /^Operating expenses/, psec) : null;
     const pe = psec ? L.row(PL, 'EBITDA', psec) : null;
     const sub = L.row(CAP, `Subtotal, ${name}`, capSum);
-    const exitP = L.row(FIN, `${name}: exit proceeds`);
+    const exitP = L.row(FIN, `Net exit proceeds: ${name}`);
+    const gdvP = L.row(RET, `GDV: ${name}`, retKM);
     put(r, 3, name, 'labelB', undefined, f);
     put(r, 4, `=TEXT(${A(TL, tr, cCs)},"yyyy")&" to "&TEXT(${A(TL, tr, cCe)},"yyyy")`, 'label', undefined, f); merge(r, 4, 5);
     put(r, 6, `=TEXT(${A(TL, tr, cOs)},"mmm yyyy")`, 'value', '@', f);
     put(r, 7, `=SUMIFS(${RG(LA, plotsFirst, cLand, plotsLast, cLand)},${RG(LA, plotsFirst, cPhase, plotsLast, cPhase)},"${name}")`, 'value', INT, f);
     put(r, 8, `=SUMIFS(${RG(LA, plotsFirst, cGfa, plotsLast, cGfa)},${RG(LA, plotsFirst, cPhase, plotsLast, cPhase)},"${name}")`, 'value', INT, f);
-    put(r, 9, psec && cos ? `=SUM(${RG(PL, psec[0], 6, cos - 1, 6)})` : '=0', 'value', money, f);
+    put(r, 9, gdvP ? `=${A(RET, gdvP, 6)}` : psec && cos ? `=SUM(${RG(PL, psec[0], 6, cos - 1, 6)})` : '=0', 'value', money, f);
     put(r, 10, sub ? `=${A(CAP, sub, 6)}` : '=0', 'value', money, f);
     put(r, 11, pe ? `=${A(PL, pe, 6)}` : '=0', 'valueB', money, f);
     put(r, 12, `=IFERROR(K${r}/I${r},0)`, 'value', PCT, f);

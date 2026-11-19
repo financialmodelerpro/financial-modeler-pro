@@ -332,7 +332,7 @@ export default function Overview({ projectName, status }: OverviewProps): React.
           <Kpi label="Capex (construction)" value={money(su.construction)} sub="excl. land" accent="var(--color-gold)" />
           <Kpi label={METRIC_LABELS.shareOfSources} value={`${pct(debtPct)} / ${pct(equityPct)}`} sub={METRIC_CAPTIONS.shareOfSources} accent="var(--color-gold)" />
           <Kpi label="Peak Equity" value={money(re.peakEquity)} accent="var(--color-gold)" />
-          <Kpi label="Total Financing Cost" value={money(de.totalFinancingCost)} accent="var(--color-gold)" />
+          <Kpi label={METRIC_LABELS.financeCostCapitalised} value={money(de.totalFinancingCost)} accent="var(--color-gold)" />
           <Kpi label="Cap Rate at Exit" value={pct(re.capRateAtExit)} accent="var(--color-gold)" />
         </div>
       </div>

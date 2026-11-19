@@ -1273,7 +1273,7 @@ function buildExecSummary(ctx: Ctx, snap: ProjectFinancialsSnapshot, returns: Re
       { label: 'Capex (construction)', value: fmt.money(constructionCost), sub: 'excl. land' },
       { label: METRIC_LABELS.shareOfSources, value: `${fmt.pct(returns!.fundingMix.debtPct, 0)} / ${fmt.pct((returns!.fundingMix.cashEquityPct ?? 0) + (returns!.fundingMix.inKindEquityPct ?? 0), 0)}`, sub: METRIC_CAPTIONS.shareOfSources },
       { label: 'Peak Equity', value: fmt.money(returns!.result.realEstate.peakEquity) },
-      { label: 'Total Financing Cost', value: fmt.money(de2.totalFinancingCost) },
+      { label: METRIC_LABELS.financeCostCapitalised, value: fmt.money(de2.totalFinancingCost) },
       { label: 'Cap Rate at Exit', value: pctOrNa(returns!.result.realEstate.capRateAtExit) },
       ...(snap.fundFees.active
         ? [{ label: 'Fund Fees', value: fmt.money(sum(snap.fundFees.totalPerPeriod)), sub: 'over the hold, EBITDA is after' }]
@@ -3495,11 +3495,10 @@ function buildModule5(returns: ReturnsSnapshot, snap: ProjectFinancialsSnapshot,
 
   const de = returns.developmentEconomics;
   items.push(tCards(m5Tab('Returns'), 'outputs', 'Development Economics (appraisal basis)', [
-    { label: 'GDV', value: fmt.money(de.gdv), sub: 'gross development value' },
-    { label: 'Total Dev Cost', value: fmt.money(de.totalDevelopmentCost), sub: 'incl. land' },
+    { label: 'GDV', value: fmt.money(de.gdv), sub: METRIC_CAPTIONS.gdv },
+    { label: 'Total Dev Cost', value: fmt.money(de.totalDevelopmentCost), sub: 'excl. IDC and selling costs' },
     { label: METRIC_LABELS.operatingExpenses, value: fmt.money(de.operatingExpenses), sub: METRIC_CAPTIONS.operatingExpenses },
-    { label: 'Financing Cost', value: fmt.money(de.totalFinancingCost), sub: 'interest + fees' },
-    { label: METRIC_LABELS.developmentSurplusBefore, value: fmt.money(de.profitBeforeFinancing), sub: METRIC_CAPTIONS.developmentSurplusBefore },
+    { label: METRIC_LABELS.financeCostCapitalised, value: fmt.money(de.totalFinancingCost), sub: 'interest capitalised in construction' },
     { label: METRIC_LABELS.developmentSurplusAfter, value: fmt.money(de.profitAfterFinancing), sub: METRIC_CAPTIONS.developmentSurplusAfter },
     { label: 'Development Margin', value: fmt.pct(de.developmentMargin, 1), sub: METRIC_CAPTIONS.developmentMargin },
   ]));
@@ -3508,10 +3507,9 @@ function buildModule5(returns: ReturnsSnapshot, snap: ProjectFinancialsSnapshot,
   // profit after tax sat 3.6x apart on adjacent pages with nothing between
   // them. This states the bridge.
   items.push(tItem(m5Tab('Returns'), 'outputs', { type: 'paragraph', text:
-    `Appraisal basis, not the P&L. The development surplus after finance (${fmt.money(de.profitAfterFinancing)}) is GDV less development cost less financing cost, `
-    + `and it excludes operating expenses, fees, depreciation and tax, so it is not a profit figure. The P&L's profit after tax over the same horizon is `
-    + `${fmt.money(sum(snap.pl.patPerPeriod))}; the difference is operating expenses (${fmt.money(sum(snap.pl.totalOpexPerPeriod))}), `
-    + `depreciation (${fmt.money(sum(snap.pl.daPerPeriod))}) and tax (${fmt.money(sum(snap.pl.taxPerPeriod))}), which an appraisal does not deduct. `
+    `Appraisal basis, not the P&L. The development profit (${fmt.money(de.profitAfterFinancing)}) is GDV (the residential sales value plus the held assets' gross exit value) less the development cost, the capitalised interest and the selling costs; `
+    + `it excludes the hold's operating costs, fund fees, depreciation and tax. The P&L's profit after tax over the same horizon is `
+    + `${fmt.money(sum(snap.pl.patPerPeriod))}. `
     + `Development Margin is measured on GDV; Profit Margin on the RE Metrics page is profit after tax over total revenue.` }));
 
   const ex = returns.exitAnalysis;
