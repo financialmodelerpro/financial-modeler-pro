@@ -112,11 +112,18 @@ export function buildFrontTabs(wb: ExcelJS.Workbook, ctx: FrontContext): { chart
   // input tab, and the Dashboard's count of failing checks includes them.
   {
     const dash = wb.getWorksheet('Dashboard');
-    const inTabs = ['Project Inputs', 'Operating Inputs'].filter((n) => wb.getWorksheet(n));
+    // The check cells themselves (a formula that can read "CHECK"), never a range: COUNTIF ignores case, so a
+    // "Check" column head would count.
+    const cells: string[] = [];
+    for (const n of ['Project Inputs', 'Operating Inputs']) {
+      const ws = wb.getWorksheet(n);
+      if (ws) ws.eachRow((row) => row.eachCell((c) => { const v = c.value as { formula?: string } | null; if (v && typeof v === 'object' && typeof v.formula === 'string' && v.formula.includes('"CHECK"')) cells.push(`('${n}'!$${ws.getColumn(c.col).letter}$${c.row}="CHECK")`); }));
+    }
+    const inTabs = cells;
     if (dash && inTabs.length) dash.eachRow((row) => row.eachCell((c) => {
       const v = c.value as { formula?: string; result?: unknown } | null;
       if (!v || typeof v !== 'object' || typeof v.formula !== 'string' || !v.formula.includes('"CHECK")')) return;
-      const f = v.formula.replace(/COUNTIF\((Checks!\$[A-Z]+\$\d+:\$[A-Z]+\$\d+),"CHECK"\)/g, (_m, rng: string) => `(COUNTIF(${rng},"CHECK")${inTabs.map((n) => `+COUNTIF('${n}'!$D:$F,"CHECK")`).join('')})`);
+      const f = v.formula.replace(/COUNTIF\((Checks!\$[A-Z]+\$\d+:\$[A-Z]+\$\d+),"CHECK"\)/g, (_m, rng: string) => `(COUNTIF(${rng},"CHECK")+${cells.join('+')})`);
       if (f !== v.formula) c.value = { ...v, formula: f } as ExcelJS.CellValue;
     }));
   }
