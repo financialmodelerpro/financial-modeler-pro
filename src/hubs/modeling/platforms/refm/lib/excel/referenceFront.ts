@@ -103,6 +103,11 @@ export function buildFrontTabs(wb: ExcelJS.Workbook, ctx: FrontContext): { chart
   const split = splitInputs(wb, { readFrom: ctx.splitReadFrom });
   buildGuide(freshSheet(wb, 'Guide'), wb, ctx, tax);
   if (split) renameInputsInProse(wb.getWorksheet('Guide'));
+  // A GRID CELL OUTSIDE ITS PHASE IS AN EMPTY GREY CELL, NOT THE TEXT "n/a" (2026-11-19, founder C16).
+  for (const n of ['Project Inputs', 'Operating Inputs']) {
+    const ws = wb.getWorksheet(n);
+    if (ws) ws.eachRow((row) => row.eachCell((c) => { if (typeof c.value === 'string' && c.value.trim().toLowerCase() === 'n/a') c.value = null; }));
+  }
   // THE INPUT CHECKS COUNT TOO (2026-11-19, founder C5): a typed grid that does not add to 100% reads CHECK on its
   // input tab, and the Dashboard's count of failing checks includes them.
   {
