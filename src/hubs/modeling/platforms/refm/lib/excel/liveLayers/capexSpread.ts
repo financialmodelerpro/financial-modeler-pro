@@ -416,7 +416,9 @@ export interface PhasingTableRow {
   /** The % by construction year (a share); a year absent from the map is "n/a" on the row. */
   values: Map<number, number>;
   /** The spread rows (planCapexSpread keys) that read it, with their phase. */
-  spreads: Array<{ key: string; phaseId: string }>;
+  /** `capped`: the spread follows the construction years, so it reads the row only over them; otherwise (its own
+   *  window) it reads the whole row, whatever the construction years (2026-11-19). */
+  spreads: Array<{ key: string; phaseId: string; capped: boolean }>;
 }
 export interface PhasingTable {
   rows: PhasingTableRow[];
@@ -492,11 +494,13 @@ export function planPhasingTable(
     const off = offOf(ph);
     const shares = sp.shares.slice(0, N);
     // 1. A row already made reproduces it: a curve row in any phase, any other row in its own phase.
-    let at = rows.findIndex((r) => (r.kind === 'curve' || r.phaseIds.includes(ph.id)) && same(implied(r.values, off, r.standard ? cpOf(ph) : undefined), shares));
+    // A spread that follows the construction years reads a row over them; one on its own window reads the whole row.
+    const capped = sp.win === 'follows';
+    let at = rows.findIndex((r) => (r.kind === 'curve' || r.phaseIds.includes(ph.id)) && same(implied(r.values, off, r.standard && capped ? cpOf(ph) : undefined), shares));
     // 2. A curve not yet on the table reproduces it (its own plot's first).
     if (at < 0) {
       const own = sp.kind === 'curve' ? curveCand.find((c) => c.ids.includes(sp.assetId ?? '')) : undefined;
-      const cand = [own, ...curveCand].filter((c): c is typeof curveCand[number] => !!c && !curveRowOf.has(c.first)).find((c) => same(implied(c.values, off, cpOf(ph)), shares));
+      const cand = [own, ...curveCand].filter((c): c is typeof curveCand[number] => !!c && !curveRowOf.has(c.first)).find((c) => same(implied(c.values, off, capped ? cpOf(ph) : undefined), shares));
       if (cand) {
         const who = cand.ids.map((id) => state.assets.find((x) => x.id === id)).filter((x): x is Asset => !!x);
         rows.push({ keys: cand.ids.map((id) => `inpcurve:${id}`), label: '', short: '', phaseIds: [...cand.phaseIds], kind: 'curve', standard: true, values: cand.values, spreads: [], who });
@@ -518,7 +522,7 @@ export function planPhasingTable(
     }
     const row = rows[at];
     if (!row.phaseIds.includes(ph.id)) row.phaseIds.push(ph.id);
-    row.spreads.push({ key: sp.key, phaseId: ph.id });
+    row.spreads.push({ key: sp.key, phaseId: ph.id, capped: capped && row.standard });
     rowOfSpread.set(sp.key, at);
   }
   // Names: what reads each row, in the platform's words.

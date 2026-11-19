@@ -159,12 +159,14 @@ export function plPlan(state: FinancialsResolverState, snap: Snap = computeFinan
     rows.push({ key: K('Total Operating Expenses'), label: 'Total operating expenses', kind: 'row', style: 'subtotal', values: totOpex, sum: opexKeys });
 
     // The fund fees: one row, the total on Financing (2026-11-15, founder); EBITDA is struck after them.
+    // PROJECT EBITDA, THEN THE FUND FEES, THEN EBITDA AFTER THEM (2026-11-19, founder B1): the covenants read the
+    // project EBITDA; the fund fees are their total on Financing (the arranging fee inside them, not in finance cost).
     const ebitdaParts = [K('Gross profit'), K('Total Operating Expenses')];
     if (fundOn) {
+      rows.push({ key: K('ebitdaPre'), label: `Project ${labels.ebitda}`, kind: 'row', style: 'total', values: sl(snap.pl.ebitdaBeforeFundFeesPerPeriod), sum: ebitdaParts });
       rows.push({ key: K('Total Fund Management Fee'), label: 'Fund fees', kind: 'row', values: neg(sl(snap.fundFees.totalPerPeriod)), src: { kind: 'feeTot' } });
-      ebitdaParts.push(K('Total Fund Management Fee'));
-    }
-    rows.push({ key: K(labels.ebitda), label: labels.ebitda, kind: 'row', style: 'total', values: sl(snap.pl.ebitdaPerPeriod), sum: ebitdaParts });
+      rows.push({ key: K(labels.ebitda), label: `${labels.ebitda} after fund fees`, kind: 'row', style: 'total', values: sl(snap.pl.ebitdaPerPeriod), sum: [K('ebitdaPre'), K('Total Fund Management Fee')] });
+    } else rows.push({ key: K(labels.ebitda), label: labels.ebitda, kind: 'row', style: 'total', values: sl(snap.pl.ebitdaPerPeriod), sum: ebitdaParts });
     rows.push({ key: K('Depreciation & Amortization'), label: 'Depreciation', kind: 'row', values: neg(sl(snap.pl.daPerPeriod)), src: { kind: 'dep' } });
     rows.push({ key: K(labels.ebit), label: labels.ebit, kind: 'row', style: 'subtotal', values: sl(snap.pl.ebitPerPeriod), sum: [K(labels.ebitda), K('Depreciation & Amortization')] });
     rows.push({ key: K('Interest & financing cost'), label: 'Interest expensed', kind: 'row', values: neg(sl(snap.pl.interestExpensePerPeriod)), src: { kind: 'int' } });
@@ -187,7 +189,23 @@ export function plPlan(state: FinancialsResolverState, snap: Snap = computeFinan
       labelRate: zakat ? `of ${labels.pbt.toLowerCase()}` : 'of taxable profit' });
     rows.push({ key: K(labels.pat), label: labels.pat, kind: 'row', style: 'total', values: sl(snap.pl.patPerPeriod), sum: [K(labels.pbt), K('zakat')] });
   }
-  // (2026-11-15, founder) No reconciliation block: one row on Checks proves the phases foot to the project.
+  // THE PHASES TO THE PROJECT (2026-11-19, founder B2): each phase's EBITDA, less what no phase carries (HQ, the
+  // fund fees), is the project EBITDA after fund fees; the check reads 0.
+  const phaseKeys = state.phases.map((ph) => `pl|${ph.id}||${labels.ebitda}`).filter((k) => rows.some((x) => x.key === k));
+  if (phaseKeys.length > 1) {
+    const R = (name: string): string => `pl|rec||${name}`;
+    const val = (k: string): number[] => rows.find((x) => x.key === k)?.values ?? sl(undefined);
+    rows.push({ key: 'pl|gap|rec', label: '', kind: 'gap' });
+    rows.push({ key: R('#section'), label: 'Reconciliation: the phases to the project', kind: 'section' });
+    const parts: string[] = [];
+    for (const k of phaseKeys) { const ph = state.phases.find((x) => k.startsWith(`pl|${x.id}||`)); rows.push({ key: R(`ph:${ph?.id}`), label: `${labels.ebitda}: ${ph?.name}`, kind: 'row', indent: 1, values: val(k), src: { kind: 'link', key: k } }); parts.push(R(`ph:${ph?.id}`)); }
+    const A = (name: string): string => `pl|${PL_ALL}||${name}`;
+    if (rows.some((x) => x.key === A('HQ overheads'))) { rows.push({ key: R('hq'), label: 'HQ overheads, not allocated to a phase', kind: 'row', indent: 1, values: val(A('HQ overheads')), src: { kind: 'link', key: A('HQ overheads') } }); parts.push(R('hq')); }
+    if (rows.some((x) => x.key === A('Total Fund Management Fee'))) { rows.push({ key: R('fees'), label: 'Fund fees, not allocated to a phase', kind: 'row', indent: 1, values: val(A('Total Fund Management Fee')), src: { kind: 'link', key: A('Total Fund Management Fee') } }); parts.push(R('fees')); }
+    const sumV = add(parts.map((k) => val(k.startsWith('pl|rec||ph:') ? phaseKeys[parts.indexOf(k)] : k === R('hq') ? A('HQ overheads') : A('Total Fund Management Fee'))));
+    rows.push({ key: R('total'), label: `${labels.ebitda} after fund fees, from the phases`, kind: 'row', style: 'subtotal', values: sumV, sum: parts });
+    rows.push({ key: R('chk'), label: `Check: less the project ${labels.ebitda} after fund fees (0)`, kind: 'row', values: sl(undefined), src: { kind: 'diff', a: R('total'), b: A(labels.ebitda) } });
+  }
   return rows;
 }
 

@@ -55,7 +55,7 @@ const PROMOTE: Record<string, Promote[]> = {
   Opex: [{ match: /^Summary by line$/, name: null }],
 };
 /** Tabs whose sub-headings are numbered under their bar, x.1, x.2 (2026-11-19, founder: the Financing sub-tables). */
-const SUB_NUMBERED = new Set(['Financing']);
+const SUB_NUMBERED = new Map<string, RegExp>([['Financing', /./], ['Revenue', /^\d+\. Selling costs$/]]);
 /** A top bar that only repeats the tab's name goes (its sub-sections become the bars). */
 const DROP_BAR: Record<string, RegExp> = { Returns: /^Returns$/ };
 
@@ -143,7 +143,8 @@ export function applyReferenceLayout(wb: ExcelJS.Workbook, opts: { mirror?: Exce
     if (SUB_NUMBERED.has(ws.name) && !mirrorOf?.get(ws.name)) {
       let major = 0, minor = 0;
       for (let r = 4; r <= lastOld; r++) {
-        if (bars.has(r)) { major = Number(/^(\d+)\./.exec(bars.get(r)!)?.[1] ?? 0); minor = 0; continue; }
+        // Only under the bars the tab numbers (Revenue: its selling costs, 2026-11-19).
+        if (bars.has(r)) { major = SUB_NUMBERED.get(ws.name)!.test(bars.get(r)!) ? Number(/^(\d+)\./.exec(bars.get(r)!)?.[1] ?? 0) : 0; minor = 0; continue; }
         if (!major || drop.has(r) || !isSubHeading(ws, r)) continue;
         const a = ws.getCell(r, 1);
         a.value = `${major}.${++minor} ${stripNo(textOf(a))}`;

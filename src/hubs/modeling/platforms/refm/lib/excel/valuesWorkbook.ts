@@ -35,7 +35,7 @@ import { deleteRowAt } from './liveFrontMatter';
 import { applyHouseStyle } from './houseStyle';
 import { applyReferenceLayout, echoesToInputColumn } from './referenceLayout';
 import { applyTabFrame, tilesInMillions, blankNonFlowTotals } from './tabFrame';
-import { finalPasses, plainSalesWords } from './readability';
+import { finalPasses, plainSalesWords, namedTolerances } from './readability';
 import { TAB_ORDER, buildFormulaWorkbook } from './formulaWorkbook';
 import { emptyProjectRefusal, liveWorkbookRefusal } from './liveWorkbookAvailability';
 import { addDashboardCharts, addRiskTriggers, type ChartSpec } from './dashboard';
@@ -219,6 +219,8 @@ export function buildValuesModeWorkbook(opts: BuildModelOptions): ValuesWorkbook
     // The front tabs are built as formulas over the figures; a values file holds their values.
     freezeFormulas(wb);
   }
+  // The same tolerance cells as the live file (2026-11-19, founder B5), so the layouts agree.
+  namedTolerances(wb);
   orderTabs(wb);
   return { wb, dropped, source: 'values', charts };
 }

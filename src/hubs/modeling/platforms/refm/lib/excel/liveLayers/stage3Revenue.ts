@@ -245,7 +245,9 @@ export const stage3Revenue: LiveLayer = {
       if (!g) return '0';
       const k = g.k0 === 1 ? y : `${y}-${g.k0 - 1}`;
       const v = `INDEX(${g.range},${k})`;
-      return `IF(AND(${k}>=1,${k}<=${g.width}),${clamp01 ? `MIN(1,MAX(0,${v}))` : v},0)`;
+      // NO TYPED YEAR COUNT (2026-11-19, founder B5): Timeline's counter is 0 outside the phase's years, and a year past
+      // the grid typed reads nothing, so a change in the construction or operating years on Project Inputs is followed.
+      return `IF(${k}>=1,IFERROR(${clamp01 ? `MIN(1,MAX(0,${v}))` : v},0),0)`;
     };
     /** A downpayment at year y of the phase: past the last year typed, the last one carries forward
      *  (the engine's resolveDownpayment), so a phase lengthened in Excel keeps the platform's terms. */
@@ -358,7 +360,8 @@ export const stage3Revenue: LiveLayer = {
           cohortKeys.forEach((ck, j) => {
             const c = pc(j);
             const SY = AR(rowOf(kSy), c), B = AR(rowOf(kDp), c), C = AR(rowOf(kIn), c), V = AR(rowOf(kV), c);
-            w.fA({ sheet: REV, row: rowOf(kSy), col: c }, `YEAR(${TL(p, 'cs')})${j > 0 ? `+${j}` : ''}`, { numFmt: NUMFMT.year });
+            // Each sale year is the one before plus one (2026-11-19, founder B5): no typed offset.
+            w.fA({ sheet: REV, row: rowOf(kSy), col: c }, j > 0 ? `${AR(rowOf(kSy), c - 1)}+1` : `YEAR(${TL(p, 'cs')})`, { numFmt: NUMFMT.year });
             const dpCell = dpKeys.length ? w.ref((dpKeys.find((x) => x.n === j + 1) ?? dpKeys[dpKeys.length - 1]).k) : '0';
             w.fA({ sheet: REV, row: rowOf(kDp), col: c }, `IF(${SY}>=${hy},1,${dpCell})`, { numFmt: NUMFMT.pct });
             w.fA({ sheet: REV, row: rowOf(kIn), col: c }, `IF(${SY}>=${hy},0,MIN(INT(${IN(`rxin|${l.key}|inst`)}),${hy}-${SY}))`, { numFmt: NUMFMT.int });
@@ -377,7 +380,7 @@ export const stage3Revenue: LiveLayer = {
           const ex = (t: number): string => w.refP({ sheet: xa.sheet, row: xa.row, col: pc(t) }, REV);
           const after = (t: number): string => (t === 0 ? '0' : `SUM(${w.rangeA(xa.sheet, xa.row, pc(0), pc(t - 1))})`);
           const cumCohort = (t: number): string => cohortRows.map((r) => `SUM($${colLetter(pc(0))}$${r}:${colLetter(pc(t))}$${r})`).join('+') || '0';
-          row(preCash, (t) => `(1-${after(t)})*(${sumRows(cohortRows, t)}+${ex(t)}*(${toDate(preRev, t)}-(${cumCohort(t)})))`);
+          row(preCash, (t) => `${t === 0 ? '' : `(1-${after(t)})*`}(${sumRows(cohortRows, t)}+${ex(t)}*(${toDate(preRev, t)}-(${cumCohort(t)})))`);
         } else row(preCash, (t) => sumRows(cohortRows, t));
         row(postCash, (t) => P(postRev, t));
         // Balances: running totals of what was billed less what was collected or recognised.

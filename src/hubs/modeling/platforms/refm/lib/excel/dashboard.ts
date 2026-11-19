@@ -296,7 +296,7 @@ export function buildDashboard(wb: ExcelJS.Workbook, ctx: DashboardContext): { c
   const peaks = L.rowsAll(RET, 'Peak equity', retKM); const rPeakEq = peaks[peaks.length - 1];
   const rNewCash = retPart ? L.row(RET, 'New cash equity', retPart) : null, rInKind = retPart ? L.row(RET, 'In-kind equity', retPart) : null;
   const plSec = L.section(PL, /^Income Statement \(P&L\): Project$/)!;
-  const rRev = L.need(PL, 'TOTAL REVENUE', plSec), rEbitda = L.need(PL, 'EBITDA', plSec), rPat = L.need(PL, /^PROFIT AFTER (ZAKAT|TAX)$/, plSec);
+  const rRev = L.need(PL, 'TOTAL REVENUE', plSec), rEbitda = L.need(PL, /^EBITDA( AFTER FUND FEES)?$/i, plSec), rPat = L.need(PL, /^PROFIT AFTER (ZAKAT|TAX)$/, plSec);
   const plRevFirst = plSec[0] + 0, plRevLast = rRev - 1;
   // THE CAPEX RESULTS AS THE PLATFORM NAMES THEM (2026-11-19): Table 2, incl. all land, with its split by cost type.
   const capSum = L.section(CAP, /^Total Capex Including Land Value/i)!;

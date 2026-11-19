@@ -334,21 +334,13 @@ export const stage2Capex: LiveLayer = {
         const yrs = w.rangeA(S, 3, cP(0), cP(N - 1)).replace(/^'?[^!]+'?!/, '');
         const ppr = `(${yrs}-${first}+1)`;
         const inRng = inR ? w.rangeA(S, inR, cP(0), cP(N - 1)).replace(/^'?[^!]+'?!/, '') : '';
-        w.fA({ sheet: S, row: r, col: C_OPEN }, inR ? `SUMPRODUCT(${inRng},${w.rangeA(cash.sheet, cash.row, cP(0), cP(N - 1))})` : `SUMPRODUCT((${ppr}>=1)*(${ppr}<=${slots}),${w.rangeA(cash.sheet, cash.row, cP(0), cP(N - 1))})`);
-        const W = w.refA({ sheet: S, row: r, col: C_OPEN }, S);
-        // The even fallback on its own row: a window that follows the construction years (from year 1 or
-        // later) reads Timeline's construction year number of the phase (2026-11-15: short formulas).
-        const evK = `cxw:${sp.key}|even`;
-        const evR = w.has(evK) ? w.addr(evK).row : 0;
-        const ctrK = `tl:ctr:${ph.id}:con`;
-        if (evR) for (let t = 0; t < N; t++) {
-          const c = cP(t);
-          const viaCtr = sp.win === 'follows' && rule !== 'land' && w.has(ctrK);
-          w.fA({ sheet: S, row: evR, col: c }, viaCtr ? `(${w.refP({ sheet: 'Timeline', row: w.addr(ctrK).row, col: c }, S)}>=${B})/(MAX(${B},${cp()})-${B}+1)` : even(c));
-        }
+        // THE LINE'S SERIES OVER ITS PHASE'S YEARS (2026-11-19, founder B3): no window column and no fallback row (a line that
+        // collects nothing has no sale value, so every share of it is charged on nothing).
+        const den = inR ? `SUMPRODUCT(${inRng},${w.rangeA(cash.sheet, cash.row, cP(0), cP(N - 1))})` : `SUMPRODUCT((${ppr}>=1)*(${ppr}<=${slots}),${w.rangeA(cash.sheet, cash.row, cP(0), cP(N - 1))})`;
+        void even; void B; void C; void rule;
         for (let t = 0; t < N; t++) {
           const c = cP(t);
-          w.fA({ sheet: S, row: r, col: c }, `IF(${W}>0,${inF(c)}*${w.refP({ sheet: cash.sheet, row: cash.row, col: c }, S)}/${W},${evR ? w.refP({ sheet: S, row: evR, col: c }, S) : even(c)})`);
+          w.fA({ sheet: S, row: r, col: c }, `IFERROR(${inF(c)}*${w.refP({ sheet: cash.sheet, row: cash.row, col: c }, S)}/${den},0)`);
         }
         w.fA({ sheet: S, row: r, col: C_TOT }, `SUM(${w.rangeA(S, r, cP(0), cP(N - 1)).replace(/^'?[^!]+'?!/, '')})`);
         continue;
@@ -365,14 +357,14 @@ export const stage2Capex: LiveLayer = {
       const head = w.addr('inpph:head').row, tr = w.addr(trow.keys[0]).row;
       const c1 = 2, c2 = 1 + (table.kMax - table.kMin + 1);
       const hdr = w.rangeA(INPUTS, head, c1, c2), rng = w.rangeA(INPUTS, tr, c1, c2);
-      w.fA({ sheet: CAPEX, row: r, col: 2 }, trow.standard ? `SUMIF(${hdr},"<="&${w.ref(`tl:phase:${ph.id}:cp`)},${rng})` : `SUM(${rng})`);
+      const capped = trow.spreads.find((x) => x.key === sp.key)?.capped === true;
+      if (capped) w.fA({ sheet: CAPEX, row: r, col: 2 }, `SUMIF(${hdr},"<="&${w.ref(`tl:phase:${ph.id}:cp`)},${rng})`);
       for (let t = 0; t < N; t++) {
         const c = cP(t);
         // A standard row (a curve, or even over the construction years) is read over the phase's construction years only;
         // the row's total over the years it reads sits in the Input column (2026-11-19, founder: no formula over 150).
-        const k = P(ppr, c), cp = trow.standard ? w.ref(`tl:phase:${ph.id}:cp`) : '';
-        const den = A(r, 2);
-        w.fA({ sheet: CAPEX, row: r, col: c }, cp ? `IF(${k}>${cp},0,IFERROR(SUMIF(${hdr},${k},${rng})/${den},0))` : `IFERROR(SUMIF(${hdr},${k},${rng})/${den},0)`);
+        const k = P(ppr, c);
+        w.fA({ sheet: CAPEX, row: r, col: c }, capped ? `IF(${k}>${w.ref(`tl:phase:${ph.id}:cp`)},0,IFERROR(SUMIF(${hdr},${k},${rng})/${A(r, 2)},0))` : `IFERROR(SUMIF(${hdr},${k},${rng})/SUM(${rng}),0)`);
       }
       w.fA({ sheet: CAPEX, row: r, col: C_TOT }, sumAcross(r));
     }
@@ -554,6 +546,46 @@ export const stage2Capex: LiveLayer = {
       }
     }
     sumKeys('cx1:total', hosts.map((h) => `cx1sub:${h}`));
+
+    // REVENUE 5.2 AND 5.3 (2026-11-19, founder B3): each line's sales commission read from its Capex row, the
+    // commission's total, and the total selling costs (marketing and commission, the cash paid).
+    {
+      const commRows: Array<{ sheet: string; row: number }> = [];
+      for (const k of reg.keys().filter((x) => x.startsWith('sell:comm:'))) {
+        const host = k.slice('sell:comm:'.length);
+        const src = t1Keys(host).find((x) => { const l = costLines.find((c) => c.id === x.split(':')[2]); return !!l && resolveCatalogId(l) === 'commission'; });
+        const a = w.addr(k);
+        const lid = src?.split(':')[2];
+        const rep = lid ? repOf(host, lid) : undefined;
+        const use = lid ? blends.use.get(`${host}|${lid}`) : undefined;
+        const sp = use && w.has(use) ? w.addr(use) : undefined;
+        if (src && rep && sp) {
+          // THE COMMISSION IS WORKED OUT ON REVENUE (2026-11-19, founder B3): rate x the line's sale value x its timing
+          // share, beside the marketing; Capex's row links it (forward), so no row reads a later tab.
+          w.fA({ sheet: a.sheet, row: a.row, col: 2 }, rateRef(rep));
+          w.fA({ sheet: a.sheet, row: a.row, col: C_QTY }, assetQty(host, plsOf(host, lid!)));
+          const RA = (col: number): string => w.refA({ sheet: a.sheet, row: a.row, col }, a.sheet);
+          const cr = w.addr(src).row;
+          for (let t = 0; t < N; t++) {
+            const c = cP(t);
+            w.fA({ sheet: a.sheet, row: a.row, col: c }, `${RA(2)}*${RA(C_QTY)}*${w.refP({ sheet: sp.sheet, row: sp.row, col: c }, a.sheet)}`);
+            w.fA({ sheet: CAPEX, row: cr, col: c }, w.refP({ sheet: a.sheet, row: a.row, col: c }, CAPEX));
+          }
+        } else for (let t = 0; t < N; t++) w.valueA({ sheet: a.sheet, row: a.row, col: cP(t) }, 0);
+        w.fA({ sheet: a.sheet, row: a.row, col: C_TOT }, `SUM(${w.rangeA(a.sheet, a.row, cP(0), cP(N - 1)).replace(/^'?[^!]+'?!/, '')})`);
+        commRows.push(a);
+      }
+      const totalOf = (key: string, parts: Array<{ sheet: string; row: number }>): void => {
+        if (!w.has(key)) return;
+        const a = w.addr(key);
+        for (const c of [...Array.from({ length: N }, (_, t) => cP(t)), C_TOT]) {
+          const refs = parts.map((x) => w.refP({ sheet: x.sheet, row: x.row, col: c }, a.sheet));
+          w.fA({ sheet: a.sheet, row: a.row, col: c }, refs.length ? refs.join('+') : '0');
+        }
+      };
+      totalOf('sell:comm', commRows);
+      totalOf('sell:total', ['cx1e:total', 'sell:comm'].filter((x) => w.has(x)).map((x) => w.addr(x)));
+    }
 
     // ── Tables 2 and 4: an asset's capex incl. and excl. its land value ──────
     const lineById = new Map(costLines.map((l) => [l.id, l] as const));

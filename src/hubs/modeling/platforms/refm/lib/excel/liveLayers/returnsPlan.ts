@@ -408,9 +408,9 @@ export function returnsPlan(state: FinancialsResolverState, snap: Snap, rs: RS, 
     fe.earners.forEach((e, k) => {
       rows.push({ key: `ret|fe|${k}`, label: e.name, kind: 'cells', cells: [
         { col: D, v: e.totalManagementFeeIncome, fmt: RF.money, f: (E) => (fundOn && e.managementFeeShare > 0 ? E.d('rs|fee:mgmt') : '0') },
-        { col: D + 1, v: e.totalPerformanceFeeIncome, fmt: RF.money, f: (E) => (fundOn ? `(${shareF(e)(E)})*${E.d('rs|fee:perf')}` : '0') },
-        { col: D + 2, v: e.totalDeveloperFeeIncome, fmt: RF.money, f: (E) => (hasDev ? `(${devShareF(e)(E)})*${E.d('rs|fee:dev')}` : '0') },
-        { col: D + 3, v: e.totalCommissionIncome, fmt: RF.money, f: (E) => (hasCom ? `(${comShareF(e)(E)})*${E.d('rs|fee:com')}` : '0') },
+        { col: D + 1, v: e.totalPerformanceFeeIncome, fmt: RF.money, f: (E) => { const s0 = shareF(e)(E); return fundOn && s0 !== '0' ? `(${s0})*${E.d('rs|fee:perf')}` : '0'; } },
+        { col: D + 2, v: e.totalDeveloperFeeIncome, fmt: RF.money, f: (E) => { const s0 = devShareF(e)(E); return hasDev && s0 !== '0' ? `(${s0})*${E.d('rs|fee:dev')}` : '0'; } },
+        { col: D + 3, v: e.totalCommissionIncome, fmt: RF.money, f: (E) => { const s0 = comShareF(e)(E); return hasCom && s0 !== '0' ? `(${s0})*${E.d('rs|fee:com')}` : '0'; } },
         { col: D + 4, v: e.totalFeeIncome, fmt: RF.money, f: (E) => `SUM(${E.cell(`ret|fe|${k}`, D)}:${E.cell(`ret|fe|${k}`, D + 3)})` },
       ] });
     });
@@ -551,7 +551,8 @@ export function returnsPlan(state: FinancialsResolverState, snap: Snap, rs: RS, 
     one('ret|de|tdc', 'Total development cost', de.totalDevelopmentCost, (E) => (E.has('cx:tdc') ? E.xo('cx:tdc') : `SUM(${E.xr('fnc:capexall')})`));
     one('ret|de|fin', 'Finance cost capitalised (IDC)', de.totalFinancingCost, (E) => `SUM(${E.xr('fnc:main:basis')})`);
     one('ret|de|opex', 'Marketing and sales commission', de.operatingExpenses, (E) => {
-      // Marketing: Revenue's selling cost total (cx1e:total, the row Financing's selling costs paid reads).
+      // Revenue 5.3's total selling costs (2026-11-19, founder B3), else marketing and the commission rows.
+      if (E.has('sell:total')) return E.xo('sell:total');
       const mk = E.has('cx1e:total') ? E.xo('cx1e:total') : '0';
       const cm = commKeys(E).map((k) => `SUM(${E.xr(k)})`);
       return [mk, ...cm].join('+');
@@ -583,10 +584,18 @@ export function returnsPlan(state: FinancialsResolverState, snap: Snap, rs: RS, 
     }
     const revLines = planRevenueLines(state.assets, state.subUnits, state.phases, state.project);
     const occKeyOf = (ids: string[], E: REnv): string | undefined => { const l = revLines.find((x) => x.members.some((m) => ids.includes(m.id))); const k = l ? `rev|${l.key}|o|Occupancy` : ''; return k && E.has(k) ? k : undefined; };
-    one('rm|stabYear', 'Stabilised year (every held asset at its top occupancy)', m.stabilisedYear ?? 'n/a', (E) => {
-      const ys = heldLines.map((g) => occKeyOf(g.ids, E)).filter((k): k is string => !!k).map((k) => `INDEX(${E.yrRng()},MATCH(MAX(${E.xr(k)}),${E.xr(k)},0))`);
-      return ys.length ? `MIN(${E.d('ret|Exit Year')},MAX(${ys.join(',')}))` : E.d('ret|Exit Year');
-    }, RF.year);
+    // Each held line's first year at its top occupancy, one row each (short formulas, no array read), then the latest.
+    const stabRows: string[] = [];
+    heldLines.forEach((g, i) => {
+      const lineRev = revLines.find((x) => x.members.some((mm) => g.ids.includes(mm.id)));
+      const occ = lineRev ? (lineRev.form === 'operate' ? snap.revenue.byHospitalityAsset?.get(lineRev.members[0].id)?.occupancyPerPeriod : snap.revenue.byLeaseAsset?.get(lineRev.members[0].id)?.occupancyPerPeriod) ?? [] : [];
+      const top = Math.max(0, ...occ.slice(0, N));
+      const at = top > 0 ? occ.findIndex((v) => (v ?? 0) >= top - 1e-9) : -1;
+      const key = `rm|stab:${i}`;
+      one(key, `Stabilised year: ${g.label}`, at >= 0 ? years[at] : 'n/a', (E) => { const k = occKeyOf(g.ids, E); return k ? `INDEX(${E.yrRng()},MATCH(MAX(${E.xr(k)}),${E.xr(k)},0))` : E.d('ret|Exit Year'); }, RF.year, { indent: 2 });
+      stabRows.push(key);
+    });
+    one('rm|stabYear', 'Stabilised year (every held asset at its top occupancy)', m.stabilisedYear ?? 'n/a', (E) => (stabRows.length ? `MIN(${E.d('ret|Exit Year')},MAX(${stabRows.map((k) => E.d(k)).join(',')}))` : E.d('ret|Exit Year')), RF.year);
     one('rm|stabNoi', 'Held assets\' NOI in the stabilised year', m.stabilisedYearNOI ?? 0, (E) => `SUMPRODUCT((${E.yrRng()}=${E.d('rm|stabYear')})*${E.rngY('rs|noi')})`);
     const idcOf = (ids: string[], E: REnv): string[] => [...new Set(ids.filter((id) => E.has(`fnc:main:idc:${id}`)).map((id) => `fnc:main:idc:${id}`))].slice(0, 1).map((k) => `SUM(${E.xr(k)})`);
     heldLines.forEach((g, i) => one(`rm|heldcost:${i}`, `Held cost incl. IDC, ${g.label}`,
@@ -611,7 +620,8 @@ export function returnsPlan(state: FinancialsResolverState, snap: Snap, rs: RS, 
     const dash = (v: number | null | undefined): number | null => (v == null || !Number.isFinite(v) ? null : v);
     const series = (metric: string): Array<number | null> => [null, ...covenantSeries(metric as never, covInputs).map((v) => dash(v as number | null))];
     pRow('rm|ds', 'Scheduled debt service (sweep excluded)', yearsToStream(rs.scheduledDebtServicePerPeriod), (E, s) => ['fnc:main:interest', 'fnc:main:sched', 'fnc:main:exitrepay'].filter((k) => E.has(k)).map((k) => E.loop(k, s)).join('+') || '0');
-    const ebitdaKey = 'pl|__all__||EBITDA';
+    // Project EBITDA, before the fund fees, where a fund charges them (2026-11-19, founder B1).
+    const ebitdaKey = resolveFundTerms(p).enabled ? 'pl|__all__||ebitdaPre' : 'pl|__all__||EBITDA';
     const measured = (v: string): string => `IF(ABS(${v})<0.000000001,"-",${v})`;
     pRow('rm|dscr', 'DSCR', series('dscr'), (E, s) => `IF(AND(${E.s('rm|op', s)}=1,${E.s('rm|ds', s)}>0.000001),${measured(`${E.x(ebitdaKey, s)}/${E.s('rm|ds', s)}`)},"-")`, { nullAs: '-', total: 'none', fmt: RF.mult });
     pRow('rm|icr', 'Interest cover', series('icr'), (E, s) => `IF(ABS(${E.loop('fnc:main:intexp', s)})>0.000001,${measured(`${E.x(ebitdaKey, s)}/ABS(${E.loop('fnc:main:intexp', s)})`)},"-")`, { nullAs: '-', total: 'none', fmt: RF.mult });

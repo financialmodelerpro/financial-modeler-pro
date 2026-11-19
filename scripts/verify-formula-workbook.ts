@@ -1302,7 +1302,7 @@ function formulaCells(wb: ExcelJS.Workbook): Map<string, { formula: string; resu
     check("A14c no formula on any tab is over 200 characters but the front tabs' sentences (helper rows and cells carry the long ones)", long.length === 0, `${long.length} over: ${long.slice(0, 6).join(', ')}`);
     const plWs = wb.getWorksheet('P&L');
     let ebitAt = 0, ebitdaAt = 0, pbtAt = 0;
-    plWs?.eachRow((row, r) => { const l = String(row.getCell(LC).value ?? ''); if (!ebitdaAt && /^EBITDA$/.test(l)) ebitdaAt = r; if (!ebitAt && /^EBIT$/.test(l)) ebitAt = r; if (!pbtAt && /before (zakat|tax)/i.test(l)) pbtAt = r; });
+    plWs?.eachRow((row, r) => { const l = String(row.getCell(LC).value ?? ''); if (!ebitdaAt && /^EBITDA( AFTER FUND FEES)?$/i.test(l)) ebitdaAt = r; /* 2026-11-19: EBITDA after the fund fees where a fund charges them */ if (!ebitAt && /^EBIT$/.test(l)) ebitAt = r; if (!pbtAt && /before (zakat|tax)/i.test(l)) pbtAt = r; });
     check('A14d the P&L strikes EBIT after depreciation and before interest', ebitdaAt > 0 && ebitAt > ebitdaAt && pbtAt > ebitAt, `EBITDA ${ebitdaAt}, EBIT ${ebitAt}, PBT ${pbtAt}`);
   }
   // A merged block reads and writes its master, so a relabel per cell stacked the status

@@ -750,13 +750,14 @@ export function computeReturnsSnapshot(snap: ProjectFinancialsSnapshot, project:
       debtOutstandingAtExit: debtAtExit,
       totalEquityInvested,
       totalEquityDistributions: totalDividends + (proceedsDistributed ? 0 : tvEquity),
-      cfadsPerPeriod: pl.ebitdaPerPeriod.slice(0, N),
+      // THE COVENANTS ON PROJECT EBITDA, BEFORE THE FUND FEES (2026-11-19, founder B1).
+      cfadsPerPeriod: (pl.ebitdaBeforeFundFeesPerPeriod ?? pl.ebitdaPerPeriod).slice(0, N),
       // THE SNAPSHOT OWNS THE MASK (2026-09-21), derived once from the phase
       // timelines, so the covenant table, the tiles and this metric cannot
       // disagree about which years are operating years.
       operatingPerPeriod: snap.operatingPerPeriod.slice(0, N),
       debtServicePerPeriod,
-      ebitdaPerPeriod: pl.ebitdaPerPeriod.slice(0, N),
+      ebitdaPerPeriod: (pl.ebitdaBeforeFundFeesPerPeriod ?? pl.ebitdaPerPeriod).slice(0, N),
       interestPerPeriod: pl.interestExpensePerPeriod.slice(0, N),
       distributionPerPeriod: dividendsPaid.slice(0, N),
       cumulativeEquityPerPeriod: cumulativeEquity.slice(0, N),

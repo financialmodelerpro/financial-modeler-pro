@@ -1205,13 +1205,13 @@ export function splitInputs(wb: ExcelJS.Workbook, opts: { readFrom?: ExcelJS.Wor
     const f = (x.value as { formula?: string } | null)?.formula ?? '';
     const lastYear = (): number => { let m = 5; for (const [cc, oc] of p.row.cells) if (cc > m && cc < HID && oc.from) m = cc; return m; };
     if (f === '$E$@ROW@') { x.value = { formula: `$E${p.r}`, result: numAt(p.sheet, p.r, 5) } as ExcelJS.CellValue; x.numFmt = /%/.test(String(at(p.sheet, p.r, 5).numFmt ?? '')) ? '0.0%;(0.0%);"-"' : at(p.sheet, p.r, 5).numFmt; }
-    else if (/^@SUMCHECK:(\d+)@$/.test(f)) { const nY = Number(/(\d+)/.exec(f)![1]); x.value = { formula: `IF(ROUND(SUM(F${p.r}:${colName(5 + Math.max(1, nY))}${p.r}),6)=1,"OK","CHECK")`, result: ok(sumRow(p.sheet, p.r, 6, 5 + Math.max(1, nY))) } as ExcelJS.CellValue; }
+    else if (/^@SUMCHECK:(\d+)@$/.test(f)) { const nY = Number(/(\d+)/.exec(f)![1]); x.value = { formula: `IF(ABS(SUM(F${p.r}:${colName(5 + Math.max(1, nY))}${p.r})-1)<0.000001,"OK","CHECK")`, result: ok(sumRow(p.sheet, p.r, 6, 5 + Math.max(1, nY))) } as ExcelJS.CellValue; }
     else if (f === '@CHECK@') {
       const grp = ordered.find((g) => g.key === 'A' && g.sheet === OPERATING_INPUTS) as (OGroup & { checks?: Array<{ row: ORow; pre: ORow | undefined }> }) | undefined;
       const ch = grp?.checks?.find((x2) => x2.row === p.row);
       const pre = ch?.pre ? posOf.get(ch.pre) : undefined;
       const lc = colName(Math.max(lastYear(), ch?.pre ? (() => { let m = 6; for (const [cc, oc] of ch.pre!.cells) if (cc > m && cc < HID && oc.from) m = cc; return m; })() : 6));
-      const lcN = colNum(lc); x.value = { result: ok(sumRow(p.sheet, p.r, 6, lcN) + (pre ? sumRow(pre.sheet, pre.r, 6, lcN) : 0)), formula: pre ? `IF(ROUND(SUM(F${p.r}:${lc}${p.r})+SUM(F${pre.r}:${lc}${pre.r}),6)=1,"OK","CHECK")` : `IF(ROUND(SUM(F${p.r}:${lc}${p.r}),6)=1,"OK","CHECK")` } as ExcelJS.CellValue;
+      const lcN = colNum(lc); x.value = { result: ok(sumRow(p.sheet, p.r, 6, lcN) + (pre ? sumRow(pre.sheet, pre.r, 6, lcN) : 0)), formula: pre ? `IF(ABS(SUM(F${p.r}:${lc}${p.r})+SUM(F${pre.r}:${lc}${pre.r})-1)<0.000001,"OK","CHECK")` : `IF(ABS(SUM(F${p.r}:${lc}${p.r})-1)<0.000001,"OK","CHECK")` } as ExcelJS.CellValue;
     } else if (f === '@INFL@') {
       const meta = inflationRows as ORow[] & { rateRow?: ORow; fromRow?: ORow };
       const rr = meta.rateRow ? posOf.get(meta.rateRow) : undefined; const fr = meta.fromRow ? posOf.get(meta.fromRow) : undefined;

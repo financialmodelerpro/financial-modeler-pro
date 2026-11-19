@@ -421,6 +421,8 @@ function buildModelWorkbookInner(opts: BuildModelOptions): ExcelJS.Workbook {
 interface SellingSection {
   shares: Array<{ key: string; label: string; shares: number[]; window: number; inPhase: number[]; even: number[]; blend?: boolean }>;
   costs: Array<{ key: string; label: string; rate: number; qty: number; per: number[]; amount: number }>;
+  /** The sales commission of each line (2026-11-19, founder B3), read from its Capex row. */
+  commission?: Array<{ key: string; label: string; source: string; rate: number; qty: number; per: number[]; amount: number }>;
 }
 const SELLING_SECTION = new WeakMap<ExcelJS.Workbook, SellingSection>();
 
@@ -446,54 +448,82 @@ function emitSellingSection(wb: ExcelJS.Workbook, ws: ExcelJS.Worksheet, r0: num
   const cP = (t: number): number => OPEN_COL + 1 + t;
   const put = (rr: number, c: number, v: number, fmt: string): void => { const cell = ws.getCell(rr, c); cell.value = v; cell.numFmt = fmt; cell.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } }; };
   const last = OPEN_COL + N;
+  const sum = (xs: number[][]): number[] => Array.from({ length: N }, (_, t) => xs.reduce((a, x) => a + (x[t] ?? 0), 0));
   let r = r0;
-  setSectionHeader(ws.getRow(r), 'Selling costs (charged here; Capex and the P&L read them)', last); r += 1;
-  for (const [c, text, align] of [[LBL_COL, 'Line', 'left'], [2, 'Rate', 'right'], [3, 'Sale value', 'right'], [TOTAL_COL, 'Total', 'right'], [OPEN_COL, 'Window total', 'right']] as const) setColHeader(ws.getCell(r, c), text, align);
-  r += 1;
-  for (const x of sec.shares) {
-    if (x.blend) {
-      // THE COMMISSION TERMS (2026-11-18): one row combining the shares above it as Inputs says.
-      setLabel(ws.getCell(r, LBL_COL), x.label, { indent: 1 });
+  // THREE SUB-TABLES (2026-11-19, founder B3): 5.1 marketing, 5.2 sales commission, 5.3 the totals, the P&L expense and
+  // the cash paid. Each share is the line's own series over its phase's years; no fallback row and no window column (a
+  // line that sells nothing pays nothing on any share).
+  setSectionHeader(ws.getRow(r), 'Selling costs', last); r += 1;
+  const sub = (title: string): void => { setLabel(ws.getCell(r, LBL_COL), title, { bold: true }); r += 1; };
+  const heads = (cols: Array<[number, string, 'left' | 'right']>): void => { for (const [c, text, align] of cols) setColHeader(ws.getCell(r, c), text, align); r += 1; };
+  const lineOf = (x: { label: string }): string => x.label.replace(/^(Collections|Units sold|Handover) share, /, '').replace(/^Commission terms, /, '');
+  const shareRows = (pick: (x: SellingSection['shares'][number]) => boolean): void => {
+    for (const x of sec.shares.filter(pick)) {
+      if (x.blend) {
+        setLabel(ws.getCell(r, LBL_COL), `Commission timing: ${lineOf(x)}`, { indent: 1 });
+        registerCell(x.key, ws, ws.getCell(r, LBL_COL));
+        for (let t = 0; t < N; t++) put(r, cP(t), x.shares[t] ?? 0, NUMFMT.pct2);
+        put(r, TOTAL_COL, x.shares.reduce((a, v) => a + (v ?? 0), 0), NUMFMT.pct2);
+        r += 1;
+        continue;
+      }
+      const kind = /^Units sold/.test(x.label) ? 'Share sold' : /^Handover/.test(x.label) ? 'Share handed over' : 'Share collected';
+      setLabel(ws.getCell(r, LBL_COL), `In phase: ${lineOf(x)}`, { indent: 1 });
+      registerCell(`${x.key}|in`, ws, ws.getCell(r, LBL_COL));
+      for (let t = 0; t < N; t++) put(r, cP(t), x.inPhase[t] ?? 0, NUMFMT.int);
+      r += 1;
+      setLabel(ws.getCell(r, LBL_COL), `${kind}: ${lineOf(x)}`, { indent: 1 });
       registerCell(x.key, ws, ws.getCell(r, LBL_COL));
       for (let t = 0; t < N; t++) put(r, cP(t), x.shares[t] ?? 0, NUMFMT.pct2);
       put(r, TOTAL_COL, x.shares.reduce((a, v) => a + (v ?? 0), 0), NUMFMT.pct2);
       r += 1;
-      continue;
     }
-    // The phase's years (1 = yes) the share reads (2026-11-15: short formulas).
-    setLabel(ws.getCell(r, LBL_COL), `${x.label.replace(/^(Collections|Units sold|Handover) share, /, '')}: in its phase's years (1 = yes)`, { indent: 1 });
-    registerCell(`${x.key}|in`, ws, ws.getCell(r, LBL_COL));
-    for (let t = 0; t < N; t++) put(r, cP(t), x.inPhase[t] ?? 0, NUMFMT.int);
-    r += 1;
-    setLabel(ws.getCell(r, LBL_COL), `${x.label.replace(/^(Collections|Units sold|Handover) share, /, '')}: even over its window, if it collects nothing`, { indent: 1 });
-    registerCell(`${x.key}|even`, ws, ws.getCell(r, LBL_COL));
-    for (let t = 0; t < N; t++) put(r, cP(t), x.even[t] ?? 0, NUMFMT.pct2);
-    r += 1;
-    setLabel(ws.getCell(r, LBL_COL), x.label, { indent: 1 });
-    registerCell(x.key, ws, ws.getCell(r, LBL_COL));
-    put(r, OPEN_COL, x.window, NUMFMT.money);
-    for (let t = 0; t < N; t++) put(r, cP(t), x.shares[t] ?? 0, NUMFMT.pct2);
-    put(r, TOTAL_COL, x.shares.reduce((a, v) => a + (v ?? 0), 0), NUMFMT.pct2);
-    r += 1;
-  }
-  const tot = new Array<number>(N).fill(0);
+  };
+  // 5.1 Marketing: the share of each line sold in the year, then its marketing (rate, sale value, amount).
+  sub('Marketing');
+  heads([[LBL_COL, 'Line', 'left'], [2, 'Rate', 'right'], [3, 'Sale value', 'right'], [TOTAL_COL, 'Total', 'right']]);
+  shareRows((x) => !x.blend && /^Units sold/.test(x.label));
   for (const x of sec.costs) {
     setLabel(ws.getCell(r, LBL_COL), x.label, { indent: 1 });
     registerCell(x.key, ws, ws.getCell(r, LBL_COL));
     put(r, 2, x.rate, NUMFMT.pct2);
     put(r, 3, x.qty, NUMFMT.money);
-    for (let t = 0; t < N; t++) { put(r, cP(t), x.per[t] ?? 0, NUMFMT.money); tot[t] += x.per[t] ?? 0; }
+    for (let t = 0; t < N; t++) put(r, cP(t), x.per[t] ?? 0, NUMFMT.money);
     put(r, TOTAL_COL, x.amount, NUMFMT.money);
     r += 1;
   }
-  if (sec.costs.length) {
-    setLabel(ws.getCell(r, LBL_COL), 'Total selling costs', { bold: true });
-    registerCell('cx1e:total', ws, ws.getCell(r, LBL_COL));
-    for (let t = 0; t < N; t++) put(r, cP(t), tot[t], NUMFMT.money);
-    put(r, TOTAL_COL, tot.reduce((a, v) => a + v, 0), NUMFMT.money);
-    fillRange(ws, r, 1, r, last, ARGB.subtotal);
-    for (let c = 1; c <= last; c++) ws.getCell(r, c).font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.navyDark } };
+  r += 1;
+  // 5.2 Sales commission: the shares its terms combine, the timing, and each line's commission (charged on Capex).
+  const comm = sec.commission ?? [];
+  sub('Sales commission');
+  heads([[LBL_COL, 'Line', 'left'], [2, 'Rate', 'right'], [3, 'Sale value', 'right'], [TOTAL_COL, 'Total', 'right']]);
+  shareRows((x) => x.blend || !/^Units sold/.test(x.label));
+  for (const x of comm) {
+    setLabel(ws.getCell(r, LBL_COL), x.label, { indent: 1 });
+    registerCell(x.key, ws, ws.getCell(r, LBL_COL));
+    put(r, 2, x.rate, NUMFMT.pct2);
+    put(r, 3, x.qty, NUMFMT.money);
+    for (let t = 0; t < N; t++) put(r, cP(t), x.per[t] ?? 0, NUMFMT.money);
+    put(r, TOTAL_COL, x.amount, NUMFMT.money);
+    r += 1;
   }
+  r += 1;
+  // 5.3 The totals: marketing is the P&L expense; the commission is capitalised and expensed at handover; both are paid.
+  sub('Total selling costs, P&L expense and cash paid');
+  heads([[LBL_COL, 'Line', 'left'], [TOTAL_COL, 'Total', 'right']]);
+  const mk = sum(sec.costs.map((x) => x.per)), cm = sum(comm.map((x) => x.per));
+  const totalRow = (key: string, label: string, v: number[], bold = false): void => {
+    setLabel(ws.getCell(r, LBL_COL), label, { indent: bold ? 0 : 1, bold });
+    registerCell(key, ws, ws.getCell(r, LBL_COL));
+    for (let t = 0; t < N; t++) put(r, cP(t), v[t] ?? 0, NUMFMT.money);
+    put(r, TOTAL_COL, v.reduce((a, x) => a + x, 0), NUMFMT.money);
+    if (bold) { fillRange(ws, r, 1, r, last, ARGB.subtotal); for (let c = 1; c <= last; c++) ws.getCell(r, c).font = { name: 'Calibri', size: BODY_SIZE, bold: true, color: { argb: ARGB.navyDark } }; }
+    r += 1;
+  };
+  // Marketing keeps the key the P&L and Financing read (cx1e:total): the P&L expense.
+  if (sec.costs.length) totalRow('cx1e:total', 'Marketing: total, the P&L expense', mk);
+  if (comm.length) totalRow('sell:comm', 'Sales commission: total, expensed at handover', cm);
+  totalRow('sell:total', 'Total selling costs, cash paid', sum([mk, cm]), true);
 }
 
 /** A hotel's guests feed only an F&B or other revenue charged per guest (2026-11-15). */
@@ -2477,8 +2507,11 @@ function addCapex(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancial
     registerCell('cxwhead', ws, ws.getCell(r, C_LBL));
     r += 1;
     const phT = phasingFor(wb, state, refs.capexMembers ?? new Map(), snap).table;
-    const sharePairs: Array<{ row: PhasingTable['rows'][number]; phaseId: string }> = [];
-    for (const row of phT.rows) for (const ph of state.phases) if (row.phaseIds.includes(ph.id)) sharePairs.push({ row, phaseId: ph.id });
+    // ONE CAPEX ROW PER TABLE ROW, PHASE AND RULE (2026-11-19): a line on its own window that reads a curve row (landscape
+    // on 1 to 4 beside a 4-year build) keeps its own share row, which reads the whole row, so a change in the construction
+    // years moves the curve lines and not it, as on the platform.
+    const sharePairs: Array<{ row: PhasingTable['rows'][number]; phaseId: string; capped: boolean }> = [];
+    for (const row of phT.rows) for (const ph of state.phases) for (const capped of [true, false]) if (row.spreads.some((x) => x.phaseId === ph.id && x.capped === capped)) sharePairs.push({ row, phaseId: ph.id, capped });
     // Each phase's construction year of every model year (1 in its first year), the number the share rows look up.
     for (const ph of state.phases.filter((p) => sharePairs.some((x) => x.phaseId === p.id))) {
       const off = Math.max(0, new Date(ph.startDate as string).getUTCFullYear() - snap.projectStartYear);
@@ -2489,13 +2522,16 @@ function addCapex(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancial
     }
     for (const x of sharePairs) {
       const ph = state.phases.find((p) => p.id === x.phaseId)!;
-      const sps = x.row.spreads.filter((sp) => sp.phaseId === x.phaseId).map((sp) => plan.rows.get(sp.key)).filter((sp): sp is SpreadRow => !!sp);
+      const sps = x.row.spreads.filter((sp) => sp.phaseId === x.phaseId && sp.capped === x.capped).map((sp) => plan.rows.get(sp.key)).filter((sp): sp is SpreadRow => !!sp);
       if (!sps.length) continue;
-      const nm = `Spend share: ${multiPhase ? `${ph.name} ` : ''}${x.row.short}`;
+      const own = x.row.standard && !x.capped;
+      const ownNames = own ? [...new Set([...plan.plotLine.values()].filter((pl) => sps.some((sp) => sp.key === pl.spread) && !pl.disabled).map((pl) => state.costLines.find((c) => c.id === pl.lineId)?.name).filter((n): n is string => !!n))].join(', ').toLowerCase() : '';
+      const nm = `Spend share: ${multiPhase ? `${ph.name} ` : ''}${own ? `${ownNames}, own timing` : x.row.short}`;
       setLabel(ws.getCell(r, C_LBL), nm, { indent: 1 });
       for (const sp of sps) registerCell(`cxw:${sp.key}`, ws, ws.getCell(r, C_LBL));
       // The row's total over the years it reads (the denominator), in the Input column.
-      { const cpN = Math.max(1, ph.constructionPeriods ?? 0); let den = 0; for (const [k, v] of x.row.values) if (!x.row.standard || k <= cpN) den += Math.max(0, v); put(r, C_UOM, den, NUMFMT.pct2); }
+      // Only a row read over the construction years needs it; any other reads its whole row in the formula.
+      if (x.capped) { const cpN = Math.max(1, ph.constructionPeriods ?? 0); let den = 0; for (const [k, v] of x.row.values) if (k <= cpN) den += Math.max(0, v); put(r, C_UOM, den, NUMFMT.pct2); }
       for (let t = 0; t < N; t++) put(r, cP(t), sps[0].shares[t] ?? 0, NUMFMT.pct2);
       put(r, C_TOT, sumN(sps[0].shares), NUMFMT.pct2);
       r += 1;
@@ -2639,7 +2675,7 @@ function addCapex(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancial
         const ov = state.costOverrides.find((o) => o.assetId === e.a.id && o.lineId === e.line.id);
         const rate = (ov && ov.overridden !== false ? ov.value ?? e.line.value : e.line.value) / 100;
         if (sellingToRevenue) {
-          selling.costs.push({ key: `cx1e:${host}:${e.line.id}`, label: `${e.line.name}, ${g.m ? head(g.m) : e.a.name}`, rate, qty: rate !== 0 ? g.amount / rate : 0, per: g.per.slice(0, N), amount: g.amount });
+          selling.costs.push({ key: `cx1e:${host}:${e.line.id}`, label: `Marketing: ${g.m ? `${g.m.label}${multiPhase && g.m.phaseName ? `, ${g.m.phaseName}` : ''}` : e.a.name}`, rate, qty: rate !== 0 ? g.amount / rate : 0, per: g.per.slice(0, N), amount: g.amount });
           continue;
         }
         registerCell(`cx1e:${host}:${e.line.id}`, ws, ws.getCell(r, C_LBL));
@@ -2686,6 +2722,15 @@ function addCapex(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancial
       moneyRow(r, totalLabel, grand, { style: 'navy' }); r += 1;
       return totalRow;
     };
+    // THE SALES COMMISSION ON REVENUE 5.2 (2026-11-19, founder B3): each line's commission, read from its Capex row.
+    selling.commission = [];
+    for (const m of lines) for (const ln of m.ref.lines) {
+      const cl = state.costLines.find((c) => c.id === ln.id);
+      if (!cl || resolveCatalogId(cl) !== 'commission') continue;
+      const per = inputLine(m.hostId, ln.id)?.perPeriod ?? zeros();
+      const rate = ln.isPercent ? ln.rate / 100 : ln.rate;
+      selling.commission.push({ key: `sell:comm:${m.hostId}`, label: `Sales commission: ${m.label}${multiPhase && m.phaseName ? `, ${m.phaseName}` : ''}`, source: `cx1:${m.hostId}:${ln.id}`, rate, qty: rate !== 0 ? ln.amount / rate : 0, per: per.slice(0, N), amount: ln.amount });
+    }
     const totalRow = summaryTable('Total Capex Including Land Value', (m) => m.incl, 'cx2', 'Total capex, incl. all land');
     {
       // Of which, by cost type: land cash and in-kind (Table 5's totals), RETT on its own row, then the rest.

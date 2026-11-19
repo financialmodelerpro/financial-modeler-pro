@@ -330,3 +330,33 @@ export function plainSalesWords(wb: ExcelJS.Workbook): void {
     if (t !== c.value) c.value = t;
   }));
 }
+
+/**
+ * NO TYPED TOLERANCE IN A FORMULA (2026-11-19, founder B5): the absolute tolerance every check and test reads is one
+ * named cell on Checks, "Tolerance" (0.000001), and the relative one beside it, "Tolerance_relative" (the share of a
+ * check's scale, 1E-12). Each typed 1E-9 or 0.000001 is replaced by the name; a figure below the tolerance reads as zero.
+ */
+export function namedTolerances(wb: ExcelJS.Workbook): void {
+  const ws = wb.getWorksheet('Checks');
+  if (!ws) return;
+  const ABS = /(?<![\w.$])(?:1E-0?9|1E-0?6|0\.000000001|0\.000001)(?![\w.])/gi;
+  const REL = /(?<![\w.$])1E-12(?![\w.])/gi;
+  let any = false;
+  for (const s of wb.worksheets) s.eachRow((row) => row.eachCell((c) => {
+    const v = c.value as { formula?: string; result?: unknown } | null;
+    if (!v || typeof v !== 'object' || typeof v.formula !== 'string') return;
+    const f = v.formula.replace(ABS, 'Tolerance').replace(REL, 'Tolerance_relative');
+    if (f !== v.formula) { c.value = { ...v, formula: f } as ExcelJS.CellValue; any = true; }
+  }));
+  void any; // the cells are written on every build (a values twin has no formula to rewrite), so the layouts agree
+  let last = 0;
+  ws.eachRow({ includeEmpty: false }, (_row, r) => { last = Math.max(last, r); });
+  const r0 = last + 2;
+  const label = (r: number, text: string): void => { const c = ws.getCell(r, 3); c.value = text; c.font = { name: 'Calibri', size: 9, bold: true, color: { argb: 'FF1B4F8A' } }; };
+  const val = (r: number, v: number): void => { const c = ws.getCell(r, 5); c.value = v; c.numFmt = '0.0E+00'; c.font = { name: 'Calibri', size: 9, color: { argb: 'FF000000' } }; };
+  label(r0, 'Tolerance (a figure below it reads as zero)'); val(r0, 0.000001);
+  label(r0 + 1, 'Tolerance_relative (a check passes within this share of its scale)'); val(r0 + 1, 1e-12);
+  const names = wb.definedNames as unknown as { add(ref: string, name: string): void };
+  names.add(`'Checks'!$E$${r0}`, 'Tolerance');
+  names.add(`'Checks'!$E$${r0 + 1}`, 'Tolerance_relative');
+}
