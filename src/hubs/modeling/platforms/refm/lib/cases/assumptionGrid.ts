@@ -219,6 +219,8 @@ export interface GridContext {
   tranches: Map<string, { name: string; phaseId?: string }>;
   /** Active per-asset cost overrides (overridden !== false, not disabled) grouped by lineId. */
   activeOverridesByLine: Map<string, Array<{ assetId: string; lineId: string; value: number }>>;
+  /** An asset type id -> the name the project gives it today (2026-11-19, founder A5). */
+  types?: Map<string, string>;
 }
 
 export function buildGridContext(model: HydrateSnapshot): GridContext {
@@ -234,6 +236,8 @@ export function buildGridContext(model: HydrateSnapshot): GridContext {
   for (const a of m.assets ?? []) assets.set(a.id, { name: assetLabel(a, labelCtx) || a.id, phaseId: a.phaseId });
   const phases = new Map<string, string>();
   for (const p of m.phases ?? []) phases.set(p.id, p.name || p.id);
+  const types = new Map<string, string>();
+  for (const t of ((model as unknown as { project?: { assetTypes?: Array<{ id: string; label?: string }> } }).project?.assetTypes ?? [])) if (t?.id) types.set(t.id, (t.label ?? '').trim() || t.id);
   const parcels = new Map<string, string>();
   for (const p of m.parcels ?? []) parcels.set(p.id, p.name || p.id);
   const costLines = new Map<string, { baseId: string; phaseId?: string; value: number; disabled?: boolean; targetAssetId?: string }>();
@@ -249,7 +253,7 @@ export function buildGridContext(model: HydrateSnapshot): GridContext {
     arr.push({ assetId: o.assetId, lineId: o.lineId, value: Number(o.value) || 0 });
     activeOverridesByLine.set(o.lineId, arr);
   }
-  return { assets, phases, parcels, costLines, subUnits, tranches, activeOverridesByLine };
+  return { assets, phases, parcels, costLines, subUnits, tranches, activeOverridesByLine, types };
 }
 
 // Financing-config method labels, so project.financing.<config>.debtPct rows are
@@ -409,9 +413,10 @@ export function describeAssumption(f: OverridableField, ctx?: GridContext): Assu
 
   // A type value or a cost standard names its type or its row (2026-09-15).
   const typeValue = /^project\.assetTypeValues\.([^.]+)\./.exec(f.path);
-  if (typeValue) context = humanizeLeaf(typeValue[1]);
+  // By the name the project gives the type today (2026-11-19, founder A5), not its id.
+  if (typeValue) context = ctx?.types?.get(typeValue[1]) ?? humanizeLeaf(typeValue[1]);
   const standardRow = /^project\.costStandardRows\[id=([^\]]+)\]/.exec(f.path);
-  if (standardRow) context = humanizeLeaf(standardRow[1].replace(/^(type|cat):/, ''));
+  if (standardRow) { const id = standardRow[1].replace(/^(type|cat):/, ''); context = (standardRow[1].startsWith('type:') ? ctx?.types?.get(id) : undefined) ?? humanizeLeaf(id); }
   let label = FIELD_LABELS[f.field];
   if (!label) { for (const [re, l] of SUFFIX_LABELS) if (re.test(f.field)) { label = l; break; } }
   if (!label) label = humanizeLeaf(f.field);
