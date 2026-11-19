@@ -97,7 +97,8 @@ export const stage8Capex7: LiveLayer = {
       // A line's capitalised interest is one row its plots share (stage6Loop): each row once.
       const idcSeen = new Set<number>();
       const idcTerms = l.memberIds.filter((id) => has(`fnc:main:idc:${id}`)).filter((id) => { const r = w.addr(`fnc:main:idc:${id}`).row; if (idcSeen.has(r)) return false; idcSeen.add(r); return true; }).flatMap((id) => {
-        return Array.from({ length: N }, (_, t) => `MAX(0,N(${w.per(`fnc:main:idc:${id}`, t)}))`);
+        // A plain link, as every IDC reader takes it (2026-11-19, founder C16): capitalised interest is never negative.
+        return Array.from({ length: N }, (_, t) => w.per(`fnc:main:idc:${id}`, t));
       });
       const fig: Fig = { construction, land, idc: idcTerms.length ? `(${idcTerms.join('+')})` : '0', nsa, bua, gfa };
       if (l.sale) {

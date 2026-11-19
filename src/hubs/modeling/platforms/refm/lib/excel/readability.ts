@@ -390,6 +390,23 @@ export function snapResidues(wb: ExcelJS.Workbook, live: boolean): number {
  * same. The body font is 9.5pt and every other size moves in proportion (9 to 9.5, 13 to 13.5 ...).
  */
 export function houseStandard(wb: ExcelJS.Workbook): void {
+  // THE COVER'S TEXT IS NEVER CUT OFF (2026-11-19, founder C16): a description longer than its cells wraps, its row
+  // grown to the lines it needs.
+  const cover = wb.getWorksheet('Cover');
+  if (cover) cover.eachRow((row, r) => {
+    let need = 1;
+    row.eachCell((c, col) => {
+      const v = c.value as unknown;
+      const t = typeof v === 'string' ? v : v && typeof v === 'object' && typeof (v as { result?: unknown }).result === 'string' ? (v as { result: string }).result : '';
+      if (col < 4 || !t) return;
+      // The width the text has: its own column and the empty or same-text cells to its right.
+      let width = cover.getColumn(col).width ?? 10;
+      for (let k = col + 1; k <= col + 3; k++) { const nv = cover.getCell(r, k).value as unknown; const nt = typeof nv === 'string' ? nv : ''; if (nv === null || nv === undefined || nt === t) width += cover.getColumn(k).width ?? 10; else break; }
+      const lines = Math.ceil((t.length * 1.1) / Math.max(1, width));
+      if (lines > 1) { c.alignment = { ...(c.alignment ?? {}), wrapText: true, vertical: 'top' }; need = Math.max(need, lines); }
+    });
+    if (need > 1) row.height = 15 * need;
+  });
   const BAR = 'FF1B4F8A', HEAD = 'FF153D64';
   const fillOf = (c: ExcelJS.Cell): string | undefined => (c.fill as { fgColor?: { argb?: string } } | undefined)?.fgColor?.argb;
   for (const ws of wb.worksheets) {
@@ -439,4 +456,29 @@ export function modelYearRow(wb: ExcelJS.Workbook, live: boolean): void {
       cell.alignment = { horizontal: 'center' };
     });
   }
+}
+
+/**
+ * NO UNUSED OR BROKEN DEFINED NAMES (2026-11-19, founder C16): a name no formula reads, a name that points at #REF!
+ * or an Excel-internal _xlfn name goes; a name a formula reads (Tolerance) stays.
+ */
+export function cleanDefinedNames(wb: ExcelJS.Workbook): void {
+  const dn = wb.definedNames as unknown as { model: Array<{ name: string; ranges: string[] }> };
+  const model = dn.model ?? [];
+  if (!model.length) return;
+  const text: string[] = [];
+  for (const ws of wb.worksheets) ws.eachRow((row) => row.eachCell((c) => { const v = c.value as { formula?: string } | null; if (v && typeof v === 'object' && typeof v.formula === 'string') text.push(v.formula); }));
+  const all = text.join('\n');
+  // A name is a word of letters, digits, "_" and "."; it is read where it stands alone in a formula.
+  const used = (n: string): boolean => {
+    let at = all.indexOf(n);
+    while (at >= 0) {
+      const before = at > 0 ? all[at - 1] : '';
+      const after = all[at + n.length] ?? '';
+      if (!/[A-Za-z0-9_.!$']/.test(before) && !/[A-Za-z0-9_.(]/.test(after)) return true;
+      at = all.indexOf(n, at + 1);
+    }
+    return false;
+  };
+  dn.model = model.filter((m) => !/^_xlfn\./i.test(m.name) && !(m.ranges ?? []).some((r) => /#REF!/i.test(r)) && used(m.name));
 }

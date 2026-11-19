@@ -35,7 +35,7 @@ import { deleteRowAt } from './liveFrontMatter';
 import { applyHouseStyle } from './houseStyle';
 import { applyReferenceLayout, echoesToInputColumn } from './referenceLayout';
 import { applyTabFrame, tilesInMillions, blankNonFlowTotals } from './tabFrame';
-import { finalPasses, plainSalesWords, namedTolerances, snapResidues, houseStandard, modelYearRow } from './readability';
+import { finalPasses, plainSalesWords, namedTolerances, snapResidues, houseStandard, modelYearRow, cleanDefinedNames } from './readability';
 import { TAB_ORDER, buildFormulaWorkbook } from './formulaWorkbook';
 import { emptyProjectRefusal, liveWorkbookRefusal } from './liveWorkbookAvailability';
 import { addDashboardCharts, addRiskTriggers, type ChartSpec } from './dashboard';
@@ -223,6 +223,7 @@ export function buildValuesModeWorkbook(opts: BuildModelOptions): ValuesWorkbook
   namedTolerances(wb);
   snapResidues(wb, false);
   modelYearRow(wb, false);
+  cleanDefinedNames(wb);
   houseStandard(wb);
   orderTabs(wb);
   return { wb, dropped, source: 'values', charts };

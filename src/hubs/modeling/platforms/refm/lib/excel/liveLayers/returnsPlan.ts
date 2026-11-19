@@ -687,7 +687,7 @@ export function returnsPlan(state: FinancialsResolverState, snap: Snap, rs: RS, 
     head('ret|#peq', 'Peak equity');
     const cumEq = (() => { let r = 0; const c = stream(bu.equityCashPerPeriod), k = stream(bu.equityInKindPerPeriod); return [null, ...Array.from({ length: N }, (_, t) => (r += -(c[t + 1] ?? 0) - (k[t + 1] ?? 0)))]; })();
     pRow('rm|cumeq', 'Cumulative equity invested', cumEq, (E, s) => `${s === 1 ? '0' : E.s('rm|cumeq', s - 1)}-${E.s('rs|dd:cash', s)}-${E.s('rs|dd:kind', s)}`, { total: 'last' });
-    one('rm|peakeq', 'Peak equity', m.peakEquity, (E) => `MAX(0,MAX(${E.rngY('rm|cumeq')}))`, RF.money, { style: 'subtotal' });
+    one('rm|peakeq', 'Peak equity: highest cumulative equity in', m.peakEquity, (E) => `MAX(0,MAX(${E.rngY('rm|cumeq')}))`, RF.money, { style: 'subtotal' });
   }
   return { rows, refused };
 }

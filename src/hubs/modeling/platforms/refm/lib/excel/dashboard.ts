@@ -296,7 +296,7 @@ export function buildDashboard(wb: ExcelJS.Workbook, ctx: DashboardContext): { c
   const covHead = L.row(RET, 'Covenant', retKM);
   const cov = (label: string): number | null => (covHead ? L.row(RET, label, [covHead + 1, covHead + 6]) : null);
   const rCovDscr = cov('DSCR'), rCovIcr = cov('Interest Cover (ICR)'), rCovLtv = cov('LTV'), rCovDy = cov('Debt Yield');
-  const peaks = L.rowsAll(RET, 'Peak equity', retKM); const rPeakEq = peaks[peaks.length - 1];
+  const peaks = L.rowsAll(RET, /^Peak equity/, retKM); const rPeakEq = peaks[peaks.length - 1];
   const rNewCash = retPart ? L.row(RET, 'New cash equity', retPart) : null, rInKind = retPart ? L.row(RET, 'In-kind equity', retPart) : null;
   const plSec = L.section(PL, /^Income Statement \(P&L\): Project$/)!;
   const rRev = L.need(PL, 'TOTAL REVENUE', plSec), rEbitda = L.need(PL, /^EBITDA( AFTER FUND FEES)?$/i, plSec), rPat = L.need(PL, /^PROFIT AFTER (ZAKAT|TAX)$/, plSec);
