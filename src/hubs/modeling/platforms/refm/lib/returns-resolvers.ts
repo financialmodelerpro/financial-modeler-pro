@@ -719,10 +719,11 @@ export function computeReturnsSnapshot(snap: ProjectFinancialsSnapshot, project:
   // AFTER debt service, so counting it makes DSCR circular and reports early
   // repayment as a breach. The cash statements keep `debtServiceCash`, the total
   // outflow, which is the right number for a cash flow.
-  // DSCR = CFADS / (INTEREST PAID + PRINCIPAL REPAID, THE SWEEP INCLUDED) (2026-11-19, founder C4, superseding the
-  // scheduled-service denominator of 2026-09-22 and TRAPS 7.56 by the founder's decision): CFADS is the cash from
-  // operations (after zakat), measured in every year with debt service.
-  const debtServicePerPeriod = Array.from({ length: N }, (_, t) => Math.max(0, -(snap.directCF.interestPaidPerPeriod[t] ?? 0)) + Math.max(0, -(snap.directCF.debtRepaymentPerPeriod[t] ?? 0)));
+  // THE COVENANT YEARS (2026-11-19, founder C4 corrected; TRAPS 7.56 stands): an OPERATING year with debt outstanding.
+  // DSCR = CFADS (the cash from operations, after zakat) / scheduled debt service (interest paid + scheduled principal,
+  // the sweep excluded); ICR = project EBITDA / interest. Construction years are not tested (their interest is funded).
+  const covYear = Array.from({ length: N }, (_, t) => snap.operatingPerPeriod[t] === true && ((snap.bs.debtOutstandingPerPeriod[t] ?? 0) > 1e-6 || (t > 0 && (snap.bs.debtOutstandingPerPeriod[t - 1] ?? 0) > 1e-6)));
+  const debtServicePerPeriod = fin.combined.scheduledDebtServiceCash.slice(0, N).map((v, t) => (covYear[t] ? v ?? 0 : 0));
   // Does ANY period carry contractual amortisation? When nothing is scheduled,
   // DSCR and ICR are the same ratio by construction (the denominators are both
   // interest), and every surface that prints both must SAY SO rather than leave
@@ -766,11 +767,11 @@ export function computeReturnsSnapshot(snap: ProjectFinancialsSnapshot, project:
       // THE SNAPSHOT OWNS THE MASK (2026-09-21), derived once from the phase
       // timelines, so the covenant table, the tiles and this metric cannot
       // disagree about which years are operating years.
-      operatingPerPeriod: undefined,
+      operatingPerPeriod: covYear,
       debtServicePerPeriod,
       ebitdaPerPeriod: (pl.ebitdaBeforeFundFeesPerPeriod ?? pl.ebitdaPerPeriod).slice(0, N),
       // ICR = project EBITDA / interest CHARGED (capitalised and expensed), 2026-11-19 (founder C4).
-      interestPerPeriod: fin.combined.totalInterestAccrued.slice(0, N).map((v) => v ?? 0),
+      interestPerPeriod: fin.combined.totalInterestAccrued.slice(0, N).map((v, t) => (covYear[t] ? v ?? 0 : 0)),
       distributionPerPeriod: dividendsPaid.slice(0, N),
       cumulativeEquityPerPeriod: cumulativeEquity.slice(0, N),
       equityInvestedPerPeriod: fin.equity.totalPerPeriod.slice(0, N),

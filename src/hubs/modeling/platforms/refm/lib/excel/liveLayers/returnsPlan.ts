@@ -627,12 +627,14 @@ export function returnsPlan(state: FinancialsResolverState, snap: Snap, rs: RS, 
     // EBITDA / interest charged (2026-11-19, founder C4).
     const cfKey = (n: string): string => `cf|direct||${n}`;
     pRow('rm|cfads', 'CFADS: cash from operations, after zakat', yearsToStream(snap.directCF.cashFromOperationsPerPeriod), (E, s) => (E.has(cfKey('Cash Flow from Operations')) ? E.x(cfKey('Cash Flow from Operations'), s) : '0'), { total: 'none' });
-    pRow('rm|ds', 'Debt service: interest paid + principal repaid', yearsToStream(rs.scheduledDebtServicePerPeriod), (E, s) => `-(${[cfKey('Interest paid'), cfKey('Debt repaid')].filter((k) => E.has(k)).map((k) => E.x(k, s)).join('+') || '0'})`, { total: 'none' });
+    // An operating year with debt outstanding (2026-11-19, founder C4 corrected): the years the covenants test.
+    pRow('rm|covYr', 'Covenant year (operating, with debt)', yearsToStream(rs.scheduledDebtServicePerPeriod.map((_v, t) => (snap.operatingPerPeriod[t] === true && ((snap.bs.debtOutstandingPerPeriod[t] ?? 0) > 1e-6 || (t > 0 && (snap.bs.debtOutstandingPerPeriod[t - 1] ?? 0) > 1e-6)) ? 1 : 0))), (E, s) => `${E.s('rm|op', s)}*((${E.s('rs|debt', s)}>0.000001)+(N(${E.s('rs|debt', s - 1)})>0.000001)>0)`, { total: 'none', fmt: RF.int });
+    pRow('rm|ds', 'Scheduled debt service (sweep excluded)', yearsToStream(rs.scheduledDebtServicePerPeriod), (E, s) => `${E.s('rm|covYr', s)}*(${['fnc:main:interest', 'fnc:main:sched', 'fnc:main:exitrepay'].filter((k) => E.has(k)).map((k) => E.loop(k, s)).join('+') || '0'})`, { total: 'none' });
     // Project EBITDA, before the fund fees, where a fund charges them (2026-11-19, founder B1).
     const ebitdaKey = resolveFundTerms(p).enabled ? 'pl|__all__||ebitdaPre' : 'pl|__all__||EBITDA';
     const measured = (v: string): string => `IF(ABS(${v})<0.000000001,"-",${v})`;
     pRow('rm|dscr', 'DSCR', series('dscr'), (E, s) => `IF(${E.s('rm|ds', s)}>0.000001,${measured(`${E.s('rm|cfads', s)}/${E.s('rm|ds', s)}`)},"-")`, { nullAs: '-', total: 'none', fmt: RF.mult });
-    pRow('rm|icr', 'Interest cover', series('icr'), (E, s) => `IF(ABS(${E.loop('fnc:main:interest', s)})>0.000001,${measured(`${E.x(ebitdaKey, s)}/ABS(${E.loop('fnc:main:interest', s)})`)},"-")`, { nullAs: '-', total: 'none', fmt: RF.mult });
+    pRow('rm|icr', 'Interest cover', series('icr'), (E, s) => `IF(${E.s('rm|covYr', s)}*ABS(${E.loop('fnc:main:interest', s)})>0.000001,${measured(`${E.x(ebitdaKey, s)}/ABS(${E.loop('fnc:main:interest', s)})`)},"-")`, { nullAs: '-', total: 'none', fmt: RF.mult });
     pRow('rm|dy', 'Debt yield', series('debt_yield'), (E, s) => `IF(AND(${E.s('rs|debt', s)}>0.000000001,${E.s('rs|noi', s)}>0.000000001),${E.s('rs|noi', s)}/${E.s('rs|debt', s)},"-")`, { nullAs: '-', total: 'none', fmt: RF.pct });
     // LOAN TO COST IN CONSTRUCTION, LOAN TO VALUE AFTER (2026-11-19, founder C2): the cost incurred to date including
     // capitalised interest; after it, the held assets' NOI over the exit cap rate plus the unsold residential at the

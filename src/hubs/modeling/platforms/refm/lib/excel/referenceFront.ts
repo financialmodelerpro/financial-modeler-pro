@@ -282,8 +282,8 @@ function buildGuide(ws: ExcelJS.Worksheet, wb: ExcelJS.Workbook, ctx: FrontConte
   line('Performance fee', "The manager's share of distributions above the hurdle return, worked out in the hurdle waterfall on Returns.");
   line('GDV and development profit', 'GDV is the residential sales value plus the gross exit value of the held assets. Development profit is GDV less the development cost, the capitalised interest (IDC) and the selling costs; the margin divides it by GDV, profit on cost by the cost plus IDC.', { height: 27 });
   line('Yield on cost', "Held assets' NOI in the stabilised year (every held asset at its top occupancy) divided by their cost including IDC. Below the exit cap rate typed, the assets are worth less than they cost.", { height: 27 });
-  line('DSCR', 'Cash flow available for debt service (the cash from operations, after zakat) over the debt service (interest paid plus every principal repaid, the sweep included), in every year with debt service.', { height: 27 });
-  line('ICR', 'Project EBITDA (before the fund fees) over the interest charged in the year, capitalised and expensed.');
+  line('DSCR', 'Cash flow available for debt service (the cash from operations, after zakat) over the scheduled debt service (interest paid plus scheduled principal; the cash sweep is excluded), tested in operating years with debt outstanding. Construction years are not tested: their interest is funded.', { height: 27 });
+  line('ICR', 'Project EBITDA (before the fund fees) over the interest charged, tested in operating years with debt outstanding.');
   line('LTV, debt yield', 'Loan to cost in a construction year (debt over the development cost to date including capitalised interest), loan to value after it (debt over the NOI of the held assets at the exit cap rate plus the unsold homes at the price of that year). Each test against its covenant on Inputs; the Dashboard shows the worst year.', { height: 27 });
   line('IDC, RETT, NSA, GFA', 'Capitalised interest during construction; real estate transfer tax; net saleable or leasable area; gross floor area.');
   r++;
