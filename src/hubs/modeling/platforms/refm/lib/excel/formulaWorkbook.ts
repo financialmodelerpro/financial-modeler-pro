@@ -30,6 +30,7 @@
  * No em dashes in this file.
  */
 import type ExcelJS from 'exceljs';
+import { localTimingFlags } from './timingFlags';
 import { buildModelWorkbook, finalizeCalcSettings, houseContextOf, type BuildModelOptions } from './buildModelWorkbook';
 import { applyHouseStyle, timelinePhaseFormula } from './houseStyle';
 import { CellRegistry, setCellSink } from './cellRegistry';
@@ -247,6 +248,10 @@ export function buildFormulaWorkbook(opts: BuildModelOptions): FormulaWorkbookRe
     const echoMoves = echoesToInputColumn(wb);
     registry.remap(echoMoves.move);
     frame = composeMoves(frame, echoMoves);
+    // Local timing flags at the top of every calculation tab (2026-11-19, founder B6); the registry follows.
+    const tfMoves = localTimingFlags(wb, true);
+    registry.remap(tfMoves.move);
+    frame = composeMoves(frame, tfMoves);
     // THE FRONT TABS (2026-11-17, founder): the Guide, the Dashboard in place of the Summary, the Cover's navigation.
     const front = buildFrontTabs(wb, { valuesOutput: !!opts.valuesOutput, scale: house.scale });
     charts = front.charts;
