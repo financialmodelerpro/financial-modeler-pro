@@ -49,7 +49,7 @@ export function reMetricCovenantInputs(rs: ReturnsSnapshot, debtOutstandingPerPe
     icrPerPeriod: m.icrPerPeriod,
     noiPerPeriod: rs.noiPerPeriod,
     debtOutstandingPerPeriod,
-    gdvValue: rs.developmentEconomics.gdv,
+    gdvValue: rs.developmentEconomics.gdv, ltvBasisPerPeriod: rs.ltvBasisPerPeriod,
     ltvAtExit: m.ltvAtExit,
   };
 }

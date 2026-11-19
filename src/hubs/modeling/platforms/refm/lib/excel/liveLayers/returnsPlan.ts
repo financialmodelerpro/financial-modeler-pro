@@ -525,7 +525,7 @@ export function returnsPlan(state: FinancialsResolverState, snap: Snap, rs: RS, 
   {
     const m = rs.result.realEstate;
     const de = rs.developmentEconomics;
-    const covInputs: CovenantInputs = { dscrPerPeriod: m.dscrPerPeriod, icrPerPeriod: m.icrPerPeriod, noiPerPeriod: rs.noiPerPeriod, debtOutstandingPerPeriod: snap.bs.debtOutstandingPerPeriod, gdvValue: de.gdv, ltvAtExit: m.ltvAtExit };
+    const covInputs: CovenantInputs = { dscrPerPeriod: m.dscrPerPeriod, icrPerPeriod: m.icrPerPeriod, noiPerPeriod: rs.noiPerPeriod, debtOutstandingPerPeriod: snap.bs.debtOutstandingPerPeriod, gdvValue: de.gdv, ltvAtExit: m.ltvAtExit, ltvBasisPerPeriod: rs.ltvBasisPerPeriod };
     const phases = state.phases as Phase[];
     section('ret|#metrics', 'Key metrics');
 
@@ -623,14 +623,34 @@ export function returnsPlan(state: FinancialsResolverState, snap: Snap, rs: RS, 
       : `IF(OR(${phases.map((ph) => `AND(${E.yr(s)}>=YEAR(${E.ref(`phase:${ph.id}:oStart`)}),${E.yr(s)}<=YEAR(${E.ref(`phase:${ph.id}:oEnd`)}))`).join(',')}),1,0)`), { total: 'none', fmt: RF.int });
     const dash = (v: number | null | undefined): number | null => (v == null || !Number.isFinite(v) ? null : v);
     const series = (metric: string): Array<number | null> => [null, ...covenantSeries(metric as never, covInputs).map((v) => dash(v as number | null))];
-    pRow('rm|ds', 'Scheduled debt service (sweep excluded)', yearsToStream(rs.scheduledDebtServicePerPeriod), (E, s) => ['fnc:main:interest', 'fnc:main:sched', 'fnc:main:exitrepay'].filter((k) => E.has(k)).map((k) => E.loop(k, s)).join('+') || '0');
+    // DSCR = CFADS / (interest paid + principal repaid, the sweep included), every year with debt service; ICR = project
+    // EBITDA / interest charged (2026-11-19, founder C4).
+    const cfKey = (n: string): string => `cf|direct||${n}`;
+    pRow('rm|cfads', 'CFADS: cash from operations, after zakat', yearsToStream(snap.directCF.cashFromOperationsPerPeriod), (E, s) => (E.has(cfKey('Cash Flow from Operations')) ? E.x(cfKey('Cash Flow from Operations'), s) : '0'), { total: 'none' });
+    pRow('rm|ds', 'Debt service: interest paid + principal repaid', yearsToStream(rs.scheduledDebtServicePerPeriod), (E, s) => `-(${[cfKey('Interest paid'), cfKey('Debt repaid')].filter((k) => E.has(k)).map((k) => E.x(k, s)).join('+') || '0'})`, { total: 'none' });
     // Project EBITDA, before the fund fees, where a fund charges them (2026-11-19, founder B1).
     const ebitdaKey = resolveFundTerms(p).enabled ? 'pl|__all__||ebitdaPre' : 'pl|__all__||EBITDA';
     const measured = (v: string): string => `IF(ABS(${v})<0.000000001,"-",${v})`;
-    pRow('rm|dscr', 'DSCR', series('dscr'), (E, s) => `IF(AND(${E.s('rm|op', s)}=1,${E.s('rm|ds', s)}>0.000001),${measured(`${E.x(ebitdaKey, s)}/${E.s('rm|ds', s)}`)},"-")`, { nullAs: '-', total: 'none', fmt: RF.mult });
-    pRow('rm|icr', 'Interest cover', series('icr'), (E, s) => `IF(ABS(${E.loop('fnc:main:intexp', s)})>0.000001,${measured(`${E.x(ebitdaKey, s)}/ABS(${E.loop('fnc:main:intexp', s)})`)},"-")`, { nullAs: '-', total: 'none', fmt: RF.mult });
+    pRow('rm|dscr', 'DSCR', series('dscr'), (E, s) => `IF(${E.s('rm|ds', s)}>0.000001,${measured(`${E.s('rm|cfads', s)}/${E.s('rm|ds', s)}`)},"-")`, { nullAs: '-', total: 'none', fmt: RF.mult });
+    pRow('rm|icr', 'Interest cover', series('icr'), (E, s) => `IF(ABS(${E.loop('fnc:main:interest', s)})>0.000001,${measured(`${E.x(ebitdaKey, s)}/ABS(${E.loop('fnc:main:interest', s)})`)},"-")`, { nullAs: '-', total: 'none', fmt: RF.mult });
     pRow('rm|dy', 'Debt yield', series('debt_yield'), (E, s) => `IF(AND(${E.s('rs|debt', s)}>0.000000001,${E.s('rs|noi', s)}>0.000000001),${E.s('rs|noi', s)}/${E.s('rs|debt', s)},"-")`, { nullAs: '-', total: 'none', fmt: RF.pct });
-    pRow('rm|ltv', 'LTV (debt over the gross development value)', series('ltv'), (E, s) => `IF(AND(${E.d('ret|de|gdv')}>0.000000001,${E.s('rs|debt', s)}>0.000000001),${E.s('rs|debt', s)}/${E.d('ret|de|gdv')},"-")`, { nullAs: '-', total: 'none', fmt: RF.pct });
+    // LOAN TO COST IN CONSTRUCTION, LOAN TO VALUE AFTER (2026-11-19, founder C2): the cost incurred to date including
+    // capitalised interest; after it, the held assets' NOI over the exit cap rate plus the unsold residential at the
+    // year's indexed sale price. The covenant tests the worst year.
+    {
+      const basis = rs.ltvBasisPerPeriod, isCost = rs.ltvIsCostPerPeriod;
+      const comm = snap.financing.capex.commissionPerPeriod ?? [], idcS = snap.idc.totalIdcPerPeriod ?? [];
+      pRow('rm|con', 'Construction year (1 = yes)', yearsToStream(isCost.map((v) => (v ? 1 : 0))), (E, s) => (phases.every((ph) => E.has(`tl:flag:${ph.id}:con`)) ? `MIN(1,${phases.map((ph) => E.x(`tl:flag:${ph.id}:con`, s)).join('+')})` : '0'), { total: 'none', fmt: RF.int });
+      pRow('rm|ltcAdd', 'Development cost incurred incl. IDC', yearsToStream(snap.financing.capex.perPeriod.inclAllLand.slice(0, N).map((v, t) => (v ?? 0) - (comm[t] ?? 0) + (idcS[t] ?? 0))), (E, s) => `${E.has('cx1:total') ? E.x('cx1:total', s) : '0'}+${E.has('fnc:main:basis') ? E.x('fnc:main:basis', s) : '0'}`);
+      let cum = 0;
+      const cumCost = snap.financing.capex.perPeriod.inclAllLand.slice(0, N).map((v, t) => (cum += (v ?? 0) - (comm[t] ?? 0) + (idcS[t] ?? 0)));
+      pRow('rm|ltcCost', 'Development cost to date incl. IDC', yearsToStream(cumCost), (E, s) => `SUM(${E.rngYTo('rm|ltcAdd', s)})`, { total: 'none' });
+      const priceKeys = (E: REnv): Array<[string, string]> => E.keys().filter((k) => /^rev\|.+\|s\|(.+: )?[Ss]ale price per sqm \(indexed\)$/.test(k)).map((k) => [k, k.replace(/[Ss]ale price per sqm \(indexed\)$/, (m0) => (m0.startsWith('S') ? 'Sqm sold' : 'sqm sold'))] as [string, string]).filter(([, q]) => E.has(q));
+      void basis;
+      pRow('rm|unsold', 'Unsold residential at the year\'s sale price', yearsToStream(rs.ltvUnsoldPerPeriod), (E, s) => priceKeys(E).map(([pk, qk]) => `${E.x(pk, s)}*SUMIF(${E.yrRng()},">"&${E.yr(s)},${E.xr(qk)})`).join('+') || '0', { total: 'none' });
+      pRow('rm|ltvVal', 'Held value (NOI / exit cap rate) + unsold residential', yearsToStream(rs.ltvValuePerPeriod), (E, s) => `IF(N(${E.d('rm|cap')})>0,MAX(0,${E.s('rs|noi', s)})/${E.d('rm|cap')},0)+${E.s('rm|unsold', s)}`, { total: 'none' });
+      pRow('rm|ltv', 'Loan to cost (construction) / loan to value', series('ltv'), (E, s) => `IF(${E.s('rs|debt', s)}>0.000000001,IF(${E.s('rm|con', s)}=1,IF(${E.s('rm|ltcCost', s)}>0,${E.s('rs|debt', s)}/${E.s('rm|ltcCost', s)},"-"),IF(${E.s('rm|ltvVal', s)}>0,${E.s('rs|debt', s)}/${E.s('rm|ltvVal', s)},"-")),"-")`, { nullAs: '-', total: 'none', fmt: RF.pct });
+    }
     // With no debt in any year, LTV is measured at the exit (debt over the exit value).
     one('rm|ltvexit', 'LTV at the exit (debt over the exit value)', m.ltvAtExit ?? '-', (E) => `IF(${E.d('ret|x|tv')}>0,${E.d('ret|x|debtX')}/${E.d('ret|x|tv')},"-")`, RF.pct, { indent: 1 });
     const covenants = p.covenants ?? DEFAULT_COVENANTS;

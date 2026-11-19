@@ -52,6 +52,7 @@ export function computeSellAsset(inputs: ComputeSellInputs): SellAssetResult {
 
   const cumulativeShareBySubUnit = new Map<string, number>();
   const subUnitConfigById = new Map(config.subUnits.map((s) => [s.subUnitId, s]));
+  const indexedRatePerSU: Record<string, number[]> = {};
 
   for (const su of subUnits) {
     const cfg = subUnitConfigById.get(su.id);
@@ -60,6 +61,8 @@ export function computeSellAsset(inputs: ComputeSellInputs): SellAssetResult {
     const totalUnits = Math.max(0, su.count);
     const areaPerUnit = totalUnits > 0 ? totalArea / totalUnits : 0;
     const baseRate = Math.max(0, su.ratePerArea);
+    // THE PRICE PER SQM OF EVERY YEAR (2026-11-19, founder C2): what an unsold sqm is worth that year, for the LTV.
+    indexedRatePerSU[su.id] = Array.from({ length: N }, (_, yr) => applyIndexation(baseRate, yr, config.indexation));
 
     const preAreaSU = presalesAreaPerSU[su.id] ?? new Array<number>(N).fill(0);
     const preRevSU = presalesRevenuePerSU[su.id] ?? new Array<number>(N).fill(0);
@@ -243,6 +246,7 @@ export function computeSellAsset(inputs: ComputeSellInputs): SellAssetResult {
     postSalesAreaPerPeriodPerSubUnit: postSalesAreaPerSU,
     postSalesRevenuePerPeriodPerSubUnit: postSalesRevenuePerSU,
     postSalesUnitsPerPeriodPerSubUnit: postSalesUnitsPerSU,
+    indexedRatePerPeriodPerSubUnit: indexedRatePerSU,
     cashCollectedPerPeriod: cashCollected,
     presalesCashPerPeriod: cashCollectedPresales,
     postSalesCashPerPeriod: postSalesCash,

@@ -204,6 +204,14 @@ export interface ReturnsSnapshot {
   /** SCHEDULED debt service per period: the DSCR denominator, swept principal
    *  excluded. The cash statements use total outflow; see financing/types.ts. */
   scheduledDebtServicePerPeriod: number[];
+  /** THE LTV BASIS (2026-11-19, founder C2): in a construction year the development cost incurred to date including
+   *  capitalised interest (loan to cost); in an operating year the held assets' NOI over the exit cap rate plus the
+   *  unsold residential at that year's indexed sale price (loan to value). */
+  ltvBasisPerPeriod: number[];
+  ltvIsCostPerPeriod: boolean[];
+  /** The unsold residential at each year's indexed sale price, and the loan-to-value basis it is part of. */
+  ltvUnsoldPerPeriod: number[];
+  ltvValuePerPeriod: number[];
   /** Principal repaid by CASH SWEEP per period, shown as its own line in the
    *  debt schedule so early repayment stays visible. */
   sweptPrincipalPerPeriod: number[];
@@ -711,7 +719,10 @@ export function computeReturnsSnapshot(snap: ProjectFinancialsSnapshot, project:
   // AFTER debt service, so counting it makes DSCR circular and reports early
   // repayment as a breach. The cash statements keep `debtServiceCash`, the total
   // outflow, which is the right number for a cash flow.
-  const debtServicePerPeriod = fin.combined.scheduledDebtServiceCash.slice(0, N);
+  // DSCR = CFADS / (INTEREST PAID + PRINCIPAL REPAID, THE SWEEP INCLUDED) (2026-11-19, founder C4, superseding the
+  // scheduled-service denominator of 2026-09-22 and TRAPS 7.56 by the founder's decision): CFADS is the cash from
+  // operations (after zakat), measured in every year with debt service.
+  const debtServicePerPeriod = Array.from({ length: N }, (_, t) => Math.max(0, -(snap.directCF.interestPaidPerPeriod[t] ?? 0)) + Math.max(0, -(snap.directCF.debtRepaymentPerPeriod[t] ?? 0)));
   // Does ANY period carry contractual amortisation? When nothing is scheduled,
   // DSCR and ICR are the same ratio by construction (the denominators are both
   // interest), and every surface that prints both must SAY SO rather than leave
@@ -751,14 +762,15 @@ export function computeReturnsSnapshot(snap: ProjectFinancialsSnapshot, project:
       totalEquityInvested,
       totalEquityDistributions: totalDividends + (proceedsDistributed ? 0 : tvEquity),
       // THE COVENANTS ON PROJECT EBITDA, BEFORE THE FUND FEES (2026-11-19, founder B1).
-      cfadsPerPeriod: (pl.ebitdaBeforeFundFeesPerPeriod ?? pl.ebitdaPerPeriod).slice(0, N),
+      cfadsPerPeriod: snap.directCF.cashFromOperationsPerPeriod.slice(0, N).map((v) => v ?? 0),
       // THE SNAPSHOT OWNS THE MASK (2026-09-21), derived once from the phase
       // timelines, so the covenant table, the tiles and this metric cannot
       // disagree about which years are operating years.
-      operatingPerPeriod: snap.operatingPerPeriod.slice(0, N),
+      operatingPerPeriod: undefined,
       debtServicePerPeriod,
       ebitdaPerPeriod: (pl.ebitdaBeforeFundFeesPerPeriod ?? pl.ebitdaPerPeriod).slice(0, N),
-      interestPerPeriod: pl.interestExpensePerPeriod.slice(0, N),
+      // ICR = project EBITDA / interest CHARGED (capitalised and expensed), 2026-11-19 (founder C4).
+      interestPerPeriod: fin.combined.totalInterestAccrued.slice(0, N).map((v) => v ?? 0),
       distributionPerPeriod: dividendsPaid.slice(0, N),
       cumulativeEquityPerPeriod: cumulativeEquity.slice(0, N),
       equityInvestedPerPeriod: fin.equity.totalPerPeriod.slice(0, N),
@@ -987,6 +999,7 @@ export function computeReturnsSnapshot(snap: ProjectFinancialsSnapshot, project:
     buildup,
     noiPerPeriod,
     scheduledDebtServicePerPeriod: debtServicePerPeriod,
+    ...ltvBasisOf(snap, cfg.capRate, N),
     sweptPrincipalPerPeriod,
     hasScheduledAmortisation,
     stabilisedNOI,
@@ -1018,4 +1031,33 @@ export function computeReturnsSnapshot(snap: ProjectFinancialsSnapshot, project:
     performanceFeeDefaultedToManager: fundTerms.enabled && performanceFeeDefaultsToManager(fundTerms),
     performanceFeeDefaultShare: fundTerms.enabled ? performanceFeeDefaultShare(fundTerms) : 0,
   };
+}
+
+/**
+ * THE LTV BASIS BY YEAR (2026-11-19, founder C2). A construction year (the financing's IDC mask) takes the development
+ * cost incurred to date including capitalised interest; any other year the held assets' NOI over the exit cap rate plus
+ * the residential still unsold, each sqm at that year's indexed sale price.
+ */
+export function ltvBasisOf(snap: ProjectFinancialsSnapshot, capRate: number, N: number): { ltvBasisPerPeriod: number[]; ltvIsCostPerPeriod: boolean[]; ltvUnsoldPerPeriod: number[]; ltvValuePerPeriod: number[] } {
+  const fin = snap.financing;
+  const mask = (fin.idcPeriodMask ?? []).slice(0, N);
+  const comm = fin.capex.commissionPerPeriod ?? [];
+  const idc = snap.idc.totalIdcPerPeriod ?? [];
+  let cum = 0;
+  const cost = Array.from({ length: N }, (_, t) => (cum += (fin.capex.perPeriod.inclAllLand[t] ?? 0) - (comm[t] ?? 0) + (idc[t] ?? 0)));
+  const noi = new Array<number>(N).fill(0);
+  for (const pa of snap.perAssetPL.values()) if (pa.strategy === 'Operate' || pa.strategy === 'Lease') for (let t = 0; t < N; t++) noi[t] += (pa.revenuePerPeriod[t] ?? 0) - (pa.opexPerPeriod[t] ?? 0);
+  const unsold = new Array<number>(N).fill(0);
+  for (const r0 of snap.revenue.bySellAsset.values()) {
+    const rates = r0.indexedRatePerPeriodPerSubUnit ?? {};
+    for (const [su, rate] of Object.entries(rates) as Array<[string, number[]]>) {
+      const area = Array.from({ length: N }, (_, t) => (r0.presalesAreaPerPeriodPerSubUnit[su]?.[t] ?? 0) + (r0.postSalesAreaPerPeriodPerSubUnit[su]?.[t] ?? 0));
+      let after = area.reduce((a, v) => a + v, 0);
+      for (let t = 0; t < N; t++) { after -= area[t]; unsold[t] += Math.max(0, after) * (rate[t] ?? 0); }
+    }
+  }
+  const ltvIsCostPerPeriod = Array.from({ length: N }, (_, t) => mask[t] === true);
+  const value = Array.from({ length: N }, (_, t) => (capRate > 0 ? Math.max(0, noi[t]) / capRate : 0) + unsold[t]);
+  const ltvBasisPerPeriod = Array.from({ length: N }, (_, t) => (ltvIsCostPerPeriod[t] ? cost[t] : value[t]));
+  return { ltvBasisPerPeriod, ltvIsCostPerPeriod, ltvUnsoldPerPeriod: unsold, ltvValuePerPeriod: value };
 }

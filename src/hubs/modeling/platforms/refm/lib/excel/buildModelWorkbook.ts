@@ -6995,7 +6995,7 @@ function addReturns(ctx: EmitCtx, revLinks: RevLinks, opexLinks: OpexLinks, fin:
       dscrPerPeriod: m.dscrPerPeriod,
       icrPerPeriod: m.icrPerPeriod,
       noiPerPeriod: rs.noiPerPeriod, debtOutstandingPerPeriod: snap.bs.debtOutstandingPerPeriod,
-      gdvValue: de.gdv, ltvAtExit: m.ltvAtExit,
+      gdvValue: de.gdv, ltvAtExit: m.ltvAtExit, ltvBasisPerPeriod: rs.ltvBasisPerPeriod,
     };
     const covenants = state.project.covenants ?? DEFAULT_COVENANTS;
     const minDSCR = reduceWorst(covenantSeries('dscr', covenantInputs), 'min');

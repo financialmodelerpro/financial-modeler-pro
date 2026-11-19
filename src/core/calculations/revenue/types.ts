@@ -211,6 +211,8 @@ export interface SellAssetResult {
   // metric (units when metric='units', sqm otherwise).
   presalesUnitsPerPeriodPerSubUnit: Record<string, number[]>;
   postSalesUnitsPerPeriodPerSubUnit: Record<string, number[]>;
+  /** The indexed sale price per sqm of each sub-unit in every year (2026-11-19, founder C2). */
+  indexedRatePerPeriodPerSubUnit?: Record<string, number[]>;
   // Pass 7f: pre / post split of cash + recognition. Cash collected per
   // period = presalesCash + postSalesCash. Recognition per period =
   // presalesRecognition + postSalesRecognition. Post-sales components

@@ -65,7 +65,7 @@ export default function Module5Metrics(): React.JSX.Element {
     dscrPerPeriod: m.dscrPerPeriod,
     icrPerPeriod: m.icrPerPeriod,
     noiPerPeriod: rs.noiPerPeriod, debtOutstandingPerPeriod: snap.bs.debtOutstandingPerPeriod,
-    gdvValue: de.gdv, ltvAtExit: m.ltvAtExit,
+    gdvValue: de.gdv, ltvAtExit: m.ltvAtExit, ltvBasisPerPeriod: rs.ltvBasisPerPeriod,
   };
   const covenants = project.covenants ?? DEFAULT_COVENANTS;
   const setCovenants = (next: CovenantThreshold[]): void => state.setProject({ covenants: next });

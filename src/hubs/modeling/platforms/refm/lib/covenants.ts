@@ -41,6 +41,9 @@ export interface CovenantInputs {
   gdvValue: number | null;
   /** Debt at exit / exit enterprise value (LTV fallback when no GDV basis). */
   ltvAtExit: number | null;
+  /** THE LTV BASIS BY YEAR (2026-11-19, founder C2): cost to date in a construction year, value in an operating year.
+   *  Where it is given, LTV is debt over it in every year with debt; GDV is the fallback. */
+  ltvBasisPerPeriod?: number[];
 }
 
 export interface CovenantEval {
@@ -165,6 +168,8 @@ export function covenantSeries(metric: CovenantMetric, inp: CovenantInputs): Arr
       // Peak-debt LTV = debt outstanding / GDV per period; the max point is the
       // peak-leverage figure a lender covenants on. Null where no debt is drawn
       // (0% leverage is not a meaningful test point) or no GDV value basis.
+      const basis = inp.ltvBasisPerPeriod;
+      if (basis && basis.length) return inp.debtOutstandingPerPeriod.map((d, t) => ((d ?? 0) > EPS && (basis[t] ?? 0) > EPS ? (d ?? 0) / basis[t] : null));
       const gdv = inp.gdvValue;
       if (gdv == null || gdv <= EPS) return blank();
       return inp.debtOutstandingPerPeriod.map((d) => ((d ?? 0) > EPS ? (d ?? 0) / gdv : null));
@@ -185,7 +190,7 @@ export function evaluateCovenant(cov: CovenantThreshold, inp: CovenantInputs): C
     if (worst !== null) {
       const avg = reduceAvg(series);
       const pass = cov.operator === 'min' ? worst >= cov.threshold : worst <= cov.threshold;
-      return { seriesPerPeriod: series, worst, avg, pass, exitOnly: false, unit, basis: 'peak-debt', basisLabel: 'peak debt / GDV' };
+      return { seriesPerPeriod: series, worst, avg, pass, exitOnly: false, unit, basis: 'peak-debt', basisLabel: inp.ltvBasisPerPeriod ? 'loan to cost in construction, loan to value after' : 'peak debt / GDV' };
     }
     // Fallback: no GDV basis (or no debt drawn) -> single-point LTV at exit,
     // explicitly labelled so it is not read as a peak-leverage covenant.

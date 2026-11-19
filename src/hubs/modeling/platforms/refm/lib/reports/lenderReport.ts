@@ -104,7 +104,7 @@ export function buildLenderReportModel(input: {
     icrPerPeriod: m.icrPerPeriod,
     noiPerPeriod: rs.noiPerPeriod,
     debtOutstandingPerPeriod: bs.debtOutstandingPerPeriod,
-    gdvValue: rs.developmentEconomics.gdv,
+    gdvValue: rs.developmentEconomics.gdv, ltvBasisPerPeriod: rs.ltvBasisPerPeriod,
     ltvAtExit: m.ltvAtExit,
   };
   const covenants = (project.covenants ?? DEFAULT_COVENANTS).map((cov: CovenantThreshold): LenderCovenantRow => {

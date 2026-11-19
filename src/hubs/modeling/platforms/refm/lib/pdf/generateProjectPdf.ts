@@ -3639,7 +3639,7 @@ function buildModule5(returns: ReturnsSnapshot, snap: ProjectFinancialsSnapshot,
     noiPerPeriod: returns.noiPerPeriod,
     debtOutstandingPerPeriod: snap.bs.debtOutstandingPerPeriod,
     gdvValue: de.gdv,
-    ltvAtExit: re.ltvAtExit,
+    ltvAtExit: re.ltvAtExit, ltvBasisPerPeriod: returns.ltvBasisPerPeriod,
   };
   const ltvPeakTile = reduceWorst(covenantSeries('ltv', covTileInputs), 'max');
   const debtYieldTile = reduceWorst(covenantSeries('debt_yield', covTileInputs), 'min');
@@ -3680,7 +3680,7 @@ function buildModule5(returns: ReturnsSnapshot, snap: ProjectFinancialsSnapshot,
       noiPerPeriod: returns.noiPerPeriod,
       debtOutstandingPerPeriod: snap.bs.debtOutstandingPerPeriod,
       gdvValue: de.gdv,
-      ltvAtExit: re.ltvAtExit,
+      ltvAtExit: re.ltvAtExit, ltvBasisPerPeriod: returns.ltvBasisPerPeriod,
     };
     const covs = state.project.covenants ?? DEFAULT_COVENANTS;
     const evals = covs.map((c) => ({ c, ev: evaluateCovenant(c, covInputs) }));
