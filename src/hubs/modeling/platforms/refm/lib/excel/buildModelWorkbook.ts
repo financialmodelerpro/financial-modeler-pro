@@ -2652,10 +2652,9 @@ function addCapex(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancial
     };
     const subRows: number[] = [];
     for (const m of lines) {
-      // THE HEADING ROW IS THE ASSET'S SUBTOTAL (2026-11-15, founder): its lines sit under it.
-      const headRow = r;
-      moneyRow(r, head(m), m.incl, { style: 'subtotal', total: m.ref.total });
-      registerCell(`cx1sub:${m.hostId}`, ws, ws.getCell(r, C_LBL));
+      // THE TOTAL AT THE END OF THE BLOCK (2026-11-19, founder B2): the title row is a plain bold label, the lines
+      // follow, then "Total: <phase>, <line>".
+      setLabel(ws.getCell(r, C_LBL), head(m), { bold: true });
       r += 1;
       const first = r;
       for (const ln of m.ref.lines) {
@@ -2668,6 +2667,10 @@ function addCapex(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancial
         r += 1;
       }
       void first;
+      const headRow = r;
+      moneyRow(r, `Total: ${multiPhase && m.phaseName ? `${m.phaseName}, ` : ''}${m.label}`, m.incl, { style: 'subtotal', total: m.ref.total });
+      registerCell(`cx1sub:${m.hostId}`, ws, ws.getCell(r, C_LBL));
+      r += 1;
       subRows.push(headRow);
       perAssetCapex.set(m.hostId, { inclRow: headRow, exclInKindRow: headRow, exclAllRow: headRow });
     }
@@ -2760,7 +2763,9 @@ function addCapex(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancial
       const rate = ln.isPercent ? ln.rate / 100 : ln.rate;
       selling.commission.push({ key: `sell:comm:${m.hostId}`, label: `Sales commission: ${m.label}${multiPhase && m.phaseName ? `, ${m.phaseName}` : ''}`, source: `cx1:${m.hostId}:${ln.id}`, rate, qty: rate !== 0 ? ln.amount / rate : 0, per: per.slice(0, N), amount: ln.amount });
     }
-    const totalRow = summaryTable('Total Capex Including Land Value', (m) => m.incl, 'cx2', 'Total capex, incl. all land');
+    // ONE CAPEX SUMMARY (2026-11-19, founder B3): by line, by cost type with a check, land and development cost by
+    // line, land by phase; the overlapping tables (excl. land in kind, excl. total land, by section, land stage) went.
+    const totalRow = summaryTable('Capex Summary', (m) => m.incl, 'cx2', 'Total capex, incl. all land');
     {
       // Of which, by cost type: land cash and in-kind (Table 5's totals), RETT on its own row, then the rest.
       const byType = new Map<string, number[]>();
@@ -2788,7 +2793,9 @@ function addCapex(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancial
         moneyRow(r, label, sr, { indent: 1 }); addInto(all, sr); r += 1;
       }
       registerCell('cxty:total', ws, ws.getCell(r, C_LBL));
-      moneyRow(r, 'Total capex by cost type', all, { style: 'subtotal' }); r += 2;
+      moneyRow(r, 'Total capex by cost type', all, { style: 'subtotal' }); r += 1;
+      registerCell('cx:chkType', ws, ws.getCell(r, C_LBL));
+      moneyRow(r, 'Check: by line less by cost type (should be 0)', zeros(), { indent: 1 }); r += 2;
       // THE TWO FIGURES FINANCING READS (2026-11-19, founder): one row each here, linked there, never rebuilt.
       const cashCx = snap.financing.capex.perPeriod.exclLandInKind.slice(0, N).map((v, t) => v - (commAll[t] ?? 0));
       registerCell('cx:cashCapex', ws, ws.getCell(r, C_LBL));
@@ -2796,12 +2803,11 @@ function addCapex(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancial
       registerCell('cx:tdc', ws, ws.getCell(r, C_LBL));
       moneyRow(r, 'Total development cost', grandIncl, {}); r += 2;
     }
-    summaryTable('Capex Excluding Land In-Kind (cash-impact schedule)', (m) => m.exclInKind, 'cx3', 'Total capex, excl. land in-kind'); r += 1;
-    const exclAllTotalRow = summaryTable('Capex Excluding Total Land (pure development cost)', (m) => m.exclAll, 'cx4', 'Total capex, excl. all land'); r += 1;
+    const exclAllTotalRow = projTotalRow;
     // LAND AND DEVELOPMENT COST BY LINE (2026-11-19, founder B8): one row each per line, the rows Fixed Assets &
     // Inventory links (its land and capex additions), so no reader adds a line's Capex rows again.
     {
-      setSectionHeader(ws.getRow(r), 'Land and Development Cost by Line', cLast); r += 1;
+      setLabel(ws.getCell(r, C_LBL), 'By line: land and development cost excl. land', { bold: true }); r += 1;
       subHeader(r, [[C_LBL, 'Line', 'left'], [C_UOM, 'Phase', 'left'], [C_TOT, 'Total', 'right']]);
       r += 1;
       const landOf = (m: LineMeta): number[] => { const acc = zeros(); for (const ln of m.ref.lines) { const cl = costLineById.get(ln.id); if (cl && isLandValueLine(cl)) addInto(acc, inputLine(m.hostId, ln.id)?.perPeriod); } return acc; };
@@ -2821,7 +2827,7 @@ function addCapex(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancial
     }
 
     // ── Table 5: land cash and in-kind, per phase (what Financing funds), and the land-stage memo ──
-    setSectionHeader(ws.getRow(r), 'Land: Cash and In-Kind (what Financing funds)', cLast); r += 1;
+    setLabel(ws.getCell(r, C_LBL), 'Land by phase: cash and in-kind (what Financing funds)', { bold: true }); r += 1;
     subHeader(r, [[C_LBL, 'Land', 'left'], [C_UOM, 'Phase', 'left'], [C_TOT, 'Total', 'right']]);
     r += 1;
     {
@@ -2844,48 +2850,6 @@ function addCapex(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancial
       const gLand = gCash.map((v, t) => v + (gInKind[t] ?? 0));
       registerCell('cx5:total:land', ws, ws.getCell(r, C_LBL));
       moneyRow(r, 'Total land', gLand, { style: 'navy' }); r += 1;
-      // THE MEMO: what else sits in the land stage (RETT), per phase, so land value + memo = the land stage.
-      const memoLines = state.costLines.filter((c) => deriveCostStage(c) === 'land' && !isLandValueLine(c));
-      const memoIds = new Set(memoLines.map((c) => c.id));
-      const memoName = [...new Set(memoLines.map((c) => c.name))].join(', ') || 'Other land-stage costs';
-      const gMemo = zeros();
-      const memoRows: Array<{ phaseId: string; phaseName: string; per: number[] }> = [];
-      for (const b0 of landBlocks) {
-        const memo = zeros();
-        for (const m of lines) { if (m.phaseId !== b0.phaseId) continue; for (const ln of m.ref.lines) if (memoIds.has(ln.id)) addInto(memo, inputLine(m.hostId, ln.id)?.perPeriod); }
-        if (Math.abs(sumN(memo)) > 0.5) memoRows.push({ phaseId: b0.phaseId, phaseName: b0.phaseName, per: memo });
-      }
-      if (memoRows.length) {
-        r += 1;
-        setLabel(ws.getCell(r, C_LBL), `Memo: ${memoName} (land stage, not land value)`, { bold: true }); r += 1;
-        for (const mr of memoRows) { registerCell(`cx5memo:${mr.phaseId}`, ws, ws.getCell(r, C_LBL)); moneyRow(r, memoName, mr.per, { b: mr.phaseName, indent: 1 }); addInto(gMemo, mr.per); r += 1; }
-        registerCell('cx5memo:total', ws, ws.getCell(r, C_LBL));
-        moneyRow(r, `Total ${memoName}`, gMemo, { style: 'subtotal' }); r += 1;
-        registerCell('cx5:stage', ws, ws.getCell(r, C_LBL));
-        moneyRow(r, 'Land stage total (land value + memo)', gLand.map((v, t) => v + (gMemo[t] ?? 0)), { style: 'navy' }); r += 1;
-      }
-      r += 1;
-    }
-
-    // ── Table 6: capex by section, incl. all land (foots to Table 2) and excl. all land (foots to Table 4) ──
-    setSectionHeader(ws.getRow(r), 'Capex by Section', cLast); r += 1;
-    subHeader(r, [[C_LBL, 'Section', 'left'], [C_TOT, 'Total', 'right']]);
-    r += 1;
-    {
-      const secOf = (m: LineMeta): string => { const a = state.assets.find((x) => x.id === m.hostId); return a ? assetCapexSection(a, state.project) : CAPEX_SECTIONS[CAPEX_SECTIONS.length - 1]; };
-      for (const [ti, label, pick] of [[0, 'Including all land', (m: LineMeta) => m.incl], [1, 'Excluding all land', (m: LineMeta) => m.exclAll]] as const) {
-        band(r, label); r += 1;
-        const total = zeros();
-        for (const sec of CAPEX_SECTIONS) {
-          const ms = lines.filter((m) => secOf(m) === sec);
-          if (!ms.length) continue;
-          const per = zeros(); for (const m of ms) addInto(per, pick(m));
-          registerCell(`cx6:${ti}:${sec}`, ws, ws.getCell(r, C_LBL));
-          moneyRow(r, sec, per, { indent: 1 }); addInto(total, per); r += 1;
-        }
-        registerCell(`cx6:${ti}:total`, ws, ws.getCell(r, C_LBL));
-        moneyRow(r, `Total capex, ${ti === 0 ? 'incl.' : 'excl.'} all land`, total, { style: 'subtotal' }); r += 1;
-      }
       r += 1;
     }
 

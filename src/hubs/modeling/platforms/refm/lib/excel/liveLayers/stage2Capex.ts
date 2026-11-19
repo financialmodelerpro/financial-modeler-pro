@@ -641,6 +641,12 @@ export const stage2Capex: LiveLayer = {
       sumKeys('cx5:total:inkind', inkK.length ? inkK : hosts.flatMap((h) => landKeys(h, isInKindLand)));
       sumKeys('cx5:total:land', ['cx5:total:cash', 'cx5:total:inkind']);
     }
+    // The summary's check (2026-11-19, founder B3): by line less by cost type, every year.
+    if (w.has('cx:chkType') && w.has('cx2:total') && w.has('cxty:total')) {
+      const r0 = w.addr('cx:chkType').row;
+      for (let t = 0; t < N; t++) w.fA({ sheet: CAPEX, row: r0, col: cP(t) }, `${KP('cx2:total', cP(t))}-${KP('cxty:total', cP(t))}`);
+      w.fA({ sheet: CAPEX, row: r0, col: C_TOT }, sumAcross(r0));
+    }
     // Land and development cost by line (2026-11-19, founder B8): the line's land value rows, and its capex less them.
     {
       const heldLand: string[] = [];

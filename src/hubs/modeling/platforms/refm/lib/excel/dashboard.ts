@@ -302,7 +302,7 @@ export function buildDashboard(wb: ExcelJS.Workbook, ctx: DashboardContext): { c
   const rRev = L.need(PL, 'TOTAL REVENUE', plSec), rEbitda = L.need(PL, /^EBITDA( AFTER FUND FEES)?$/i, plSec), rPat = L.need(PL, /^PROFIT AFTER (ZAKAT|TAX)$/, plSec);
   const plRevFirst = plSec[0] + 0, plRevLast = rRev - 1;
   // THE CAPEX RESULTS AS THE PLATFORM NAMES THEM (2026-11-19): Table 2, incl. all land, with its split by cost type.
-  const capSum = L.section(CAP, /^Total Capex Including Land Value/i)!;
+  const capSum = L.section(CAP, /^(Capex Summary|Total Capex Including Land Value)/i)!;
   const rCapTot = L.need(CAP, /^TOTAL CAPEX, INCL. ALL LAND$/i, capSum);
   const capType = (l: string): number | null => L.row(CAP, l, capSum);
   const rLandCash = capType('Land, cash'), rLandKind = capType('Land, in-kind'), rRett = capType('RETT'), rHard = capType('Hard costs'), rSoft = capType('Soft costs'), rCont = capType('Contingency'), rFee = capType('Developer fee'), rTypeTot = capType('Total capex by cost type');
@@ -814,7 +814,7 @@ export function buildDashboard(wb: ExcelJS.Workbook, ctx: DashboardContext): { c
       const sqm = revHead ? L.row('Revenue', 'Sqm sold', [revHead, rEnd]) : null, sv = revHead ? L.row('Revenue', 'Sale value', [revHead, rEnd]) : null;
       const capHead = L.row(CAP, `${l.phase}: ${l.type}`);
       let capEnd = capHead ?? 0;
-      if (capHead) { const cw = L.ws(CAP); for (let x = capHead + 1; x <= cw.rowCount; x++) { const t = txt(cw.getCell(x, 3)); if (/^Phase \d+: /.test(t) || /^PROJECT TOTAL$/.test(t) || !t) { capEnd = x - 1; break; } } }
+      if (capHead) { const cw = L.ws(CAP); for (let x = capHead + 1; x <= cw.rowCount; x++) { const t = txt(cw.getCell(x, 3)); if (/^Phase \d+: /.test(t) || /^PROJECT TOTAL$/.test(t) || /^Total: /.test(t) || !t) { capEnd = x - 1; break; } } }
       const landRows: number[] = [], buildRows2: number[] = [];
       if (capHead) for (let x = capHead + 1; x <= capEnd; x++) { const t = txt(L.ws(CAP).getCell(x, 3)); if (/^(Land \(|RETT)/.test(t)) landRows.push(x); else buildRows2.push(x); }
       // The line's capitalised interest: its own row (its label, maybe with its plots in brackets), never another
