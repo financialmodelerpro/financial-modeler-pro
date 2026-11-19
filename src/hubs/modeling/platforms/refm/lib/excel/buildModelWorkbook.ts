@@ -5066,6 +5066,7 @@ function addOpexLive(ctx: EmitCtx, ws: ExcelJS.Worksheet, em: ReturnType<typeof 
             money(K('gop'), 'Gross operating profit, GOP', vals('Gross operating profit, GOP'), { style: 'subtotal' });
             money(K('gopm'), 'GOP margin', vals('GOP margin'), { indent: 1, numFmt: NUMFMT.pct, totalValue: byLabel.get('GOP margin')?.totalValue });
           }
+          if (isHotel && g.group === 'fixed') money(K('ebitdaPre'), 'Hotel EBITDA', vals('Hotel EBITDA'), { style: 'subtotal' });
           continue;
         }
         if (!single) head(g.label);
@@ -5076,13 +5077,16 @@ function addOpexLive(ctx: EmitCtx, ws: ExcelJS.Worksheet, em: ReturnType<typeof 
           money(K('gop'), 'Gross operating profit, GOP', vals('Gross operating profit, GOP'), { style: 'subtotal' });
           money(K('gopm'), 'GOP margin', vals('GOP margin'), { indent: 1, numFmt: NUMFMT.pct, totalValue: byLabel.get('GOP margin')?.totalValue });
         }
+        // Hotel EBITDA, then the FF&E reserve, then the NOI after it (2026-11-19, founder C12).
+        if (isHotel && g.group === 'fixed') money(K('ebitdaPre'), 'Hotel EBITDA', vals('Hotel EBITDA'), { style: 'subtotal' });
       }
       const opex = vals('Total operating expenses');
-      const ebitda = vals('EBITDA, net operating income');
+      const ebitda = vals(isHotel ? 'NOI after FF&E reserve' : 'EBITDA, net operating income');
       if (single) registerCell(K('opex'), ws, ws.getCell(em.cursor() - 1, LBL_COL));
       else money(K('opex'), 'Total operating expenses', opex, { style: 'subtotal' });
-      money(K('ebitda'), 'EBITDA, net operating income', ebitda, { style: 'total' });
-      money(K('ebm'), 'EBITDA margin', vals('EBITDA margin'), { indent: 1, numFmt: NUMFMT.pct, totalValue: byLabel.get('EBITDA margin')?.totalValue });
+      money(K('ebitda'), isHotel ? 'NOI after FF&E reserve' : 'EBITDA, net operating income', ebitda, { style: 'total' });
+      const mLab = isHotel ? 'NOI margin' : 'EBITDA margin';
+      money(K('ebm'), mLab, vals(mLab), { indent: 1, numFmt: NUMFMT.pct, totalValue: byLabel.get(mLab)?.totalValue });
       if (plan.off.length) {
         head('Switched off');
         const labelOf = new Map(plan.groups.map((g) => [g.group, g.label] as const));

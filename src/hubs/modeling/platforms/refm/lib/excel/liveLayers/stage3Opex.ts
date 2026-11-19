@@ -253,7 +253,11 @@ export const stage3Opex: LiveLayer = {
         row(K('gop'), (t) => `${P(K('dp'), t)}-${gt('undistributed', t)}`);
         ratioRow(K('gopm'), K('gop'), K('rev'));
         row(K('opex'), (t) => sumRows(groupKeys, t));
-        row(K('ebitda'), (t) => `${P(K('gop'), t)}-${gt('management', t)}-${gt('fixed', t)}`);
+        // Hotel EBITDA, then the FF&E reserve, then the NOI after it (2026-11-19, founder C12).
+        if (has(K('ebitdaPre'))) {
+          row(K('ebitdaPre'), (t) => `${P(K('gop'), t)}-${gt('management', t)}-${gt('fixed', t)}`);
+          row(K('ebitda'), (t) => `${P(K('ebitdaPre'), t)}-${gt('reserve', t)}`);
+        } else row(K('ebitda'), (t) => `${P(K('gop'), t)}-${gt('management', t)}-${gt('fixed', t)}-${gt('reserve', t)}`);
         for (const g of HOSPITALITY_COST_GROUPS) { const k = GT(g); if (k && has(k)) w.claim(`oxo:${l.key}:grp:${g}`, OPEX, w.addr(k).row, 1); }
       } else {
         // One cost row: it is the total (the same cell), so no second formula is written.

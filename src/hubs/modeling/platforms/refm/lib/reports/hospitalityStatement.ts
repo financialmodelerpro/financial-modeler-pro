@@ -39,15 +39,17 @@ import type { ProjectOpexSnapshot } from '../opex-resolvers';
 import { planRevenueLines, type RevenueLine } from '../revenueLines';
 import type { Asset, Phase, Project, SubUnit } from '../state/module1-types';
 
-export type HospitalityCostGroup = 'departmental' | 'undistributed' | 'management' | 'fixed';
+export type HospitalityCostGroup = 'departmental' | 'undistributed' | 'management' | 'fixed' | 'reserve';
 
-export const HOSPITALITY_COST_GROUPS: readonly HospitalityCostGroup[] = ['departmental', 'undistributed', 'management', 'fixed'];
+// THE FF&E RESERVE BELOW HOTEL EBITDA (2026-11-19, founder C12, USALI): its own group after the EBITDA subtotal.
+export const HOSPITALITY_COST_GROUPS: readonly HospitalityCostGroup[] = ['departmental', 'undistributed', 'management', 'fixed', 'reserve'];
 
 export const HOSPITALITY_COST_GROUP_LABEL: Record<HospitalityCostGroup, string> = {
   departmental: 'Departmental expenses',
   undistributed: 'Undistributed operating expenses',
   management: 'Management fees',
-  fixed: 'Fixed charges and reserves',
+  fixed: 'Fixed charges',
+  reserve: 'FF&E reserve',
 };
 
 /** THE ONE ROUTING of an opex line category into the statement. */
@@ -55,6 +57,7 @@ export function hospitalityCostGroup(category: string): HospitalityCostGroup {
   if (category === 'direct_rooms' || category === 'direct_fb' || category === 'direct_other') return 'departmental';
   if (category.startsWith('indirect_')) return 'undistributed';
   if (category === 'mgmt_base' || category === 'mgmt_tech' || category === 'mgmt_incentive') return 'management';
+  if (category === 'replacement_reserve') return 'reserve';
   return 'fixed';
 }
 
@@ -78,6 +81,8 @@ export interface HospitalityStatement {
   totalOpex: number[];
   departmentalProfit: number[];
   gop: number[];
+  /** GOP less management fees and fixed charges, before the FF&E reserve (2026-11-19, founder C12). */
+  ebitdaBeforeReserve: number[];
   ebitda: number[];
   /** Engine total opex less the four groups, every period. Zero by construction. */
   check: number[];
@@ -108,7 +113,7 @@ export function buildHospitalityStatement(
 
   const byKey = new Map<string, HospitalityCostLine>();
   const costLines: HospitalityCostLine[] = [];
-  const groupTotals: Record<HospitalityCostGroup, number[]> = { departmental: z(), undistributed: z(), management: z(), fixed: z() };
+  const groupTotals: Record<HospitalityCostGroup, number[]> = { departmental: z(), undistributed: z(), management: z(), fixed: z(), reserve: z() };
   const totalOpex = z();
   for (const m of members) {
     const total = m.opex?.totalOpexPerPeriod ?? [];
@@ -135,15 +140,17 @@ export function buildHospitalityStatement(
     });
   }
 
-  const departmentalProfit = z(), gop = z(), ebitda = z(), check = z();
+  const departmentalProfit = z(), gop = z(), ebitdaBeforeReserve = z(), ebitda = z(), check = z();
   for (let t = 0; t < N; t++) {
     const rev = revenue.totalRevenuePerPeriod[t] ?? 0;
     departmentalProfit[t] = rev - groupTotals.departmental[t];
     gop[t] = departmentalProfit[t] - groupTotals.undistributed[t];
-    ebitda[t] = gop[t] - groupTotals.management[t] - groupTotals.fixed[t];
-    check[t] = totalOpex[t] - groupTotals.departmental[t] - groupTotals.undistributed[t] - groupTotals.management[t] - groupTotals.fixed[t];
+    ebitdaBeforeReserve[t] = gop[t] - groupTotals.management[t] - groupTotals.fixed[t];
+    // `ebitda` stays the line's NOI (after the reserve), the figure the valuation reads.
+    ebitda[t] = ebitdaBeforeReserve[t] - groupTotals.reserve[t];
+    check[t] = totalOpex[t] - groupTotals.departmental[t] - groupTotals.undistributed[t] - groupTotals.management[t] - groupTotals.fixed[t] - groupTotals.reserve[t];
   }
-  return { key, axisLength: N, revenue, keys, costLines, groupTotals, totalOpex, departmentalProfit, gop, ebitda, check };
+  return { key, axisLength: N, revenue, keys, costLines, groupTotals, totalOpex, departmentalProfit, gop, ebitdaBeforeReserve, ebitda, check };
 }
 
 /**
@@ -206,14 +213,16 @@ export function hospitalityStatementRows(st: HospitalityStatement, opts: { allLi
     totalValue: revTotal > 0 ? sum(st.gop) / revTotal : 0,
   });
   group('management', 'Total management fees');
-  group('fixed', 'Total fixed charges and reserves');
+  group('fixed', 'Total fixed charges');
+  rows.push({ label: 'Hotel EBITDA', values: st.ebitdaBeforeReserve, isSubtotal: true });
+  group('reserve', 'Total FF&E reserve');
   if (opts.allLines) rows.push({ label: 'Total operating expenses', values: st.totalOpex, isSubtotal: true });
-  rows.push({ label: 'EBITDA, net operating income', values: st.ebitda, isTotal: true });
+  rows.push({ label: 'NOI after FF&E reserve', values: st.ebitda, isTotal: true });
   rows.push({
-    label: 'EBITDA margin', values: ratio(st.ebitda, r.totalRevenuePerPeriod), isPercent: true,
+    label: 'NOI margin', values: ratio(st.ebitda, r.totalRevenuePerPeriod), isPercent: true,
     totalValue: revTotal > 0 ? sum(st.ebitda) / revTotal : 0,
   });
-  rows.push({ label: 'Check, total opex less the four expense groups', values: st.check });
+  rows.push({ label: 'Check, total opex less the expense groups', values: st.check });
   return rows;
 }
 

@@ -31,7 +31,7 @@ const LEASE_GROUPS: Array<[string, string, string]> = [
 ];
 const HOTEL_TOTALS: Record<string, string> = {
   departmental: 'Total departmental expenses', undistributed: 'Total undistributed operating expenses',
-  management: 'Total management fees', fixed: 'Total fixed charges and reserves',
+  management: 'Total management fees', fixed: 'Total fixed charges', reserve: 'Total FF&E reserve',
 };
 
 /** The live row keys of a line's statement. */
