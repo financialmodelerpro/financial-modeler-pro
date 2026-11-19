@@ -103,6 +103,18 @@ export function buildFrontTabs(wb: ExcelJS.Workbook, ctx: FrontContext): { chart
   const split = splitInputs(wb, { readFrom: ctx.splitReadFrom });
   buildGuide(freshSheet(wb, 'Guide'), wb, ctx, tax);
   if (split) renameInputsInProse(wb.getWorksheet('Guide'));
+  // THE INPUT CHECKS COUNT TOO (2026-11-19, founder C5): a typed grid that does not add to 100% reads CHECK on its
+  // input tab, and the Dashboard's count of failing checks includes them.
+  {
+    const dash = wb.getWorksheet('Dashboard');
+    const inTabs = ['Project Inputs', 'Operating Inputs'].filter((n) => wb.getWorksheet(n));
+    if (dash && inTabs.length) dash.eachRow((row) => row.eachCell((c) => {
+      const v = c.value as { formula?: string; result?: unknown } | null;
+      if (!v || typeof v !== 'object' || typeof v.formula !== 'string' || !v.formula.includes('"CHECK")')) return;
+      const f = v.formula.replace(/COUNTIF\((Checks!\$[A-Z]+\$\d+:\$[A-Z]+\$\d+),"CHECK"\)/g, (_m, rng: string) => `(COUNTIF(${rng},"CHECK")${inTabs.map((n) => `+COUNTIF('${n}'!$D:$F,"CHECK")`).join('')})`);
+      if (f !== v.formula) c.value = { ...v, formula: f } as ExcelJS.CellValue;
+    }));
+  }
   restyleCover(wb, tax);
   for (const name of ['Cover', 'Guide', 'Dashboard']) { const ws = wb.getWorksheet(name); if (ws) plainMergedCells(ws); }
   return { charts, split };

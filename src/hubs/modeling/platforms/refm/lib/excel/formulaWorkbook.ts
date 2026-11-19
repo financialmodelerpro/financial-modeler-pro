@@ -37,7 +37,7 @@ import { applyReferenceLayout, composeMoves, echoesToInputColumn } from './refer
 import { buildFrontTabs } from './referenceFront';
 import { addRiskTriggers, addDashboardCharts, type ChartSpec } from './dashboard';
 import { applyTabFrame, tilesInMillions, blankNonFlowTotals, type FrameMoves } from './tabFrame';
-import { dropInputGuards, simplifySumproducts, finalPasses, plainSalesWords, namedTolerances, snapResidues, houseStandard } from './readability';
+import { dropInputGuards, simplifySumproducts, finalPasses, plainSalesWords, namedTolerances, snapResidues, houseStandard, modelYearRow } from './readability';
 import { inlineCells } from './relayout';
 import { settlePending } from './liveLayers/writer';
 import { stage1LandArea } from './liveLayers/stage1LandArea';
@@ -259,6 +259,7 @@ export function buildFormulaWorkbook(opts: BuildModelOptions): FormulaWorkbookRe
   storeZeroResults(wb as never);
   // No sub-cent residue shown as "(0)" (2026-11-19, founder A4).
   snapResidues(wb, true);
+  modelYearRow(wb, true);
   houseStandard(wb);
   return { wb, registry, status, pending, frame, charts };
 }

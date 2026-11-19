@@ -28,7 +28,7 @@ import { PERIOD_COLS } from '../buildModelWorkbook';
 import { CASH_FLOOR_CHECK_LABEL, EXIT_CLOSE_CHECK_LABEL, CHECK_REL_TOL, PHASE_EBITDA_CHECK_LABEL, buildEmptyInputAdvisories, isEmptyCheckEligible } from '../../reports/checksReport';
 import { PHASE_RECON, PHASE_RECON_LINE } from '../../reports/m4Reports';
 import { computeFinancialsSnapshot } from '../../financials-resolvers';
-import { LOOP_PBT_CHECK, SOURCES_USES_CHECK, FIN_CHECKS } from '../buildModelWorkbook';
+import { LOOP_PBT_CHECK, SOURCES_USES_CHECK, FIN_CHECKS, MODEL_CHECKS } from '../buildModelWorkbook';
 import { resolveFundTerms } from '../../fundTerms';
 import { getFinancialLabels, defaultTerminologyForCountry } from '@/src/core/calculations/financials';
 
@@ -73,6 +73,9 @@ export const stage7cChecks: LiveLayer = {
       { label: FIN_CHECKS.shares, a: 'fl:idcShareChk', b: null, mag: 'fl:idcShare:0' },
       { label: FIN_CHECKS.lines, a: 'fl:idcLineChk', b: null, mag: 'fl:idcBasis' },
       { label: FIN_CHECKS.debt, a: w.reg.keys().filter((k) => /^fl:tr:.+:left$/.test(k)), b: null, mag: w.reg.keys().find((k) => /^fl:tr:.+:close$/.test(k)) ?? 'fl:close' },
+      // 2026-11-19 (founder C5): the cash ties, and capex by line equals capex by cost type, every year.
+      { label: MODEL_CHECKS.cash, a: 'cf|direct||Closing cash', b: 'bs|__all__||Cash', mag: 'bs|__all__||Cash' },
+      { label: MODEL_CHECKS.capex, a: 'cx2:total', b: 'cxty:total', mag: 'cx2:total' },
     ];
     /** The platform sheet's largest and smallest yearly difference sit this far right of the residue (F and G). */
     const HI_OFFSET = 3;
@@ -104,6 +107,26 @@ export const stage7cChecks: LiveLayer = {
       w.reset(); w.fA({ ...res, col: res.col + 1 }, `MAX(MAX(${M}),-MIN(${M}))`);
       finish(res);
       liveIds.push(id.label);
+    }
+    // THE SCALAR CHECKS OF 2026-11-19 (founder C5): the funding shares add to 100%; the model years and the exit
+    // year sit inside the year columns.
+    {
+      const scalarCheck = (label: string, residue: string | null, scale: string): void => {
+        const key = `chk|id|${label}`;
+        if (!has(key) || !residue) return;
+        const res = w.addr(key);
+        w.reset(); w.fA({ ...res, col: res.col + HI_OFFSET }, residue);
+        w.reset(); w.fA({ ...res, col: res.col + HI_OFFSET + 1 }, residue);
+        w.reset(); w.fA(res, w.refA({ ...res, col: res.col + HI_OFFSET }, CHK));
+        w.reset(); w.fA({ ...res, col: res.col + 1 }, scale);
+        finish(res);
+        liveIds.push(label);
+      };
+      scalarCheck(MODEL_CHECKS.shares, has('fl:dF') && has('fl:eF') ? `${w.ref('fl:dF')}+${w.ref('fl:eF')}-1` : null, '1');
+      const ex = has('inp=ret|Exit Year@4') ? w.ref('inp=ret|Exit Year@4') : null;
+      const yAs = w.reg.keys().filter((k) => /^tl:year:/.test(k)).map((k) => w.addr(k));
+      const yRng = yAs.length ? w.rangeA(yAs[0].sheet, yAs[0].row, Math.min(...yAs.map((a) => a.col)), Math.max(...yAs.map((a) => a.col))) : '';
+      scalarCheck(MODEL_CHECKS.years, ex && yRng && has('tl:lastYear') ? `MAX(0,${w.ref('tl:lastYear')}-MAX(${yRng}))+(${ex}<MIN(${yRng}))+(${ex}>MAX(${yRng}))` : null, '1');
     }
     // Cash never below zero (2026-11-18): the lowest closing cash, OK within a cent. It reports, it never patches.
     {

@@ -320,7 +320,7 @@ export function plainSalesWords(wb: ExcelJS.Workbook): void {
   const swap = (s: string): string => s
     .replace(/^Down %$/, 'Collected in the sale year (%)')
     .replace(/^Velocity$/, 'Share of NSA sold (%)')
-    .replace(/^Velocity in model years/, 'Share of NSA sold in model years')
+    .replace(/^Velocity in model years/, 'NSA sold in model years')
     .replace(/: velocity$/, ': share of NSA sold (%)')
     .replace(/Sales during operation/g, 'Sales after handover')
     .replace(/sales during operation/g, 'sales after handover');
@@ -402,6 +402,41 @@ export function houseStandard(wb: ExcelJS.Workbook): void {
         if (!f || typeof f.size !== 'number') return;
         c.font = { ...f, size: Math.round(f.size * (9.5 / 9) * 2) / 2 } as ExcelJS.Font;
       });
+    });
+  }
+}
+
+/**
+ * A "MODEL YEAR" ROW UNDER THE PHASE ROW ON EVERY TIME TAB (2026-11-19, founder E2): 1, 2, 3 ... each a link to
+ * Timeline's model year row (its "Period index", renamed). Row 6 is the row under the phase row on a framed tab.
+ */
+export function modelYearRow(wb: ExcelJS.Workbook, live: boolean): void {
+  const tl = wb.getWorksheet('Timeline');
+  if (!tl) return;
+  let idxRow = 0;
+  tl.eachRow((row, r) => { if (!idxRow && /^(Period index|Model year)$/.test(String(row.getCell(3).value ?? ''))) idxRow = r; });
+  if (!idxRow) return;
+  tl.getCell(idxRow, 3).value = 'Model year';
+  const numOf = (v: unknown): number | null => (typeof v === 'number' ? v : v && typeof v === 'object' && typeof (v as { result?: unknown }).result === 'number' ? (v as { result: number }).result : null);
+  for (const ws of wb.worksheets) {
+    if (ws.name === 'Timeline' || String(ws.getCell(5, 3).value ?? '') !== 'Phase') continue;
+    let empty = true;
+    ws.getRow(6).eachCell((c) => { if (c.value !== null && c.value !== undefined && c.value !== '') empty = false; });
+    if (!empty) continue;
+    const lab = ws.getCell(6, 3);
+    lab.value = 'Model year';
+    lab.font = { name: 'Calibri', size: 8.5, italic: true, color: { argb: 'FF5A6675' } };
+    ws.getRow(4).eachCell((c, col) => {
+      if (col < 8) return;
+      const y = numOf(c.value);
+      if (y === null) return;
+      const idx = numOf(tl.getCell(idxRow, col).value);
+      const cell = ws.getCell(6, col);
+      const L = ws.getColumn(col).letter;
+      cell.value = live ? ({ formula: `Timeline!${L}$${idxRow}`, result: idx ?? 0 } as ExcelJS.CellValue) : (idx ?? 0);
+      cell.numFmt = '0';
+      cell.font = { name: 'Calibri', size: 8.5, italic: true, color: { argb: live ? 'FF2E7D52' : 'FF5A6675' } };
+      cell.alignment = { horizontal: 'center' };
     });
   }
 }

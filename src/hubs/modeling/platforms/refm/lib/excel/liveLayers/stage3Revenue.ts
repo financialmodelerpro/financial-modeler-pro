@@ -415,8 +415,8 @@ export const stage3Revenue: LiveLayer = {
             const res = w.addr(ck);
             w.fA(res, `SUM(${w.rangeA(REV, rowOf(preRev), pc(0), pc(N - 1))})-SUM(${w.rangeA(REV, rowOf(preCash), pc(0), pc(N - 1))})`);
             const C = w.refA(res, CHK);
-            w.fA(chkCell(ck, -1), `IF(ABS(${C})<0.005,"OK","CHECK")`);
-            w.fA(chkCell(ck, 2), `IF(ABS(${C})<0.005,"Every pre-sale is collected by the handover year","Pre-sales billed less collected")`);
+            w.fA(chkCell(ck, -1), `IF(ABS(${C})<0.000001,"OK","CHECK")`);
+            w.fA(chkCell(ck, 2), `IF(ABS(${C})<0.000001,"Every pre-sale is collected by the handover year","Pre-sales billed less collected")`);
           }
           const dk = `chk|dp|${l.key}`;
           if (has(dk) && gDp) {

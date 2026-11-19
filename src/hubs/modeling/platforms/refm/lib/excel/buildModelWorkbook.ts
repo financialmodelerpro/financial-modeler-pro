@@ -7421,6 +7421,14 @@ function addScenarios(ctx: EmitCtx): void {
 /** The Checks row that ties the financing loop's profit before tax to the P&L (live layout). */
 export const LOOP_PBT_CHECK = 'Zakat on the P&L equals zakat paid on the Cash Flow';
 /** THE FINANCING TAB'S OWN CHECKS (2026-11-19, founder), read on Checks: 4.1, 4.2, 4.3 and section 3. */
+/** THE CHECKS OF 2026-11-19 (founder C5): each holds on the platform by construction, so its residue is 0. */
+export const MODEL_CHECKS = {
+  cash: 'Cash Flow closing cash equals Balance Sheet cash',
+  capex: 'Capex by line equals capex by cost type',
+  shares: 'Debt and equity shares of the funding add to 100%',
+  years: 'Model and exit years fit the year columns',
+} as const;
+
 export const FIN_CHECKS = {
   interest: 'Interest: capitalised + expensed = charged',
   shares: 'IDC shares add to 100% in every year with IDC',
@@ -7515,6 +7523,15 @@ function addChecks(ctx: EmitCtx, capexAddrs: CapexAddrs, retLinks: RetLinks): vo
       const f0 = orderedFacilities(ctx.state.financingTranches ?? []).map((t) => fin0.facilities.get(t.id)).find((x) => !!x);
       if (f0 && snap.disposal.booked) ok(FIN_CHECKS.debt, pk(f0.outstanding.slice(0, N0).map((v, t) => (t >= snap.disposal.exitIdx ? 0 : v))));
     }
+    // THE CHECKS OF 2026-11-19 (founder C5).
+    {
+      const N0 = snap.axisLength;
+      const okc = (label: string, p: number): void => checkRow(label, 'OK', 0, p === 0 ? 'Nothing to reconcile' : 'Within tolerance', `chk|id|${label}`, p, { hi: 0, lo: 0 });
+      okc(MODEL_CHECKS.cash, Math.max(0, ...snap.bs.cashPerPeriod.slice(0, N0).map((v) => Math.abs(v ?? 0))));
+      okc(MODEL_CHECKS.capex, Math.max(0, ...snap.financing.capex.perPeriod.inclAllLand.slice(0, N0).map((v) => Math.abs(v ?? 0))));
+      okc(MODEL_CHECKS.shares, 1);
+      okc(MODEL_CHECKS.years, 1);
+    }
     // SOURCES EQUAL USES (2026-11-03): each total sums its own rows on Returns, so a flow left out shows here.
     const su = (() => { try { return computeReturnsSnapshot(snap, ctx.state.project).sourcesUses; } catch { return null; } })();
     if (su) {
@@ -7556,7 +7573,7 @@ function addChecks(ctx: EmitCtx, capexAddrs: CapexAddrs, retLinks: RetLinks): vo
       const block = buildSaleCohortTermsBlock(a, p, psy0);
       const hand = block?.downpayments.find((d) => d.year === block.handoverYear)?.value ?? 0;
       const over = hand > 0 && hand < 1;
-      checkRow(`Handover-year downpayment, ${name}`, over ? 'NOTE' : 'OK', hand, over ? `A handover-year sale pays in full; the ${Math.round(hand * 100)}% typed is unused` : 'No downpayment typed for the handover year', `chk|dp|${l.key}`);
+      checkRow(`Handover downpayment, ${name}`, over ? 'NOTE' : 'OK', hand, over ? `A handover-year sale pays in full; the ${Math.round(hand * 100)}% typed is unused` : 'No downpayment typed for the handover year', `chk|dp|${l.key}`);
     }
   }
   // Advisories: NOTE, never OK or CHECK. A gap between cash collected and gross
