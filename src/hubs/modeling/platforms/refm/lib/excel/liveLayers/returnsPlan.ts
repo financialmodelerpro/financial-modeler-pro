@@ -210,9 +210,10 @@ export function returnsPlan(state: FinancialsResolverState, snap: Snap, rs: RS, 
   // SELLING COSTS AT EXIT (2026-11-18): the gross less the share on Inputs is the net exit value, the proceeds.
   one('ret|x|cost', 'Less: selling costs at exit', -d.sellingCosts, (E) => (E.has('fnc:sell') ? E.xo('fnc:sell') : `-${E.d('ret|x|tv')}*MAX(0,MIN(1,N(${E.ref('ret:sellCost')})))`));
   one('ret|x|net', 'Net exit value', d.proceeds, (E) => (E.has('fnc:proceeds') ? E.xo('fnc:proceeds') : `${E.d('ret|x|tv')}+${E.d('ret|x|cost')}`), RF.money, { style: 'subtotal' });
-  pRow('rs|debt', 'Debt outstanding', yearsToStream(snap.bs.debtOutstandingPerPeriod), (E, s) => E.x(bsTotalDebtKey(state), s), { total: 'none' });
+  // NO DEBT ROW IN THE EXIT VALUE (2026-11-19, founder D2): every reader links the Balance Sheet's debt directly.
+  const BSD = bsTotalDebtKey(state);
   const debtX = Math.max(0, snap.bs.debtOutstandingPerPeriod[X] ?? 0);
-  one('ret|x|debtX', 'Less: debt at the exit', debtX, (E) => `MAX(0,${atExit(E, E.rngY('rs|debt'))})`);
+  one('ret|x|debtX', 'Less: debt at the exit', debtX, (E) => `MAX(0,${atExit(E, E.xr(BSD))})`);
   one('ret|x|eq', 'Exit equity value', Math.max(0, d.proceeds - debtX), (E) => `MAX(0,${E.d('ret|x|net')}-${E.d('ret|x|debtX')})`, RF.money, { style: 'subtotal' });
   gap('ret|gap|b');
 
@@ -240,7 +241,7 @@ export function returnsPlan(state: FinancialsResolverState, snap: Snap, rs: RS, 
   const sweeps = snap.cashSweep?.enabled === true;
   one('rs|floor', 'Minimum cash reserve', Number(p.financing?.minimumCashReserve ?? snap.financing.funding.minCashReserve ?? 0), (E) => `MAX(0,${E.ref('fin:in:min')})`, RF.money, { indent: 1 });
   pRow('rs|level', sweeps ? 'Cash held back (the reserve and the sweep\'s claim)' : 'Cash held back (the minimum reserve)', [null, ...levelAll],
-    (E, s) => `MIN(${E.d('rs|floor')},MAX(0,${E.s('rs|close', s)}))${sweeps ? `+MIN(MAX(0,MAX(0,${E.s('rs|close', s)})-${E.d('rs|floor')}),MAX(0,${E.s('rs|debt', s)}))` : ''}`, { total: 'none', indent: 1 });
+    (E, s) => `MIN(${E.d('rs|floor')},MAX(0,${E.s('rs|close', s)}))${sweeps ? `+MIN(MAX(0,MAX(0,${E.s('rs|close', s)})-${E.d('rs|floor')}),MAX(0,${E.x(BSD, s)}))` : ''}`, { total: 'none', indent: 1 });
   const retained = [null, ...Array.from({ length: N }, (_, t) => (t <= X ? -(trapped[t] ?? 0) : 0))];
   pRow('rs|fe:held', 'Cash held back this year', retained, (E, s) => `-${H(E, s)}*(${E.s('rs|level', s)}-${s === 1 ? '0' : E.s('rs|level', s - 1)})`, { indent: 1 });
   const fePre = stream(rs.fcfePerPeriod).map((v, s) => v - (bu.terminalEquityPerPeriod?.[s] ?? 0) - (s === X + 1 ? (level[X] ?? 0) : 0));
@@ -636,14 +637,14 @@ export function returnsPlan(state: FinancialsResolverState, snap: Snap, rs: RS, 
     const cfKey = (n: string): string => `cf|direct||${n}`;
     pRow('rm|cfads', 'CFADS: cash from operations, after zakat', yearsToStream(snap.directCF.cashFromOperationsPerPeriod), (E, s) => (E.has(cfKey('Cash Flow from Operations')) ? E.x(cfKey('Cash Flow from Operations'), s) : '0'), { total: 'none' });
     // An operating year with debt outstanding (2026-11-19, founder C4 corrected): the years the covenants test.
-    pRow('rm|covYr', 'Covenant year (operating, with debt)', yearsToStream(rs.scheduledDebtServicePerPeriod.map((_v, t) => (snap.operatingPerPeriod[t] === true && ((snap.bs.debtOutstandingPerPeriod[t] ?? 0) > 1e-6 || (t > 0 && (snap.bs.debtOutstandingPerPeriod[t - 1] ?? 0) > 1e-6)) ? 1 : 0))), (E, s) => `${E.s('rm|op', s)}*((${E.s('rs|debt', s)}>0.000001)+(N(${E.s('rs|debt', s - 1)})>0.000001)>0)`, { total: 'none', fmt: RF.int });
+    pRow('rm|covYr', 'Covenant year (operating, with debt)', yearsToStream(rs.scheduledDebtServicePerPeriod.map((_v, t) => (snap.operatingPerPeriod[t] === true && ((snap.bs.debtOutstandingPerPeriod[t] ?? 0) > 1e-6 || (t > 0 && (snap.bs.debtOutstandingPerPeriod[t - 1] ?? 0) > 1e-6)) ? 1 : 0))), (E, s) => `${E.s('rm|op', s)}*((${E.x(BSD, s)}>0.000001)+(N(${E.x(BSD, s - 1)})>0.000001)>0)`, { total: 'none', fmt: RF.int });
     pRow('rm|ds', 'Scheduled debt service (sweep excluded)', yearsToStream(rs.scheduledDebtServicePerPeriod), (E, s) => `${E.s('rm|covYr', s)}*(${['fnc:main:interest', 'fnc:main:sched', 'fnc:main:exitrepay'].filter((k) => E.has(k)).map((k) => E.loop(k, s)).join('+') || '0'})`, { total: 'none' });
     // Project EBITDA, before the fund fees, where a fund charges them (2026-11-19, founder B1).
     const ebitdaKey = resolveFundTerms(p).enabled ? 'pl|__all__||ebitdaPre' : 'pl|__all__||EBITDA';
     const measured = (v: string): string => `IF(ABS(${v})<0.000000001,"-",${v})`;
     pRow('rm|dscr', 'DSCR', series('dscr'), (E, s) => `IF(${E.s('rm|ds', s)}>0.000001,${measured(`${E.s('rm|cfads', s)}/${E.s('rm|ds', s)}`)},"-")`, { nullAs: '-', total: 'none', fmt: RF.mult });
     pRow('rm|icr', 'Interest cover', series('icr'), (E, s) => `IF(${E.s('rm|covYr', s)}*ABS(${E.loop('fnc:main:interest', s)})>0.000001,${measured(`${E.x(ebitdaKey, s)}/ABS(${E.loop('fnc:main:interest', s)})`)},"-")`, { nullAs: '-', total: 'none', fmt: RF.mult });
-    pRow('rm|dy', 'Debt yield', series('debt_yield'), (E, s) => `IF(AND(${E.s('rs|debt', s)}>0.000000001,${E.s('rs|noi', s)}>0.000000001),${E.s('rs|noi', s)}/${E.s('rs|debt', s)},"-")`, { nullAs: '-', total: 'none', fmt: RF.pct });
+    pRow('rm|dy', 'Debt yield', series('debt_yield'), (E, s) => `IF(AND(${E.x(BSD, s)}>0.000000001,${E.s('rs|noi', s)}>0.000000001),${E.s('rs|noi', s)}/${E.x(BSD, s)},"-")`, { nullAs: '-', total: 'none', fmt: RF.pct });
     // LOAN TO COST IN CONSTRUCTION, LOAN TO VALUE AFTER (2026-11-19, founder C2): the cost incurred to date including
     // capitalised interest; after it, the held assets' NOI over the exit cap rate plus the unsold residential at the
     // year's indexed sale price. The covenant tests the worst year.
@@ -659,7 +660,7 @@ export function returnsPlan(state: FinancialsResolverState, snap: Snap, rs: RS, 
       void basis;
       pRow('rm|unsold', 'Unsold residential at the year\'s sale price', yearsToStream(rs.ltvUnsoldPerPeriod), (E, s) => priceKeys(E).map(([pk, qk]) => `${E.x(pk, s)}*SUMIF(${E.yrRng()},">"&${E.yr(s)},${E.xr(qk)})`).join('+') || '0', { total: 'none' });
       pRow('rm|ltvVal', 'Held value (NOI / exit cap rate) + unsold residential', yearsToStream(rs.ltvValuePerPeriod), (E, s) => `IF(N(${E.d('rm|cap')})>0,MAX(0,${E.s('rs|noi', s)})/${E.d('rm|cap')},0)+${E.s('rm|unsold', s)}`, { total: 'none' });
-      pRow('rm|ltv', 'Loan to cost (construction) / loan to value', series('ltv'), (E, s) => `IF(${E.s('rs|debt', s)}>0.000000001,IF(${E.s('rm|con', s)}=1,IF(${E.s('rm|ltcCost', s)}>0,${E.s('rs|debt', s)}/${E.s('rm|ltcCost', s)},"-"),IF(${E.s('rm|ltvVal', s)}>0,${E.s('rs|debt', s)}/${E.s('rm|ltvVal', s)},"-")),"-")`, { nullAs: '-', total: 'none', fmt: RF.pct });
+      pRow('rm|ltv', 'Loan to cost (construction) / loan to value', series('ltv'), (E, s) => `IF(${E.x(BSD, s)}>0.000000001,IF(${E.s('rm|con', s)}=1,IF(${E.s('rm|ltcCost', s)}>0,${E.x(BSD, s)}/${E.s('rm|ltcCost', s)},"-"),IF(${E.s('rm|ltvVal', s)}>0,${E.x(BSD, s)}/${E.s('rm|ltvVal', s)},"-")),"-")`, { nullAs: '-', total: 'none', fmt: RF.pct });
     }
     // With no debt in any year, LTV is measured at the exit (debt over the exit value).
     one('rm|ltvexit', 'LTV at the exit (debt over the exit value)', m.ltvAtExit ?? '-', (E) => `IF(${E.d('ret|x|tv')}>0,${E.d('ret|x|debtX')}/${E.d('ret|x|tv')},"-")`, RF.pct, { indent: 1 });
