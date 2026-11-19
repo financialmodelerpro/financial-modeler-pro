@@ -243,7 +243,11 @@ export function planCapexSpread(
    *  handover, as Inputs says; the platform's shares are commissionShape, the engine's own rule. */
   const commissionRow = (a: Asset, line: CostLine, p: Phase): string | null => {
     const parts: Partial<Record<SpreadBasis, string>> = {};
-    for (const b of ['sold', 'cash', 'rec'] as const) { const k = basisRow(a, line, p, b); if (k) parts[b] = k; }
+    // ONLY THE ROWS THE TERMS USE (2026-11-19, founder D3): all on contract reads the sales alone; otherwise the sales
+    // and the one remainder basis Inputs names (collections or handover).
+    const onC = Math.max(0, Math.min(1, (a.commissionTiming?.onContractPct ?? 100) / 100));
+    const used: SpreadBasis[] = onC >= 1 ? ['sold'] : [...(onC > 0 ? ['sold' as const] : []), a.commissionTiming?.remainder === 'handover' ? 'rec' as const : 'cash' as const];
+    for (const b of used) { const k = basisRow(a, line, p, b); if (k) parts[b] = k; }
     if (!parts.sold && !parts.cash && !parts.rec) return null;
     const local = commissionShape(a.commissionTiming, { salesPerPeriod: basisSeries(a, p, 'sold'), collectionsPerPeriod: basisSeries(a, p, 'cash'), handoverPerPeriod: basisSeries(a, p, 'rec') });
     if (!local) return null;
