@@ -265,12 +265,13 @@ export function buildFormulaWorkbook(opts: BuildModelOptions): FormulaWorkbookRe
   // The last step: every formula stores its zero (a "" formula stays empty), 2026-11-19.
   // The tolerances by name (2026-11-19, founder B5), once every tab is built.
   namedTolerances(wb);
-  storeZeroResults(wb as never);
   // No sub-cent residue shown as "(0)" (2026-11-19, founder A4).
   snapResidues(wb, true);
   modelYearRow(wb, true);
   cleanDefinedNames(wb);
   houseStandard(wb);
+  // LAST: a pass above that writes a cached 0 (the residue snap) loses it in ExcelJS unless it is stored again here.
+  storeZeroResults(wb as never);
   return { wb, registry, status, pending, frame, charts };
 }
 

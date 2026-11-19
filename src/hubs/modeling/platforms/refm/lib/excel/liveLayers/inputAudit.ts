@@ -159,7 +159,8 @@ export function inputsUnreadProblems(wb: ExcelJS.Workbook, allowed: ReadonlySet<
     ws.eachRow((row, r) => row.eachCell({ includeEmpty: true }, (cell, c) => {
       if (c === 1) return;
       // A number in a table head is a column label (a grid's year numbers), never a typed value.
-      if ((cell.fill as { fgColor?: { argb?: string } } | undefined)?.fgColor?.argb === 'FF1B4F8A') return;
+      // The head navy (153D64 since 2026-11-19, founder B1) or the bar navy it replaced.
+      if (['FF1B4F8A', 'FF153D64'].includes((cell.fill as { fgColor?: { argb?: string } } | undefined)?.fgColor?.argb ?? '')) return;
       const v = cell.value as unknown;
       if (v && typeof v === 'object') return;
       const empty = v === null || v === undefined || v === '';

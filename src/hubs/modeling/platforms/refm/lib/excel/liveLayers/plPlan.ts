@@ -160,6 +160,8 @@ export function plPlan(state: FinancialsResolverState, snap: Snap = computeFinan
       rows.push({ key: K('Selling and marketing'), label: 'Selling and marketing', kind: 'row', values: v, src: { kind: 'mkt', phaseId: view } });
       opexKeys.push(K('Selling and marketing')); opexVals.push(v); ebitdaKeys.push(K('Selling and marketing'));
     }
+    // The engine's total operating expenses (lines, HQ and selling) as a memo subtotal; EBITDA does not add it again.
+    if (opexKeys.length) rows.push({ key: K('Total operating expenses'), label: 'Total operating expenses (memo)', kind: 'row', style: 'subtotal', values: add(opexVals), sum: [...opexKeys] });
 
     // The fund fees: one row, the total on Financing (2026-11-15, founder); EBITDA is struck after them.
     // PROJECT EBITDA, THEN THE FUND FEES, THEN EBITDA AFTER THEM (2026-11-19, founder B1): the covenants read the

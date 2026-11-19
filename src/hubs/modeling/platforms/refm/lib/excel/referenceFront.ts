@@ -114,10 +114,21 @@ export function buildFrontTabs(wb: ExcelJS.Workbook, ctx: FrontContext): { chart
     const dash = wb.getWorksheet('Dashboard');
     // The check cells themselves (a formula that can read "CHECK"), never a range: COUNTIF ignores case, so a
     // "Check" column head would count.
+    // Consecutive check cells in one column are one range (only check cells inside it, so COUNTIF is safe there).
     const cells: string[] = [];
     for (const n of ['Project Inputs', 'Operating Inputs']) {
       const ws = wb.getWorksheet(n);
-      if (ws) ws.eachRow((row) => row.eachCell((c) => { const v = c.value as { formula?: string } | null; if (v && typeof v === 'object' && typeof v.formula === 'string' && v.formula.includes('"CHECK"')) cells.push(`('${n}'!$${ws.getColumn(c.col).letter}$${c.row}="CHECK")`); }));
+      if (!ws) continue;
+      const at: Array<[number, number]> = [];
+      ws.eachRow((row) => row.eachCell((c) => { const v = c.value as { formula?: string } | null; if (v && typeof v === 'object' && typeof v.formula === 'string' && v.formula.includes('"CHECK"')) at.push([Number(c.col), Number(c.row)]); }));
+      at.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+      for (let i = 0; i < at.length;) {
+        let j = i;
+        while (j + 1 < at.length && at[j + 1][0] === at[i][0] && at[j + 1][1] === at[j][1] + 1) j++;
+        const L = ws.getColumn(at[i][0]).letter;
+        cells.push(`COUNTIF('${n}'!$${L}$${at[i][1]}:$${L}$${at[j][1]},"CHECK")`);
+        i = j + 1;
+      }
     }
     const inTabs = cells;
     if (dash && inTabs.length) dash.eachRow((row) => row.eachCell((c) => {

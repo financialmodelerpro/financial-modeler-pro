@@ -47,7 +47,8 @@ import type { LiveExportInputs } from './fixtures/liveExportInputs';
 import { applyHouseStyle } from '../src/hubs/modeling/platforms/refm/lib/excel/houseStyle';
 import { applyTabFrame } from '../src/hubs/modeling/platforms/refm/lib/excel/tabFrame';
 import { featureUsed } from '../src/hubs/modeling/platforms/refm/lib/excel/exportScope';
-import { finalPasses, plainSalesWords } from '../src/hubs/modeling/platforms/refm/lib/excel/readability';
+import { finalPasses, plainSalesWords, modelYearRow } from '../src/hubs/modeling/platforms/refm/lib/excel/readability';
+import { unitEconomicsToReturns } from '../src/hubs/modeling/platforms/refm/lib/excel/unitEconomics';
 import { applyReferenceLayout, echoesToInputColumn } from '../src/hubs/modeling/platforms/refm/lib/excel/referenceLayout';
 import { buildFrontTabs } from '../src/hubs/modeling/platforms/refm/lib/excel/referenceFront';
 import { addRiskTriggers } from '../src/hubs/modeling/platforms/refm/lib/excel/dashboard';
@@ -72,7 +73,9 @@ function framedPlain(o: Parameters<typeof buildModelWorkbook>[0], live?: ExcelJS
   // THE REFERENCE LAYOUT AND THE FRONT TABS (2026-11-17, founder): the twin ends as the live file does, so a cell
   // and its platform figure still sit at one address (Inputs' risk triggers and switch, columns A and B, the bars,
   // the Dashboard in place of the Summary).
-  if (house) { addRiskTriggers(w); applyReferenceLayout(w, { mirror: live }); echoesToInputColumn(w); buildFrontTabs(w, { valuesOutput: false, scale: house.scale, splitReadFrom: live }); }
+  // The unit economics to Returns (B4) and the Model year row (E2), as the live file (the timing flags of B6 are
+  // links to Timeline, which the twin has no formulas to need; rows pair by label).
+  if (house) { addRiskTriggers(w); applyReferenceLayout(w, { mirror: live }); echoesToInputColumn(w); unitEconomicsToReturns(w); buildFrontTabs(w, { valuesOutput: false, scale: house.scale, splitReadFrom: live }); modelYearRow(w, false); }
   // The twin stands for the hardcoded figures: its front tabs hold their values (the live file's are formulas over them).
   freezeFormulas(w); // ExcelJS reports a cached 0 as no result (TRAPS 3.45)
   if (live) mirrorBlankTotals(w, live);
@@ -1103,7 +1106,7 @@ function formulaCells(wb: ExcelJS.Workbook): Map<string, { formula: string; resu
     // ONE PROJECT DIVIDEND (2026-11-18, founder decision 3): the per-phase EBITDA cap is gone, so no phase EBITDA
     // link is left and the one Financing row that reads the P&L is the zakat.
     check('A12h no phase dividend cap reads the P&L any more, and the one Financing row reading it is the zakat',
-      capReads.length > 0 && [...capLabels].every((l) => /^(Zakat|Tax)( charge)?, from the P&L$/.test(l)), [...capLabels].join('; ')); // 5.1 "Zakat charge, from the P&L" since 2026-11-19
+      capReads.length > 0 && [...capLabels].every((l) => /^(Zakat|Tax)( charge)?( for the year)?, from the P&L$/.test(l)), [...capLabels].join('; ')); // 5.1 "Zakat charge, from the P&L" since 2026-11-19
     const copy2 = buildModelWorkbook({ ...opts, liveLayout: true });
     copy2.getWorksheet('Financing')!.getCell(2, 9).value = { formula: "'P&L'!F20+1", result: 0 } as unknown as ExcelJS.CellValue;
     const p2 = exportShapeProblems(copy2);
@@ -1133,7 +1136,7 @@ function formulaCells(wb: ExcelJS.Workbook): Map<string, { formula: string; resu
       const isOpsGrid = (k: string): boolean => /\|(post\|[^@]*|occ)@\d+$/.test(k);
       // The year a grid cell sits under: its column in the nearest table head above it (the split tabs head each grid
       // once, "Construction year" or "Operating year" and the year numbers across, 2026-11-19), else the cell above.
-      const headRowOf = (k: string): number | undefined => { const a = registry.need(k); const ws = wb.getWorksheet(a.sheet)!; for (let r = a.row - 1; r > 3 && r > a.row - 30; r--) { const f = (ws.getCell(r, LC).fill as { fgColor?: { argb?: string } } | undefined)?.fgColor?.argb; if (f === 'FF1B4F8A') return r; } return undefined; };
+      const headRowOf = (k: string): number | undefined => { const a = registry.need(k); const ws = wb.getWorksheet(a.sheet)!; for (let r = a.row - 1; r > 3 && r > a.row - 30; r--) { const f = (ws.getCell(r, LC).fill as { fgColor?: { argb?: string } } | undefined)?.fgColor?.argb; if (f === 'FF1B4F8A' || f === 'FF153D64') return r; } return undefined; };
       const headOf = (k: string): string => { const a = registry.need(k); const ws = wb.getWorksheet(a.sheet)!; const h = headRowOf(k); if (h !== undefined && /year/i.test(String(ws.getCell(h, LC).value ?? ''))) return `${/^Operating year/i.test(String(ws.getCell(h, LC).value ?? '')) ? 'Ops year' : 'Year'} ${String(ws.getCell(h, a.col).value ?? '')}`; return String(ws.getCell(a.row - 1, a.col).value ?? ''); };
       // The lease lines share ONE table since step 3 (2026-11-15, founder): a column per line, a row per
       // operating year, so the year is in the row's label ("Occupancy, ops year 3") and must be the key's.
@@ -1545,7 +1548,7 @@ function formulaCells(wb: ExcelJS.Workbook): Map<string, { formula: string; resu
         const ws0 = base.wb.getWorksheet(a0.sheet)!;
         for (let r = a0.row - 1; r > 3 && r > a0.row - 20; r--) {
           const fl = (ws0.getCell(r, LC).fill as { fgColor?: { argb?: string } } | undefined)?.fgColor?.argb;
-          if (fl !== 'FF1B4F8A') continue;
+          if (fl !== 'FF1B4F8A' && fl !== 'FF153D64') continue; // a table head: navy 153D64 since 2026-11-19 (B1)
           ws0.getRow(r).eachCell((c, col) => { if (c.value === pt.period) aMod = { ...aMod, col }; });
           break;
         }
