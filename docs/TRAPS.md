@@ -3501,6 +3501,20 @@ copy of the other.
 up and the line total equals the plot total for a reason. **Proof:** both totals in real Excel, every area column
 (BUA 105,940, land 37,000, NSA 68,093.28), and five land edits agreeing with the re-run engine.
 
+### 7.70 A rename that reaches the list and not the copies renames half the model
+
+**Symptom (2026-11-19, v1.2 review):** the type read "Branded Apartments" on the type tables and "Branded Villas"
+on every line name, the land table, the sub-unit lines and the operating headings.
+
+**Mechanism:** the label lives on `project.assetTypes`, and each asset keeps its own COPY in `Asset.type`, which
+`assetLabel` prints. `setAssetTypes` renamed the list and left the copies, so every reader of the one label rule
+printed the old name while every reader of the list printed the new one.
+
+**Fix:** `settleAssetTypeLabels` (`lib/state/assetTypeLabels.ts`), one rule called by the rename and by
+`settleModel` on every load and save: an asset whose `assetTypeId` is on the list takes that entry's label; the
+re-stamp is declared derived in `isDerivedFill`, so it raises no schema banner. **Proof:** v1.2 exports with
+"Branded Apartments" everywhere, headline unchanged (15.78% / 18.41% / 17.03%, peak debt 519.35m).
+
 ## 8. Registries and two-step registration
 
 ### 8.1 A template registered in one place and not the other fails silently and permanently

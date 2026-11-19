@@ -619,7 +619,8 @@ export function emitStatementInputsSection(c: SheetCursor, state: FinancialsReso
   // lines differ from it), and it says so; typing it moves every line.
   const ownDays = state.assets.some((a) => a.visible !== false && statedLineReceivableDays(a) !== undefined);
   // RECEIVABLES OFF (0 days everywhere): no DSO in the live layout (2026-11-15, founder).
-  if (!(isLiveLayout() && !operatingReceivablesInForce(state as never))) kv(c, isLiveLayout() ? 'Operating receivables, project DSO (days; a hotel or lease line with no days of its own)' : ownDays ? 'Operating receivables, days (every hotel and lease line)' : 'Operating receivables, DSO (days)', p.operatingAr?.dsoDays ?? 0, NUMFMT.int, true, 'DsoDays', undefined, 'project:dso');
+  // A label the long-text pass keeps (2026-11-19): the old 90-character one was blanked, leaving an unlabelled input.
+  if (!(isLiveLayout() && !operatingReceivablesInForce(state as never))) kv(c, isLiveLayout() ? 'Receivable days, project default' : ownDays ? 'Operating receivables, days (every hotel and lease line)' : 'Operating receivables, DSO (days)', p.operatingAr?.dsoDays ?? 0, NUMFMT.int, true, 'DsoDays', undefined, 'project:dso');
   c.r += 1;
 }
 

@@ -60,6 +60,7 @@ import { planTypeMassingWriteBack, resolveAssetTypeKey } from './assetTypeStanda
 import { seedRevenueBlocks } from './revenueSeeds';
 import { settleOpsYearGrids } from './opsYearGrids';
 import { settleModel } from './settleModel';
+import { settleAssetTypeLabels } from './assetTypeLabels';
 import { caseModelOf, withoutDerivedOverrides } from '../cases/caseModel';
 import { settleSubUnitPrices } from './subUnitPrices';
 import { settleSubUnitPriceDefaults, settleSubUnitPriceStated, settleTypePriceFields } from './subUnitPriceDefaults';
@@ -775,7 +776,9 @@ export function createModule1Store() {
           ...(typeof e.sortOrder === 'number' ? { sortOrder: e.sortOrder } : {}),
         });
       }
-      return { project: { ...s.project, assetTypes: next } };
+      // A renamed type renames its assets' label copy too (2026-11-19, assetTypeLabels.ts).
+      const relabelled = settleAssetTypeLabels(s.assets, next);
+      return { project: { ...s.project, assetTypes: next }, ...(relabelled.changed ? { assets: relabelled.assets } : {}) };
     }),
 
     setAssetTypeValue: (entryId, patch) => setAndSettle((s) => {

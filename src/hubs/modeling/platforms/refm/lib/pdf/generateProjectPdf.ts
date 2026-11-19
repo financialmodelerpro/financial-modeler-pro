@@ -311,6 +311,9 @@ const PART_LABEL: Record<PartKind, string> = { inputs: 'Inputs', outputs: 'Outpu
 interface NavTarget { ref: PDFRef; y: number }
 interface TabNav { tab: string; target: NavTarget }
 interface ModuleNav { key: string; num: number; label: string; target: NavTarget | null; tabs: TabNav[]; breakPage: PDFPage | null }
+/** A module's title; the assumptions section (the workbook's two input tabs, 2026-11-19) is not a module. */
+const navTitle = (m: Pick<ModuleNav, 'key' | 'num' | 'label'>): string => (m.key === ASSUMPTIONS_KEY ? m.label : `Module ${m.num}: ${m.label}`);
+const ASSUMPTIONS_KEY = 'assumptions';
 interface NavState {
   enabled: boolean;
   modules: ModuleNav[];      // rendered modules, in report order
@@ -4240,7 +4243,7 @@ function paintToc(ctx: Ctx, tocPages: PDFPage[], modules: ModuleNav[], execTarge
   }
   for (const m of modules) {
     const mt = m.target ?? rowFor(`mod:${m.key}`);
-    if (mt) { advance(20); drawNavRow(ctx, page, `Module ${m.num}: ${m.label}`, MARGIN, y, 12, true, mt, nums.get(mt.ref.toString()), NAVY_DARK); y -= 20; }
+    if (mt) { advance(20); drawNavRow(ctx, page, navTitle(m), MARGIN, y, 12, true, mt, nums.get(mt.ref.toString()), NAVY_DARK); y -= 20; }
     for (const t of m.tabs) {
       advance(15);
       drawNavRow(ctx, page, t.tab, MARGIN + 22, y, 10, false, t.target, nums.get(t.target.ref.toString()));
@@ -4280,7 +4283,7 @@ function paintBreakPages(ctx: Ctx, modules: ModuleNav[], execTarget: NavTarget |
     for (const other of modules) {
       if (!other.target) continue;
       const current = other.key === m.key;
-      drawNavRow(ctx, page, `Module ${other.num}: ${other.label}${current ? '  (this module)' : ''}`, MARGIN + 4, y, 10, current, other.target, nums.get(other.target.ref.toString()), current ? NAVY_DARK : NAV_LINK);
+      drawNavRow(ctx, page, `${navTitle(other)}${current ? '  (this module)' : ''}`, MARGIN + 4, y, 10, current, other.target, nums.get(other.target.ref.toString()), current ? NAVY_DARK : NAV_LINK);
       y -= 15;
     }
   }
@@ -4314,7 +4317,7 @@ function buildOutline(ctx: Ctx, modules: ModuleNav[], execTarget: NavTarget | nu
     const selfRef = moduleRefs[i];
     const tabRefs = m.tabs.map(() => context.nextRef());
     descendants += tabRefs.length;
-    const d: Record<string, unknown> = { Title: PDFHexString.fromText(`Module ${m.num}: ${m.label}`), Parent: outlinesRef, Dest: dest(m.target as NavTarget) };
+    const d: Record<string, unknown> = { Title: PDFHexString.fromText(navTitle(m)), Parent: outlinesRef, Dest: dest(m.target as NavTarget) };
     const topIdx = (execTarget ? 1 : 0) + i;
     if (topIdx > 0) d.Prev = topRefs[topIdx - 1];
     if (topIdx < topRefs.length - 1) d.Next = topRefs[topIdx + 1];
@@ -4336,7 +4339,7 @@ function buildOutline(ctx: Ctx, modules: ModuleNav[], execTarget: NavTarget | nu
 /** Create + mark a module's section-break page and draw its title. The nav lists
  *  are painted later (paintBreakPages), once every module + tab anchor is known. */
 function renderSectionBreak(ctx: Ctx, mod: ModuleNav): void {
-  newPage(ctx, `Module ${mod.num}: ${mod.label}`);
+  newPage(ctx, navTitle(mod));
   const page = ctx.page;
   markPage(page, REFM_NAV_KEY, `break:${mod.key}`);
   const target: NavTarget = { ref: page.ref, y: PAGE_H - HEADER_BAND_H };
@@ -4344,9 +4347,9 @@ function renderSectionBreak(ctx: Ctx, mod: ModuleNav): void {
   mod.breakPage = page;
   ctx.nav.anchors.set(`mod:${mod.key}`, target);
   let y = PAGE_H - HEADER_BAND_H - 56;
-  drawCell(ctx, `Module ${mod.num}`, MARGIN, CONTENT_W, y, { font: ctx.bold, size: 22, color: NAVY_DARK });
+  drawCell(ctx, mod.key === ASSUMPTIONS_KEY ? 'Assumptions' : `Module ${mod.num}`, MARGIN, CONTENT_W, y, { font: ctx.bold, size: 22, color: NAVY_DARK });
   y -= 30;
-  drawCell(ctx, mod.label, MARGIN, CONTENT_W, y, { font: ctx.bold, size: 15, color: NAVY });
+  drawCell(ctx, mod.key === ASSUMPTIONS_KEY ? 'Project Inputs, then Operating Inputs, in the workbook\'s order' : mod.label, MARGIN, CONTENT_W, y, { font: ctx.bold, size: 15, color: NAVY });
 }
 
 // ── Public entry ─────────────────────────────────────────────────────────────
@@ -4454,12 +4457,35 @@ export async function generateProjectPdf(opts: GenerateProjectPdfOptions): Promi
     fmt, font, bold,
   );
 
+  // THE ASSUMPTIONS FIRST, IN THE WORKBOOK'S TWO-TAB ORDER (2026-11-19, founder): every module's inputs, Project
+  // Inputs (Modules 1, 4 and 5) then Operating Inputs (Modules 2 and 3), before any schedule or output.
+  const INPUT_ORDER: Array<{ key: string; tab: 'Project Inputs' | 'Operating Inputs' }> = [
+    { key: 'module1', tab: 'Project Inputs' }, { key: 'module4', tab: 'Project Inputs' }, { key: 'module5', tab: 'Project Inputs' },
+    { key: 'module2', tab: 'Operating Inputs' }, { key: 'module3', tab: 'Operating Inputs' },
+  ];
+  const inputsOf = (key: string): ModuleContent => {
+    const pl = planned.find((x) => x.m.key === key);
+    return pl?.content ? renderableContent(pl.content.filter((it) => it.part === 'inputs'), sel[key] ?? {}, opts.moduleTabs?.[key]) : [];
+  };
+  const assumptions = INPUT_ORDER.filter((x) => inputsOf(x.key).length);
+  if (assumptions.length) {
+    if (ctx.nav.enabled) {
+      const mod: ModuleNav = { key: ASSUMPTIONS_KEY, num: 0, label: 'Assumptions: Project Inputs and Operating Inputs', target: null, tabs: [], breakPage: null };
+      ctx.nav.modules.push(mod); ctx.nav.current = mod; renderSectionBreak(ctx, mod);
+    }
+    for (const x of assumptions) {
+      const m = planned.find((p) => p.m.key === x.key)!.m;
+      renderModule(ctx, `${x.tab}  ·  Module ${m.num}: ${m.longLabel}`, inputsOf(x.key), {}, fmt, undefined, x.tab);
+    }
+    ctx.nav.current = null;
+  }
   for (const { m, content } of planned) {
     if (!content) { beginModule(m); renderPlaceholderModule(ctx, m); ctx.nav.current = null; continue; }
+    // Its inputs are in the assumptions above; a module left with nothing else is not repeated.
+    const rest = content.filter((it) => it.part !== 'inputs');
+    if (!renderableContent(rest, sel[m.key] ?? {}, opts.moduleTabs?.[m.key]).length) continue;
     beginModule(m);
-    // TWO INPUT TABS (2026-11-18, founder item 5): each module's inputs are headed by the workbook tab that holds them.
-    const inputsLabel = m.key === 'module2' || m.key === 'module3' ? 'Operating Inputs' : 'Project Inputs';
-    renderModule(ctx, `Module ${m.num}: ${m.longLabel}`, content, sel[m.key] ?? {}, fmt, opts.moduleTabs?.[m.key], inputsLabel);
+    renderModule(ctx, `Module ${m.num}: ${m.longLabel}`, rest, sel[m.key] ?? {}, fmt, opts.moduleTabs?.[m.key]);
     ctx.nav.current = null;
   }
 

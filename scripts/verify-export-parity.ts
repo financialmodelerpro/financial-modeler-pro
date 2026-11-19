@@ -130,7 +130,10 @@ function valueBeside(ws: ExcelJS.Worksheet | undefined, label: string): Cell | u
     if (out !== undefined) return;
     row.eachCell((c, col) => {
       if (out !== undefined || cellVal(c) !== label) return;
-      for (let k = col + 1; k <= col + 6; k++) { const v = cellVal(row.getCell(k)); if (v !== null && v !== '') { out = v; return; } }
+      // THE SPLIT INPUT TABS READ LABEL (C), UNIT (D), VALUE (E) (2026-11-19, the step 3 review): the cell beside a
+      // label there is its unit, never its value, so the value is read from E on.
+      const from = INPUT_TABS.slice(0, 2).includes(ws.name) && col === 3 ? col + 2 : col + 1;
+      for (let k = from; k <= col + 6; k++) { const v = cellVal(row.getCell(k)); if (v !== null && v !== '') { out = v; return; } }
     });
   });
   return out;
@@ -207,11 +210,11 @@ async function runVersion(inp: LiveExportInputs, title: string): Promise<void> {
   // ── I. Inputs ──
   const inputs: Array<{ name: string; label: string; want: number | string; pdfLabel: string; pdfForms: string[] }> = [
     { name: 'IDC method', label: 'IDC method', want: IDC_INTEREST_METHOD_LABELS[resolveIdcInterestMethod(p)], pdfLabel: 'IDC method', pdfForms: [IDC_INTEREST_METHOD_LABELS[resolveIdcInterestMethod(p)]] },
-    { name: 'Dividends above retained earnings', label: 'Dividends above retained earnings (1 = yes)', want: p.dividendPolicy?.allowAboveRetainedEarnings ? 1 : 0, pdfLabel: 'Dividends above retained earnings', pdfForms: [p.dividendPolicy?.allowAboveRetainedEarnings ? 'Yes' : 'No'] },
+    { name: 'Dividends above retained earnings', label: 'Dividends above retained earnings', want: p.dividendPolicy?.allowAboveRetainedEarnings ? 1 : 0, pdfLabel: 'Dividends above retained earnings', pdfForms: [p.dividendPolicy?.allowAboveRetainedEarnings ? 'Yes' : 'No'] },
     { name: 'Minimum cash reserve', label: 'Minimum cash reserve', want: Number(p.financing?.minimumCashReserve ?? 0), pdfLabel: 'Minimum Cash Reserve', pdfForms: [m(Number(p.financing?.minimumCashReserve ?? 0))] },
-    { name: 'Discount rate', label: 'Discount Rate (%)', want: cfg.discountRate, pdfLabel: 'Discount rate', pdfForms: [pct(cfg.discountRate)] },
+    { name: 'Discount rate', label: 'Discount rate', want: cfg.discountRate, pdfLabel: 'Discount rate', pdfForms: [pct(cfg.discountRate)] },
     // Blank on Inputs when none is typed (it then reads the discount rate), so the cell beside the label is its note.
-    { name: 'Cost of equity', label: 'Cost of equity (%)', want: p.returns?.costOfEquity === undefined ? 'Blank: the discount rate.' : cfg.costOfEquity, pdfLabel: 'Cost of equity', pdfForms: [pct(cfg.costOfEquity)] },
+    { name: 'Cost of equity', label: 'Cost of equity', want: p.returns?.costOfEquity === undefined ? 'Blank: the discount rate.' : cfg.costOfEquity, pdfLabel: 'Cost of equity', pdfForms: [pct(cfg.costOfEquity)] },
     ...(cfg.terminalMethod !== 'none' ? [{ name: 'Selling costs at exit', label: 'Selling costs at exit', want: cfg.exitSellingCostRate, pdfLabel: 'Selling costs at exit', pdfForms: [pct(cfg.exitSellingCostRate)] }] : []),
     ...(ft.enabled ? [
       { name: 'Structure fee basis', label: 'Structure fee basis', want: ft.structureFeeBasis === 'total_development_cost' ? 'Total development cost (excl. IDC)' : 'Fund size (debt + equity funding need)', pdfLabel: 'Fund structure fee', pdfForms: [FEE_BASE_LABELS[ft.structureFeeBasis === 'total_development_cost' ? 'total_development_cost' : 'fund_size']] },

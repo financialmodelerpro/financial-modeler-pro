@@ -2359,6 +2359,9 @@ function isDerivedFill(e: ChangeLogEntry, raw: Record<string, unknown>): boolean
   // reinterprets nothing. Found when the lobby rule changed (export review item 21) and every stored
   // version began to raise the schema banner for a figure the user never stated.
   if (/^assets\[id=[^\]]+\]\.derivedAreas(\.|$)/.test(e.path)) return true;
+  // AN ASSET'S TYPE LABEL IS A COPY OF ITS TYPE'S (2026-11-19, assetTypeLabels.ts): the load re-stamps it
+  // from `project.assetTypes`, where the user states it, so the re-stamp reinterprets nothing.
+  if (/^assets\[id=[^\]]+\]\.type$/.test(e.path)) return true;
   const lineValue = /^costLines\[id=(.+)\]\.value$/.exec(e.path);
   if (lineValue) {
     const rows = (raw.costLines as Array<{ id: string; rateStated?: boolean }> | undefined) ?? [];

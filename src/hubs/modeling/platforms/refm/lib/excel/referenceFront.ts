@@ -206,12 +206,14 @@ function buildGuide(ws: ExcelJS.Worksheet, wb: ExcelJS.Workbook, ctx: FrontConte
   bar('What this model does');
   const inputs = (wb.getWorksheet('Inputs') ?? wb.getWorksheet(PROJECT_INPUTS))!;
   const INP = inputs.name === 'Inputs' ? 'Inputs' : `'${inputs.name}'`;
+  // The split tabs read label, unit, value: the value is in E (2026-11-19).
+  const VC = inputs.name === 'Inputs' ? 'D' : 'E';
   let nameRow = 0, locRow = 0;
   inputs.eachRow((row, rr) => { const t = txt(row.getCell(3)); if (t === 'Project Name' && !nameRow) nameRow = rr; if (t === 'Location' && !locRow) locRow = rr; });
   const tl = wb.getWorksheet('Timeline')!;
   let fy = 0, ly = 0, ny = 0;
   tl.eachRow((row, rr) => { const t = txt(row.getCell(3)); if (t === 'First model year') fy = rr; if (t === 'Last model year') ly = rr; if (t === 'Model years') ny = rr; });
-  line('Purpose', { formula: `"A development, sales, operating, financing and exit model for "&${INP}!$D$${nameRow}&" in "&${INP}!$D$${locRow}&", built on Financial Modeler Pro and exported with ${ctx.valuesOutput ? 'its values' : 'live formulas'}."` }, { height: 27 });
+  line('Purpose', { formula: `"A development, sales, operating, financing and exit model for "&${INP}!${VC}${nameRow}&" in "&${INP}!${VC}${locRow}&", built on Financial Modeler Pro and exported with ${ctx.valuesOutput ? 'its values' : 'live formulas'}."` }, { height: 27 });
   line('Time frame', { formula: `"Annual model, "&Timeline!$F$${fy}&" to "&Timeline!$F$${ly}&" ("&Timeline!$F$${ny}&" years), one column per year ending in December. The Opening column holds balances before the first year."` }, { height: 27 });
   line('Scheme', 'Land and plots, then GFA, NSA, units and keys for each line; each line is sold, operated (hotel) or leased (retail).');
   line('Methods', `Area chain from land, off-plan sales with instalments and revenue at handover, hotel P&L to EBITDA, leasing to NOI, cost-based capex with spend curves, funding sized on the cash short of the minimum, a cash sweep, ${tax}, and an exit at a cap rate.`, { height: 27 });

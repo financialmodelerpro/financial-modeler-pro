@@ -24,6 +24,7 @@ import { seedCostStandardRows, settleLineRateStated, settleLineSelectionStated, 
 import { planTypeMassingWriteBack } from './assetTypeStandards';
 import { seedRevenueBlocks } from './revenueSeeds';
 import { settleOpsYearGrids } from './opsYearGrids';
+import { settleAssetTypeLabels } from './assetTypeLabels';
 import { settleSubUnitPrices } from './subUnitPrices';
 import { settleTypePriceFields, settleSubUnitPriceStated, settleSubUnitPriceDefaults } from './subUnitPriceDefaults';
 
@@ -41,7 +42,11 @@ export function settleModel(merged: HydrateSnapshot) {
        * nothing is wrong, so a clean project hydrates to the same object it
        * always did and opening one can never mark it dirty.
        */
-      const repaired = repairProjectIntegrity(merged);
+      const repaired0 = repairProjectIntegrity(merged);
+      // AN ASSET'S TYPE LABEL FOLLOWS ITS TYPE (2026-11-19, assetTypeLabels.ts): a rename on Types and
+      // Standards reached the list and not each asset's copy, so line names kept the old type name.
+      const relabelled = settleAssetTypeLabels(repaired0.state.assets, repaired0.state.project.assetTypes);
+      const repaired = relabelled.changed ? { ...repaired0, state: { ...repaired0.state, assets: relabelled.assets } } : repaired0;
       /**
        * THE BRIDGE TO CAPEX IS FILLED ON LOAD (2026-09-12). Until today it was
        * filled by an effect on the assets tab and nowhere else, so capex priced

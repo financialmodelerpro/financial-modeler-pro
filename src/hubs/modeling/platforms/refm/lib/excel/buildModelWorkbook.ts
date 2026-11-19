@@ -1306,6 +1306,8 @@ function addAssumptions(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFin
       setFormula(ws.getCell(r, lastP + 1), fcell(`IF(ABS(SUM(${rng})-1)<0.0005,"OK","FIX")`, Math.abs(total - 100) < 0.05 ? 'OK' : 'FIX'), '@');
       ws.getCell(r, lastP + 1).alignment = { horizontal: 'right' };
       setLabel(ws.getCell(r, lastP + 2), [...new Set(nm)].join(', '));
+      // Read in full by the input tabs' split (2026-11-19): a wrapped cell is never cut by the long-text pass.
+      ws.getCell(r, lastP + 2).alignment = { horizontal: 'left', wrapText: true };
       r += 1;
     }
     setNote(ws.getCell(`A${r}`), 'A cost line spends on its plot\'s curve inside its own window; a line with its own timing is in the cost table above.');
