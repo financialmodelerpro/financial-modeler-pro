@@ -313,14 +313,12 @@ export const stage6Loop: LiveLayer = {
     for (const ph of phases) {
       const K = (x: string): string => `fl:ph:${ph.id}:${x}`;
       if (!has(K('proceeds'))) continue;
-      if (booked && has(K('inc')) && has(K('noi'))) {
-        put(K('inc'), (t) => incOf(K('noi'), t));
-        put(K('gross'), (t) => `IF(${P('fl:inc', t)}=0,0,${P('fl:gross', t)}*${P(K('inc'), t)}/${P('fl:inc', t)})`);
-        put(K('sell'), (t) => `-${P(K('gross'), t)}*${sellPct()}`);
-        put(K('proceeds'), (t) => `${P(K('gross'), t)}+${P(K('sell'), t)}`);
-      } else put(K('proceeds'), () => '0');
+      // The total x the phase's share of the NOI capitalised (2026-11-19, founder B5).
+      if (booked && has(K('noi')) && has('fl:inc')) put(K('proceeds'), (t) => `IF(${P('fl:inc', t)}=0,0,${P('fl:proceeds', t)}*${incOf(K('noi'), t)}/${P('fl:inc', t)})`);
+      else put(K('proceeds'), () => '0');
       claim(`fnc:ph:${ph.id}:proceeds`, K('proceeds'));
     }
+    if (has('fl:exitChk')) put('fl:exitChk', (t) => `${phases.map((ph) => `fl:ph:${ph.id}:proceeds`).filter(has).map((k) => P(k, t)).join('+') || '0'}-${P('fl:proceeds', t)}`);
     for (const [name, key] of [['fnc:inc', 'fl:inc'], ['fnc:gross', 'fl:gross'], ['fnc:sell', 'fl:sell'], ['fnc:capYear', 'fl:capYear']] as const) claim(name, key);
     put('fl:collected', (t) => P('rev|__project__|sum-cash|Total cash collected', t));
     // Payables at 0 days: opex is paid as incurred (2026-11-15), so the cash paid is the project opex.
@@ -504,7 +502,9 @@ export const stage6Loop: LiveLayer = {
     put('fl:tax', (t) => (has(plTax) ? `-${P(plTax, t)}` : '0'));
     // The exit year's zakat is paid in the exit year (2026-11-18): nothing payable from the exit on.
     put('fl:taxPay', (t) => `${P('fl:tax', t)}*MIN(365,MAX(0,N(${w.ref('project:taxDays')})))/365${booked && has('tl:flag:exit') ? `*(1-SUM(${w.rangeA(w.addr('tl:flag:exit').sheet, w.addr('tl:flag:exit').row, pc(0), pc(t))}))` : ''}`, 'last');
-    if (has('fl:taxPay')) put('fl:taxPaid', (t) => `${P('fl:tax', t)}-(${P('fl:taxPay', t)}-${P('fl:taxPay', t, -1)})`);
+    if (has('fl:taxOpen')) put('fl:taxOpen', (t) => `N(${P('fl:taxPay', t, -1)})`, 'last');
+    if (has('fl:taxPay')) put('fl:taxPaid', (t) => `${has('fl:taxOpen') ? `${P('fl:taxOpen', t)}+` : ''}${P('fl:tax', t)}-${P('fl:taxPay', t)}`);
+    if (has('fl:taxChk')) put('fl:taxChk', (t) => `${P('fl:taxOpen', t)}+${P('fl:tax', t)}-${P('fl:taxPaid', t)}-${P('fl:taxPay', t)}`);
 
     // ── The fund fees ────────────────────────────────────────────────────────
     if (feeOn) {

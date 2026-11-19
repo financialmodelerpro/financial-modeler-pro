@@ -50,7 +50,6 @@ export const CASE_KPIS: CaseKpiDef[] = [
   // Net of the performance fee where the fund charges one: the headline convention (distributedReturnPair).
   { label: 'Distributed Equity IRR', kind: 'pct', sub: 'net of performance fee where charged', get: (rs) => distributedReturnPair(rs).irr },
   { label: 'Equity Multiple (FCFE)', kind: 'mult', sub: 'equity out / equity in', get: (rs) => rs.result.fcfe.moic },
-  { label: 'Equity Multiple (distributions)', kind: 'mult', sub: 'distributions / invested', get: (rs) => rs.result.realEstate.equityMultiple },
   { label: 'NPV (FCFF)', kind: 'money', sub: 'at discount rate', get: (rs) => rs.result.fcff.npv },
   { label: 'Gross Development Value', kind: 'money', sub: 'sales value + gross exit value', get: (rs) => rs.developmentEconomics.gdv },
   // Total Development Cost split into Land + Capex (construction), which sum back

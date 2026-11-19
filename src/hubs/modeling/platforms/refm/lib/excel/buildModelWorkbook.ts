@@ -262,6 +262,7 @@ function buildModelWorkbookInner(opts: BuildModelOptions): ExcelJS.Workbook {
   const twin = computeLiveModel(liveAssets, proj);
   const lm = buildRealModel(twin, snap, liveAssets);
   const wb = new ExcelJS.Workbook();
+  EXPORT_DATE.set(wb, opts.dateLabel);
   wb.creator = 'Financial Modeler Pro';
   wb.created = new Date(0); // deterministic (avoid clock for reproducible output)
   wb.calcProperties.fullCalcOnLoad = true;
@@ -522,7 +523,7 @@ function emitSellingSection(wb: ExcelJS.Workbook, ws: ExcelJS.Worksheet, r0: num
   };
   // Marketing keeps the key the P&L and Financing read (cx1e:total): the P&L expense.
   if (sec.costs.length) totalRow('cx1e:total', 'Marketing: total, the P&L expense', mk);
-  if (comm.length) totalRow('sell:comm', 'Sales commission: total, expensed at handover', cm);
+  if (comm.length) totalRow('sell:comm', 'Sales commission: total, paid', cm);
   totalRow('sell:total', 'Total selling costs, cash paid', sum([mk, cm]), true);
 }
 
@@ -7206,7 +7207,7 @@ function emitCaseComparison(a: {
   setColHeader(ws.getCell(r, LBL_COL), 'Metric', 'left');
   cols.forEach((c, i) => {
     const at = colsOf(i);
-    setColHeader(ws.getCell(r, at.value), `${c.role === 'base' ? '★' : '◆'} ${c.name}${c.isActive ? ' (active)' : ''}`, 'right');
+    setColHeader(ws.getCell(r, at.value), `${c.name}${c.isActive ? ' (active)' : ''}`, 'right');
     if (at.change !== null) setColHeader(ws.getCell(r, at.change), 'Change', 'right');
   });
   r += 1;
@@ -7240,6 +7241,9 @@ function emitCaseComparison(a: {
  *  report. The sensitivity grid and the exit-year analysis follow as the platform's results
  *  (2026-11-16, founder: moved off Returns, the same numbers). The statement tabs render the SELECTED
  *  case; this tab always compares ALL cases. */
+/** The export's date, for the Scenarios tab's static-results note (2026-11-19, founder C15). */
+const EXPORT_DATE = new WeakMap<ExcelJS.Workbook, string>();
+
 function addScenarios(ctx: EmitCtx): void {
   const { wb, snap, currency } = ctx;
   const N = snap.axisLength;
@@ -7283,6 +7287,8 @@ function addScenarios(ctx: EmitCtx): void {
     setLabel(ws.getCell(r, LBL_COL), 'Use scenarios?', { bold: true });
     { const c = ws.getCell(r, FIRST); c.value = useScenarios ? 'Yes' : 'No'; c.numFmt = '@'; c.alignment = { horizontal: 'right' }; markInput(c); }
     r += 1;
+    // STATIC RESULTS (2026-11-19, founder C15): this tab is the platform's, as at the export.
+    note(`Static platform results, exported ${EXPORT_DATE.get(wb) ?? 'with this file'}; change inputs on the platform and re-export.`);
     note(useScenarios
       ? 'A scenario is the Management (base) case plus a few input overrides. The active case drives every module and the Returns tabs. The base model is never changed.'
       : 'Scenarios are off. The platform computes on the Management Case, and the assumptions grid and case comparison are hidden. The cases and overrides are saved, not deleted.');
@@ -7298,7 +7304,7 @@ function addScenarios(ctx: EmitCtx): void {
     ['Type', 'Active', 'Overrides'].forEach((h, i) => setColHeader(ws.getCell(r, FIRST + i), h, 'right'));
     r += 1;
     for (const c of cols) {
-      setLabel(ws.getCell(r, LBL_COL), `${c.role === 'base' ? '★' : '◆'} ${c.name}`, { bold: c.isActive });
+      setLabel(ws.getCell(r, LBL_COL), c.name, { bold: c.isActive });
       [c.role === 'base' ? 'Management (base)' : 'Scenario', c.isActive ? 'ACTIVE' : '', c.role === 'base' ? 'base' : `${c.overrideCount} override${c.overrideCount === 1 ? '' : 's'}`].forEach((v, i) => {
         const cell = ws.getCell(r, FIRST + i); cell.value = v; cell.numFmt = '@'; cell.alignment = { horizontal: 'right' }; cell.font = { name: 'Calibri', size: BODY_SIZE, color: { argb: ARGB.formula } };
       });
@@ -7318,7 +7324,7 @@ function addScenarios(ctx: EmitCtx): void {
       } else {
         setColHeader(ws.getCell(r, LBL_COL), 'Assumption', 'left');
         setColHeader(ws.getCell(r, META_B), 'Note', 'left');
-        grid.columns.forEach((c, i) => setColHeader(ws.getCell(r, FIRST + i), `${c.isBase ? '★' : '◆'} ${c.name}`, 'right'));
+        grid.columns.forEach((c, i) => setColHeader(ws.getCell(r, FIRST + i), c.name, 'right'));
         r += 1;
         for (const g of groups) {
           subTitle(g.label);

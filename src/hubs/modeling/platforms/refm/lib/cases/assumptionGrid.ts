@@ -221,6 +221,8 @@ export interface GridContext {
   activeOverridesByLine: Map<string, Array<{ assetId: string; lineId: string; value: number }>>;
   /** An asset type id -> the name the project gives it today (2026-11-19, founder A5). */
   types?: Map<string, string>;
+  /** An asset type id -> the strategy its values are priced by (Sell, Operate, Lease). */
+  typeStrategy?: Map<string, string>;
 }
 
 export function buildGridContext(model: HydrateSnapshot): GridContext {
@@ -253,7 +255,10 @@ export function buildGridContext(model: HydrateSnapshot): GridContext {
     arr.push({ assetId: o.assetId, lineId: o.lineId, value: Number(o.value) || 0 });
     activeOverridesByLine.set(o.lineId, arr);
   }
-  return { assets, phases, parcels, costLines, subUnits, tranches, activeOverridesByLine, types };
+  const typeStrategy = new Map<string, string>();
+  const tvs = ((model as unknown as { project?: { assetTypeValues?: Record<string, { strategy?: string }> } }).project?.assetTypeValues ?? {});
+  for (const [id, v] of Object.entries(tvs)) if (v?.strategy) typeStrategy.set(id, v.strategy);
+  return { assets, phases, parcels, costLines, subUnits, tranches, activeOverridesByLine, types, typeStrategy };
 }
 
 // Financing-config method labels, so project.financing.<config>.debtPct rows are
@@ -420,6 +425,11 @@ export function describeAssumption(f: OverridableField, ctx?: GridContext): Assu
   let label = FIELD_LABELS[f.field];
   if (!label) { for (const [re, l] of SUFFIX_LABELS) if (re.test(f.field)) { label = l; break; } }
   if (!label) label = humanizeLeaf(f.field);
+  // A leased type's price per sqm is a rent, an operated type's price per key a rate (2026-11-19, founder C15).
+  const tvPrice = /^project\.assetTypeValues\.([^.]+)\.(pricePerSqm|pricePerUnit)$/.exec(f.path);
+  const strat = tvPrice ? ctx?.typeStrategy?.get(tvPrice[1]) : undefined;
+  if (strat === 'Lease' && tvPrice![2] === 'pricePerSqm') label = 'Rent per sqm per year (type default)';
+  if (strat === 'Operate' && tvPrice![2] === 'pricePerUnit') label = 'Rate per key per night (type default)';
   return { label, context, category, format: formatForField(f), curated: isCuratedField(f) };
 }
 

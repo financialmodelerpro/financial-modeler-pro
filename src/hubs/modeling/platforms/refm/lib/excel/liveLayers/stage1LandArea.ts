@@ -535,7 +535,7 @@ function livePeriodFlags(w: Writer, reg: CellRegistry, phaseIds: string[], yearC
     // before the first model year) and the last operating year.
     const T = (x: string): string => R(`tl:phase:${id}:${x}`);
     if (w.has(`tl:phase:${id}:hy`)) {
-      w.f(`tl:phase:${id}:hy`, `MAX(${R('project:axisYear')},YEAR(${T('cs')})+${T('cp')}-1)`);
+      w.f(`tl:phase:${id}:hy`, `MAX(${R('project:axisYear')},YEAR(${T('ce')})-(${T('cp')}=0))`); // an operating phase (no build) hands over the year before it starts, as the engine; // the year the construction ends (2026-11-19, founder C7)
       w.f(`tl:phase:${id}:ly`, `${T('hy')}+${T('op')}`);
     }
     const con = `tl:flag:${id}:con`, hand = `tl:flag:${id}:hand`, ops = `tl:flag:${id}:ops`;

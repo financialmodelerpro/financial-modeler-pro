@@ -255,22 +255,24 @@ export function financingPlan(state: FinancialsResolverState, snap: Snap = compu
     const basisIdx = retCfg.terminalValueBasis === 'exit_year' ? X : X - 1;
     const phs = state.phases.map((ph) => ({ ph, noi: heldIncomePerPeriod(snap, state, ph.id), share: phaseProceedsShare(snap, state, ph.id) })).filter((x) => x.noi.some((v) => Math.abs(v) > 0.005));
     const multi = state.phases.length > 1;
-    for (const x of phs) per(`fl:ph:${x.ph.id}:noi`, `EBITDA (NOI): ${x.ph.name}`, x.noi, 'Opex: EBITDA (NOI) of the phase, in the summary by line', { indent: 1 });
-    per('fl:noi', multi ? 'EBITDA (NOI): held assets, total' : 'EBITDA (NOI): held assets', noi, multi ? 'The phases above' : 'Opex: EBITDA (NOI), in the summary by line');
+    for (const x of phs) per(`fl:ph:${x.ph.id}:noi`, `NOI: ${x.ph.name}`, x.noi, 'Opex: EBITDA (NOI) of the phase, in the summary by line', { indent: 1 });
+    per('fl:noi', multi ? 'NOI: held assets, total' : 'NOI: held assets', noi, multi ? 'The phases above' : 'Opex: EBITDA (NOI), in the summary by line');
     if (booked) {
       scalar('fl:capYear', 'Year capitalised', snap.projectStartYear + Math.max(0, basisIdx), 'year', 'The exit year on Project Inputs, less one where the basis is the year before the exit');
       const at = (v: number): number[] => { const o = zeros(); if (snap.disposal.booked && X >= 0 && X < N) o[X] = v; return o; };
       const incTot = snap.disposal.booked && basisIdx >= 0 ? noi[basisIdx] ?? 0 : 0;
       const gross = snap.disposal.booked ? snap.disposal.proceeds / Math.max(1e-12, 1 - sc) : 0;
-      for (const x of phs) per(`fl:ph:${x.ph.id}:inc`, `Income capitalised: ${x.ph.name}`, at(snap.disposal.booked && basisIdx >= 0 ? x.noi[basisIdx] ?? 0 : 0), 'In the exit year: the phase\'s NOI of the year capitalised', { indent: 1 });
       per('fl:inc', multi ? 'Income capitalised: total' : 'Income capitalised', at(incTot), 'In the exit year: the NOI of the year capitalised');
-      for (const x of phs) per(`fl:ph:${x.ph.id}:gross`, `Gross exit value: ${x.ph.name}`, at(gross * x.share), 'The gross exit value x the phase\'s share of the income capitalised', { indent: 1 });
       per('fl:gross', multi ? 'Gross exit value: total' : 'Gross exit value', at(gross), 'The income capitalised at the exit terms on Project Inputs');
-      for (const x of phs) per(`fl:ph:${x.ph.id}:sell`, `Less selling costs at exit: ${x.ph.name}`, at(-gross * x.share * sc), 'The phase\'s gross value x the selling cost % on Project Inputs', { indent: 1 });
       per('fl:sell', multi ? 'Less selling costs at exit: total' : 'Less selling costs at exit', at(-gross * sc), 'The gross value x the selling cost % on Project Inputs');
     }
-    for (const x of phs) per(`fl:ph:${x.ph.id}:proceeds`, `Net exit proceeds: ${x.ph.name}`, proceeds.map((v) => v * x.share), 'Its gross value less its selling costs', { indent: 1 });
     per('fl:proceeds', multi ? 'Net exit proceeds: total' : 'Net exit proceeds', proceeds, 'The gross value less the selling costs, in the exit year on Timeline', { style: 'subtotal' });
+    // THE EXIT ON TOTALS, THE PHASES BY THEIR SHARE (2026-11-19, founder B5): each phase's net proceeds is the total x
+    // its share of the NOI capitalised, and a check proves the phases add to the total.
+    if (multi && phs.length) {
+      for (const x of phs) per(`fl:ph:${x.ph.id}:proceeds`, `Net exit proceeds: ${x.ph.name}`, proceeds.map((v) => v * x.share), 'The total x the phase\'s share of the NOI capitalised', { indent: 1 });
+      per('fl:exitChk', 'Check: the phases less the total (should be 0)', zeros(), 'The phases\' net exit proceeds less the total', { indent: 1 });
+    }
   }
   gapRow();
 
@@ -397,14 +399,16 @@ export function financingPlan(state: FinancialsResolverState, snap: Snap = compu
   // ── Zakat: worked out on the P&L, read back here for the cash (2026-11-15, founder) ──
   const pl = snap.pl;
   title('fl:t:pbt', TAX);
-  sub('fl:t:pbt:1', `${TAX} from the P&L`, CCY);
-  per('fl:tax', `${TAX} charge, from the P&L`, sl(pl.taxPerPeriod), 'The charge on the P&L');
+  // ONE SCHEDULE (2026-11-19, founder B8): opening payable, the charge (the P&L), paid, closing payable, a check.
+  const payOn = featureUsed(state as never, 'taxPayable');
+  const payable = sl(snap.bs.taxPayablePerPeriod);
+  if (payOn) per('fl:taxOpen', `${TAX} payable: opening`, payable.map((_v, t) => (t === 0 ? 0 : payable[t - 1] ?? 0)), 'Last year\'s closing payable', { balance: true });
+  per('fl:tax', `${TAX} charge for the year, from the P&L`, sl(pl.taxPerPeriod), 'The charge on the P&L');
   // Paid in the year (0 payment days): no payable, and the charge is what is paid (2026-11-15, founder).
-  if (featureUsed(state as never, 'taxPayable')) {
-    sub('fl:t:pbt:2', 'Payable at the year end', CCY);
-    per('fl:taxPay', `${TAX} payable at the year end`, sl(snap.bs.taxPayablePerPeriod), 'The charge x the payment days on Inputs over 365', { balance: true });
-    sub('fl:t:pbt:3', `${TAX} paid`, CCY);
-    per('fl:taxPaid', `${TAX} paid`, neg(sl(dcf.taxPaidPerPeriod)), 'The charge less the rise in what is payable');
+  if (payOn) {
+    per('fl:taxPaid', `${TAX} paid during the year`, neg(sl(dcf.taxPaidPerPeriod)), 'The charge less the rise in what is payable');
+    per('fl:taxPay', `${TAX} payable: closing`, payable, 'The charge x the payment days on Inputs over 365', { balance: true, style: 'subtotal' });
+    per('fl:taxChk', 'Check: opening + charge - paid - closing (should be 0)', zeros(), 'The roll-forward');
   }
   gapRow();
 

@@ -58,7 +58,7 @@ const RENAME: Array<[RegExp, string]> = [
   [/^Balance sheet balances.*$/, 'Balance sheet balances'],
   [/^Zakat on the P&L equals zakat paid on the Cash Flow$/, 'Zakat charged equals zakat paid'],
   [/^Checks \(live: .*$/, 'Checks'],
-  [/^Held assets' cost.*$/, "Held assets' cost"],
+  [/^Held assets' cost.*$/, "Held assets' cost incl. IDC: total"],
   [/^Yield on cost.*$/, 'Yield on cost'],
   [/^In the construction window.*$/, 'In the construction window (1 = yes)'],
   [/^In the hold.*$/, 'In the hold (1 = yes)'],
@@ -359,4 +359,49 @@ export function namedTolerances(wb: ExcelJS.Workbook): void {
   const names = wb.definedNames as unknown as { add(ref: string, name: string): void };
   names.add(`'Checks'!$E$${r0}`, 'Tolerance');
   names.add(`'Checks'!$E$${r0 + 1}`, 'Tolerance_relative');
+}
+
+/**
+ * NO RESIDUE SHOWN AS "(0)" (2026-11-19, founder A4): a money cell whose figure is a sub-cent residue of a subtraction
+ * (a check, a balance that closes, a repayment netted to nothing) is rounded to the cent where it is worked out, so
+ * Excel shows "-" and never "(0)". The live file wraps the formula in ROUND(...,2), the values file stores 0.
+ * Money cells only (a format with "#,##0" and no "%"): a small percentage or ratio is a figure, not a residue.
+ */
+export function snapResidues(wb: ExcelJS.Workbook, live: boolean): number {
+  let n = 0;
+  const isMoney = (f: unknown): boolean => typeof f === 'string' && f.includes('#,##0') && !f.includes('%') && !f.includes('x"');
+  for (const ws of wb.worksheets) ws.eachRow((row) => row.eachCell((c) => {
+    if (!isMoney(c.numFmt)) return;
+    const v = c.value as unknown;
+    if (typeof v === 'number') { if (v !== 0 && Math.abs(v) < 0.005) { c.value = 0; n++; } return; }
+    if (!v || typeof v !== 'object') return;
+    const o = v as { formula?: string; result?: unknown };
+    if (typeof o.formula !== 'string' || typeof o.result !== 'number' || o.result === 0 || Math.abs(o.result) >= 0.005) return;
+    if (!live) { c.value = 0; n++; return; }
+    if (/^ROUND\(/i.test(o.formula)) { c.value = { ...o, result: 0 } as ExcelJS.CellValue; return; }
+    c.value = { formula: `ROUND(${o.formula},2)`, result: 0 } as ExcelJS.CellValue; n++;
+  }));
+  return n;
+}
+
+/**
+ * THE FMP HOUSE STANDARD, LAST (2026-11-19, founder B1 and E1). A numbered section bar keeps #1B4F8A; every other
+ * filled head row (a table's column heads, a sub-table's head) is #153D64, so a bar and a table head never look the
+ * same. The body font is 9.5pt and every other size moves in proportion (9 to 9.5, 13 to 13.5 ...).
+ */
+export function houseStandard(wb: ExcelJS.Workbook): void {
+  const BAR = 'FF1B4F8A', HEAD = 'FF153D64';
+  const fillOf = (c: ExcelJS.Cell): string | undefined => (c.fill as { fgColor?: { argb?: string } } | undefined)?.fgColor?.argb;
+  for (const ws of wb.worksheets) {
+    ws.eachRow((row) => {
+      let hasBar = false, numbered = false;
+      row.eachCell((c) => { if (fillOf(c) === BAR) hasBar = true; if (typeof c.value === 'string' && /^\d+\.\s/.test(c.value.trim())) numbered = true; });
+      if (hasBar && !numbered) row.eachCell({ includeEmpty: true }, (c) => { if (fillOf(c) === BAR) c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: HEAD } }; });
+      row.eachCell({ includeEmpty: true }, (c) => {
+        const f = c.font as ExcelJS.Font | undefined;
+        if (!f || typeof f.size !== 'number') return;
+        c.font = { ...f, size: Math.round(f.size * (9.5 / 9) * 2) / 2 } as ExcelJS.Font;
+      });
+    });
+  }
 }

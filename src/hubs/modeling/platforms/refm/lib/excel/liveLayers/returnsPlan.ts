@@ -546,8 +546,10 @@ export function returnsPlan(state: FinancialsResolverState, snap: Snap, rs: RS, 
       const exitV = snap.disposal.booked ? snap.disposal.grossValue * phaseProceedsShare(snap, state, ph.id) : 0;
       one(`ret|de|gdv:${ph.id}`, `GDV: ${ph.name}`, saleV + exitV, (E) => {
         const ks = saleKeys(E).filter((k) => sellIds.includes(k.split(':')[1]));
-        const gk = `fl:ph:${ph.id}:gross`;
-        return [...ks.map((k) => `SUM(${E.xr(k)})`), ...(E.has(gk) ? [E.xo(gk)] : [])].join('+') || '0';
+        // The phase's gross exit value: the total x its share of the net proceeds (Financing 1.3, 2026-11-19 B5).
+        const pk = `fl:ph:${ph.id}:proceeds`;
+        const gx = E.has(pk) && E.has('fl:gross') && E.has('fl:proceeds') ? `IF(${E.xo('fl:proceeds')}=0,0,${E.xo('fl:gross')}*${E.xo(pk)}/${E.xo('fl:proceeds')})` : '';
+        return [...ks.map((k) => `SUM(${E.xr(k)})`), ...(gx ? [gx] : [])].join('+') || '0';
       }, RF.money, { indent: 1 });
     }
     one('ret|de|tdc', 'Total development cost', de.totalDevelopmentCost, (E) => (E.has('cx:tdc') ? E.xo('cx:tdc') : `SUM(${E.xr('fnc:capexall')})`));
@@ -600,11 +602,11 @@ export function returnsPlan(state: FinancialsResolverState, snap: Snap, rs: RS, 
     one('rm|stabYear', 'Stabilised year (every held asset at its top occupancy)', m.stabilisedYear ?? 'n/a', (E) => (stabRows.length ? `MIN(${E.d('ret|Exit Year')},MAX(${stabRows.map((k) => E.d(k)).join(',')}))` : E.d('ret|Exit Year')), RF.year);
     one('rm|stabNoi', 'Held assets\' NOI in the stabilised year', m.stabilisedYearNOI ?? 0, (E) => `SUMPRODUCT((${E.yrRng()}=${E.d('rm|stabYear')})*${E.rngY('rs|noi')})`);
     const idcOf = (ids: string[], E: REnv): string[] => [...new Set(ids.filter((id) => E.has(`fnc:main:idc:${id}`)).map((id) => `fnc:main:idc:${id}`))].slice(0, 1).map((k) => `SUM(${E.xr(k)})`);
-    heldLines.forEach((g, i) => one(`rm|heldcost:${i}`, `Held cost incl. IDC, ${g.label}`,
+    heldLines.forEach((g, i) => one(`rm|heldcost:${i}`, `Held cost: ${g.label}`,
       Math.max(0, g.ids.reduce((s0, id) => s0 + (snap.perAssetCF.get(id)?.capexPerPeriod ?? []).reduce((a, b) => a + (b ?? 0), 0) + (snap.idc.byAsset.get(id)?.idcPerPeriod ?? []).reduce((a: number, b: number) => a + (b ?? 0), 0), 0)),
       (E) => { const ks = KEYS.cxc(E).filter((k) => g.ids.some((id) => k.startsWith(`cxc:${id}:`))); return [...ks.map((k) => `SUM(${E.xr(k)})`), ...idcOf(g.ids, E)].join('+') || '0'; }, RF.money, { indent: 2 }));
     const heldCost = m.yieldOnCost ? (m.stabilisedYearNOI ?? 0) / m.yieldOnCost : 0;
-    one('rm|heldcost', 'Held assets\' cost incl. IDC (hotel and lease lines, land included)', heldCost,
+    one('rm|heldcost', 'Held assets\' cost incl. IDC: total', heldCost,
       (E) => heldLines.map((_g, i) => E.d(`rm|heldcost:${i}`)).join('+') || '0', RF.money, { indent: 1 });
     one('rm|yoc', 'Yield on cost, held assets', m.yieldOnCost ?? 'n/a', (E) => `IF(${E.d('rm|heldcost')}>0,${E.d('rm|stabNoi')}/${E.d('rm|heldcost')},"n/a")`, RF.pct);
     const capIn = rs.result.realEstate.capRateAtExit;

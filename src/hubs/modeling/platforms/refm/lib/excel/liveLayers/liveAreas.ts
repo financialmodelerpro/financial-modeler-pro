@@ -47,7 +47,8 @@ export function nsaUsedFormula(assetId: string, subUnits: readonly SubUnit[], re
   const areas = subUnits.filter((u) => u.assetId === assetId && NSA_CATEGORIES.has(String(u.category))).map((u) => ref(`su:${u.id}:area`));
   if (areas.some((x) => !x)) return null;
   // NO STATED NSA COLUMN (2026-11-18: shown only where a project uses it): the sub-units' area is the NSA.
-  if (!stated) return areas.length ? `SUM(${areas.join(',')})` : null;
+  // An asset with no sub-units and no Stated NSA adds nothing (2026-11-19, founder C1: it left the line typed).
+  if (!stated) return areas.length ? `SUM(${areas.join(',')})` : '0';
   return `MAX(${areas.length ? `SUM(${areas.join(',')})` : '0'},MAX(0,N(${stated})))`;
 }
 const NSA_CATEGORIES = new Set(['Sellable', 'Operable', 'Leasable']);

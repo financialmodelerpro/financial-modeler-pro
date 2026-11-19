@@ -267,7 +267,7 @@ function buildGuide(ws: ExcelJS.Worksheet, wb: ExcelJS.Workbook, ctx: FrontConte
   // cost per sqm on Capex reads Financing's IDC back.
   line('Capitalised interest', 'The cost per sqm on Capex (construction + IDC) reads it from Financing, which works it out from the opening debt and the draw of the year.');
   line('Retained earnings', 'The dividend cap on Financing reads the retained earnings available on the Balance Sheet (last year\'s retained earnings and this year\'s profit after tax), none of which reads this year\'s dividend.');
-  line(tax === 'zakat' ? 'Zakat' : 'Tax', 'Worked out on the P&L; Financing reads the charge back for the cash.');
+  line(tax === 'zakat' ? 'Zakat' : 'Tax', tax === 'zakat' ? '2.5% of profit before zakat, excluding the exit gain, worked out on the P&L; Financing reads the charge back for the cash.' : 'Worked out on the P&L; Financing reads the charge back for the cash.');
   r++;
 
   bar('Troubleshooting');

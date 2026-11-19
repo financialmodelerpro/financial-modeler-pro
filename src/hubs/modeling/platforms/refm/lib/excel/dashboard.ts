@@ -63,6 +63,9 @@ class Locate {
       if (from && r > from) { to = r - 1; break; }
       if (re.test(b.replace(/^\d+\.\s+/, ''))) from = r + 1;
     }
+    // The blank row under a bar (2026-11-19, founder B1) is not the section's first row.
+    const blank = (r: number): boolean => { let any = false; ws.getRow(r).eachCell((c) => { if (c.value !== null && c.value !== undefined && c.value !== '') any = true; }); return !any; };
+    while (from && from < to && blank(from)) from++;
     return from ? [from, to] : null;
   }
   /** The first row in [from, to] whose label (column C) matches. */
@@ -276,7 +279,7 @@ export function buildDashboard(wb: ExcelJS.Workbook, ctx: DashboardContext): { c
   const ry = L.years(RET);
   const retA = L.section(RET, /^Assumptions$/), retExit = L.section(RET, /^Exit value$/), retFcff = L.section(RET, /^FCFF/), retFcfe = L.section(RET, /^FCFE/);
   const retDist = L.section(RET, /^Distributions before/), retFee = L.section(RET, /^Performance fee/), retPart = L.section(RET, /^Equity partners$/);
-  const retFees = L.section(RET, /^Fund fees and who earns them$/), retSU = L.section(RET, /^Sources and uses/), retKM = L.section(RET, /^Key metrics$/);
+  const retFees = L.section(RET, /^(Fund fees|Fees|Developer fee, sales commission) and who earns them$/), retSU = L.section(RET, /^Sources and uses/), retKM = L.section(RET, /^Key metrics$/);
   const rDisc = L.need(RET, 'Discount rate', retA), rExitY = L.need(RET, 'Exit year', retA), rCap = L.row(RET, 'Exit cap rate', retA);
   const rNoi = L.need(RET, 'Income capitalised', retExit), rTv = L.need(RET, 'Net exit value', retExit);
   const rFcff = L.need(RET, 'FCFF', retFcff), rFcffRet = L.need(RET, 'Project returns (FCFF)', retFcff);
@@ -350,7 +353,8 @@ export function buildDashboard(wb: ExcelJS.Workbook, ctx: DashboardContext): { c
     for (const rr of [r, r + 1, r + 2]) merge(rr, c, c + span - 1);
   };
   const firstYear = A(TL, L.need(TL, 'First model year'), 6);
-  tile(7, 3, 'GROSS DEVELOPMENT VALUE', `=${A(PL, rRev, 6)}`, cx.tile, `="Total revenue, "&${firstYear}&" to "&${A(RET, rExitY, 6)}`);
+  // THE ONE GDV (2026-11-19, founder A1): Returns' residential sales plus gross exit value.
+  tile(7, 3, 'GROSS DEVELOPMENT VALUE', `=${A(RET, rGdv, 6)}`, cx.tile, '="Residential sales + gross exit value"');
   tile(7, 5, 'TOTAL DEVELOPMENT COST', `=${A(CAP, rCapTot, 6)}`, cx.tile, '="Land, build, fees and contingency"');
   tile(7, 9, 'DEVELOPMENT MARGIN', `=${A(RET, rMargin, 6)}`, '0.0%', `="Development profit "&TEXT(${A(RET, rSurplus, 6)}/1000000,"#,##0.0")&"m"`);
   const kindPart = rInKind && (numOf(L.ws(RET).getCell(rInKind, 6)) ?? 0) !== 0 ? `&"m + land in kind "&TEXT(${A(RET, rInKind, 6)}/1000000,"#,##0.0")&"m"` : '&"m"';

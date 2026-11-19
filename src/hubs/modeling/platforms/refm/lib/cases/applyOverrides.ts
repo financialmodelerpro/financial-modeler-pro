@@ -120,7 +120,8 @@ export function isPctChange(v: unknown): v is PctChange {
 /** The value a % change gives on `base` (undefined where the base value is not a number). */
 export function pctChangeValue(base: HydrateSnapshot, path: string, v: PctChange): number | undefined {
   const b = getByPath(base, path);
-  return typeof b === 'number' && Number.isFinite(b) ? b * (1 + v.pctChange / 100) : undefined;
+  // Rounded to 12 significant figures (2026-11-19, founder A4): 25,000 x 1.1 is 27,500, not 27,500.000000000004.
+  return typeof b === 'number' && Number.isFinite(b) ? Number((b * (1 + v.pctChange / 100)).toPrecision(12)) : undefined;
 }
 /** The override map with every % change replaced by the number it gives on `base`. */
 export function resolvePctChanges(base: HydrateSnapshot, overrides: Record<string, unknown>): Record<string, unknown> {

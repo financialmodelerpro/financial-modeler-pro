@@ -3334,7 +3334,7 @@ function buildModule4(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
       ['Terminology mode', (project.financialTerminology ?? defaultTerminologyForCountry(project.country)) === 'saudi' ? 'Saudi (EBITDA / EBIT / Zakat)' : 'Standard (EBITDA / EBIT / Tax)'],
       [`${labels.taxRate} (%)`, fmt.pct(project.tax?.rate ?? 0, 2)],
       [`${labels.tax} on the disposal gain`, project.tax?.applyToDisposalGain === true ? 'Charged on the gain at exit' : 'Not charged (default)'],
-      ['Basis', (project.tax?.basis ?? 'zakat') === 'cit' ? 'Corporate income tax (losses carried forward, 25% cap)' : 'Zakat (net worth; no loss carry-forward)'],
+      ['Basis', (project.tax?.basis ?? 'zakat') === 'cit' ? 'Corporate income tax (losses carried forward, 25% cap)' : 'Zakat: 2.5% of profit before zakat, excluding the exit gain (no loss carry-forward)'],
       [`${labels.tax} paid after (days)`, String(project.tax?.paymentDays ?? 0)],
     ])));
     caption(tab, 'outputs', `Strategy-grouped P&L composed from Module 2 Revenue and Cost of Sales, Module 3 Opex, depreciation and Module 1 financing interest. The project statement runs down to ${labels.pat}; a single phase stops at ${labels.ebitda}, since D&A, interest and tax are project level.`);

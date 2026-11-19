@@ -1788,5 +1788,5 @@ export function taxBasisNote(
       + (losses > 0 ? ` Losses of ${when} (${money(losses)}): ${money(relieved)} relieved over the horizon, ${money(left)} still carried forward at the end.` : ' No year makes a tax loss.');
   }
   if (losses <= 0) return null;
-  return `Zakat basis: zakat is assessed each year on net worth, not on profit, so the losses of ${when} (${money(losses)}) are not carried forward against later years. That is the rule, not an omission; on a corporate income tax basis they would be.`;
+  return `Zakat basis: zakat is charged at 2.5% of each year's profit before zakat, excluding the exit gain, with no loss carried forward, so the losses of ${when} (${money(losses)}) are not carried forward against later years. That is the rule, not an omission; on a corporate income tax basis they would be.`;
 }

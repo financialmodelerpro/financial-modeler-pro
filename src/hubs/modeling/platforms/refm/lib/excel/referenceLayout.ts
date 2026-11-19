@@ -159,7 +159,12 @@ export function applyReferenceLayout(wb: ExcelJS.Workbook, opts: { mirror?: Exce
       if (bars.has(r) && !prevEmpty) cur++;
       newRow[r] = ++cur;
       prevEmpty = rowEmpty(ws, r);
-      if (bars.has(r)) prevEmpty = false;
+      if (bars.has(r)) {
+        prevEmpty = false;
+        // ONE BLANK ROW AFTER EVERY BAR (2026-11-19, founder B1), then its sub-heading or table.
+        const nx = r + 1;
+        if (period || !(nx <= lastOld && rowEmpty(ws, nx) && !drop.has(nx))) { cur++; prevEmpty = true; }
+      }
     }
     if (mirrored) {
       newRow = mirrored.newRow.slice(); cur = mirrored.cur;
