@@ -540,6 +540,46 @@ export function financingPlan(state: FinancialsResolverState, snap: Snap = compu
   place((k) => k === 'fl:divStart', (k) => k === 'fl:payout');
   place((k) => k === 'fl:firstDraw', (k) => k === 'fl:t:fee:1:u');
   place((k) => k === 'fl:idcExcl', (k) => k === 'fl:t:int:1:u');
+  // ── THE FINANCING ORDER (2026-11-19, founder B7): 3 senior debt, 4 the cash sweep, 5 share capital, then interest,
+  // zakat, the fund fees and the cash waterfall. The rows move; no formula reads differently. ──
+  {
+    const take = (pred: (k: string) => boolean): FinRow[] => { const out = rows.filter((x) => pred(x.key)); for (const m of out) rows.splice(rows.indexOf(m), 1); return out; };
+    const multiT = tranches.length > 1;
+    const sweepRows: FinRow[] = [];
+    for (const t of tranches) {
+      const rep = rows.find((x) => x.key === `fl:tr:${t.id}:repaid`), ex = rows.find((x) => x.key === `fl:tr:${t.id}:exitRepaid`);
+      if (!rep) continue;
+      // 3: the facility reads its repayment from section 4.
+      const all = (rep.values ?? []).map((v, i) => v + (ex?.values?.[i] ?? 0));
+      const at = rows.findIndex((x) => x.key === `fl:tr:${t.id}:close`);
+      if (at >= 0) rows.splice(at, 0, { key: `fl:tr:${t.id}:repaidAll`, label: 'Repaid (section 4)', kind: 'period', values: all, basis: 'The repayment worked out in section 4' } as FinRow);
+      for (const r of take((k) => k === `fl:tr:${t.id}:repaid` || k === `fl:tr:${t.id}:exitRepaid`)) { if (multiT) r.label = `${t.name}: ${r.label.charAt(0).toLowerCase()}${r.label.slice(1)}`; sweepRows.push(r); }
+    }
+    const settings = take((k) => ['fl:lastCon', 'fl:sweepStart', 'fl:firstSweep'].includes(k));
+    const left = take((k) => k === 'fl:sweepLeft');
+    for (const r of left) r.label = 'Cash available for the sweep (above the minimum)';
+    const block: FinRow[] = [];
+    if (sweepRows.length) {
+      block.push({ key: 'fl:t:sweep', label: anySweep ? 'Cash sweep' : 'Debt repayment', kind: 'title' } as FinRow, ...settings);
+      if (anySweep) block.push({ key: 'fl:sweepRatio', label: 'Sweep ratio', kind: 'scalar', value: (((p.financing as unknown as { cashSweep?: { sweepRatioPct?: number } } | undefined)?.cashSweep?.sweepRatioPct) ?? 100) / 100, fmt: 'pct', basis: 'Inputs' } as FinRow);
+      block.push(...left, ...sweepRows, { key: 'fl:gap:sweep', label: '', kind: 'gap' } as FinRow);
+    }
+    // 5: share capital, worked out here; the Balance Sheet links its closing (retained earnings stay there).
+    const shareOpen0 = p.shareCapital != null && p.shareCapital > 0 ? p.shareCapital : 0;
+    if (shareOpen0 === 0) {
+      const share = sl(snap.bs.shareCapitalPerPeriod), roc = sl(snap.bs.returnOfCapitalPerPeriod);
+      block.push({ key: 'fl:t:sc', label: 'Share capital', kind: 'title' } as FinRow);
+      block.push({ key: 'fl:sc:open', label: 'Opening', kind: 'period', values: share.map((_v, i) => (i === 0 ? 0 : share[i - 1])), basis: 'Last year\'s closing', balance: true } as FinRow);
+      block.push({ key: 'fl:sc:eqCapex', label: 'Cash equity drawn: the funding', kind: 'period', values: sl(dcf.equityDevelopmentDrawdownPerPeriod), basis: 'Section 2' } as FinRow);
+      if (feeOn && feeByEquity) block.push({ key: 'fl:sc:eqFee', label: 'Cash equity drawn: the fund fees', kind: 'period', values: sl(dcf.equityManagementFeeDrawdownPerPeriod), basis: 'Section 2' } as FinRow);
+      block.push({ key: 'fl:sc:kind', label: 'Land contributed in kind', kind: 'period', values: sl(snap.financing.equity.inKindPerPeriod), basis: 'Capex: the land in kind' } as FinRow);
+      block.push({ key: 'fl:sc:roc', label: 'Return of capital', kind: 'period', values: roc.map((v) => -v), basis: 'A distribution beyond the retained earnings available' } as FinRow);
+      block.push({ key: 'fl:sc:close', label: 'Closing', kind: 'period', values: share, basis: 'The rows above', balance: true, style: 'subtotal' } as FinRow);
+      block.push({ key: 'fl:gap:sc', label: '', kind: 'gap' } as FinRow);
+    }
+    const intAt = rows.findIndex((x) => x.key === 'fl:t:int');
+    if (block.length && intAt >= 0) rows.splice(intAt, 0, ...block);
+  }
   // The first gap row a removed block leaves at the top goes.
   while (rows[0]?.kind === 'gap') rows.shift();
   return { rows, ctx: { method, feeOn, feeByEquity, zakat, cit, taxLag, anySweep, booked, idcLines } };

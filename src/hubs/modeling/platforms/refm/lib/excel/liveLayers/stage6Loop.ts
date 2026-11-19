@@ -225,7 +225,8 @@ export const stage6Loop: LiveLayer = {
       const d = IN('fin:in:divStart');
       putS('fl:divStart', `IF(ISNUMBER(${d}),MAX(${Y0()},MIN(${YN()},${d})),${dflt})`);
     }
-    const sweepRatio = (): string => `MAX(0,MIN(1,N(${IN('fin:in:sweepRatio')})))`;
+    const sweepRatio = (): string => (has('fl:sweepRatio') ? T('fl:sweepRatio') : `MAX(0,MIN(1,N(${IN('fin:in:sweepRatio')})))`);
+    if (has('fl:sweepRatio')) putS('fl:sweepRatio', `MAX(0,MIN(1,N(${IN('fin:in:sweepRatio')})))`);
     const divOn = (): string => `IF(N(${IN('fin:in:divOn')})=1,1,0)`;
     putS('fl:payout', `MAX(0,MIN(1,N(${IN('fin:in:payout')})))`);
     const payout = (): string => (has('fl:payout') ? T('fl:payout') : `MAX(0,MIN(1,N(${IN('fin:in:payout')})))`);
@@ -428,7 +429,10 @@ export const stage6Loop: LiveLayer = {
       // The exit repayment inside the facility (2026-11-19): in the exit year it takes what is left, so Closing reads 0 from the exit.
       const xk = `fl:tr:${f.t.id}:exitRepaid`;
       put(xk, (t) => `-${exitF(t)}*(${owed(f, t)}+${P(f.repaid, t)})`);
-      const bal = (t: number): string => `(${owed(f, t)}+${P(f.repaid, t)}${has(xk) ? `+${P(xk, t)}` : ''})`;
+      // The facility reads its repayment from section 4 (2026-11-19, founder B7).
+      const ak = `fl:tr:${f.t.id}:repaidAll`;
+      if (has(ak)) put(ak, (t) => `${P(f.repaid, t)}${has(xk) ? `+${P(xk, t)}` : ''}`);
+      const bal = (t: number): string => (has(ak) ? `(${owed(f, t)}+${P(ak, t)})` : `(${owed(f, t)}+${P(f.repaid, t)}${has(xk) ? `+${P(xk, t)}` : ''})`);
       put(f.close, (t) => `IF(ABS(${bal(t)})<MAX(1,MIN(1000,0.0001*${T(f.td)})),0,${bal(t)})`, 'last');
       why(f.close, 'Opening plus the draws less the principal repaid; a remainder under 0.01% of the total drawn (between 1 and 1,000) closes at zero, the platform\'s rule.');
     }
@@ -595,6 +599,17 @@ export const stage6Loop: LiveLayer = {
     put('fl:cfiCapex', (t) => `-${P('fl:capex', t)}`);
     put('fl:cfiExit', (t) => (has('fl:proceeds') ? P('fl:proceeds', t) : '0'));
     put('fl:eqCash', (t) => `${P('fl:eqDraw', t)}${byEq ? `+${P('fl:feeDraw', t)}` : ''}`);
+    // SHARE CAPITAL ON FINANCING (2026-11-19, founder B7): opening, the cash equity, the land in kind, the return of
+    // capital (a distribution beyond the retained earnings available), closing; the Balance Sheet links the closing.
+    if (has('fl:sc:close')) {
+      put('fl:sc:open', (t) => `N(${P('fl:sc:close', t, -1)})`, 'none');
+      put('fl:sc:eqCapex', (t) => P('fl:eqDraw', t));
+      if (has('fl:sc:eqFee')) put('fl:sc:eqFee', (t) => P('fl:feeDraw', t));
+      put('fl:sc:kind', (t) => (has('fl:inKind') ? P('fl:inKind', t) : '0'));
+      const before = (t: number): string => ['fl:sc:open', 'fl:sc:eqCapex', 'fl:sc:eqFee', 'fl:sc:kind'].filter(has).map((k) => P(k, t)).join('+');
+      put('fl:sc:roc', (t) => (has('fl:reAvail') && has('fl:div') ? `-MAX(0,MIN(-${P('fl:div', t)}-MIN(-${P('fl:div', t)},${P('fl:reAvail', t)}),MAX(0,${before(t)})))` : '0'));
+      put('fl:sc:close', (t) => `${before(t)}+${P('fl:sc:roc', t)}`, 'last');
+    }
     put('fl:debtCash', (t) => (has('fl:drawAll') ? `${P('fl:drawAll', t)}+${P('fl:idcAll', t)}` : `${sumF(fac, 'draw', t)}+${sumF(newF, 'idc', t)}`));
     put('fl:intPaid', (t) => `-(${interest(t)})`);
     put('fl:cash', (t) => chain(['fl:cwOpen', 'fl:cfo', 'fl:cfiCapex', 'fl:cfiExit', 'fl:eqCash', 'fl:debtCash', 'fl:intPaid'], t), 'last');

@@ -116,7 +116,9 @@ export function bsPlan(state: FinancialsResolverState, snap: Snap = computeFinan
 
   // ── Equity ───────────────────────────────────────────────────────────────
   head(BS('#equity'), 'Shareholders\' equity');
-  row(BS('Share Capital'), 'Share capital', sl(bs.shareCapitalPerPeriod), { kind: 'link', key: E1('Closing') }, { indent: 1 });
+  // Share capital is worked out on Financing (2026-11-19, founder B7) where the project starts with none.
+  const scOnFin = !(p.shareCapital != null && p.shareCapital > 0);
+  row(BS('Share Capital'), 'Share capital', sl(bs.shareCapitalPerPeriod), { kind: 'link', key: scOnFin ? 'fl:sc:close' : E1('Closing') }, { indent: 1 });
   // Statutory reserve at 0% is a feature switched off (2026-11-15, founder): no row, no roll-forward, no transfer.
   const reserveOn = featureUsed(state as never, 'statutoryReserve');
   if (reserveOn) row(BS('Statutory Reserve'), 'Statutory reserve', sl(bs.statutoryReservePerPeriod), { kind: 'link', key: SR('Closing') }, { indent: 1 });
@@ -128,6 +130,7 @@ export function bsPlan(state: FinancialsResolverState, snap: Snap = computeFinan
   const shareOpen0 = p.shareCapital != null && p.shareCapital > 0 ? p.shareCapital : 0;
   const share = sl(bs.shareCapitalPerPeriod);
   const roc = sl(bs.returnOfCapitalPerPeriod);
+  if (!scOnFin) {
   rows.push({ key: 'bs|gap|e1', label: '', kind: 'gap' });
   rows.push({ key: 'sch|E1||#section', label: 'Share capital', kind: 'section' });
   row(E1('Opening'), 'Opening', prevOf(share, shareOpen0), { kind: 'prev', key: E1('Closing') }, { total: 'first' });
@@ -135,6 +138,7 @@ export function bsPlan(state: FinancialsResolverState, snap: Snap = computeFinan
   row(E1('In-kind equity'), 'Land contributed in kind', sl(snap.financing.equity.inKindPerPeriod), { kind: 'link', key: 'fl:inKind' }, { indent: 1, total: 'sum' });
   row(E1('Return of capital'), 'Return of capital (distributions beyond the retained earnings available)', neg(roc), { kind: 'roc' }, { indent: 1, total: 'sum' });
   row(E1('Closing'), 'Closing', share, null, { style: 'subtotal', sum: [E1('Opening'), E1('Cash equity'), E1('In-kind equity'), E1('Return of capital')] });
+  }
 
   // ── Statutory reserve ────────────────────────────────────────────────────
   const res = sl(bs.statutoryReservePerPeriod);

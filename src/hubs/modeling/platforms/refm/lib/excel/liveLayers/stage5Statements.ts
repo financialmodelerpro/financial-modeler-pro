@@ -237,7 +237,8 @@ export const stage5Statements: LiveLayer = {
       };
       const rate = reserveOn ? `MAX(0,${w.ref('project:reserveRate')})` : '0', cap = reserveOn ? `MAX(0,${w.ref('project:reserveCap')})` : '0';
       // Share capital before this year's return: the opening plus the equity drawn this year.
-      const shareBefore = (t: number): string => `${R(E1('Opening'), t)}+${R(E1('Cash equity'), t)}+${R(E1('In-kind equity'), t)}`;
+      // Share capital before the return of capital: Financing's rows where it is worked out there (2026-11-19, founder B7).
+      const shareBefore = (t: number): string => (has(E1('Opening')) ? `${R(E1('Opening'), t)}+${R(E1('Cash equity'), t)}+${R(E1('In-kind equity'), t)}` : ['fl:sc:open', 'fl:sc:eqCapex', 'fl:sc:eqFee', 'fl:sc:kind'].filter(has).map((k) => R(k, t)).join('+') || '0');
       const pat = (t: number): string => R(E2('PAT'), t);
       for (const row of bsPlan(state, snap)) {
         if (bsRefused) break;
@@ -265,7 +266,8 @@ export const stage5Statements: LiveLayer = {
               const avail = `MAX(0,${R(E2('Opening'), t)}+${pat(t)}${has(E2('Transfer')) ? `+${R(E2('Transfer'), t)}` : ''})`;
               return `-MAX(0,MIN(${dist}-MIN(${dist},${avail}),MAX(0,${shareBefore(t)})))`;
             }; break;
-            case 'div': f = (t) => `${R('fl:div', t)}-${R(E1('Return of capital'), t)}`; break;
+            // The return of capital is Financing's where share capital is worked out there (2026-11-19, founder B7).
+            case 'div': f = (t) => `${R('fl:div', t)}-${R(has(E1('Return of capital')) ? E1('Return of capital') : 'fl:sc:roc', t)}`; break;
           }
         }
         if (bsRefused) break;
@@ -311,7 +313,7 @@ export const stage5Statements: LiveLayer = {
     else {
       apply(bsWrites);
       // The share capital before the first year: the amount typed on Inputs.
-      w.fA({ sheet: BS, row: w.addr(E1('Closing')).row, col: OPEN_COL }, `MAX(0,${w.ref('project:shareCapital')})`);
+      if (has(E1('Closing'))) w.fA({ sheet: BS, row: w.addr(E1('Closing')).row, col: OPEN_COL }, `MAX(0,${w.ref('project:shareCapital')})`);
       out.push({ sheet: BS, status: 'live', formulas: w.formulas.get(BS) ?? 0,
         note: 'Live: every balance links one row of Schedules, Revenue, Opex, Financing or the Cash Flow; the totals sum the rows above them; the share capital, statutory reserve and retained earnings roll-forwards carry the platform\'s rules for the reserve, the dividends and the return of capital; the balance check reads zero.' });
     }
