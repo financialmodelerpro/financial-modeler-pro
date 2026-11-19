@@ -339,7 +339,10 @@ export function returnsPlan(state: FinancialsResolverState, snap: Snap, rs: RS, 
       f: (E: REnv) => { const a = E.ref(`retin:agreed:${j}`); return allAgreed ? a : `IF(ISNUMBER(${a}),${a},${E.cell('ret|pt|tw', pc(j))})`; } })) });
     // A FIXED SHARE OF A STREAM HAS THE STREAM'S IRR AND MOIC (2026-11-16, founder): each partner links the
     // equity returns above; only the distributions received are the partner's own figure.
-    rows.push({ key: 'ret|#prcols', label: 'Partner', kind: 'cols', cols: [[D, 'Invested'], [D + 1, 'Share'], [D + 2, 'FCFE IRR'], [D + 3, 'FCFE MOIC'], [D + 4, 'Distribution IRR'], [D + 5, 'Distribution MOIC'], [D + 6, 'Distributions']] });
+    // AFTER THE PERFORMANCE FEE TOO (2026-11-19, founder C11): each partner's share of the distributions net of the fee,
+    // its IRR and MOIC, beside the before-fee figures.
+    const net = fundOn && !!rs.resultNetDividends;
+    rows.push({ key: 'ret|#prcols', label: 'Partner', kind: 'cols', cols: [[D, 'Invested'], [D + 1, 'Share'], [D + 2, 'FCFE IRR'], [D + 3, 'FCFE MOIC'], [D + 4, 'Distribution IRR'], [D + 5, 'Distribution MOIC'], [D + 6, 'Distributions'], ...(net ? [[D + 7, 'IRR after fee'], [D + 8, 'MOIC after fee'], [D + 9, 'Distributions after fee']] as Array<[number, string]> : [])] });
     ps.partners.forEach((q, j) => {
       rows.push({ key: `ret|pr|${j}`, label: q.name, kind: 'cells', cells: [
         { col: D, v: investedJ[j], fmt: RF.money, f: (E) => E.cell('ret|pt|inv', pc(j)) },
@@ -349,6 +352,11 @@ export function returnsPlan(state: FinancialsResolverState, snap: Snap, rs: RS, 
         { col: D + 4, v: irrNum(q.irr), fmt: RF.pct, f: (E) => E.cell('ret|h|ddm', D) },
         { col: D + 5, v: q.moic, fmt: RF.mult, f: (E) => E.cell('ret|h|ddm', D + 1) },
         { col: D + 6, v: sumOf(stream(q.cashFlowStream).map((v) => Math.max(0, v))), fmt: RF.money, f: (E) => `${E.cell(`ret|pr|${j}`, D + 1)}*SUMIF(${E.rng('rs|ddm')},">0")` },
+        ...(net ? [
+          { col: D + 7, v: irrNum(rs.resultNetDividends!.irr), fmt: RF.pct, f: (E: REnv) => E.cell('ret|h|net', D) },
+          { col: D + 8, v: rs.resultNetDividends!.moic, fmt: RF.mult, f: (E: REnv) => E.cell('ret|h|net', D + 1) },
+          { col: D + 9, v: (q.shareholdingPct ?? 0) * sumOf(stream(rs.netDividendStreamPerPeriod).map((v: number) => Math.max(0, v ?? 0))), fmt: RF.money, f: (E: REnv) => `${E.cell(`ret|pr|${j}`, D + 1)}*SUMIF(${E.rng('rs|ddmnet')},">0")` },
+        ] : []),
       ] });
     });
   }

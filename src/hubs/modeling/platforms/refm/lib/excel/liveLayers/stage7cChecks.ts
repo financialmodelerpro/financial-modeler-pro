@@ -122,6 +122,8 @@ export const stage7cChecks: LiveLayer = {
         finish(res);
         liveIds.push(label);
       };
+      // The typed project start less the earliest phase start, in days (2026-11-19, founder C16).
+      scalarCheck(MODEL_CHECKS.start, has('project:startDate') && has('tl:project:start') ? `${w.ref('project:startDate')}-${w.ref('tl:project:start')}` : null, '1');
       scalarCheck(MODEL_CHECKS.shares, has('fl:dF') && has('fl:eF') ? `${w.one('fl:dF')}+${w.one('fl:eF')}-1` : null, '1');
       const ex = has('inp=ret|Exit Year@4') ? w.ref('inp=ret|Exit Year@4') : null;
       const yAs = w.reg.keys().filter((k) => /^tl:year:/.test(k)).map((k) => w.addr(k));

@@ -7393,6 +7393,7 @@ export const MODEL_CHECKS = {
   capex: 'Capex by line equals capex by cost type',
   shares: 'Debt and equity shares of the funding add to 100%',
   years: 'Model and exit years fit the year columns',
+  start: 'Project start is the earliest phase start',
 } as const;
 
 export const FIN_CHECKS = {
@@ -7497,6 +7498,13 @@ function addChecks(ctx: EmitCtx, capexAddrs: CapexAddrs, retLinks: RetLinks): vo
       okc(MODEL_CHECKS.capex, Math.max(0, ...snap.financing.capex.perPeriod.inclAllLand.slice(0, N0).map((v, t) => Math.abs((v ?? 0) - (snap.financing.capex.commissionPerPeriod?.[t] ?? 0)))));
       okc(MODEL_CHECKS.shares, 1);
       okc(MODEL_CHECKS.years, 1);
+      // The typed project start against the earliest phase start (2026-11-19, founder C16): a difference in days.
+      {
+        const ps = new Date(String(ctx.state.project.startDate ?? '')).getTime();
+        const min = Math.min(...ctx.state.phases.map((p) => new Date(String(p.startDate ?? '')).getTime()).filter(Number.isFinite));
+        const d = Number.isFinite(ps) && Number.isFinite(min) ? Math.round((ps - min) / 86400000) : 0;
+        checkRow(MODEL_CHECKS.start, d === 0 ? 'OK' : 'CHECK', d, d === 0 ? 'Within tolerance' : `Out by ${Math.abs(d)} days`, `chk|id|${MODEL_CHECKS.start}`, 1, { hi: d, lo: d });
+      }
     }
     // SOURCES EQUAL USES (2026-11-03): each total sums its own rows on Returns, so a flow left out shows here.
     const su = (() => { try { return computeReturnsSnapshot(snap, ctx.state.project).sourcesUses; } catch { return null; } })();
