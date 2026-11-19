@@ -52,6 +52,7 @@ import { applyReferenceLayout } from '../src/hubs/modeling/platforms/refm/lib/ex
 import { buildFrontTabs } from '../src/hubs/modeling/platforms/refm/lib/excel/referenceFront';
 import { addRiskTriggers } from '../src/hubs/modeling/platforms/refm/lib/excel/dashboard';
 import { freezeFormulas } from '../src/hubs/modeling/platforms/refm/lib/excel/valuesWorkbook';
+import { inputsMoveOf } from '../src/hubs/modeling/platforms/refm/lib/excel/splitInputs';
 
 /**
  * THE PLATFORM TWIN IN THE LIVE FILE'S FRAME (2026-11-17, step 7). Since step 2 the live workbook ends
@@ -71,7 +72,7 @@ function framedPlain(o: Parameters<typeof buildModelWorkbook>[0], live?: ExcelJS
   // THE REFERENCE LAYOUT AND THE FRONT TABS (2026-11-17, founder): the twin ends as the live file does, so a cell
   // and its platform figure still sit at one address (Inputs' risk triggers and switch, columns A and B, the bars,
   // the Dashboard in place of the Summary).
-  if (house) { addRiskTriggers(w); applyReferenceLayout(w, { mirror: live }); buildFrontTabs(w, { valuesOutput: false, scale: house.scale }); }
+  if (house) { addRiskTriggers(w); applyReferenceLayout(w, { mirror: live }); buildFrontTabs(w, { valuesOutput: false, scale: house.scale, splitReadFrom: live }); }
   // The twin stands for the hardcoded figures: its front tabs hold their values (the live file's are formulas over them).
   freezeFormulas(w); // ExcelJS reports a cached 0 as no result (TRAPS 3.45)
   if (live) mirrorBlankTotals(w, live);
@@ -99,9 +100,25 @@ function mirrorBlankTotals(twin: ExcelJS.Workbook, live: ExcelJS.Workbook): void
 }
 
 /** Every shaded cell no formula reads, or that is itself a formula (A11): a promise broken. */
+/** THE INPUT TABS (2026-11-19): one Inputs tab before the split, Project Inputs and Operating Inputs after it. */
+const INPUT_TABS = ['Inputs', 'Project Inputs', 'Operating Inputs'];
+const isInputTab = (name: string): boolean => INPUT_TABS.includes(name);
+const qSheet = (name: string): string => (/^[A-Za-z_][A-Za-z0-9_.]*$/.test(name) ? name : `'${name}'`);
+const INP_REF = String.raw`(?:'Inputs'|Inputs|'Project Inputs'|'Operating Inputs')`;
+/**
+ * A NAMED ALLOWANCE (2026-11-19, founder): a party with no developer fee share on the platform shows 0.0% in
+ * input style in the fee shares table, so every party reads a share; the platform holds no share for it, so no
+ * formula reads the cell. Allowed by what it is (a fee shares row's literal 0), never by address.
+ */
+function isShownZeroShare(book: ExcelJS.Workbook, s: { sheet: string; row: number; col: number; value: unknown }): boolean {
+  if (!isInputTab(s.sheet) || s.value !== 0) return false;
+  const ws = book.getWorksheet(s.sheet)!;
+  for (let r = s.row - 1; r > Math.max(1, s.row - 12); r--) { const t = String(ws.getCell(r, 3).value ?? ''); if (/^Party$/.test(t)) return /fee/i.test(String(ws.getCell(r, s.col).value ?? '')); }
+  return false;
+}
 function deadOf(book: ExcelJS.Workbook): string[] {
   const rd = readCells(book);
-  return shadedCells(book).filter((s) => s.isFormula || (!rd.has(cellId(s.sheet, s.row, s.col)) && !(s.isText && isLegendSwatch(String(s.value)))))
+  return shadedCells(book).filter((s) => s.isFormula || (!rd.has(cellId(s.sheet, s.row, s.col)) && !(s.isText && isLegendSwatch(String(s.value))) && !isShownZeroShare(book, s)))
     .map((s) => `${s.sheet}!${colLetterOf(s.col)}${s.row}${s.isFormula ? ' (a formula)' : ''}`);
 }
 const colLetterOf = (n: number): string => { let s = ''; while (n > 0) { const m = (n - 1) % 26; s = String.fromCharCode(65 + m) + s; n = Math.floor((n - 1) / 26); } return s; };
@@ -216,7 +233,7 @@ function compareLive(basePlain: ExcelJS.Workbook, pertPlain: ExcelJS.Workbook, w
       // calculation of its own to prove; a Dashboard cell that reads any calculation tab is compared like any other.
       if (ws.name === 'Dashboard') {
         const tabs = [...String((v as { formula: string }).formula).matchAll(/(?:'((?:[^']|'')+)'|(?<![A-Za-z0-9_.])([A-Za-z_][A-Za-z0-9_.]*))!/g)].map((m) => m[1] ?? m[2]);
-        if (tabs.length && tabs.every((t) => t === 'Inputs' || t === 'Scenarios')) return;
+        if (tabs.length && tabs.every((t) => isInputTab(t) || t === 'Scenarios')) return;
         // A risk flag's status and the year table's cells over such cells follow them (the sensitivity heat map, the case
         // columns): a cell reading only Dashboard cells in the scenarios and sensitivity block is the same echo.
         if (!tabs.length && r >= scenarioBlockStart(ws)) return;
@@ -237,6 +254,10 @@ function compareLive(basePlain: ExcelJS.Workbook, pertPlain: ExcelJS.Workbook, w
         const tol = Math.max(tolFor(ws.name, o, rowPeak(pertPlain, ws.name, m)), basePlain !== pertPlain && loopReach(wb).has(addr) ? ENGINE_LOOP_TOL : 0);
         if (typeof e !== 'number' || Math.abs(e - o) > tol) bad.push({ addr, kind: 'number', msg: `${addr}${m !== r ? ` (platform row ${m})` : ''}: Excel ${JSON.stringify(e)} vs platform ${o}` });
       } else if (typeof o === 'string') {
+        // A TYPING CHECK ON AN INPUT TAB (2026-11-19): "OK" when a typed grid adds to 100%, laid out at export with the
+        // grid's columns; after a change that re-lays the grid on the platform (a year beyond the phase becomes n/a) it
+        // is layout, as a re-keyed grid is, and it is compared exactly on unchanged inputs.
+        if (isInputTab(ws.name) && basePlain !== pertPlain && /^(OK|CHECK)$/.test(o.trim())) { if (e !== o) layout.push(addr); return; }
         const ok = typeof e === 'string' ? e.trim() === o.trim()
           : typeof e === 'number' && /^[A-Z][a-z]{2} \d{4}$/.test(o) && monthYear(e) === o;
         if (!ok) bad.push({ addr, kind: 'text', msg: `${addr}${m !== r ? ` (platform row ${m})` : ''}: Excel ${JSON.stringify(e)} vs platform "${o}"` });
@@ -279,10 +300,10 @@ type Snap = LiveExportInputs['snapshot'] & Record<string, any>;
  */
 /** A module-sheet formula that only restates an Inputs cell (through a link conversion). */
 function isInputsEcho(sheet: string, f: string): boolean {
-  if (sheet === 'Inputs') return false;
+  if (isInputTab(sheet)) return false;
   // An Inputs reference, column absolute or column relative (a strip of year inputs echoes as one
   // formula across its row), with or without the N() a numeric cell no longer needs (2026-10-20).
-  const R = String.raw`(?:'Inputs'|Inputs)!\$?[A-Z]+\$\d+`;
+  const R = String.raw`${INP_REF}!\$?[A-Z]+\$\d+`;
   const NR = String.raw`(?:N\(${R}\)|${R})`;
   const t = (re: string): boolean => new RegExp(re).test(f);
   return t(String.raw`^${NR}(-${NR})?$`)
@@ -294,13 +315,13 @@ function isInputsEcho(sheet: string, f: string): boolean {
 function inputsDoor(wb: ExcelJS.Workbook, a: { sheet: string; row: number; col: number }, value: number | string): { at: { sheet: string; row: number; col: number }; value: number | string } {
   const v = wb.getWorksheet(a.sheet)?.getCell(a.row, a.col).value as unknown as { formula?: string } | null;
   const f = v && typeof v === 'object' ? v.formula : undefined;
-  if (!f || a.sheet === 'Inputs') return { at: a, value };
-  const refs = [...f.matchAll(/(?:'Inputs'|Inputs)!\$?([A-Z]+)\$(\d+)/g)];
+  if (!f || isInputTab(a.sheet)) return { at: a, value };
+  const refs = [...f.matchAll(/(?:'(Inputs|Project Inputs|Operating Inputs)'|(Inputs))!\$?([A-Z]+)\$(\d+)/g)].map((m) => [m[0], m[1] ?? m[2], m[3], m[4]] as const);
   if (!isInputsEcho(a.sheet, f) || !refs.length) return { at: a, value };
   const col = (s: string): number => s.split('').reduce((n, ch) => n * 26 + ch.charCodeAt(0) - 64, 0);
-  const at = { sheet: 'Inputs', row: Number(refs[0][2]), col: col(refs[0][1]) };
-  if (refs.length > 1 && /^(?:N\()?(?:'Inputs'|Inputs)!\$?[A-Z]+\$\d+\)?-/.test(f)) {
-    const ax = wb.getWorksheet('Inputs')!.getCell(Number(refs[1][2]), col(refs[1][1])).value as unknown;
+  const at = { sheet: refs[0][1], row: Number(refs[0][3]), col: col(refs[0][2]) };
+  if (refs.length > 1 && new RegExp(String.raw`^(?:N\()?${INP_REF}!\$?[A-Z]+\$\d+\)?-`).test(f)) {
+    const ax = wb.getWorksheet(refs[1][1])!.getCell(Number(refs[1][3]), col(refs[1][2])).value as unknown;
     const axv = ax && typeof ax === 'object' && 'result' in (ax as object) ? Number((ax as { result: unknown }).result) : Number(ax);
     return { at, value: typeof value === 'number' ? value + axv : value };
   }
@@ -310,7 +331,7 @@ function inputsDoor(wb: ExcelJS.Workbook, a: { sheet: string; row: number; col: 
 /** `variant`: the live model has no instance of the branch under test, so a copy is
  *  made that has one (a structural edit, re-run through the platform and exported
  *  afresh) and the input change is tested on THAT workbook. */
-type Perturbation = { label: string; cell: string; value: number | string; edit: (s: Snap) => void; variant?: (s: Snap) => void; movesRevenue: boolean; col?: number } | { label: string; skip: string };
+type Perturbation = { label: string; cell: string; value: number | string; edit: (s: Snap) => void; variant?: (s: Snap) => void; movesRevenue: boolean; col?: number; period?: number } | { label: string; skip: string };
 /**
  * THE INPUT CHANGES, each target chosen by a RULE from the model (never a fixed
  * id), so the test keeps meaning the same thing as the project changes. A rule
@@ -343,7 +364,9 @@ function perturbations(input: LiveExportInputs, reg: CellRegistry): Perturbation
   const typedHost = hosts.find((a) => hostIds.has(a.id) && a.landAllocation?.sqm > 0);
   if (typedHost) {
     const v = Math.round(typedHost.landAllocation.sqm * 0.9);
-    out.push({ movesRevenue: true, label: `typed land draw of a retail host (${typedHost.name}) -10%`, cell: `entry:${typedHost.id}:plot`, value: v, edit: (s) => { assetOf(s, typedHost.id).landAllocation.sqm = v; } });
+    // The land table types a share of the plot (2026-11-18, one land table): the typed draw is the plot area x that share.
+    const plotArea = Number((st.parcels as any[]).find((pa) => pa.id === typedHost.landAllocation?.parcelId)?.area ?? 0);
+    out.push({ movesRevenue: true, label: `typed land draw of a retail host (${typedHost.name}) -10%`, cell: plotArea > 0 ? `entry:${typedHost.id}:share` : `entry:${typedHost.id}:plot`, value: plotArea > 0 ? v / plotArea : v, edit: (s) => { assetOf(s, typedHost.id).landAllocation.sqm = v; } });
   } else out.push({ label: 'typed land draw of a retail host', skip: 'no retail host draws a typed area' });
   // 2b. A Stated NSA ABOVE the sub-units' area (2026-09-28): the larger-of rule on
   //     Inputs Table 2 switches to the typed figure, and the Summary's areas follow.
@@ -465,7 +488,8 @@ function perturbations(input: LiveExportInputs, reg: CellRegistry): Perturbation
     const v = Math.round(plot.rate * 1.1);
     out.push({ movesRevenue: false, label: `land rate of a plot (${plot.name}) +10%`, cell: `parcel:${plot.id}:rate`, value: v, edit: (s) => { (s.parcels as any[]).find((x) => x.id === plot.id).rate = v; } });
     const cash = Math.max(0, Math.min(100, (plot.cashPct ?? 0) - 10));
-    out.push({ movesRevenue: false, label: `cash share of a plot (${plot.name}) -10 points`, cell: `parcel:${plot.id}:cash`, value: cash / 100, edit: (s) => { (s.parcels as any[]).find((x) => x.id === plot.id).cashPct = cash; } });
+    out.push({ movesRevenue: false, label: `cash share of a plot (${plot.name}) -10 points`, cell: `parcel:${plot.id}:cash`, value: cash / 100, edit: (s) => { const p = (s.parcels as any[]).find((x) => x.id === plot.id); p.cashPct = cash; p.inKindPct = 100 - cash; } });
+    // In kind is 1 less cash (one land table, 2026-11-18), as the platform's own control writes both (Module1Assets).
   } else out.push({ label: 'land rate of a plot', skip: 'no plot with a rate' });
   // A plot's spend curve, and a line's own window.
   // THE CURVES AND WINDOWS ARE TYPED ON INPUTS (2026-10-15): a curve's period i is column B + i on its row;
@@ -476,7 +500,8 @@ function perturbations(input: LiveExportInputs, reg: CellRegistry): Perturbation
     const i = d.findIndex((x, k) => k > 0 && x > 0);
     const v = d[i] + 10;
     const at = reg.get(`inpcurve:${curved.id}`)!;
-    out.push({ movesRevenue: false, label: `a plot spend curve, period ${i} +10 (${curved.name})`, cell: `inpcurve:${curved.id}`, value: v, col: 2 + i,
+    // The grid holds the curve as a share (2026-11-18), and the split tabs head it with the year numbers (2026-11-19).
+    out.push({ movesRevenue: false, label: `a plot spend curve, period ${i} +10 (${curved.name})`, cell: `inpcurve:${curved.id}`, value: v / 100, col: 2 + i, period: i,
       edit: (s) => { (s.assets as any[]).find((x) => x.id === curved.id).capexPhasing.distribution[i] = v; } } as Perturbation);
     void at;
   } else out.push({ label: 'a plot spend curve', skip: 'no curve shown' });
@@ -496,7 +521,7 @@ function perturbations(input: LiveExportInputs, reg: CellRegistry): Perturbation
     if (target) {
       const curve = [0, 40, 30, 20, 10];
       const v = curve[2] + 10;
-      out.push({ movesRevenue: false, label: `a second copy whose line's plots differ: ${target.name} types its own curve, period 2 +10`, cell: `inpcurve:${target.id}`, value: v, col: 4,
+      out.push({ movesRevenue: false, label: `a second copy whose line's plots differ: ${target.name} types its own curve, period 2 +10`, cell: `inpcurve:${target.id}`, value: v / 100, col: 4, period: 2,
         variant: (s) => { (s.assets as any[]).find((x) => x.id === target.id).capexPhasing = { phasing: 'manual', distribution: [...curve] }; },
         edit: (s) => { (s.assets as any[]).find((x) => x.id === target.id).capexPhasing.distribution[2] = v; } } as Perturbation);
     } else out.push({ label: 'a line whose plots differ', skip: 'no line pools two plots' });
@@ -1102,21 +1127,24 @@ function formulaCells(wb: ExcelJS.Workbook): Map<string, { formula: string; resu
       free.value = 123;
       check('A12l the input check fires: a planted number no formula reads is caught', inputsUnreadProblems(plant, new Set()).some((x) => x.startsWith('Inputs!I2 ')), '');
       // No grid is laid out by calendar year, and nothing shifts typed years after a move.
-      const inp = wb.getWorksheet('Inputs')!;
+      const inputTabs = INPUT_TABS.map((n) => wb.getWorksheet(n)).filter((x): x is ExcelJS.Worksheet => !!x);
       const calendarLabels: string[] = [];
-      inp.eachRow((row, r) => { const a = String(row.getCell(LC).value ?? ''); if (/(velocity|Sales During Operation|Occupancy ramp|Sale cohort terms)/i.test(a) && /\b20\d\d\b/.test(a)) calendarLabels.push(`A${r} ${a}`); });
+      for (const inp of inputTabs) inp.eachRow((row, r) => { const a = String(row.getCell(LC).value ?? ''); if (/(velocity|pre-sales|sales after handover|Sales During Operation|Occupancy|Sale cohort terms|Downpayment)/i.test(a) && /\b20\d\d\b/.test(a)) calendarLabels.push(`${inp.name}!C${r} ${a}`); });
       // THE GRIDS ARE KEYED THE WAY THE PLATFORM STORES THEM (2026-10-26, founder): a construction grid
       // (pre-sales, downpayment) by construction year, an operating grid (sales during operation,
       // occupancy) by operating year, so a longer build moves the operating grids with the opening.
       // Both kinds must be present on the reference project, or the rule is checked on nothing.
       const gridKeys = registry.keys().filter((k) => k.startsWith('rxgrid|'));
       const isOpsGrid = (k: string): boolean => /\|(post\|[^@]*|occ)@\d+$/.test(k);
-      const headOf = (k: string): string => { const a = registry.need(k); return String(inp.getCell(a.row - 1, a.col).value ?? ''); };
+      // The year a grid cell sits under: its column in the nearest table head above it (the split tabs head each grid
+      // once, "Construction year" or "Operating year" and the year numbers across, 2026-11-19), else the cell above.
+      const headRowOf = (k: string): number | undefined => { const a = registry.need(k); const ws = wb.getWorksheet(a.sheet)!; for (let r = a.row - 1; r > 3 && r > a.row - 30; r--) { const f = (ws.getCell(r, LC).fill as { fgColor?: { argb?: string } } | undefined)?.fgColor?.argb; if (f === 'FF1B4F8A') return r; } return undefined; };
+      const headOf = (k: string): string => { const a = registry.need(k); const ws = wb.getWorksheet(a.sheet)!; const h = headRowOf(k); if (h !== undefined && /year/i.test(String(ws.getCell(h, LC).value ?? ''))) return `${/^Operating year/i.test(String(ws.getCell(h, LC).value ?? '')) ? 'Ops year' : 'Year'} ${String(ws.getCell(h, a.col).value ?? '')}`; return String(ws.getCell(a.row - 1, a.col).value ?? ''); };
       // The lease lines share ONE table since step 3 (2026-11-15, founder): a column per line, a row per
       // operating year, so the year is in the row's label ("Occupancy, ops year 3") and must be the key's.
-      const rowHead = (k: string): string => { const a = registry.need(k); return String(inp.getCell(a.row, LC).value ?? ''); };
+      const rowHead = (k: string): string => { const a = registry.need(k); return String(wb.getWorksheet(a.sheet)!.getCell(a.row, LC).value ?? ''); };
       const keyYear = (k: string): string => /@(\d+)$/.exec(k)?.[1] ?? '';
-      const headOk = (k: string): boolean => (isOpsGrid(k) ? /^Ops year \d+$/ : /^Year \d+$/).test(headOf(k))
+      const headOk = (k: string): boolean => new RegExp(`^${isOpsGrid(k) ? 'Ops year' : 'Year'} ${keyYear(k)}$`).test(headOf(k))
         || new RegExp(`, ${isOpsGrid(k) ? 'ops ' : ''}year ${keyYear(k)}$`, 'i').test(rowHead(k));
       const wrongHead = gridKeys.filter((k) => !headOk(k));
       const opsRows = new Set(gridKeys.filter(isOpsGrid).map((k) => registry.need(k).row)), conRows = new Set(gridKeys.filter((k) => !isOpsGrid(k)).map((k) => registry.need(k).row));
@@ -1124,8 +1152,8 @@ function formulaCells(wb: ExcelJS.Workbook): Map<string, { formula: string; resu
         opsRows.size > 0 && conRows.size > 0 && calendarLabels.length === 0 && wrongHead.length === 0, [...calendarLabels, ...wrongHead.map((k) => `${k}: "${headOf(k)}"`)].slice(0, 4).join('; '));
       // TIMELINE IS THE ONE SOURCE OF TIMING (2026-10-26, founder): no formula on any other tab reads a
       // phase's start, construction or operations cell on Inputs. Planted on a copy, the check fires.
-      const phaseCells = registry.keys().filter((k) => /^phase:[^:]+:(start|cp|op)$/.test(k)).map((k) => registry.need(k)).filter((a) => a.sheet === 'Inputs');
-      const phaseRefRe = new RegExp(`Inputs!\\$?(${phaseCells.map((a) => `${colLetterOf(a.col)}\\$?${a.row}`).join('|')})(?![0-9])`);
+      const phaseCells = registry.keys().filter((k) => /^phase:[^:]+:(start|cp|op)$/.test(k)).map((k) => registry.need(k)).filter((a) => isInputTab(a.sheet));
+      const phaseRefRe = new RegExp(`(?:${phaseCells.map((a) => `${qSheet(a.sheet).replace(/'/g, "'")}!\\$?${colLetterOf(a.col)}\\$?${a.row}`).join('|')})(?![0-9])`);
       const readsPhaseDates = (book: ExcelJS.Workbook): string[] => {
         const out: string[] = [];
         for (const ws of book.worksheets) { if (ws.name === 'Timeline') continue; ws.eachRow((row, r) => row.eachCell((cell, c) => { const v = cell.value as unknown as { formula?: string } | null; if (v && typeof v === 'object' && typeof v.formula === 'string' && phaseRefRe.test(v.formula)) out.push(`${ws.name}!R${r}C${c}`); })); }
@@ -1133,7 +1161,7 @@ function formulaCells(wb: ExcelJS.Workbook): Map<string, { formula: string; resu
       };
       const offTimeline = phaseCells.length ? readsPhaseDates(wb) : ['no phase cells registered'];
       const plantedRead = buildFormulaWorkbook(opts).wb;
-      if (phaseCells.length) plantedRead.getWorksheet('Revenue')!.getCell(2, 30).value = { formula: `Inputs!$${colLetterOf(phaseCells[0].col)}$${phaseCells[0].row}+0`, result: 0 } as never;
+      if (phaseCells.length) plantedRead.getWorksheet('Revenue')!.getCell(2, 30).value = { formula: `${qSheet(phaseCells[0].sheet)}!$${colLetterOf(phaseCells[0].col)}$${phaseCells[0].row}+0`, result: 0 } as never;
       check(`A12t no formula outside Timeline reads a phase's start, construction or operations years on Inputs (${phaseCells.length} cells), and the check fires on a planted read`,
         phaseCells.length > 0 && offTimeline.length === 0 && readsPhaseDates(plantedRead).length === 1, offTimeline.slice(0, 6).join(', '));
       const shiftLeft: string[] = [];
@@ -1142,7 +1170,7 @@ function formulaCells(wb: ExcelJS.Workbook): Map<string, { formula: string; resu
       const notBlue = shadedCells(wb).filter((s) => wb.getWorksheet(s.sheet)!.getCell(s.row, s.col).font?.color?.argb !== 'FF0000FF');
       check('A12o every typed input is in input blue (#0000FF) on the input fill', notBlue.length === 0 && shadedCells(wb).length > 0, notBlue.slice(0, 4).map((s) => `${s.sheet}!R${s.row}C${s.col}`).join(', '));
       const codes: string[] = [];
-      inp.eachRow((row, r) => row.eachCell((cell, c) => { if (c > 1 && typeof cell.value === 'string' && /^[a-z]+(_[a-z]+)+$/.test(cell.value)) codes.push(`R${r}C${c} ${cell.value}`); }));
+      for (const inp of inputTabs) inp.eachRow((row, r) => row.eachCell((cell, c) => { if (c > 1 && typeof cell.value === 'string' && /^[a-z]+(_[a-z]+)+$/.test(cell.value)) codes.push(`${inp.name}!R${r}C${c} ${cell.value}`); }));
       check('A12p no code name is printed on Inputs (snake_case values)', codes.length === 0, codes.slice(0, 4).join('; '));
       // HOTEL AND LEASE RECEIVABLE DAYS ARE LIVE, AND THE CHECK PROTECTS THEM (2026-10-25): no
       // allowance covers them, each line's cell is read by its Schedules receivable row, and
@@ -1150,7 +1178,7 @@ function formulaCells(wb: ExcelJS.Workbook): Map<string, { formula: string; resu
       const arCells = registry.keys().filter((k) => /^rxin\|.+\|arDays$/.test(k)).map((k) => registry.need(k));
       const arAllowed = arCells.filter((a) => allowedCells.has(cellId(a.sheet, a.row, a.col)));
       const readsIn = (book: ExcelJS.Workbook, sheet: string, ref: string): boolean => { let hit = false; book.getWorksheet(sheet)!.eachRow((row) => row.eachCell((cell) => { const v = cell.value as unknown as { formula?: string } | null; if (v && typeof v === 'object' && String(v.formula ?? '').includes(ref)) hit = true; })); return hit; };
-      const refOf = (a: { row: number; col: number }): string => `Inputs!$${colLetterOf(a.col)}$${a.row}`;
+      const refOf = (a: { sheet: string; row: number; col: number }): string => `${qSheet(a.sheet)}!$${colLetterOf(a.col)}$${a.row}`;
       // SINCE 2026-10-27 Revenue works out each line's receivable from its days and Schedules links
       // it, so the days are read on Revenue and reach Schedules through it.
       const revReads = arCells.filter((a) => readsIn(wb, 'Revenue', refOf(a)));
@@ -1170,13 +1198,14 @@ function formulaCells(wb: ExcelJS.Workbook): Map<string, { formula: string; resu
         // copy the strict rule must see past is planted on a spare cell of the cut workbook.
         cut.getWorksheet('Revenue')!.getCell(2, 30).value = { formula: ref, result: 0 } as never;
         check('A12s the input check fires when a line\'s receivable days stop driving the receivable (a bare copy of them on Revenue still reads them)',
-          readsIn(cut, 'Revenue', ref) && inputsUnreadProblems(cut, allowedCells, { strict: true }).some((x) => x.startsWith(`Inputs!${colLetterOf(a.col)}${a.row} `))
+          readsIn(cut, 'Revenue', ref) && inputsUnreadProblems(cut, allowedCells, { strict: true }).some((x) => x.startsWith(`${qSheet(a.sheet)}!${colLetterOf(a.col)}${a.row} `))
           && receivableDaysProblems(cut, [a], true).length === 1 && receivableDaysProblems(wb, arCells, true).length === 0, '');
       }
     }
     {
       const readNow = readCells(wb);
-      const stillThere = removedInputs.filter((a) => { const v = wb.getWorksheet(a.sheet)!.getCell(a.row, a.col).value; return v !== null && v !== undefined; });
+      // A removed value keeps the address it had on the one Inputs tab, which the split replaced (2026-11-19): no tab, no value.
+      const stillThere = removedInputs.filter((a) => { const ws = wb.getWorksheet(a.sheet); if (!ws) return false; const v = ws.getCell(a.row, a.col).value; return v !== null && v !== undefined; });
       check(`A12q each value removed from Inputs (${removedInputs.length}) is gone and no formula reads its cell`, stillThere.length === 0 && removedInputs.every((a) => !readNow.has(cellId(a.sheet, a.row, a.col))), stillThere.map((a) => `R${a.row}C${a.col}`).join(', '));
     }
     const order = wb.worksheets.map((x) => x.name).filter((n) => TAB_ORDER.includes(n));
@@ -1265,7 +1294,16 @@ function formulaCells(wb: ExcelJS.Workbook): Map<string, { formula: string; resu
       if (isMergedSlave(c)) return;
       if (prose && v.formula.length > 200) proseFormulas++;
       if (v.formula.length > 200 && !prose) long.push(`${ws.name}!${c.address} (${v.formula.length})`);
-      if (ws.name === 'Inputs') inputsFormulas.push(`Inputs!${c.address}`);
+      // THE INPUT TABS HOLD TYPED VALUES (2026-11-19, re-aimed to the split tabs): a formula there may only state a
+      // check or a note in words, take a share's complement (in-kind = 1 less cash) or show a value typed beside it
+      // on the same tab; anything that reads another tab, or works out a figure, belongs on a calculation tab.
+      if (isInputTab(ws.name)) {
+        const fv = v.formula; const res = (v as { result?: unknown }).result;
+        const sameTab = !/!/.test(fv);
+        const echo = /^\$?[A-Z]+\$?\d+$/.test(fv) || /^1-\$?[A-Z]+\$?\d+$/.test(fv);
+        const words = typeof res === 'string' || /^IF\(.*"(OK|CHECK|FIX)"/.test(fv) || /^"/.test(fv);
+        if (!(sameTab && (echo || words))) inputsFormulas.push(`${ws.name}!${c.address} ${fv.slice(0, 40)}`);
+      }
       void r; void col;
     }));
     check('A14a no formula relies on array evaluation outside SUMPRODUCT (no MATCH(TRUE, ...), MAX(INDEX(...)) or INDEX(--...))', arrayLookups.length === 0, arrayLookups.slice(0, 6).join(', '));
@@ -1317,7 +1355,7 @@ function formulaCells(wb: ExcelJS.Workbook): Map<string, { formula: string; resu
     const rd = readCells(copy);
     let planted = '';
     for (const ws of copy.worksheets) {
-      if (planted || ws.state === 'hidden' || ws.name !== 'Inputs') continue;
+      if (planted || ws.state === 'hidden' || !isInputTab(ws.name)) continue;
       ws.eachRow((row, r) => row.eachCell((c, col) => {
         if (planted || typeof c.value !== 'number' || rd.has(cellId(ws.name, r, col)) || isShaded(c)) return;
         c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: ARGB.inputFill } } as ExcelJS.Fill;
@@ -1325,7 +1363,7 @@ function formulaCells(wb: ExcelJS.Workbook): Map<string, { formula: string; resu
       }));
     }
     // No unread number left on Inputs (2026-11-03, the fee matrix's unused columns went): plant one in an empty cell.
-    if (!planted) { const ws = copy.getWorksheet('Inputs')!; const r = ws.rowCount + 2; const c = ws.getCell(r, 2); c.value = 123; c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: ARGB.inputFill } } as ExcelJS.Fill; planted = `Inputs!B${r}`; }
+    if (!planted) { const ws = (copy.getWorksheet('Inputs') ?? copy.getWorksheet('Project Inputs'))!; const r = ws.rowCount + 2; const c = ws.getCell(r, 2); c.value = 123; c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: ARGB.inputFill } } as ExcelJS.Fill; planted = `${ws.name}!B${r}`; }
     const caught = deadOf(copy);
     check('A11c the guard fires: a number no formula reads, shaded in a copy, is caught at exactly that cell', !!planted && caught.length === 1 && caught[0] === planted, `planted ${planted}, caught ${caught.join(', ')}`);
   }
@@ -1499,13 +1537,32 @@ function formulaCells(wb: ExcelJS.Workbook): Map<string, { formula: string; resu
       const a0 = base.registry.need(pt.cell);
       // A test names its column in the build's own geometry; the frame may have moved it (a tab with no
       // Input column lost B, 2026-11-15), so it is moved with it (2026-11-17).
-      const aMod = { ...a0, col: pt.col !== undefined ? (base.frame ? base.frame.newCol(a0.sheet, pt.col) : pt.col) : a0.col };
+      let aMod = { ...a0, col: pt.col !== undefined ? (base.frame ? base.frame.newCol(a0.sheet, pt.col) : pt.col) : a0.col };
+      // A COLUMN NAMED IN THE ONE INPUTS TAB'S GEOMETRY (2026-11-19): the split moved the cell by row and column, so the
+      // test's cell is found through the split's own move from where the key stood before it.
+      const mv = inputsMoveOf(base.wb);
+      if (pt.col !== undefined && pt.period === undefined && a0.prev && a0.prev.sheet === 'Inputs' && mv) {
+        const m = mv('Inputs', a0.prev.row, base.frame ? base.frame.newCol('Inputs', pt.col) : pt.col);
+        if (m) aMod = { sheet: m.sheet, row: m.r, col: m.c };
+      }
+      // ON THE SPLIT TABS A GRID'S COLUMN IS ITS YEAR (2026-11-19): the period is found under its number in the grid's head.
+      if (pt.period !== undefined && isInputTab(a0.sheet)) {
+        const ws0 = base.wb.getWorksheet(a0.sheet)!;
+        for (let r = a0.row - 1; r > 3 && r > a0.row - 20; r--) {
+          const fl = (ws0.getCell(r, LC).fill as { fgColor?: { argb?: string } } | undefined)?.fgColor?.argb;
+          if (fl !== 'FF1B4F8A') continue;
+          ws0.getRow(r).eachCell((c, col) => { if (c.value === pt.period) aMod = { ...aMod, col }; });
+          break;
+        }
+      }
       // INPUTS IS THE ONE PLACE A USER TYPES (stage9InputLinks, 2026-09-28): where the
       // module cell is now an echo of Inputs, the test types into the Inputs cell, the
       // door a user uses, converting a model-year index to its calendar year.
       const typed = inputsDoor(base.wb, aMod, pt.value);
       const a = typed.at;
-      const shadedTarget = isShaded(base.wb.getWorksheet(a.sheet)!.getCell(a.row, a.col));
+      // A technical setting (grey, set on the platform, 2026-11-19) is an input the model reads too: the test types into it.
+      const tgt = base.wb.getWorksheet(a.sheet)!.getCell(a.row, a.col);
+      const shadedTarget = isShaded(tgt) || (isInputTab(a.sheet) && (tgt.fill as { fgColor?: { argb?: string } } | undefined)?.fgColor?.argb === 'FFF1F3F7');
       if (!shadedTarget) check(`C ${pt.label}: the cell the test types into is a shaded input`, false, `${a.sheet}!${colLetterOf(a.col)}${a.row} is not shaded`);
       const r3 = recalcInExcel(base.path, [{ ref: `${a.sheet}!${colLetterOf(a.col)}${a.row}`, value: typed.value }]);
       const cmp = compareLive(base.plain, pPlain, base.wb, r3);

@@ -1775,6 +1775,15 @@ export function computeFundingGap(snap: ProjectFinancialsSnapshot): FundingGapSn
  * wraps this in an iterative fixed-point loop (see below) to resolve the
  * gap-sizing + conditional-IDC circularity.
  */
+/**
+ * THE YEAR WORKING CAPITAL IS SETTLED (2026-11-18): the exit year when there is an exit, else none. One rule for the
+ * engine and for every surface that shows a receivable beside the balance sheet (the Schedules feed, 2026-11-19).
+ */
+export function exitSettlementIndex(project: Parameters<typeof resolveReturnsConfig>[0], axisLength: number): number | undefined {
+  const cfg = resolveReturnsConfig(project, axisLength);
+  return cfg.terminalMethod !== 'none' && axisLength > 0 ? cfg.exitYearOffset : undefined;
+}
+
 function computeFinancialsSnapshotOnce(
   state: FinancialsResolverState,
   opts?: {
@@ -1845,7 +1854,7 @@ function computeFinancialsSnapshotOnce(
   })();
   // THE BALANCE SHEET CLOSES TO ZERO AT THE EXIT (2026-11-18, founder): in the exit year every working-capital
   // balance is settled in cash (exitSettlement.ts), receivables collected, payables and the year's zakat paid.
-  const exitSettleIdx = exitCfgAtSource.terminalMethod !== 'none' && exitAxisLength > 0 ? exitCfgAtSource.exitYearOffset : undefined;
+  const exitSettleIdx = exitSettlementIndex(project, exitAxisLength);
   const settledAr = <R extends { perPeriod: number[]; changePerPeriod: number[]; cashReceivedPerPeriod: number[] }>(r0: R): R => {
     const s = settleAtExit(r0.perPeriod, r0.changePerPeriod, r0.cashReceivedPerPeriod, exitSettleIdx);
     return { ...r0, perPeriod: s.perPeriod, changePerPeriod: s.changePerPeriod, cashReceivedPerPeriod: s.cash };
@@ -3431,6 +3440,7 @@ export function computeFinancialsSnapshot(
       // enter the funding, so the real facility IS fee-free; deficit-funded fees do, so a shadow
       // facility on the fee-free draws carries the IDC at the facilities' share-weighted rate.
       let totalFacility: number;
+      let shadowIdcPerPeriod: number[] | undefined, shadowDebtBalancePerPeriod: number[] | undefined;
       // THE SHADOW FACILITY ON EVERY METHOD 3 MODEL (2026-11-18): the fee-free draws and the interest on them with
       // no sweep, whichever way the fees are funded. The real facility moves with the sweep, which reads this
       // year's cash after the fees and the zakat, so a one-off fee charged on it closed a loop as soon as a phase
@@ -3455,10 +3465,12 @@ export function computeFinancialsSnapshot(
         const r = wSum > 0 ? rSum / wSum : 0;
         const excl = state.project.idcConfig?.interestMethod === 'mid_year_excl';
         let bal = 0, idc = 0, drawn = 0;
+        shadowIdcPerPeriod = new Array<number>(nAx).fill(0); shadowDebtBalancePerPeriod = new Array<number>(nAx).fill(0);
         for (let t = 0; t < nAx; t++) {
           const d = debtCapex[t] ?? 0;
           const i = src.financing.idcPeriodMask[t] ? r * (bal + d / 2) / (excl ? 1 : 1 - r / 2) : 0;
           bal += d + i; idc += i; drawn += d;
+          shadowIdcPerPeriod[t] = i; shadowDebtBalancePerPeriod[t] = bal;
         }
         totalFacility = drawn + idc;
       }
@@ -3503,6 +3515,7 @@ export function computeFinancialsSnapshot(
         totalFacility,
         debtShareCashCost,
       });
+      if (shadowIdcPerPeriod) Object.assign(schedule, { shadowIdcPerPeriod, shadowDebtBalancePerPeriod });
       if (!(feeStopIdx < src.axisLength - 1)) return schedule;
       const lines = schedule.lines.map((l) => {
         const amountPerPeriod = cutFees(l.amountPerPeriod);

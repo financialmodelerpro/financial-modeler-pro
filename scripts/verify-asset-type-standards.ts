@@ -267,6 +267,9 @@ function offlineChecks(): void {
   const isKeysDoorLine = (line: string): boolean =>
     line.includes('resolveAvgUnitSize')
     || line.includes('project.assetTypeValues?.[a.assetTypeId]')
+    // An import of the type rules is not a read of the values (2026-11-19: the PDF's Asset Types table shows
+    // the types in use through usedAssetTypeIds / normaliseAssetTypeId, the Inputs filter's own rules).
+    || /^import \{[^}]*\} from '[^']*assetTypeStandards';/.test(line.trim())
     || /^\s*\*|^\s*\/\//.test(line);
   /**
    * THE TYPE ROLL-UP DOOR (2026-09-16): the project overview reports land and

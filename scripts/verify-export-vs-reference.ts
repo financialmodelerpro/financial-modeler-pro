@@ -69,6 +69,10 @@ const ACCEPTED: Array<{ at: RegExp; cat?: RegExp; why: string; mode?: 'live' | '
   // 8. "Financing 'Cash above the minimum, before the sweep': no Total (it sums to 1,785m, which means nothing)".
   { at: /^Financing!F100(\(ours \d+\))?$/, cat: /^(formula|value|result|numFmt)$/, why: 'a balance-like row takes no Total (founder, open fix 8)', mayNotOccur: true },
 
+  // THE RETAIL CARVE WITH THE GROSS OUTSIDE (2026-11-19): with the input tab's longer name the reference's
+  // IF(G x util x FAR > 0, MIN(G, G x cov x retail / FAR), 0) ran past 200 characters; G x IF(util x FAR > 0,
+  // MIN(1, cov x retail / FAR), 0) is the same figure for a land area that is never negative (the test proves the shape).
+  { at: /^Land & Area!G\d+(\(ours \d+\))?$/, cat: /^formula$/, why: 'the retail carve reads the gross once, under 200 characters (same figure)', test: (d) => /^IF\(.*MIN\(/.test(d.ref) && /^'Project Inputs'!\$[A-Z]+\$\d+\*'Project Inputs'!\$[A-Z]+\$\d+\*IF\(.*MIN\(1,/.test(d.ours) },
   // Print set-up (2026-11-17, founder): the Cover on one page; the Guide fitted to the width on two pages.
   { at: /^(Cover|Guide)!print$/, cat: /^print$/, why: 'the Cover prints on one page and the Guide on two (founder)' },
   // The Dashboard at a fixed scale, fit off, so Excel keeps its two manual breaks: three pages in real Excel (founder).

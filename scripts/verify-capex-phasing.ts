@@ -241,8 +241,10 @@ const rettEntry = findCatalogEntry('rett');
 check('D1 RETT is in the CATALOG (not the seed)', !!rettEntry && !byBase.has('rett'));
 check('D2 Marketing is in the catalog', byBase.has('marketing'));
 check('D3 the RETT entry follows land cash', rettEntry?.phasingSource === 'land_cash');
-check('D4 Marketing follows collections by default', byBase.get('marketing')?.phasingSource === 'collections');
-check('D5 Commission follows collections by default', byBase.get('commission')?.phasingSource === 'collections');
+// Re-aimed 2026-11-19 to the selling-cost timing of cfaeeb00 (founder): marketing is paid as units sell, the
+// commission on its line's commission terms.
+check('D4 Marketing follows the sales by default', byBase.get('marketing')?.phasingSource === 'sales');
+check('D5 Commission follows the commission terms by default', byBase.get('commission')?.phasingSource === 'commission_terms');
 check('D6 no seeded line is country gated', lines.every((l) => l.requiresCountry === undefined));
 check('D7 the new lines seed at a ZERO rate like every other line',
   (byBase.get('marketing')?.value ?? -1) === 0);
@@ -390,7 +392,10 @@ check('E12 the resolution lives inside computeAssetCost, not at the call sites',
 check('E13 it is SKIPPED when inert rather than trusted to cancel out',
   /if \(!capexPhasingIsInert\(/.test(SRC_ENGINE));
 check('E14 every source in the type is offered in the UI',
-  CAPEX_PHASING_SOURCES.every((s) => new RegExp(`'${s}'`).test(SRC_COSTS_UI) || s === 'inherit'));
+  // The picker lists the type's own list (2026-11-19): a source spelt out in the screen, or the whole list mapped
+  // into the options, offers every one; a hand-written subset would fail.
+  /CAPEX_PHASING_SOURCES\.map\(\(s\) => \(\s*<option key=\{s\} value=\{s\}>/.test(SRC_COSTS_UI)
+  || CAPEX_PHASING_SOURCES.every((s) => new RegExp(`'${s}'`).test(SRC_COSTS_UI) || s === 'inherit'));
 check('E15 the UI badges a line that has stopped inheriting',
   /not inheriting/.test(SRC_COSTS_UI) && /phasing-badge/.test(SRC_COSTS_UI));
 // "Above the cost table" means inside the asset section and before THAT

@@ -296,3 +296,26 @@ export function workbookReader(wb: { getWorksheet(name: string): unknown }): Cel
     return null;
   };
 }
+
+/**
+ * EVERY FORMULA STORES ITS ZERO (2026-11-19, founder). ExcelJS drops a cached 0 whenever a formula value is assigned
+ * (`cell.value = { formula, result: 0 }` keeps only truthy fields, TRAPS 3.45), so 3,213 formula cells of the live file
+ * went out with no stored value and a preview that does not recalculate showed them blank where Excel shows "-". The
+ * last step before writing: a formula with no stored result gets 0 on the cell's model directly, unless it returns ""
+ * (known from the build, or worked out here), which stays empty. Returns how many it stored.
+ */
+export function storeZeroResults(wb: { worksheets: Array<{ name: string; eachRow(cb: (row: { eachCell(cb: (c: unknown) => void): void }) => void): void }> } & { getWorksheet(name: string): unknown }): number {
+  const ev = new FormulaEvaluator(workbookReader(wb));
+  let n = 0;
+  for (const ws of wb.worksheets) ws.eachRow((row) => row.eachCell((cell) => {
+    const c = cell as { address: string; _value?: { model?: { formula?: string; sharedFormula?: string; result?: unknown } } };
+    const m = c._value?.model;
+    if (!m || (typeof m.formula !== 'string' && typeof m.sharedFormula !== 'string')) return;
+    if (m.result !== undefined && m.result !== null) return;
+    if (isEmptyText(wb, ws.name, c.address)) return;
+    if (typeof m.formula === 'string') { try { if (ev.evaluate(m.formula, ws.name) === '') return; } catch { /* a function the evaluator does not read returns a figure */ } }
+    m.result = 0;
+    n++;
+  }));
+  return n;
+}

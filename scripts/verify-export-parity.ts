@@ -44,7 +44,7 @@ import { join, resolve } from 'node:path';
  * formula in headless LibreOffice and count the cells whose result differs from the stored value.
  */
 const SOFFICE = join(process.env.LOCALAPPDATA ?? '', 'LibreOfficeExtract', 'program', 'soffice.exe');
-async function libreDiff(buf: Buffer | ArrayBuffer, stored: ExcelJS.Workbook, tag: string): Promise<{ compared: number; diffs: string[]; errors: string[] } | null> {
+async function libreDiff(buf: Buffer | ArrayBuffer, stored: ExcelJS.Workbook, tag: string): Promise<{ compared: number; diffs: string[]; errors: string[]; missing: string[]; recalc: Map<string, number> } | null> {
   if (!existsSync(SOFFICE)) return null;
   const dir = resolve('exports', '.parity'); const outDir = join(dir, 'out'); const prof = join(dir, 'profile', 'user');
   rmSync(outDir, { recursive: true, force: true }); mkdirSync(outDir, { recursive: true }); mkdirSync(prof, { recursive: true });
@@ -53,21 +53,26 @@ async function libreDiff(buf: Buffer | ArrayBuffer, stored: ExcelJS.Workbook, ta
   writeFileSync(src, Buffer.from(buf as ArrayBuffer));
   execFileSync(SOFFICE, [`-env:UserInstallation=file:///${join(dir, 'profile').replace(/\\/g, '/')}`, '--headless', '--norestore', '--calc', '--convert-to', 'xlsx', '--outdir', outDir, src], { timeout: 900_000, stdio: 'pipe' });
   const wb = await loadWb(await (await import('node:fs/promises')).readFile(join(outDir, `${tag}.xlsx`)));
-  let compared = 0; const diffs: string[] = []; const errors: string[] = [];
+  let compared = 0; const diffs: string[] = []; const errors: string[] = []; const missing: string[] = [];
+  const recalc = new Map<string, number>();
+  // A STORED BLANK IS NOT A STORED 0 (2026-11-19, founder): the stored result is read off the cell's model
+  // (`cell.result`), because ExcelJS's `cell.value` drops a cached 0 and would make a stored 0 and no value look alike.
   for (const ws of stored.worksheets) {
     const re = wb.getWorksheet(ws.name);
     ws.eachRow((row) => row.eachCell((c) => {
-      const v = c.value as { formula?: string; result?: unknown } | null;
-      if (!v || typeof v !== 'object' || !('formula' in v) || typeof v.result !== 'number') return;
-      const r = re?.getCell(c.address).value as { result?: unknown } | number | null | undefined;
-      const x = r && typeof r === 'object' && 'result' in r ? r.result : r;
+      if (c.type !== ExcelJS.ValueType.Formula) return;
+      const stv = (c as unknown as { result?: unknown }).result;
+      const rc = re?.getCell(c.address);
+      const x = rc && rc.type === ExcelJS.ValueType.Formula ? (rc as unknown as { result?: unknown }).result : rc?.value;
       if (x && typeof x === 'object' && 'error' in (x as object)) { errors.push(`${ws.name}!${c.address}`); return; }
       if (typeof x !== 'number') return;
+      recalc.set(`${ws.name}!${c.address}`, x);
+      if (typeof stv !== 'number') { missing.push(`${ws.name}!${c.address} stores ${JSON.stringify(stv ?? null)}, recalculated ${x}`); return; }
       compared++;
-      if (Math.abs(x - v.result) > 1e-6 * Math.max(1, Math.abs(v.result))) diffs.push(`${ws.name}!${c.address} stored ${v.result} recalculated ${x}`);
+      if (Math.abs(x - stv) > 1e-6 * Math.max(1, Math.abs(stv))) diffs.push(`${ws.name}!${c.address} stored ${stv} recalculated ${x}`);
     }));
   }
-  return { compared, diffs, errors };
+  return { compared, diffs, errors, missing, recalc };
 }
 
 let passed = 0, failed = 0;
@@ -179,12 +184,27 @@ async function runVersion(inp: LiveExportInputs, title: string): Promise<void> {
   const built = await generateLiveWorkbook(common);
   if (!built.ok) { check('the live workbook builds', false, `${built.message} ${built.detail}`); return; }
   const live = await loadWb(built.buffer);
-  {
-    const d = await libreDiff(built.buffer, live, title.replace(/[^A-Za-z0-9]+/g, '_').slice(0, 40));
-    if (!d) check('R1 LibreOffice is available to recalculate the live file', false, SOFFICE);
-    else check(`R1 the live file recalculated in LibreOffice gives back every stored figure (${d.compared} cells, ${d.diffs.length} differ, ${d.errors.length} errors)`, d.compared > 1000 && d.diffs.length === 0 && d.errors.length === 0, [...d.errors.slice(0, 5), ...d.diffs.slice(0, 15)].join('\n'));
+  const d = await libreDiff(built.buffer, live, title.replace(/[^A-Za-z0-9]+/g, '_').slice(0, 40));
+  if (!d) check('R1 LibreOffice is available to recalculate the live file', false, SOFFICE);
+  else {
+    check(`R1 the live file recalculated in LibreOffice gives back every stored figure (${d.compared} cells, ${d.diffs.length} differ, ${d.errors.length} errors)`, d.compared > 1000 && d.diffs.length === 0 && d.errors.length === 0, [...d.errors.slice(0, 5), ...d.diffs.slice(0, 15)].join('\n'));
+    check(`R2 every live formula that gives a figure stores it, a 0 included (${d.missing.length} store no figure)`, d.missing.length === 0, d.missing.slice(0, 15).join('\n'));
   }
   const vals = await loadWb(await generateValuesWorkbookBuffer(common));
+  if (d) {
+    // The values file holds that figure too: a blank where the live file gives 0 is a difference, not a match.
+    const bad: string[] = []; let n = 0;
+    for (const [k, x] of d.recalc) {
+      const [sheet, addr] = k.split('!');
+      const vws = sheet === 'Cover' || sheet === 'Guide' ? undefined : vals.getWorksheet(sheet); if (!vws) continue;
+      const vc = vws.getCell(addr);
+      const vv = vc.type === ExcelJS.ValueType.Formula ? (vc as unknown as { result?: unknown }).result : vc.value;
+      n++;
+      if (typeof vv !== 'number') { if (bad.length < 15) bad.push(`${k}: live ${x}, values ${JSON.stringify(vv ?? null)}`); continue; }
+      if (Math.abs(vv - x) > Math.max(0.5, 1e-7 * Math.abs(x))) { if (bad.length < 15) bad.push(`${k}: live ${x}, values ${vv}`); }
+    }
+    check(`R3 the values file holds every figure the live file gives, a 0 as 0 and never blank (${n} cells)`, bad.length === 0 && n > 1000, bad.join('\n'));
+  }
   const pdfBytes = await generateProjectPdf({ state, projectName: inp.projectName, versionLabel: inp.versionLabel, versionComment: inp.versionComment, dateLabel: 'parity', selectedModuleKeys: ['module1', 'module2', 'module3', 'module4', 'module5', 'module6'], caseComparison: inp.caseComparison, displayScale: 'millions' } as never);
   const pdfRaw = pdfText(pdfBytes instanceof Uint8Array ? pdfBytes : new Uint8Array(pdfBytes as ArrayBuffer));
   const pdf = pdfRaw.replace(/\s+/g, ' ');

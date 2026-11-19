@@ -23,6 +23,8 @@ export interface CellAddr {
   /** Absolute column and row, 1-based. */
   row: number;
   col: number;
+  /** Where the cell was before the last relocation (the Inputs split, 2026-11-19), for a check that names a column. */
+  prev?: { sheet: string; row: number; col: number };
 }
 
 type Sink = (key: string, addr: CellAddr) => void;
@@ -90,7 +92,7 @@ export class CellRegistry {
   }
   /** A move that can change the tab (the Inputs split, 2026-11-18). */
   relocate(fn: (sheet: string, row: number, col: number) => { sheet: string; r: number; c: number } | null): void {
-    for (const a of this.map.values()) { const m = fn(a.sheet, a.row, a.col); if (m) { a.sheet = m.sheet; a.row = m.r; a.col = m.c; } }
+    for (const a of this.map.values()) { const m = fn(a.sheet, a.row, a.col); if (m) { a.prev = { sheet: a.sheet, row: a.row, col: a.col }; a.sheet = m.sheet; a.row = m.r; a.col = m.c; } }
   }
   get(key: string): CellAddr | undefined { return this.map.get(key); }
   /** The cell or a thrown error naming the missing key (a formula must never guess). */

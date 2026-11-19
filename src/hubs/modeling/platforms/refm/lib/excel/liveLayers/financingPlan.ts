@@ -367,8 +367,11 @@ export function financingPlan(state: FinancialsResolverState, snap: Snap = compu
       const rW = wS > 0 ? rS / wS : 0;
       scalar('fl:xRate', 'Interest rate, share-weighted across the loans', rW, 'pct', 'Each new loan\'s rate on Inputs, weighted by its share of the debt');
       const dFv = Math.max(0, fin.funding.debtPct ?? 0) / 100;
+      // THE ENGINE'S SHADOW, READ (2026-11-19): the export printed its own working of it, which a monthly model did
+      // not reproduce; the engine publishes the series it sizes the facility on (TRAPS 7.60).
       const xIdc = zeros(), xBal = zeros();
-      { let b = 0; const excl = p.idcConfig?.interestMethod === 'mid_year_excl'; const need = sl(w.feeBaseRequirementPerPeriod);
+      if (ff.shadowIdcPerPeriod && ff.shadowDebtBalancePerPeriod) { sl(ff.shadowIdcPerPeriod).forEach((v, t) => { xIdc[t] = v; }); sl(ff.shadowDebtBalancePerPeriod).forEach((v, t) => { xBal[t] = v; }); }
+      else { let b = 0; const excl = p.idcConfig?.interestMethod === 'mid_year_excl'; const need = sl(w.feeBaseRequirementPerPeriod);
         for (let t = 0; t < N; t++) { const d = (need[t] ?? 0) * dFv; const i = fin.idcPeriodMask[t] ? rW * (b + d / 2) / (excl ? 1 : 1 - rW / 2) : 0; b += d + i; xIdc[t] = i; xBal[t] = b; } }
       per('fl:xIdc', 'Capitalised interest on the fee-free debt', xIdc, 'In a year construction runs: the rate x (last year\'s balance + the fee-free debt drawn / 2), by the IDC method');
       per('fl:xBal', 'Fee-free debt balance (construction)', xBal, 'Last year\'s balance plus the fee-free debt drawn and its capitalised interest', { balance: true });

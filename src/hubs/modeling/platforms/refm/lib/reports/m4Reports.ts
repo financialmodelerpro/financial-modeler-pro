@@ -28,6 +28,8 @@ import { FEE_BASE_LABELS, FEE_TIMING_LABELS } from '../fundTerms';
 import { planReportLines, lineRowLabel, sumLine, poolMapByLine } from './lineRows';
 import { revenueBySection } from './revenueSections';
 import { buildAccountsReceivableDSO } from '@/src/core/calculations/revenue/accountsReceivableDSO';
+import { settleAtExit } from '@/src/core/calculations/exitSettlement';
+import { exitSettlementIndex } from '../financials-resolvers';
 
 type Labels = ReturnType<typeof getFinancialLabels>;
 
@@ -971,15 +973,19 @@ export function buildDirectCFRows(ctx: M4ReportCtx): M4Row[] {
   // as its Revenue tab does (2026-10-27), so its rows add to Total Revenue Received; the screen and
   // the PDF keep the lines as billed. Every total is unchanged.
   const operatingCash = new Map<string, number[]>();
+  // THE EXIT SETTLES THE RECEIVABLE (2026-11-19): as on the balance sheet (exitSettlement.ts), the exit year collects
+  // what is still owed, so a phase's cash and the project's add up in that year too.
+  const settleIdx = exitSettlementIndex(state.project, N);
   for (const a of [...hospitalityAssets, ...retailAssets]) {
     const pl = snap.perAssetPL.get(a.id);
     if (!pl) continue;
-    operatingCash.set(a.id, buildAccountsReceivableDSO({
+    const r = buildAccountsReceivableDSO({
       revenuePerPeriod: pl.revenuePerPeriod.slice(0, N),
       dsoDays: lineReceivableDays(a, state.project),
       daysPerYear: Math.max(1, state.project.operatingAr?.daysPerYear ?? 365),
       axisLength: N,
-    }).cashReceivedPerPeriod);
+    });
+    operatingCash.set(a.id, settleAtExit(r.perPeriod, r.changePerPeriod, r.cashReceivedPerPeriod, settleIdx).cash);
   }
   const received = (id: string): number[] | undefined => (all && operatingCash.has(id) ? operatingCash.get(id) : snap.perAssetCF.get(id)?.revenueReceivedPerPeriod as number[] | undefined);
   // One member row per consolidated line (2026-09-15).

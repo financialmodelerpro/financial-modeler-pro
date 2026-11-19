@@ -351,7 +351,8 @@ async function main(): Promise<void> {
     for (let i = 0; i < w.periods.length; i++) {
       const p = w.periods[i];
       if (!near(p.distribution, p.hurdlePaid + p.excessDistributions, 0.01)) { split = false; d = `t=${i} distribution split`; }
-      if (!near(p.hurdleAccrued, (p.openingUnpaidHurdle + p.equityDrawn) * w.hurdleRate, 0.01)) { accrual = false; d = `t=${i} accrual`; }
+      // From the year after each contribution (2026-11-18, founder; re-aimed 2026-11-19): the opening balance only.
+      if (!near(p.hurdleAccrued, p.openingUnpaidHurdle * w.hurdleRate, 0.01)) { accrual = false; d = `t=${i} accrual`; }
       if (!near(p.totalHurdleOwed, p.equityDrawn + p.openingUnpaidHurdle + p.hurdleAccrued, 0.01)) { accrual = false; d = `t=${i} owed`; }
       if (!near(p.hurdlePaid, Math.min(p.distribution, p.totalHurdleOwed), 0.01)) { minRule = false; d = `t=${i} MIN rule`; }
       if (!near(p.closingUnpaidHurdle, p.totalHurdleOwed - p.hurdlePaid, 0.01)) { closes = false; d = `t=${i} closing`; }
@@ -363,7 +364,7 @@ async function main(): Promise<void> {
       if (!near(p.excessDistributions, p.performanceFee + p.excessAfterFee, 0.01)) { split = false; d = `t=${i} excess split`; }
     }
     check(`[${c.label}] every distribution splits into hurdle paid + excess, and excess into fee + remainder`, split, d);
-    check(`[${c.label}] the hurdle accrues on the opening balance PLUS the same-period draw`, accrual, d);
+    check(`[${c.label}] the hurdle accrues on the opening balance only (from the year after each draw)`, accrual, d);
     check(`[${c.label}] hurdle paid is MIN(distribution, owed)`, minRule, d);
     check(`[${c.label}] the unpaid hurdle balance closes into the next period's opening`, closes, d);
     check(`[${c.label}] the performance fee is charged ONLY on the excess above the hurdle`, feeRule, d);

@@ -70,8 +70,3 @@ MISSING COLUMN: refm_asset_types.construction_cost_per_sqm (declared 243_asset_t
 MISSING COLUMN: refm_asset_types.revenue_rate (declared 243_asset_type_rates_and_order.sql)
 MISSING COLUMN: refm_asset_types.revenue_rate_unit (declared 243_asset_type_rates_and_order.sql)
 
-# Migration 258 is PENDING (2026-11-18, written, not applied; Ahmad applies it). The fund terms route tolerates
-# the columns being absent (tier 258 falls back to the default bases). REMOVE these two lines once it is applied:
-# C1 then fails them as stale, which is the reminder.
-MISSING COLUMN: refm_fund_terms.structure_fee_basis (declared 258_refm_fund_fee_bases.sql)
-MISSING COLUMN: refm_fund_terms.arranging_fee_basis (declared 258_refm_fund_fee_bases.sql)

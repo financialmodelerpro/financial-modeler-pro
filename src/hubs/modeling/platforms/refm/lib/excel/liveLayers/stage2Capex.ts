@@ -383,9 +383,9 @@ export const stage2Capex: LiveLayer = {
         const rng = w.rangeA(INPUTS, cv, 2, hasP0 ? 2 + N : 1 + N);
         const at = (k: string): string => `INDEX(${rng},1,${k}${hasP0 ? '+1' : ''})`;
         const y0 = hasP0 ? `INDEX(${rng},1,1)` : '0';
-        // The builder printed this total in percent points; the curve is a share now (2026-11-18), so is its total.
+        // The curve and its total are shares (2026-11-18); the builder prints the share too (2026-11-19).
         const printed = w.platformValue({ sheet: CAPEX, row: r, col: C_WIN });
-        w.fA({ sheet: CAPEX, row: r, col: C_WIN }, `${p0 && hasP0 ? `(${B}<=0)*${y0}+` : ''}SUM(${at(`MAX(1,${B})`)}:${at(`MAX(${B},${C})`)})`, typeof printed === 'number' ? { cached: printed / 100 } : {});
+        w.fA({ sheet: CAPEX, row: r, col: C_WIN }, `${p0 && hasP0 ? `(${B}<=0)*${y0}+` : ''}SUM(${at(`MAX(1,${B})`)}:${at(`MAX(${B},${C})`)})`, typeof printed === 'number' ? { cached: printed } : {});
         const W = A(r, C_WIN);
         for (let t = 0; t < N; t++) {
           const c = cP(t);

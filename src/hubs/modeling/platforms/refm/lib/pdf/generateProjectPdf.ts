@@ -82,6 +82,7 @@ import {
   type ProjectFinancialsSnapshot,
   type FinancialsResolverState,
 } from '../financials-resolvers';
+import { exitSettlementIndex } from '../financials-resolvers';
 import { computeReturnsSnapshot, computeReturnsSensitivity, type ReturnsSnapshot } from '../returns-resolvers';
 import { getFinancialLabels, defaultTerminologyForCountry } from '@/src/core/calculations/financials';
 import { buildPLRows, buildPhaseEbitdaReconciliationRows, phaseEbitdaFooting, buildDirectCFRows, buildIndirectCFRows, buildBSRows, buildBsFeederTables, buildBsReconciliationRows, buildFundFeeBasisRows, buildFundCapitalRows, fundFeeBasisText, totalColumnHeading, totalColumnNote, resolveTotalColumnKind, TOTAL_COLUMN_HEADINGS, FUND_CAPITAL_BASES_TITLE, FUND_CAPITAL_BASES_NOTE, type M4FeederCtx } from '../reports/m4Reports';
@@ -3010,7 +3011,7 @@ function buildModule2(snap: ProjectFinancialsSnapshot, state: FinancialsResolver
 
   // ── Tab 4: Schedules, the three feeds ──────────────────────────────────────
   const T4 = M2_TAB.schedules;
-  for (const feed of buildRevenueScheduleFeeds(snap.revenue, lines, snap.byAssetCostOfSales, state.project.operatingAr)) {
+  for (const feed of buildRevenueScheduleFeeds(snap.revenue, lines, snap.byAssetCostOfSales, { ...state.project.operatingAr, settleFromIdx: exitSettlementIndex(state.project, snap.axisLength) })) {
     items.push(tPara(T4, 'schedules', feed.group, feed.meta));
     for (const t of feed.tables) {
       if (t.rows.length) items.push(tTable(T4, 'schedules', screenTable(t.title, py, yl, t.rows)));

@@ -575,8 +575,12 @@ async function main(): Promise<void> {
     `toc=${nav.tocPages.join(',')} exec=${nav.execIdx}`);
 
   // Exactly one section-break page per rendered module (>= all 6).
-  check('one section-break page per rendered module (>= 6)',
-    nav.breakPages.size >= 6 && nav.breakPages.size === moduleItems.length,
+  // THE ASSUMPTIONS COME FIRST (2026-11-19, founder): every module's inputs in the workbook's two-tab order, under one
+  // section break of their own, then one break per module.
+  const moduleBreaks = [...nav.breakPages.keys()].filter((k) => k !== 'assumptions');
+  check('one section-break page per rendered module (>= 6), plus the assumptions section first',
+    moduleBreaks.length >= 6 && moduleBreaks.length === moduleItems.length && nav.breakPages.has('assumptions')
+    && (nav.breakPages.get('assumptions') ?? Infinity) < Math.min(...moduleBreaks.map((k) => nav.breakPages.get(k) ?? Infinity)),
     `breaks=${nav.breakPages.size} modules=${moduleItems.length}`);
 
   // Outline: present, opens the bookmark panel, leads with Executive Summary, and
@@ -752,14 +756,15 @@ async function main(): Promise<void> {
   for (const part of ['inputs', 'outputs', 'schedules'] as const) {
     const sections = { inputs: part === 'inputs', outputs: part === 'outputs', schedules: part === 'schedules' };
     const brk = await navBreakModules(sections);
-    const exp = expectedModules(part);
+    // Inputs all sit in the assumptions section now (2026-11-19), so an inputs-only report breaks once, there.
+    const exp = part === 'inputs' ? (expectedModules(part).size ? new Set(['assumptions']) : new Set<string>()) : expectedModules(part);
     const same = brk.size === exp.size && [...exp].every((m) => brk.has(m));
     check(`filter ${part}-only: nav lists exactly the modules with ${part} content`, same, `nav=${[...brk].sort().join(',')} expected=${[...exp].sort().join(',')}`);
   }
   // A filtered report has NO dangling nav links and every outline module resolves.
   const filteredNav = await parseNav(await generateProjectPdf({ state: buildState(), projectName: 'X', versionLabel: null, dateLabel: 'd', selectedModuleKeys: navKeys, caseComparison: caseBundle, moduleSections: Object.fromEntries(navKeys.map((k) => [k, { inputs: true, outputs: false, schedules: false }])) }));
   check('filter: filtered report has no dangling nav links', filteredNav.danglingLinks === 0, `dangling=${filteredNav.danglingLinks}`);
-  const filteredOutlineMods = (filteredNav.outline ?? []).filter((o) => o.title.startsWith('Module '));
+  const filteredOutlineMods = (filteredNav.outline ?? []).filter((o) => o.title.startsWith('Module ') || o.title.startsWith('Assumptions'));
   check('filter: every outline module in a filtered report resolves to a break page', filteredOutlineMods.length === filteredNav.breakPages.size && filteredOutlineMods.every((o) => o.destIdx != null), `outline=${filteredOutlineMods.length} breaks=${filteredNav.breakPages.size}`);
 
   // ── Commit 3: no-project export guard (the route rejects an empty payload) ──
@@ -904,7 +909,8 @@ async function main(): Promise<void> {
       stdTitles.includes('Asset types and values') && stdTitles.includes('Parking and cost escalation'), stdTitles.join(' | '));
     // Assets: the screen's five tables, under their own numbers.
     const assetTitles = titles('Tab 5: Assets & Sub-units');
-    for (const t of ['Table 1 - Plots, the land', 'Table 2 - Assets by plot, what you enter',
+    // Tables 1 and 2 are ONE land table since 2026-11-18 (9629dbfa: the land area typed once), "Land and plots".
+    for (const t of ['Land and plots',
       'Table 3 - Derived areas by plot', 'Table 4 - Merged by line', 'Table 5 - Sub-units']) {
       check(`M1 Assets: "${t}" is printed`, assetTitles.some((x) => x.startsWith(t)), assetTitles.join(' | '));
     }

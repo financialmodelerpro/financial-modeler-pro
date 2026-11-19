@@ -28,6 +28,7 @@
  */
 
 import { lineReceivableDays } from '../receivableDays';
+import { settleAtExit } from '@/src/core/calculations/exitSettlement';
 import type { M4Row } from '../../components/modules/_shared/m4Table';
 import {
   buildAccountsReceivable, buildUnearnedRevenue, buildAccountsReceivableDSO, applyIndexation,
@@ -287,8 +288,15 @@ export function buildRevenueLineFeeds(
   lines: readonly RevenueLine[],
   byAssetCostOfSales: ReadonlyMap<string, AssetCostOfSales> | undefined,
   /** THE PROJECT'S operating receivable terms, the ones the balance sheet uses. Required, so every surface passes them. */
-  operatingAr: { dsoDays?: number; daysPerYear?: number } | undefined,
+  operatingAr: { dsoDays?: number; daysPerYear?: number; settleFromIdx?: number } | undefined,
 ): LineFeed[] {
+  // THE EXIT SETTLES WORKING CAPITAL (2026-11-19): the balance sheet's receivables are zero from the exit year
+  // (exitSettlement.ts), so the feed's are too; the cash collected takes the release, as on the balance sheet.
+  const settle = (perPeriod: number[], change: number[], cash: number[]): { perPeriod: number[]; cash: number[] } => {
+    if (operatingAr?.settleFromIdx === undefined) return { perPeriod, cash };
+    const s = settleAtExit(perPeriod, change, cash, operatingAr.settleFromIdx);
+    return { perPeriod: s.perPeriod, cash: s.cash };
+  };
   const N = revenue.axisLength;
   const zeros = (): number[] => new Array<number>(N).fill(0);
   // ONE QUANTITY, ONE NUMBER (2026-09-27, founder): the receivable and unearned
@@ -318,7 +326,7 @@ export function buildRevenueLineFeeds(
         cosOps: cos ? cos.cosPostSalesPerPeriod.slice(0, N) : zeros(),
         totalCos: cos ? cos.cos.perPeriod.slice(0, N) : zeros(),
         inventory: cos ? cos.inventoryPerPeriod.slice(0, N) : zeros(),
-        ar: raw(ar.perPeriod), ur: raw(ur.perPeriod),
+        ar: raw(settle(ar.perPeriod, ar.changePerPeriod, new Array<number>(N).fill(0)).perPeriod), ur: raw(ur.perPeriod),
         capex: cos ? cos.capexPerPeriod.slice(0, N) : zeros(),
       });
       continue;
@@ -337,9 +345,9 @@ export function buildRevenueLineFeeds(
     out.push({
       ...base,
       revenue: operating.totalRevenuePerPeriod.slice(0, N),
-      cashCollected: arDso.cashReceivedPerPeriod.slice(0, N),
+      cashCollected: settle(arDso.perPeriod, arDso.changePerPeriod, arDso.cashReceivedPerPeriod).cash.slice(0, N),
       cosConstr: zeros(), cosOps: zeros(), totalCos: zeros(), inventory: zeros(),
-      ar: raw(arDso.perPeriod), ur: zeros(), capex: zeros(),
+      ar: raw(settle(arDso.perPeriod, arDso.changePerPeriod, arDso.cashReceivedPerPeriod).perPeriod), ur: zeros(), capex: zeros(),
     });
   }
   return out;
@@ -351,7 +359,7 @@ export function buildRevenueScheduleFeeds(
   revenue: ProjectRevenueSnapshot,
   lines: readonly RevenueLine[],
   byAssetCostOfSales: ReadonlyMap<string, AssetCostOfSales> | undefined,
-  operatingAr: { dsoDays?: number; daysPerYear?: number } | undefined,
+  operatingAr: { dsoDays?: number; daysPerYear?: number; settleFromIdx?: number } | undefined,
   // The live workbook (2026-10-15) lists every line in the per-line tables any line can feed
   // (revenue, receivables, cash), zeros included, so each total sums the rows above it.
   opts: { allLines?: boolean } = {},

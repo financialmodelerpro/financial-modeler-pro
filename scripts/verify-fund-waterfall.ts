@@ -165,14 +165,16 @@ function assertBalanceCloses(label: string, wf: WaterfallSnapshot): void {
   for (let t = 0; t < wf.periods.length; t++) {
     const p = wf.periods[t];
     accrualBase = Math.max(accrualBase,
-      Math.abs(p.hurdleAccrued - (p.openingUnpaidHurdle + p.equityDrawn) * wf.hurdleRate));
+      // RE-AIMED 2026-11-19 to the hurdle FROM THE YEAR AFTER each contribution (waterfall.ts, 2026-11-18, founder):
+      // the accrual base is the opening balance only, so an 8% hurdle is an 8% IRR on the contributions.
+      Math.abs(p.hurdleAccrued - p.openingUnpaidHurdle * wf.hurdleRate));
     owedRoll = Math.max(owedRoll,
       Math.abs((p.equityDrawn + p.openingUnpaidHurdle + p.hurdleAccrued) - p.totalHurdleOwed));
     eopRoll = Math.max(eopRoll, Math.abs((p.totalHurdleOwed - p.hurdlePaid) - p.closingUnpaidHurdle));
     if (t > 0) chain = Math.max(chain, Math.abs(p.openingUnpaidHurdle - wf.periods[t - 1].closingUnpaidHurdle));
     if (p.closingUnpaidHurdle < -EPS) negative = `period ${t}`;
   }
-  check(`${label}: accrual is (BoP + equity drawn) x rate, every period`,
+  check(`${label}: accrual is BoP x rate (no accrual on the period's own draw), every period`,
     accrualBase <= EPS, `worst ${accrualBase}`);
   check(`${label}: owed is equity drawn + BoP + accrued, every period`,
     owedRoll <= EPS, `worst ${owedRoll}`);
@@ -210,9 +212,9 @@ function assertCompounding(label: string, wf: WaterfallSnapshot): void {
   let worst = 0;
   for (const p of wf.periods) {
     worst = Math.max(worst,
-      Math.abs(p.totalHurdleOwed - (p.openingUnpaidHurdle + p.equityDrawn) * (1 + wf.hurdleRate)));
+      Math.abs(p.totalHurdleOwed - (p.openingUnpaidHurdle * (1 + wf.hurdleRate) + p.equityDrawn)));
   }
-  check(`${label}: owed equals (BoP + equity drawn) x (1 + rate), every period`,
+  check(`${label}: owed equals BoP x (1 + rate) + equity drawn, every period`,
     worst <= EPS, `worst ${worst}`);
 }
 
@@ -223,27 +225,28 @@ console.log('=== 1. The reference mechanic on a worked example ===');
   // Hand-computable: 100 drawn at t=0, 10% hurdle, 20% fee, nothing paid until
   // t=2, then a large distribution. Every figure below is arithmetic done
   // independently of the engine.
-  //   t0: BoP 0, drawn 100, accrued 10,   owed 110,   paid 0,     EoP 110
-  //   t1: BoP 110, drawn 0, accrued 11,   owed 121,   paid 0,     EoP 121
-  //   t2: BoP 121, drawn 0, accrued 12.1, owed 133.1, paid 133.1, EoP 0
-  //       excess 200 - 133.1 = 66.9, fee 13.38, net 200 - 13.38 = 186.62
+  // (re-aimed 2026-11-19: no accrual on the year's own draw)
+  //   t0: BoP 0, drawn 100, accrued 0,    owed 100,   paid 0,     EoP 100
+  //   t1: BoP 100, drawn 0, accrued 10,   owed 110,   paid 0,     EoP 110
+  //   t2: BoP 110, drawn 0, accrued 11,   owed 121,   paid 121,   EoP 0
+  //       excess 200 - 121 = 79, fee 15.8, net 200 - 15.8 = 184.2
   const wf = computeDistributionWaterfall({
     equityDrawnPerPeriod: [100, 0, 0], distributionsPerPeriod: [0, 0, 200],
     hurdleRate: 0.10, performanceFeePct: 0.20, active: true,
   });
   const p = wf.periods;
-  check('t0 accrues on the same-period draw', near(p[0].hurdleAccrued, 10, 1e-9), String(p[0].hurdleAccrued));
-  check('t0 owes 110', near(p[0].totalHurdleOwed, 110, 1e-9), String(p[0].totalHurdleOwed));
-  check('t0 pays nothing and carries 110', p[0].hurdlePaid === 0 && near(p[0].closingUnpaidHurdle, 110, 1e-9));
-  check('t1 accrues 11 on the carried balance', near(p[1].hurdleAccrued, 11, 1e-9), String(p[1].hurdleAccrued));
-  check('t1 carries 121', near(p[1].closingUnpaidHurdle, 121, 1e-9), String(p[1].closingUnpaidHurdle));
-  check('t2 owes 133.1', near(p[2].totalHurdleOwed, 133.1, 1e-9), String(p[2].totalHurdleOwed));
-  check('t2 pays the full 133.1 and closes at zero',
-    near(p[2].hurdlePaid, 133.1, 1e-9) && near(p[2].closingUnpaidHurdle, 0, 1e-9));
-  check('t2 excess is 66.9', near(p[2].excessDistributions, 66.9, 1e-9), String(p[2].excessDistributions));
-  check('t2 fee is 13.38 (20% of the excess, not of the distribution)',
-    near(p[2].performanceFee, 13.38, 1e-9), String(p[2].performanceFee));
-  check('t2 net distribution is 186.62', near(p[2].netDistribution, 186.62, 1e-9), String(p[2].netDistribution));
+  check('t0 accrues nothing on the same-period draw', near(p[0].hurdleAccrued, 0, 1e-9), String(p[0].hurdleAccrued));
+  check('t0 owes 100', near(p[0].totalHurdleOwed, 100, 1e-9), String(p[0].totalHurdleOwed));
+  check('t0 pays nothing and carries 100', p[0].hurdlePaid === 0 && near(p[0].closingUnpaidHurdle, 100, 1e-9));
+  check('t1 accrues 10 on the carried balance', near(p[1].hurdleAccrued, 10, 1e-9), String(p[1].hurdleAccrued));
+  check('t1 carries 110', near(p[1].closingUnpaidHurdle, 110, 1e-9), String(p[1].closingUnpaidHurdle));
+  check('t2 owes 121', near(p[2].totalHurdleOwed, 121, 1e-9), String(p[2].totalHurdleOwed));
+  check('t2 pays the full 121 and closes at zero',
+    near(p[2].hurdlePaid, 121, 1e-9) && near(p[2].closingUnpaidHurdle, 0, 1e-9));
+  check('t2 excess is 79', near(p[2].excessDistributions, 79, 1e-9), String(p[2].excessDistributions));
+  check('t2 fee is 15.8 (20% of the excess, not of the distribution)',
+    near(p[2].performanceFee, 15.8, 1e-9), String(p[2].performanceFee));
+  check('t2 net distribution is 184.2', near(p[2].netDistribution, 184.2, 1e-9), String(p[2].netDistribution));
   check('the fee is NOT 20% of the gross distribution', !near(p[2].performanceFee, 40, 1e-6));
   assertExhaustion('worked example', wf);
   assertBalanceCloses('worked example', wf);
@@ -330,9 +333,9 @@ console.log('\n=== 3. The fee boundary: only above the hurdle ===');
     hurdleRate: 0.08, performanceFeePct: 0.20, active: true,
   });
   const owed = dry.hurdleShortfall;
-  // Six accrual periods (t=0 accrues on the same-period draw, t=1..5 on the
-  // carried balance), so the closed-form exponent is N, not N-1.
-  const expected = 100_000_000 * Math.pow(1.08, N);
+  // Five accrual periods (t=1..5 on the carried balance; t=0 accrues nothing on its own draw since 2026-11-18),
+  // so the closed-form exponent is N-1.
+  const expected = 100_000_000 * Math.pow(1.08, N - 1);
   check('the dry-run balance matches the independently computed closed form',
     near(owed, expected, 1e-3), `${owed} vs ${expected}`);
 
@@ -379,8 +382,8 @@ console.log('\n=== 4. Compounding, the closed form, and no return-of-capital tie
         equityDrawnPerPeriod: drawn, distributionsPerPeriod: new Array<number>(N).fill(0),
         hurdleRate: r, performanceFeePct: 0.20, active: true,
       });
-      const closed = 250_000_000 * Math.pow(1 + r, n + 1);
-      check(`hurdle ${(r * 100).toFixed(0)}% over ${n} periods: balance is C x (1+r)^(n+1)`,
+      const closed = 250_000_000 * Math.pow(1 + r, n);
+      check(`hurdle ${(r * 100).toFixed(0)}% over ${n} periods: balance is C x (1+r)^n`,
         near(wf.hurdleShortfall, closed, Math.abs(closed) * 1e-12), `${wf.hurdleShortfall} vs ${closed}`);
       assertCompounding(`hurdle ${(r * 100).toFixed(0)}%/${n}p`, wf);
     }
@@ -394,8 +397,8 @@ console.log('\n=== 4. Compounding, the closed form, and no return-of-capital tie
       equityDrawnPerPeriod: drawn, distributionsPerPeriod: new Array<number>(N).fill(0),
       hurdleRate: r, performanceFeePct: 0.2, active: true,
     });
-    // A draw at index i is compounded (N - i) times by the end of index N-1.
-    const closed = drawn.reduce((s, v, i) => s + v * Math.pow(1 + r, N - i), 0);
+    // A draw at index i is compounded (N - 1 - i) times by the end of index N-1 (from the year after it).
+    const closed = drawn.reduce((s, v, i) => s + v * Math.pow(1 + r, N - 1 - i), 0);
     check('multiple draws compound independently and sum to the balance',
       near(wf.hurdleShortfall, closed, Math.abs(closed) * 1e-9), `${wf.hurdleShortfall} vs ${closed}`);
   }

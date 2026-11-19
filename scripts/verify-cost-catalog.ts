@@ -190,10 +190,10 @@ section('C. The catalog covers a real development and carries behaviour');
     }
     check(`${e.id} is safe inside a composed line id`, /^[a-z0-9-]{1,48}$/.test(e.id), e.id);
   }
-  const selling = ['marketing', 'commission'];
-  for (const id of selling) {
-    check(`${id} follows collections`, findCatalogEntry(id)?.phasingSource === 'collections');
-  }
+  // THE SELLING COSTS' CASH TIMING (2026-11-17, cfaeeb00, founder): marketing is paid as units are sold, the
+  // commission on its line's commission terms; collections stays only as the legacy reading of an older line.
+  check('marketing follows the sales', findCatalogEntry('marketing')?.phasingSource === 'sales' && findCatalogEntry('marketing')?.legacyPhasingSource === 'collections');
+  check('commission follows the commission terms', findCatalogEntry('commission')?.phasingSource === 'commission_terms' && findCatalogEntry('commission')?.legacyPhasingSource === 'collections');
   check('rett follows the land cash outflow', findCatalogEntry('rett')?.phasingSource === 'land_cash');
   check('the two land rows are never offered',
     findCatalogEntry('land-cash')?.selectable === false && findCatalogEntry('land-inkind')?.selectable === false);
@@ -233,7 +233,7 @@ section('D. Selecting stamps behaviour; renaming changes only the label');
   check('the stamp carries the stage', stamp.stage === 'marketing');
   check('the stamp writes stageOverride too, so the id map cannot outrank it',
     stamp.stageOverride === 'marketing');
-  check('the stamp carries the phasing source', stamp.phasingSource === 'collections');
+  check('the stamp carries the phasing source', stamp.phasingSource === marketing.phasingSource && stamp.phasingSource === 'sales');
   check('the stamp records the catalog id', stamp.catalogId === 'marketing');
   check('the stamp does NOT touch the name, value or window',
     !('name' in stamp) && !('value' in stamp) && !('startPeriod' in stamp) && !('selectedLineIds' in stamp));
@@ -254,7 +254,7 @@ section('D. Selecting stamps behaviour; renaming changes only the label');
   check('including the phasing source', changes.some((c) => c.field === 'Phasing source'));
   const noChange = describeCatalogChange(
     // The line already as the entry stamps it (2026-11-18: a share of sale revenue), so nothing changes.
-    { ...commissionLine, method: findCatalogEntry('commission')!.method, stage: 'soft', phasingSource: 'collections' },
+    { ...commissionLine, method: findCatalogEntry('commission')!.method, stage: 'soft', phasingSource: findCatalogEntry('commission')!.phasingSource },
     findCatalogEntry('commission')!,
     {
       method: COST_METHOD_LABELS as unknown as Record<string, string>,

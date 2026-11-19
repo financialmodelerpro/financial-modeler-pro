@@ -27,6 +27,8 @@ export const FIXED_AT_EXPORT_NOTE = 'Fixed at export: the live workbook is built
 
 const colNum = (s: string): number => s.split('').reduce((n, ch) => n * 26 + ch.charCodeAt(0) - 64, 0);
 export const cellId = (sheet: string, row: number, col: number): string => `${sheet}!${row}:${col}`;
+/** The input tabs: one Inputs tab while the build runs, Project Inputs and Operating Inputs once it is split. */
+export const INPUT_SHEETS = ['Inputs', 'Project Inputs', 'Operating Inputs'] as const;
 
 /** Every cell a formula reads, as sheet!row:col, ranges expanded. */
 export function readCells(wb: ExcelJS.Workbook, onRead?: (target: string, reader: string, formula: string) => void): Set<string> {
@@ -139,27 +141,35 @@ export function inputsUnreadProblems(wb: ExcelJS.Workbook, allowed: ReadonlySet<
   const strict = opts.strict === true;
   const readers = new Map<string, Array<{ reader: string; computes: boolean }>>();
   const read = readCells(wb, (target, reader, formula) => {
-    if (!target.startsWith('Inputs!')) return;
-    const rest = formula.replace(/(?:'Inputs'|Inputs)!\$?[A-Z]+\$?\d+(?::\$?[A-Z]+\$?\d+)?/g, ' ');
-    const computes = /[A-Za-z0-9_&']+!\$?[A-Z]+\$?\d+/.test(rest) || (!reader.startsWith('Inputs!') && /(?<![A-Za-z0-9_.$!'])\$?[A-Z]{1,3}\$?\d+(?![A-Za-z0-9_(])/.test(rest));
+    if (!INPUT_SHEETS.some((n) => target.startsWith(`${n}!`))) return;
+    const rest = formula.replace(/(?:'Inputs'|Inputs|'Project Inputs'|'Operating Inputs')!\$?[A-Z]+\$?\d+(?::\$?[A-Z]+\$?\d+)?/g, ' ');
+    const onInputs = INPUT_SHEETS.some((n) => reader.startsWith(`${n}!`));
+    const computes = /[A-Za-z0-9_&']+!\$?[A-Z]+\$?\d+/.test(rest) || (!onInputs && /(?<![A-Za-z0-9_.$!'])\$?[A-Z]{1,3}\$?\d+(?![A-Za-z0-9_(])/.test(rest));
     (readers.get(target) ?? readers.set(target, []).get(target)!).push({ reader, computes });
   });
   const drives = (id: string): boolean => (readers.get(id) ?? []).some((x) => read.has(x.reader) || x.computes);
   const colL = (n: number): string => { let s = ''; while (n > 0) { const m = (n - 1) % 26; s = String.fromCharCode(65 + m) + s; n = Math.floor((n - 1) / 26); } return s; };
   const out: string[] = [];
-  const ws = wb.getWorksheet('Inputs');
-  if (!ws) return out;
-  ws.eachRow((row, r) => row.eachCell({ includeEmpty: true }, (cell, c) => {
-    if (c === 1) return;
-    const v = cell.value as unknown;
-    if (v && typeof v === 'object') return;
-    const empty = v === null || v === undefined || v === '';
-    if (empty ? !(strict && isShaded(cell) && cell.numFmt !== '@') : !(typeof v === 'number' || isShaded(cell))) return;
-    const id = cellId('Inputs', r, c);
-    if (allowed.has(id)) return;
-    if (!read.has(id)) out.push(`Inputs!${colL(c)}${r} (${JSON.stringify(v ?? null).slice(0, 24)}) is read by no formula`);
-    else if (strict && typeof v !== 'string' && !drives(id)) out.push(`Inputs!${colL(c)}${r} (${JSON.stringify(v ?? null).slice(0, 24)}) is read only by a copy nothing reads`);
-  }));
+  // EVERY INPUT TAB (2026-11-19): the build checks the one Inputs tab before it is split; a check on the finished
+  // workbook reads Project Inputs and Operating Inputs, or it would find nothing to check and pass.
+  for (const name of INPUT_SHEETS) {
+    const ws = wb.getWorksheet(name);
+    if (!ws) continue;
+    const at = name === 'Inputs' ? 'Inputs' : `'${name}'`;
+    ws.eachRow((row, r) => row.eachCell({ includeEmpty: true }, (cell, c) => {
+      if (c === 1) return;
+      // A number in a table head is a column label (a grid's year numbers), never a typed value.
+      if ((cell.fill as { fgColor?: { argb?: string } } | undefined)?.fgColor?.argb === 'FF1B4F8A') return;
+      const v = cell.value as unknown;
+      if (v && typeof v === 'object') return;
+      const empty = v === null || v === undefined || v === '';
+      if (empty ? !(strict && isShaded(cell) && cell.numFmt !== '@') : !(typeof v === 'number' || isShaded(cell))) return;
+      const id = cellId(name, r, c);
+      if (allowed.has(id)) return;
+      if (!read.has(id)) out.push(`${at}!${colL(c)}${r} (${JSON.stringify(v ?? null).slice(0, 24)}) is read by no formula`);
+      else if (strict && typeof v !== 'string' && !drives(id)) out.push(`${at}!${colL(c)}${r} (${JSON.stringify(v ?? null).slice(0, 24)}) is read only by a copy nothing reads`);
+    }));
+  }
   return out;
 }
 
@@ -204,5 +214,5 @@ export function receivableDaysProblems(wb: ExcelJS.Workbook, cells: Array<{ shee
     return false;
   };
   const colL = (n: number): string => { let s = ''; while (n > 0) { const m = (n - 1) % 26; s = String.fromCharCode(65 + m) + s; n = Math.floor((n - 1) / 26); } return s; };
-  return cells.filter((a) => !reachesSchedules(cellId(a.sheet, a.row, a.col))).map((a) => `Inputs!${colL(a.col)}${a.row} (a line's receivable days) drives no receivable on the Balance Sheet`);
+  return cells.filter((a) => !reachesSchedules(cellId(a.sheet, a.row, a.col))).map((a) => `${a.sheet === 'Inputs' ? 'Inputs' : `'${a.sheet}'`}!${colL(a.col)}${a.row} (a line's receivable days) drives no receivable on the Balance Sheet`);
 }

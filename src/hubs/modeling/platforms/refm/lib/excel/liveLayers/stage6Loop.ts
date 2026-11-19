@@ -386,7 +386,9 @@ export const stage6Loop: LiveLayer = {
       const excl = has('fl:idcExcl') ? T('fl:idcExcl') : '0';
       put(f.charge, (t) => (f.isEx
         ? `${intFrom(t)}(${P(f.open, t)}+${P(f.draw, t)})*${rate(f)}`
-        : `IF(${running(t)},${rate(f)}*(${P(f.open, t)}+${P(f.draw, t)}/2)/(1-(1-${excl})*${rate(f)}/2),${P(f.open, t)}*${rate(f)})`));
+        // The rate taken outside the IF (2026-11-19): the same figure, with the rate cells read twice, not three times,
+        // so the formula stays under 200 characters with the input tab's longer name.
+        : `${rate(f)}*IF(${running(t)},(${P(f.open, t)}+${P(f.draw, t)}/2)/(1-(1-${excl})*${rate(f)}/2),${P(f.open, t)})`));
       // Capitalised in full: the whole construction charge is drawn as debt.
       put(f.idc, (t) => (f.isEx ? '0' : `IF(${running(t)},${P(f.charge, t)},0)`));
     }

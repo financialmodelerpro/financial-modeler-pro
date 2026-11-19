@@ -3501,6 +3501,31 @@ copy of the other.
 up and the line total equals the plot total for a reason. **Proof:** both totals in real Excel, every area column
 (BUA 105,940, land 37,000, NSA 68,093.28), and five land edits agreeing with the re-run engine.
 
+### 7.71 A check that looks for a tab by name passes when the tab is renamed
+
+**Symptom (2026-11-19):** after Inputs split into Project Inputs and Operating Inputs (2026-11-18), the strict
+"every typed input drives the model" check (`inputsUnreadProblems`) kept passing on the finished workbook.
+
+**Mechanism:** it read `wb.getWorksheet('Inputs')` and returned no problems when there was no such tab, so on the
+split workbook it checked nothing. The build was fine (it audits before the split); the proof was empty.
+
+**Fix:** the audit reads every input tab (`INPUT_SHEETS`), and a number in a table head is a column label, not a
+typed value. **Proof:** re-run, it found the grid year numbers (fixed by the head rule) and nothing else.
+
+### 7.72 A surface that re-derives a balance misses the rule added to the engine later
+
+**Symptom (2026-11-19):** the Schedules revenue feed (screen, PDF, workbook) and the phase cash flow kept an
+operating receivable in the exit year that the balance sheet had settled to zero since 2026-11-18; the phases no
+longer added to the project in that year.
+
+**Mechanism:** both rebuilt the receivable from revenue and days instead of reading the engine's, so the exit
+settlement (`settleAtExit`) never reached them (TRAPS 7.60's family). The live workbook did the same with the
+fee-free shadow facility, which a monthly model then did not reproduce.
+
+**Fix:** one exit index (`exitSettlementIndex`) applied by every re-derivation, and the engine publishes the shadow
+facility series the export prints. **Proof:** `verify-revenue-lines` S1, `verify-m4-reports`, `verify-working-
+capital-levers`, `verify-values-mode` V5 all pass.
+
 ### 7.70 A rename that reaches the list and not the copies renames half the model
 
 **Symptom (2026-11-19, v1.2 review):** the type read "Branded Apartments" on the type tables and "Branded Villas"

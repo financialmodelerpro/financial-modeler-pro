@@ -260,7 +260,9 @@ export const stage1LandArea: LiveLayer = {
     const carveOf = (h: Asset): string => {
       const e = (x: string): string => R(`entry:${h.id}:${x}`);
       const G = grossRef(h);
-      return `IF(${G}*${e('util')}*${e('far')}>0,MIN(${G},${G}*${e('cov')}*N(${e('retail')})/${e('far')}),0)`;
+      // The gross outside (2026-11-19): G x MIN(1, cov x retail / FAR) is MIN(G, G x cov x retail / FAR) for a land area
+      // that is never negative, with the land read once, so the formula stays under 200 characters.
+      return `${G}*IF(${e('util')}*${e('far')}>0,MIN(1,${e('cov')}*N(${e('retail')})/${e('far')}),0)`;
     };
     const pieceKeys = reg.keys().filter((k) => k.startsWith('piece:'));
     /** The hosts a carve-out row adds: the strip's hosts drawing from that plot. */

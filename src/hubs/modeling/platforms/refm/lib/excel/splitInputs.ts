@@ -64,6 +64,10 @@ interface OCell {
   style?: Style;
   /** A formula written by this file, already in the new tab's addresses: never rewritten. */
   final?: boolean;
+  /** A technical setting: grey, black text, never styled as an input. */
+  tech?: boolean;
+  /** "n/a" over a cell beyond its line's years. */
+  na?: boolean;
 }
 type RowKind = 'data' | 'head' | 'unit' | 'note' | 'blank' | 'sub' | 'bar';
 class ORow {
@@ -81,6 +85,11 @@ const S_NOTE: Style = { font: font({ italic: true, color: { argb: NOTE } }) };
 const S_HEAD = (left: boolean): Style => ({ font: font({ bold: true, color: { argb: 'FFFFFFFF' } }), fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: BAR } } as ExcelJS.Fill, alignment: { horizontal: left ? 'left' : 'center', vertical: 'middle', wrapText: true } });
 const S_UNITROW: Style = { font: font({ italic: true, color: { argb: NOTE } }), alignment: { horizontal: 'center' } };
 const S_FORMULA: Style = { font: font(), alignment: { horizontal: 'center' } };
+// The house palette's light grey (verify-export-house-style B1).
+const TECH_FILL = 'FFF1F3F7';
+/** A grid cell beyond its line's or phase's years: not an input and not blank. */
+const S_NA: Style = { font: font({ italic: true, color: { argb: NOTE } }), alignment: { horizontal: 'center' } };
+const S_TECH: Style = { font: font(), fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: TECH_FILL } } as ExcelJS.Fill, alignment: { horizontal: 'right' } };
 
 /** A label and the unit it carried in brackets or a suffix, apart. */
 function splitUnit(raw: string): { label: string; unit?: string; note?: string } {
@@ -167,7 +176,16 @@ function readBlocks(ws: ExcelJS.Worksheet): { titleRows: number[]; blocks: Block
   return { titleRows, blocks, endRow };
 }
 
-export function splitInputs(wb: ExcelJS.Workbook): SplitResult | null {
+/**
+ * WHAT A SPLIT READ (2026-11-19): every split records which Inputs cells the workbook's formulas read, because that
+ * decides where a cell goes (a read cell is never dropped). A hardcoded twin of the live file (the verifier's platform
+ * copy) has no formulas, so it splits with the LIVE file's read cells and lands every figure at the live address.
+ */
+const READ_OF = new WeakMap<object, { read: Set<string>; present: Set<string>; ranges: Array<{ r1: number; c1: number; r2: number; c2: number; where: string; formula: string }> }>();
+const MOVE_OF = new WeakMap<object, SplitResult['move']>();
+/** Where the split put a cell of the one Inputs tab, for a check that names a cell by its place before the split. */
+export function inputsMoveOf(wb: object): SplitResult['move'] | undefined { return MOVE_OF.get(wb); }
+export function splitInputs(wb: ExcelJS.Workbook, opts: { readFrom?: ExcelJS.Workbook } = {}): SplitResult | null {
   const src = wb.getWorksheet(SRC);
   if (!src) return null;
   let zakat = false;
@@ -211,6 +229,15 @@ export function splitInputs(wb: ExcelJS.Workbook): SplitResult | null {
   };
   for (const ws of wb.worksheets) ws.eachRow((row) => row.eachCell((c) => { const v = c.value as { formula?: string } | null; if (v && typeof v === 'object' && typeof v.formula === 'string') scan(v.formula, ws.name, `${ws.name}!${c.address}`); }));
   for (const n of (wb.definedNames as unknown as { model: Array<{ ranges: string[] }> }).model) for (const rg of n.ranges) scan(rg, '', 'a defined name');
+  const borrowed = opts.readFrom ? READ_OF.get(opts.readFrom) : undefined;
+  if (borrowed) {
+    for (const k of borrowed.read) read.add(k);
+    // A value the live file removed (an input it proved unread) is not on the twin's tabs either.
+    for (const k of [...snap.keys()]) { const s = snap.get(k)!; const has = (s.value !== null && s.value !== undefined && s.value !== '') || fillOf(s.style) === INPUT_FILL; if (has && !borrowed.present.has(k)) snap.set(k, { value: null, style: {} }); }
+  }
+  const present = new Set<string>();
+  for (const [k, s] of snap) if ((s.value !== null && s.value !== undefined && s.value !== '') || fillOf(s.style) === INPUT_FILL) present.add(k);
+  READ_OF.set(wb, { read: new Set(read), present, ranges: [...ranges] });
   const isRead = (r: number, c: number): boolean => read.has(K(r, c));
 
   let ccy = 'SAR';
@@ -267,7 +294,7 @@ export function splitInputs(wb: ExcelJS.Workbook): SplitResult | null {
     [/^Tax Rate$/, 'Tax rate', '%'],
   ];
   /** The generic layout of a run of rows: tables keep their columns (units on a row under the head), the rest are scalar rows. */
-  const generic = (rows: number[], opts: { headRename?: Record<string, string>; skipCols?: number[]; cellText?: (head: string, text: string) => string; headUnit?: Record<string, string> } = {}): ORow[] => {
+  const generic = (rows: number[], opts: { headRename?: Record<string, string>; skipCols?: number[]; cellText?: (head: string, text: string) => string; headUnit?: Record<string, string>; dropBlankColumns?: boolean; dropCell?: (r: number, head: string) => boolean; zeroBlankInputs?: boolean } = {}): ORow[] => {
     let heads0 = new Map<number, string>();
     const out: ORow[] = [];
     let table: Map<number, number> | null = null;
@@ -284,7 +311,7 @@ export function splitInputs(wb: ExcelJS.Workbook): SplitResult | null {
         for (let j = i + 1; j < rows.length && !emptyRow(rows[j]) && !isHeadRow(rows[j]); j++) tableRows.push(rows[j]);
         const heads = rowCells(r).filter((c) => c >= 3 && !(opts.skipCols ?? []).includes(c));
         // A column no data row fills (or types, or a formula reads) goes.
-        const kept = heads.filter((c) => c === 3 || tableRows.some((tr) => free(tr, c) && (hasVal(tr, c) || isInput(tr, c) || isRead(tr, c))));
+        const kept = heads.filter((c) => c === 3 || tableRows.some((tr) => free(tr, c) && (hasVal(tr, c) || (!opts.dropBlankColumns && isInput(tr, c)) || isRead(tr, c))));
         table = new Map(); let to = 3;
         for (const c of kept) { table.set(c, c === 3 ? 3 : ++to); }
         const head = new ORow('head'); const units = new ORow('unit'); let anyUnit = false;
@@ -307,10 +334,13 @@ export function splitInputs(wb: ExcelJS.Workbook): SplitResult | null {
           if (!free(r, c)) continue;
           const to = table.get(c);
           const t = opts.cellText && typeof val(r, c) === 'string' && !isRead(r, c) && !isInput(r, c) ? opts.cellText(heads0.get(c) ?? '', str(r, c)) : undefined;
+          if (to !== undefined && opts.dropCell?.(r, heads0.get(c) ?? '') && !isRead(r, c)) { claim(r, c); continue; }
           if (to !== undefined) row.set(to, t !== undefined ? { ...mv(r, c), value: t } : mv(r, c));
-          else if (isRead(r, c) || isInput(r, c)) hide(row, r, c);
+          else if (isRead(r, c) || (isInput(r, c) && !opts.dropBlankColumns)) hide(row, r, c);
           else claim(r, c);
         }
+        // A table whose columns are typed shares shows a 0 where a party has none (the fee shares).
+        if (opts.zeroBlankInputs) for (const [c, to] of table) { if (c === 3 || row.cells.has(to)) continue; const typed = tableRows.some((tr) => isInput(tr, c)); if (typed) row.set(to, lit(0, { font: font({ color: { argb: 'FF0000FF' } }), fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: INPUT_FILL } } as ExcelJS.Fill, numFmt: '0.0%' })); }
         if (row.cells.size) out.push(row);
         continue;
       }
@@ -368,6 +398,22 @@ export function splitInputs(wb: ExcelJS.Workbook): SplitResult | null {
     return g;
   };
 
+  // THE "NOT USED IN THIS PROJECT" LIST (2026-11-19): one column of words beside section 1, which on a long list runs
+  // past the project rows into the phases table's rows; it moves as one list, so no item is dropped with a table column.
+  const notUsed: Array<{ r: number; c: number }> = [];
+  {
+    let at: [number, number] | undefined;
+    for (const [k, s] of snap) { if (textOf(s.value) === 'Not used in this project') { const [r, c] = k.split(':').map(Number); at = [r, c]; break; } }
+    if (at) {
+      for (let r = at[0]; r < at[0] + 40; r++) {
+        const t = str(r, at[1]); if (!t) break;
+        if (isRead(r, at[1])) break;
+        notUsed.push({ r, c: at[1] }); claim(r, at[1]);
+        if (/^Turn on/i.test(t)) break;
+      }
+    }
+  }
+
   // ════ OPERATING INPUTS (built first: it claims cells that sit on Project Inputs today) ════
   const sellBlocks = blocks.filter((b) => /^revenue/i.test(b.section) && b.rows.some((r) => /^Pre-Sales velocity/i.test(str(r, 3))));
   const operateBlocks = blocks.filter((b) => /^revenue/i.test(b.section) && /\(Operate\)\s*$/i.test(b.sub ?? ''));
@@ -384,6 +430,22 @@ export function splitInputs(wb: ExcelJS.Workbook): SplitResult | null {
   const arCells: Array<{ title: string; r: number; c: number }> = [];
   const commissionSentenceAt = { sub: '' };
   const SETTING = /^(Price Indexation|Revenue Recognition|Recognition year|Sale cohort|Downpayment|Max instalment|Instalments)/i;
+
+  /** Columns beyond a line's (or phase's) own years read "n/a": the cell keeps its address, a formula reading it is guarded. */
+  const naBeyond = (row: ORow, own: number, shared: number): void => {
+    for (let k = own + 1; k <= shared; k++) {
+      const col = 5 + k; const ex = row.cells.get(col);
+      row.set(col, ex?.from ? { from: ex.from, value: 'n/a', style: S_NA, na: true } : lit('n/a', S_NA));
+    }
+  };
+  /** Each phase's construction years, off the phases table. */
+  const phaseYears = new Map<string, number>();
+  for (const b of blocks) {
+    const h = b.rows.find((r) => isHeadRow(r) && /^Phase Name$/i.test(str(r, 3)));
+    if (h === undefined) continue;
+    const cc = rowCells(h).find((c) => /^Construction/i.test(str(h, c)));
+    if (cc) for (const r of b.rows) { const m = /^Phase (\d+)$/.exec(str(r, 3)); if (r > h && m && numOf(r, cc) !== undefined) phaseYears.set(m[1], numOf(r, cc)!); }
+  }
 
   // ── A. Residential ──
   if (sellBlocks.length) {
@@ -422,10 +484,10 @@ export function splitInputs(wb: ExcelJS.Workbook): SplitResult | null {
       terms.push(row);
     };
     const mkRow = softBlock ? findRow(softBlock.rows, /^Marketing$/i) : undefined;
-    oneRate('Marketing (expensed as sold)', '% of sale value', mkRow, 5);
+    oneRate('Marketing (expensed as incurred, as units are sold)', '% of sale value', mkRow, 5);
     if (mkRow !== undefined) { claim(mkRow, 3); claim(mkRow, 4); }
     const commRow = capexLinesBlock ? findRow(capexLinesBlock.rows, /^Sales commission$/i) : undefined;
-    oneRate('Sales commission (expensed as sold)', '% of sale value', commRow, 5);
+    oneRate('Sales commission (capitalised; expensed at handover)', '% of sale value', commRow, 5);
     const commTerm = (l: typeof lines[number], col: number): OCell | undefined => {
       if (!commissionBlock) return undefined;
       const r = commissionBlock.rows.find((x) => normTitle(str(x, 3)) === normTitle(l.title));
@@ -457,11 +519,11 @@ export function splitInputs(wb: ExcelJS.Workbook): SplitResult | null {
       return out;
     };
     const yearsIn = (l: typeof lines[number], headRe: RegExp): number => { const h = findRow(l.b.rows, headRe); if (h === undefined) return 0; return rowCells(h).filter((c) => c >= 4 && /\d+$/.test(str(h, c))).length; };
-    const valueRow = (label: string, unit: string, r: number, check?: (row: ORow) => void): ORow => {
+    const valueRow = (label: string, unit: string, r: number, own?: number, shared?: number): ORow => {
       const row = new ORow('data').set(3, lit(label)).set(4, lit(unit, S_UNIT));
       claim(r, 3);
       for (let c = 4; c <= srcLastCol; c++) { if (!free(r, c)) continue; if (hasVal(r, c) || isInput(r, c)) row.set(c + 2, mv(r, c)); else if (isRead(r, c)) row.set(c + 2, ghost(r, c)); }
-      check?.(row);
+      if (own !== undefined && shared !== undefined) naBeyond(row, own, shared);
       return row;
     };
     const yearHead = (label: string, third: string, nYears: number): ORow => {
@@ -474,11 +536,11 @@ export function splitInputs(wb: ExcelJS.Workbook): SplitResult | null {
     const suffix = (l: typeof lines[number], rs: number[], r: number): string => (rs.length > 1 ? `${l.short}, ${str(r, 3)}` : l.short);
     grid.push(yearHead('Construction year (residential pre-sales)', '', nCon));
     const preRowsOf = new Map<string, ORow[]>();
-    for (const l of lines) { const rs = gridRows(l, /^Pre-Sales velocity/i); const made = rs.map((r) => valueRow(`Pre-sales: ${suffix(l, rs, r)}`, '% of NSA', r)); preRowsOf.set(l.title, made); grid.push(...made); }
+    for (const l of lines) { const rs = gridRows(l, /^Pre-Sales velocity/i); const made = rs.map((r) => valueRow(`Pre-sales: ${suffix(l, rs, r)}`, '% of NSA', r, yearsIn(l, /^Pre-Sales velocity/i), nCon)); preRowsOf.set(l.title, made); grid.push(...made); }
     for (const l of lines) {
       const h = findRow(l.b.rows, /^Sale cohort terms/i); if (h !== undefined) for (const c of rowCells(h)) claim(h, c);
       const r = findRow(l.b.rows, /^Downpayment/i);
-      if (r !== undefined) grid.push(valueRow(`Downpayment on pre-sales: ${l.short}`, '% of price', r));
+      if (r !== undefined) grid.push(valueRow(`Downpayment on pre-sales: ${l.short}`, '% of price', r, yearsIn(l, /^Sale cohort terms/i), nCon));
     }
     grid.push(noteRow("Columns are construction years of each residential line's phase."));
     grid.push(blank());
@@ -487,7 +549,7 @@ export function splitInputs(wb: ExcelJS.Workbook): SplitResult | null {
     for (const l of lines) {
       const rs = gridRows(l, /^Sales During Operation/i);
       const pres = preRowsOf.get(l.title) ?? [];
-      rs.forEach((r, k) => { const row = valueRow(`Sales after handover: ${suffix(l, rs, r)}`, '% of NSA', r); checks.push({ row, pre: rs.length === pres.length ? pres[k] : undefined }); grid.push(row); });
+      rs.forEach((r, k) => { const row = valueRow(`Sales after handover: ${suffix(l, rs, r)}`, '% of NSA', r, yearsIn(l, /^Sales During Operation/i), nOps); checks.push({ row, pre: rs.length === pres.length ? pres[k] : undefined }); grid.push(row); });
     }
     for (const ch of checks) if (ch.pre) ch.row.set(5, { value: { formula: `@CHECK@` } as unknown as ExcelJS.CellValue, style: S_FORMULA, final: true });
     grid.push(noteRow('Check: pre-sales plus sales after handover add to 100% of each line.'));
@@ -530,7 +592,9 @@ export function splitInputs(wb: ExcelJS.Workbook): SplitResult | null {
     const out: ORow[] = [];
     for (const r of b.rows) {
       if (r <= head || emptyRow(r) || isHeadRow(r)) continue;
-      const row = new ORow('data').set(3, mv(r, 3));
+      // The hotel's per-key fixed line is its insurance (2026-11-19, founder); a lease line's own names stand.
+      const named = /^Rent & insurance$/i.test(str(r, 3)) && /per key/i.test(modeCol ? str(r, modeCol) : '') ? { ...mv(r, 3), value: 'Insurance' } : mv(r, 3);
+      const row = new ORow('data').set(3, named);
       const mode = modeCol ? str(r, modeCol) : '';
       if (modeCol) { claim(r, modeCol); row.set(4, lit(mode.replace(/^Per (Key|SQM|Unit) per Year$/i, (_a, w: string) => `${ccy} / ${w.toLowerCase() === 'sqm' ? 'sqm' : w.toLowerCase()} / yr`).replace(/ Revenue$/, ' revenue'), S_UNIT)); }
       let next = 5;
@@ -779,6 +843,7 @@ export function splitInputs(wb: ExcelJS.Workbook): SplitResult | null {
             else if (isRead(r, c)) row.set(c - first + 6, ghost(r, c));
             else claim(r, c);
           }
+          if (phases.length === 1 && phaseYears.has(phases[0])) naBeyond(row, phaseYears.get(phases[0])!, nY);
           row.set(5, { value: { formula: `@SUMCHECK:${nY}@` } as unknown as ExcelJS.CellValue, style: S_FORMULA, final: true });
           rows.push(row);
         }
@@ -912,11 +977,61 @@ export function splitInputs(wb: ExcelJS.Workbook): SplitResult | null {
       }
     }
     // Receivable days left on the P&L inputs only when working capital did not take it.
+    // Returns: the partners' equity table is a sub-section of its own.
+    if (/^returns assumptions/.test(u)) {
+      const ph = b.rows.find((r) => isHeadRow(r) && /^Partner$/i.test(str(r, 3)));
+      if (ph !== undefined) {
+        g.subs.push({ title: sub, rows: generic(b.rows.filter((r) => r < ph)) });
+        g.subs.push({ title: "Partners' equity", rows: generic(b.rows.filter((r) => r >= ph)) });
+        continue;
+      }
+    }
     const costTable = /construction cost/.test(u);
+    const ratioCol = (() => { const h = b.rows.find(isHeadRow); return h !== undefined ? rowCells(h).find((c) => /^Parking ratio$/i.test(str(h, c))) : undefined; })();
     g.subs.push({ title: sub, rows: generic(b.rows, {
+      ...(/^parties$/i.test(b.section) ? { dropBlankColumns: true } : {}),
+      ...(/^fee shares/.test(u) ? { zeroBlankInputs: true } : {}),
+      ...(ratioCol ? { dropCell: (r: number, head: string) => head === 'Ratio basis' && !hasVal(r, ratioCol) } : {}),
       ...(costTable ? { cellText: (head: string, t: string) => (head === 'Basis' ? t.replace(/^[A-Z]{3} per sqm of /, '').replace(/^./, (x) => x.toUpperCase()) : t), headUnit: { Rate: `${ccy} / sqm` } } : {}),
       headRename: { 'Phase Name': 'Phase', 'Phase Start Date': 'Start (date)', 'Avg unit size (sqm)': 'Unit size (sqm)', 'Strategy for new assets': 'Strategy', 'Rate (first model year money)': 'Rate', 'Average Unit Size (sqm)': 'Unit size (sqm)', 'Retail % (ground floor)': 'Retail (ground floor) %' },
     }) });
+  }
+
+  // ── NO HIDDEN INPUTS (2026-11-19, founder): every value a formula reads that nobody types here (a land payment
+  // window, an opex line's on/off, a strip ratio with no strip) is a labelled row of its own in a visible block at the
+  // end of Project Inputs, grey with black text, set on the platform. ──
+  const techCells: Array<[number, number]> = [];
+  for (const g of groups) for (const s of g.subs) for (const row of s.rows) for (const [c, cell] of [...row.cells]) {
+    if (c < HID || !cell.from || cell.ghost) continue;
+    techCells.push(cell.from); row.cells.delete(c);
+  }
+  if (techCells.length) {
+    const blockOf = (r: number): Block | undefined => blocks.find((b) => b.rows.includes(r));
+    const headOf = (r: number): number | undefined => { const b = blockOf(r); return b?.rows.filter((x) => x < r && isHeadRow(x)).pop(); };
+    const phasesIn = (text: string): string => { const ps = [...new Set([...text.matchAll(/\bP(\d+)\b/g)].map((m) => m[1]))].sort(); return ps.length === 1 ? `Phase ${ps[0]}` : ps.length ? `Phases ${ps.join(' and ')}` : ''; };
+    const rows: ORow[] = [noteRow('Read by the model and set on the platform: change these on the platform and export again.')];
+    const seen = new Set<string>();
+    for (const [r, c] of techCells) {
+      if (seen.has(K(r, c))) continue; seen.add(K(r, c));
+      const b = blockOf(r); const h = headOf(r);
+      // A value beside its own words on a scalar row (the strip's parking ratio) is named by them.
+      const nameRaw = h === undefined && c > 5 && str(r, c - 1) ? str(r, c - 1) : str(r, 3) || (c > 3 ? str(r, c - 1) : '');
+      const name = nameRaw.replace(/\s*\((?!Land|In-Kind|Cash)[^)]*\)?\s*$/, '').replace(/^Rent & insurance$/, (x) => (b && /^opex/i.test(b.section) && !/lease lines/i.test(b.sub ?? '') ? 'Insurance' : x));
+      const col = h !== undefined ? str(h, c) : '';
+      let label = name;
+      if (b && /^capex/i.test(b.section) && h !== undefined) {
+        const ac = rowCells(h).find((x) => /^Applies to$/i.test(str(h, x)));
+        const ph = ac ? phasesIn(str(r, ac)) : '';
+        label = `${name}${ph ? `, ${ph}` : ''}: ${col.charAt(0).toLowerCase()}${col.slice(1)}`;
+      } else if (b && /^opex/i.test(b.section)) {
+        const who = (b.sub ?? '').replace(/^Opex lines,\s*/i, '');
+        label = `${name} (${who}): ${/^On$/i.test(col) ? 'line on' : col}`;
+      } else if (col) label = `${name}: ${col}`;
+      const fmt = numFmtOf(r, c);
+      const unit = /period/i.test(col) ? 'period' : fmt.includes('%') ? '%' : /\bsqm\b/i.test(label) ? 'sqm' : undefined;
+      rows.push(scalar(splitUnit(label).label, unit, { from: [r, c], style: unit === 'period' ? { ...S_TECH, numFmt: '0' } : S_TECH, tech: true }));
+    }
+    group(PROJECT_INPUTS, '99', 'Technical settings (set on the platform)').subs.push({ rows });
   }
 
   // ── Order: groups by tab and key; the sentences after the grid in section 5 ──
@@ -959,10 +1074,19 @@ export function splitInputs(wb: ExcelJS.Workbook): SplitResult | null {
   // The address of every source cell.
   const addr = new Map<string, SplitMove>();
   for (const p of placed) for (const [c, cell] of p.row.cells) if (cell.from) addr.set(K(cell.from[0], cell.from[1]), { sheet: p.sheet, r: p.r, c });
+  // A row label this file rewrote ("Spend phasing: Phase 1" for "Curve 1") keeps its address on the row its figures went
+  // to, so a key registered on the label (a grid's curve) still finds its row.
+  for (const p of placed) {
+    const srcRows = new Set<number>(); for (const [, cell] of p.row.cells) if (cell.from && !cell.ghost) srcRows.add(cell.from[0]);
+    if (srcRows.size !== 1) continue;
+    const sr = [...srcRows][0];
+    if (!addr.has(K(sr, 3)) && p.row.cells.has(3)) addr.set(K(sr, 3), { sheet: p.sheet, r: p.r, c: 3 });
+  }
   // The old bars, the title rows and End of sheet (no formula reads them, but a link may).
   for (const r of titleRows) for (let c = 1; c <= srcLastCol; c++) if (!addr.has(K(r, c))) addr.set(K(r, c), { sheet: PROJECT_INPUTS, r, c });
   const move = (r: number, c: number): SplitMove | null => addr.get(K(r, c)) ?? null;
-  for (const k of read) if (!addr.has(k)) { const [r, c] = k.split(':').map(Number); const bl = blocks.find((x) => x.rows.includes(r)); const head = bl?.rows.filter((x) => x < r && isHeadRow(x)).pop(); throw new Error(`splitInputs: a formula reads Inputs!${colName(c)}${r} (row "${str(r, 3)}", column "${head ? str(head, c) : ''}", in ${bl ? `${bl.section} / ${bl.sub ?? ''}` : 'no block'}; claimed ${claimed.has(k)}), which the new layout does not place`); }
+  // A twin (borrowed read cells, no formulas of its own) may lack a row the live file had: nothing reads it there.
+  for (const k of read) if (!addr.has(k) && !borrowed) { const [r, c] = k.split(':').map(Number); const bl = blocks.find((x) => x.rows.includes(r)); const head = bl?.rows.filter((x) => x < r && isHeadRow(x)).pop(); throw new Error(`splitInputs: a formula reads Inputs!${colName(c)}${r} (row "${str(r, 3)}", column "${head ? str(head, c) : ''}", in ${bl ? `${bl.section} / ${bl.sub ?? ''}` : 'no block'}; claimed ${claimed.has(k)}), which the new layout does not place`); }
   // A range must land as a translated rectangle, or a one-dimensional line in order.
   for (const g of ranges) {
     const r1 = Math.min(g.r1, g.r2), r2 = Math.max(g.r1, g.r2), c1 = Math.min(g.c1, g.c2), c2 = Math.max(g.c1, g.c2);
@@ -1059,7 +1183,9 @@ export function splitInputs(wb: ExcelJS.Workbook): SplitResult | null {
     const v = c.value as unknown as { formula?: string } | null;
     if (v && typeof v === 'object' && typeof v.formula === 'string') c.value = { ...(v as object), formula: v.formula.replace(new RegExp(`${quote(own).replace(/[.*+?^${}()|[\]\\']/g, '\\$&')}!`, 'g'), '') } as never;
     c.style = (override?.style ?? s.style) as ExcelJS.Style;
-    if (override?.style && fillOf(s.style) === INPUT_FILL) c.style = { ...s.style, ...override.style, fill: s.style.fill, numFmt: s.style.numFmt } as ExcelJS.Style;
+    if (override?.style && fillOf(s.style) === INPUT_FILL && !override.tech) c.style = { ...s.style, ...override.style, fill: s.style.fill, numFmt: s.style.numFmt } as ExcelJS.Style;
+    if (override?.tech) c.style = { ...JSON.parse(JSON.stringify(override.style ?? {})), numFmt: override.style?.numFmt ?? s.style.numFmt, border: {} } as ExcelJS.Style;
+    if (override?.na) { c.style = JSON.parse(JSON.stringify(S_NA)); c.dataValidation = undefined as never; return; }
     if (s.dv) c.dataValidation = { ...s.dv, formulae: (s.dv.formulae ?? []).map((f) => (typeof f === 'string' ? rewrite(f, SRC, 'Inputs validation') : f)) } as ExcelJS.DataValidation;
   };
   // Title block on both tabs; the tab name in its second row.
@@ -1080,7 +1206,7 @@ export function splitInputs(wb: ExcelJS.Workbook): SplitResult | null {
   for (const p of placed) {
     const ws = out.get(p.sheet)!;
     for (const [c, cell] of p.row.cells) {
-      if (cell.from && !cell.ghost) putSrc(ws, cell.from, { r: p.r, c }, p.sheet, true, cell.value !== undefined || cell.style ? { value: cell.value, style: cell.style } : undefined);
+      if (cell.from && !cell.ghost) putSrc(ws, cell.from, { r: p.r, c }, p.sheet, true, cell.value !== undefined || cell.style ? { value: cell.value, style: cell.style, tech: cell.tech, na: cell.na } : undefined);
       else if (!cell.from) {
         const x = ws.getCell(p.r, c);
         x.value = cell.value ?? null;
@@ -1098,7 +1224,7 @@ export function splitInputs(wb: ExcelJS.Workbook): SplitResult | null {
     const x = at(p.sheet, p.r, c);
     const f = (x.value as { formula?: string } | null)?.formula ?? '';
     const lastYear = (): number => { let m = 5; for (const [cc, oc] of p.row.cells) if (cc > m && cc < HID && oc.from) m = cc; return m; };
-    if (f === '$E$@ROW@') { x.value = { formula: `$E${p.r}`, result: numAt(p.sheet, p.r, 5) } as ExcelJS.CellValue; x.numFmt = at(p.sheet, p.r, 5).numFmt; }
+    if (f === '$E$@ROW@') { x.value = { formula: `$E${p.r}`, result: numAt(p.sheet, p.r, 5) } as ExcelJS.CellValue; x.numFmt = /%/.test(String(at(p.sheet, p.r, 5).numFmt ?? '')) ? '0.0%;(0.0%);"-"' : at(p.sheet, p.r, 5).numFmt; }
     else if (/^@SUMCHECK:(\d+)@$/.test(f)) { const nY = Number(/(\d+)/.exec(f)![1]); x.value = { formula: `IF(ROUND(SUM(F${p.r}:${colName(5 + Math.max(1, nY))}${p.r}),6)=1,"OK","CHECK")`, result: ok(sumRow(p.sheet, p.r, 6, 5 + Math.max(1, nY))) } as ExcelJS.CellValue; }
     else if (f === '@CHECK@') {
       const grp = ordered.find((g) => g.key === 'A' && g.sheet === OPERATING_INPUTS) as (OGroup & { checks?: Array<{ row: ORow; pre: ORow | undefined }> }) | undefined;
@@ -1114,6 +1240,13 @@ export function splitInputs(wb: ExcelJS.Workbook): SplitResult | null {
         x.value = { formula: `"Inflated at "&TEXT(${ref(rr)},"0.0%")&" p.a."${fr ? `&" from "&${ref(fr)}` : ''}`, result: `Inflated at ${(numAt(rr.sheet, rr.r, 5) * 100).toFixed(1)}% p.a.${fr ? ` from ${numAt(fr.sheet, fr.r, 5)}` : ''}` } as ExcelJS.CellValue;
       } else x.value = null;
     }
+  }
+  if (notUsed.length) {
+    // Beside section 1, from the row the list started on, in the column the scalar rows' notes moved to.
+    const first = placed.find((p) => p.sheet === PROJECT_INPUTS && [...p.row.cells.values()].some((x) => x.from?.[0] === notUsed[0].r));
+    const ws = out.get(PROJECT_INPUTS)!;
+    const r0 = first?.r ?? firstBar + 2; const col = notUsed[0].c + 1;
+    notUsed.forEach((n, k) => { const c = ws.getCell(r0 + k, col); const s = snap.get(K(n.r, n.c))!; c.value = s.value; c.style = JSON.parse(JSON.stringify(s.style)); });
   }
   for (const b of barRows) { const c = out.get(b.sheet)!.getCell(b.r, 2); c.value = b.text; c.style = JSON.parse(JSON.stringify(barStyle)); out.get(b.sheet)!.getRow(b.r).height = 15; }
   for (const s of subRows) { const c = out.get(s.sheet)!.getCell(s.r, 3); c.value = s.text; c.style = JSON.parse(JSON.stringify(subStyle)); }
@@ -1143,14 +1276,16 @@ export function splitInputs(wb: ExcelJS.Workbook): SplitResult | null {
   for (const b of barRows) kinds.get(b.sheet)?.set(b.r, 'bar');
   for (const s of subRows) kinds.get(s.sheet)?.set(s.r, 'sub');
   for (const ws of out.values()) formatInputTab(ws, kinds.get(ws.name) ?? new Map());
-  return { move: (sheet, r, c) => (sheet === SRC ? move(r, c) : null) };
+  const result: SplitResult = { move: (sheet, r, c) => (sheet === SRC ? move(r, c) : null) };
+  MOVE_OF.set(wb, result.move);
+  return result;
 }
 
 // ── THE TRAINING LOOK ON BOTH INPUT TABS (2026-11-18; the step 3 review 2026-11-19) ───────────────────────
 const WIDTHS: Record<string, number[]> = {
   // A, B, C (label), D (unit), E (input), then every later column.
   [PROJECT_INPUTS]: [1.5, 1.5, 46, 18, 22, 12],
-  [OPERATING_INPUTS]: [1.5, 1.5, 46, 18, 18, 18, 12],
+  [OPERATING_INPUTS]: [1.5, 1.5, 46, 18, 22, 22, 12],
 };
 const BANDS = new Set([BAR, END_FILL]);
 const dotted = { style: 'dotted' as const };
@@ -1222,7 +1357,9 @@ export function formatInputTab(ws: ExcelJS.Worksheet, kinds: Map<number, RowKind
         return;
       }
       // A table's text lines up left, its numbers right.
-      if (kind === 'data' && typeof val === 'string' && col > 3 && !c.font?.italic) c.alignment = { ...(c.alignment ?? {}), horizontal: 'left' };
+      // Text beside an input box stands off its border (the ratio basis).
+      if (kind === 'data' && typeof val === 'string' && col > 3 && !c.font?.italic) c.alignment = { ...(c.alignment ?? {}), horizontal: 'left', ...(fillOf(ws.getCell(r, col - 1)) === INPUT_FILL ? { indent: 1 } : {}) };
+      if (typeof val === 'string' && col > 3 && c.font?.italic && fillOf(ws.getCell(r, col - 1)) === INPUT_FILL && !fillOf(c)) c.alignment = { ...(c.alignment ?? {}), indent: 1 };
       const fc = c.font?.color?.argb;
       if (typeof val === 'string' && (fc === NOTE || fc === 'FF6B7785' || fc === END_FILL) && c.font?.italic && !fillOf(c)) c.font = { name: 'Calibri', size: 9, italic: true, color: { argb: NOTE } };
     });

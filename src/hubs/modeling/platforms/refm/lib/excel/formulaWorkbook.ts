@@ -58,6 +58,7 @@ import { simplifyWorkbook, dropNumberWrappers } from './liveLayers/simplify';
 import { storeComputedValues } from './liveLayers/evaluate';
 import { computedCells } from './liveLayers/writer';
 import { collapseSpaces } from './liveFrontMatter';
+import { storeZeroResults } from './formulaEval';
 import { linkPeriodHeaders } from './liveLayers/foundations';
 import { inputsUnreadProblems, receivableDaysProblems, cellId, typedInputsCells } from './liveLayers/inputAudit';
 import { ARGB as INPUT_ARGB } from './styles';
@@ -247,6 +248,8 @@ export function buildFormulaWorkbook(opts: BuildModelOptions): FormulaWorkbookRe
     // The Inputs split moves cells between tabs; the registry follows.
     if (front.split) registry.relocate(front.split.move);
   }
+  // The last step: every formula stores its zero (a "" formula stays empty), 2026-11-19.
+  storeZeroResults(wb as never);
   return { wb, registry, status, pending, frame, charts };
 }
 

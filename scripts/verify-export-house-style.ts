@@ -68,7 +68,9 @@ function workbookRules(label: string, wb: ExcelJS.Workbook, scale: DisplayScale,
   for (const ws of wb.worksheets) {
     // THE DASHBOARD PRINTS AT A FIXED SCALE (2026-11-17, founder, e9559d3a): fit-to-width pushed its sections onto a
     // fourth page in real Excel, so it carries a whole-percent scale with fit off; every other tab fits to width.
-    const fits = ws.name === 'Dashboard'
+    // The two input tabs too (2026-11-19, the step 3 review): their page breaks fall before a section, which a fit-to-width
+    // setting would move, so they carry a whole-percent scale that fits the width.
+    const fits = ws.name === 'Dashboard' || ws.name === 'Project Inputs' || ws.name === 'Operating Inputs'
       ? ws.pageSetup.fitToPage === false && typeof ws.pageSetup.scale === 'number' && ws.pageSetup.scale >= 10 && ws.pageSetup.scale <= 100
       : ws.pageSetup.fitToWidth === 1;
     if (ws.pageSetup.orientation !== 'landscape' || !fits || ws.views?.some((v) => v.showGridLines !== false)) badPage.push(ws.name);
@@ -192,7 +194,8 @@ async function main(): Promise<void> {
       const shown = (c: Cell): number => { const v2 = c.value as unknown; const n = isFormula(v2) ? v2.result : v2; if (typeof n !== 'number') return 9; const nf = String(c.numFmt ?? ''); if (/%/.test(nf)) return 6; const m = /0(?:.(0+))?(,*)(?:_|;|$)/.exec(nf.split(';')[0] ?? ''); return (Math.abs(n) / 1000 ** (m?.[2]?.length ?? 0)).toLocaleString('en-US', { minimumFractionDigits: m?.[1]?.length ?? 0, maximumFractionDigits: m?.[1]?.length ?? 0 }).length; };
       rev.eachRow((row) => { const c = row.getCell(3); if (typeof c.value === 'number' || isFormula(c.value)) widest = Math.max(widest, shown(c)); else if (typeof c.value === 'string' && row.getCell(4).value != null) widest = Math.max(widest, c.value.length); });
       check('D3 Revenue column C is wide enough for what it holds (was 2 wide, cutting "10.00% 3")', !widest || (rev.getColumn(3).width ?? 0) >= widest + 2, `width ${rev.getColumn(3).width}, content ${widest}`);
-      const inputs = l.getWorksheet('Inputs')!;
+      // The list sits on Project Inputs since the split (2026-11-18); one Inputs tab before it.
+      const inputs = (l.getWorksheet('Inputs') ?? l.getWorksheet('Project Inputs'))!;
       // ONE ITEM PER ROW (2026-11-17, founder; re-aimed from "the one line"): the heading, each item, then how to turn one on.
       let head = 0, col = 0;
       inputs.eachRow((row, r) => row.eachCell((c, cc) => { if (!head && c.value === 'Not used in this project') { head = r; col = cc; } }));

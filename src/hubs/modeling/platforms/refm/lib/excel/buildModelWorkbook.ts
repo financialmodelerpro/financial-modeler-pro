@@ -23,7 +23,7 @@ import { buildSaleCohortTermsBlock, saleCohortRuleText, buildSaleCohortGrid, sal
 import JSZip from 'jszip';
 import { registerCell, resetRegisteredRows } from './cellRegistry';
 import { DEAD_SWITCHES, deadSwitchKey, INERT_INPUTS, inertKey } from './liveLayers/inputAudit';
-import { computeFinancialsSnapshot, computeFundingGap, type FinancialsResolverState } from '../financials-resolvers';
+import { computeFinancialsSnapshot, computeFundingGap, exitSettlementIndex, type FinancialsResolverState } from '../financials-resolvers';
 import { buildCapexReport, type CapexReport } from '../reports/capexReports';
 import { poolMapByLine, poolCapexByLine, poolResults, lineHosts, fixHospitalityRates, fixLeaseRates, poolRevenueBasisByLine, poolSaleCohortByLine, planReportLines, lineTitle } from '../reports/lineRows';
 import { buildDisposalWorking } from '../reports/disposalReport';
@@ -2506,7 +2506,8 @@ function addCapex(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancial
       if (sp.kind === 'curve') {
         const dist = state.assets.find((x) => x.id === sp.assetId)?.capexPhasing?.distribution ?? [];
         let s = 0; for (let i = sp.start; i <= sp.end; i++) s += Math.max(0, dist[i] ?? 0);
-        put(r, C_OPEN, s, NUMFMT.rate);
+        // A share, as the curve on Inputs is one since 2026-11-18 (2026-11-19: the twin printed percent points, 100 for 1).
+        put(r, C_OPEN, s / 100, NUMFMT.pct2);
       }
       for (let t = 0; t < N; t++) put(r, cP(t), sp.shares[t] ?? 0, NUMFMT.pct2);
       put(r, C_TOT, sumN(sp.shares), NUMFMT.pct2);
@@ -4565,7 +4566,7 @@ function addRevenue(ctx: EmitCtx): { revLinks: RevLinks; cosLinks: CosLinks } {
   const emitFeeds = (em: ReturnType<typeof makeRevOpexEmitters>, ws: ExcelJS.Worksheet, title: boolean): void => {
   if (title) em.section('4. Schedules (income statement, balance sheet and cash flow feeds, per line)');
   em.setRegScope('sched');
-  for (const feed of buildRevenueScheduleFeeds(snap.revenue, lines, snap.byAssetCostOfSales, state.project.operatingAr, { allLines: isLiveLayout() })) {
+  for (const feed of buildRevenueScheduleFeeds(snap.revenue, lines, snap.byAssetCostOfSales, { ...state.project.operatingAr, settleFromIdx: exitSettlementIndex(state.project, snap.axisLength) }, { allLines: isLiveLayout() })) {
     em.setRegLine(feed.group);
     em.groupBand(feed.group);
     setBasis(ws.getCell(em.cursor() - 1, META_B), feed.meta);

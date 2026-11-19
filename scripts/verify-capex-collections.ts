@@ -204,7 +204,9 @@ check('A5 the financing path uses the AXIS offset, not a date-derived one',
     metric: 'units', metricValue: 10, unitArea: 100, unitPrice: 100_000,
   } as SubUnit];
   const lines = makeBlankCostLines('p1', 3)
-    .map((c) => (c.id.split('__')[0] === 'marketing' ? { ...c, value: 4 } as CostLine : c));
+    // Set to follow the collections (2026-11-19): marketing's default is the sales since cfaeeb00; this section
+    // proves the collections RULE on a line that states it.
+    .map((c) => (c.id.split('__')[0] === 'marketing' ? { ...c, value: 4, phasingSource: 'collections' } as CostLine : c));
   // RE-AIMED 2026-10-08 (founder decision 2): marketing is expensed as incurred, so its curve is read from the
   // breakdown's `expensed` part; it still follows collections, which is what this section proves.
   const mkId = lines.find((c) => c.id.startsWith('marketing'))!.id;

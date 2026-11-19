@@ -37,7 +37,7 @@ import {
 import { seedRevenueBlocks } from '../src/hubs/modeling/platforms/refm/lib/state/revenueSeeds';
 import { sumAssetCostOfSales, type AssetCostOfSales } from '../src/hubs/modeling/platforms/refm/lib/costOfSales';
 import { keysFromArea, isRevenueSubUnit, resolveSubUnitAdr } from '../src/core/calculations';
-import { computeFinancialsSnapshot } from '../src/hubs/modeling/platforms/refm/lib/financials-resolvers';
+import { computeFinancialsSnapshot, exitSettlementIndex } from '../src/hubs/modeling/platforms/refm/lib/financials-resolvers';
 import { buildRevenueLineFeeds } from '../src/hubs/modeling/platforms/refm/lib/reports/revenueOutputReports';
 import { buildExcelSampleState } from './excelSampleState';
 import { hydrationFromAnySnapshot } from '../src/hubs/modeling/platforms/refm/lib/state/module1-migrate';
@@ -592,7 +592,7 @@ live().then(() => {
     const st = { ...base, project: { ...base.project, operatingAr: { dsoDays: 45 } } };
     const fsn = computeFinancialsSnapshot(st as never);
     const N = fsn.axisLength;
-    const feeds = buildRevenueLineFeeds(fsn.revenue, planRevenueLines(st.assets, st.subUnits, st.phases, st.project), fsn.byAssetCostOfSales, st.project.operatingAr);
+    const feeds = buildRevenueLineFeeds(fsn.revenue, planRevenueLines(st.assets, st.subUnits, st.phases, st.project), fsn.byAssetCostOfSales, { ...st.project.operatingAr, settleFromIdx: exitSettlementIndex(st.project, fsn.axisLength) });
     const lineOf = new Map(planRevenueLines(st.assets, st.subUnits, st.phases, st.project).map((l) => [l.key, l]));
     const sumFeed = (form: string, k: 'ar' | 'ur'): number[] => Array.from({ length: N }, (_, t) => feeds.filter((f) => lineOf.get(f.lineKey)?.form === form || (form === 'op' && lineOf.get(f.lineKey)?.form !== 'sell')).reduce((x, f) => x + (f[k][t] ?? 0), 0));
     const opAr = sumFeed('op', 'ar');

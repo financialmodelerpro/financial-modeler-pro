@@ -46,6 +46,8 @@ const COVER_FIRST: ReadonlyArray<[string, string]> = [
 
 export interface FrontContext {
   valuesOutput: boolean;
+  /** A hardcoded twin of a live file splits Inputs as that file did (splitInputs `readFrom`). */
+  splitReadFrom?: ExcelJS.Workbook;
   scale: 'full' | 'thousands' | 'millions';
   /**
    * The values fallback only (a project the live workbook does not build for, such as one with no asset yet): a
@@ -98,7 +100,7 @@ export function buildFrontTabs(wb: ExcelJS.Workbook, ctx: FrontContext): { chart
   }
   // TWO INPUT TABS (2026-11-18, founder item 5): the Dashboard is built on Inputs and follows its cells; the Guide
   // and the Cover are built after, on the two tabs.
-  const split = splitInputs(wb);
+  const split = splitInputs(wb, { readFrom: ctx.splitReadFrom });
   buildGuide(freshSheet(wb, 'Guide'), wb, ctx, tax);
   if (split) renameInputsInProse(wb.getWorksheet('Guide'));
   restyleCover(wb, tax);

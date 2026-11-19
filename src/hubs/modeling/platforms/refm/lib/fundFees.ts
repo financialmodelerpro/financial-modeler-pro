@@ -67,6 +67,10 @@ export interface FundFeeLine {
 export interface FundFeeSchedule {
   /** True when the fund toggle is on. False means every array is zeros. */
   active: boolean;
+  /** THE SHADOW FACILITY, PUBLISHED (2026-11-19): the interest capitalised on the fee-free draws and the balance they
+   *  build, per period, as the engine sizes the total facility on them. Absent when no shadow is built. */
+  shadowIdcPerPeriod?: number[];
+  shadowDebtBalancePerPeriod?: number[];
   axisLength: number;
   /** Per-fee detail, in FUND_FEE_SPECS order. */
   lines: FundFeeLine[];

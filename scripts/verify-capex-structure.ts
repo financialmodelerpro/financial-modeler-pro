@@ -227,7 +227,9 @@ section('D. A followed source owns the window, and the engine reports it');
   const project: Project = { ...makeDefaultProject(), startDate: '2026-01-01' };
   const asset = mkAsset('a1', 'phase_1', { parcelId: 'parcel_1', sqm: 10000 });
   const lines = makeBlankCostLines('phase_1', 4).map((l) => (
-    base(l.id) === 'marketing' ? { ...l, value: 10 } : l));
+    // The line set to follow the collections (2026-11-19): marketing's own default is the sales since 2026-11-17
+    // (cfaeeb00); this section proves the RULE, that a followed source owns the window, on the source it states.
+    base(l.id) === 'marketing' ? { ...l, value: 10, phasingSource: 'collections' as const } : l));
   const subs: SubUnit[] = [{
     id: 's1', assetId: 'a1', name: 'Apts', category: 'Sellable', metric: 'units',
     metricValue: 10, unitArea: 100, unitPrice: 1_000_000,

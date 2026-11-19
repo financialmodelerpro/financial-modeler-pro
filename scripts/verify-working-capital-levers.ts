@@ -14,7 +14,7 @@
  * No em dashes in this file.
  */
 import { readFileSync } from 'fs';
-import { computeFinancialsSnapshot } from '../src/hubs/modeling/platforms/refm/lib/financials-resolvers';
+import { computeFinancialsSnapshot, exitSettlementIndex } from '../src/hubs/modeling/platforms/refm/lib/financials-resolvers';
 import { lineReceivableDays } from '../src/hubs/modeling/platforms/refm/lib/receivableDays';
 import { buildRevenueLineFeeds } from '../src/hubs/modeling/platforms/refm/lib/reports/revenueOutputReports';
 import { buildExcelSampleState } from './excelSampleState';
@@ -71,7 +71,7 @@ const statementsHold = (label: string, s: Snap): void => {
     const s: any = JSON.parse(JSON.stringify(base)); const a = s.assets.find((x: any) => x.id === lease.id); a.revenue.lease.arDays = 90;
     const snap = computeFinancialsSnapshot(s);
     const lines = planRevenueLines(s.assets.filter((x: any) => x.visible !== false), s.subUnits, s.phases, s.project);
-    const feeds = buildRevenueLineFeeds(snap.revenue, lines, snap.byAssetCostOfSales, s.project.operatingAr);
+    const feeds = buildRevenueLineFeeds(snap.revenue, lines, snap.byAssetCostOfSales, { ...s.project.operatingAr, settleFromIdx: exitSettlementIndex(s.project, snap.axisLength) });
     const opKeys = new Set(lines.filter((l) => l.form !== 'sell').map((l) => l.key));
     const opFeedAr = new Array<number>(snap.axisLength).fill(0);
     for (const fd of feeds) if (opKeys.has(fd.lineKey)) fd.ar.forEach((v, t) => { opFeedAr[t] += v ?? 0; });
@@ -91,8 +91,10 @@ const statementsHold = (label: string, s: Snap): void => {
   check('the fixture charges tax (so the timing can bite)', maxAbs(s0.pl.taxPerPeriod) > 0);
   check('0 days: nothing is payable and the charge is paid in its year',
     maxAbs(s0.bs.taxPayablePerPeriod) === 0 && s0.directCF.taxPaidPerPeriod.every((v, t) => near(-v, s0.pl.taxPerPeriod[t] ?? 0)));
-  check('120 days: the close holds 120/365 of the year\'s charge',
-    s120.bs.taxPayablePerPeriod.every((v, t) => near(v, (s120.pl.taxPerPeriod[t] ?? 0) * 120 / 365)));
+  // THE EXIT SETTLES IT (2026-11-18, d7e7de40): from the exit year the payable is paid, so the close is zero there.
+  const exitIdx = exitSettlementIndex(t120.project, s120.axisLength) ?? Number.POSITIVE_INFINITY;
+  check('120 days: the close holds 120/365 of the year\'s charge, and none from the exit year',
+    s120.bs.taxPayablePerPeriod.every((v, t) => near(v, t >= exitIdx ? 0 : (s120.pl.taxPerPeriod[t] ?? 0) * 120 / 365)));
   check('120 days: paid = charge + last year\'s payable - this year\'s',
     s120.directCF.taxPaidPerPeriod.every((v, t) => near(-v, (s120.pl.taxPerPeriod[t] ?? 0) + (t ? s120.bs.taxPayablePerPeriod[t - 1] : 0) - s120.bs.taxPayablePerPeriod[t])));
   check('the charge itself does not move, only when it is paid', s120.pl.taxPerPeriod.every((v, t) => near(v, s0.pl.taxPerPeriod[t] ?? 0, 1e-4)));

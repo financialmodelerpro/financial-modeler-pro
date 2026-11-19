@@ -139,8 +139,10 @@ assertNear('A4: G&A = 8% × 30,660,000 = 2,452,800',
 // counts from its OPERATIONS START, not project year 0. These checks expected
 // 1.03^opsStart at the first operating year, which was the defect itself.
 // A5: Tech fee = 1200 × 100 keys, no inflation yet in the first operating year
-const a5Factor = 1;
-assertNear('A5: Tech fee at opsStart = 1200 × 100 (inflation starts at operations)',
+// RE-AIMED AGAIN 2026-11-19 to 70c25314 (founder, 2026-11-17): fixed opex inflates from the FIRST MODEL YEAR (the
+// indexation's start year, 0 here), so the first operating year carries 1.03^opsStart.
+const a5Factor = Math.pow(1.03, opsStart);
+assertNear('A5: Tech fee at opsStart = 1200 × 100 x 1.03^opsStart (inflation from the first model year)',
   hospResult.perLinePerPeriod[lineIdxByCat.mgmt_tech][opsStart], 1200 * 100 * a5Factor, 1);
 
 // A6: Direct costs aggregate
@@ -210,8 +212,8 @@ assertNear('B1: Property mgmt fee = 3% × 5,000,000 = 150,000',
   leaseResult.perLinePerPeriod[leaseIdx.mgmt_base][opsStart], 0.03 * leaseRev, 1);
 
 // B2: CAM = 50 × 5000 sqm × inflation factor at opsStart
-const bFactor = 1; // first operating year: no inflation yet (re-aimed 2026-10-05)
-assertNear('B2: CAM at opsStart = 50 × 5000 (inflation starts at operations)',
+const bFactor = Math.pow(1.03, opsStart); // from the first model year (re-aimed 2026-11-19 to 70c25314)
+assertNear('B2: CAM at opsStart = 50 × 5000 x 1.03^opsStart (inflation from the first model year)',
   leaseResult.perLinePerPeriod[leaseIdx.cam][opsStart], 50 * leasableSqm * bFactor, 1);
 
 // B3: Property tax = 1.5% of lease rev (no indexation)
@@ -219,7 +221,7 @@ assertNear('B3: Property tax = 1.5% × 5,000,000 = 75,000',
   leaseResult.perLinePerPeriod[leaseIdx.property_tax][opsStart], 0.015 * leaseRev, 1);
 
 // B4: Insurance per sqm = 10 × 5000 × inflation factor at opsStart
-assertNear('B4: Insurance at opsStart = 10 × 5000 (inflation starts at operations)',
+assertNear('B4: Insurance at opsStart = 10 × 5000 x 1.03^opsStart (inflation from the first model year)',
   leaseResult.perLinePerPeriod[leaseIdx.rent_insurance][opsStart], 10 * leasableSqm * bFactor, 1);
 
 // B5: Total opex (mix of indexed + non-indexed) under the Pass 4 retail
@@ -401,7 +403,7 @@ const f3Result = computeAssetOpex({
 });
 assertNear('F3: fixed_baseline inherits asset default (5% compound)',
   f3Result.perLinePerPeriod[0][opsStart + 2],
-  100_000 * Math.pow(1.05, 2), // two years into operations (re-aimed 2026-10-05)
+  100_000 * Math.pow(1.05, opsStart + 2), // two years into operations, counted from the first model year (re-aimed 2026-11-19)
   1);
 
 // F4: per-line override beats asset default.
@@ -424,7 +426,7 @@ const f4Result = computeAssetOpex({
 });
 assertNear('F4: override beats default (10% compound, not 5%)',
   f4Result.perLinePerPeriod[0][opsStart + 2],
-  100_000 * Math.pow(1.10, 2), // two years into operations (re-aimed 2026-10-05)
+  100_000 * Math.pow(1.10, opsStart + 2), // from the first model year (re-aimed 2026-11-19)
   1);
 
 // F4b (2026-10-05): a start year stated LATER than operations start still wins.

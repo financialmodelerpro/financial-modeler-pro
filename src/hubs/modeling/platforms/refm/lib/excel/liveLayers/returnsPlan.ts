@@ -487,7 +487,9 @@ export function returnsPlan(state: FinancialsResolverState, snap: Snap, rs: RS, 
     const use: Array<[string, string, number, Fx, boolean]> = [
       ['ret|su|existing', 'Development in place at the model start', su.existingInvestment, (E) => E.ref('retin:hist'), existing],
       // OVER THE WINDOW (2026-11-18), as the engine sums them: a cost paid after the last construction year is not a use.
-      ['ret|Land', 'Land (cash and in kind)', su.land, (E) => landKeysOf(E).map((k) => win(E, k)).join('+') || '0', true],
+      ['ret|Land', 'Land (cash and in kind)', su.land, // Capex's land value totals where it has them (2026-11-19): a window over the cash and the in-kind total, not one
+      // per plot line, so the formula stays under 200 characters on a model with many plots.
+      (E) => (E.has('cx5:total:cash') && E.has('cx5:total:inkind') ? `${win(E, 'cx5:total:cash')}+${win(E, 'cx5:total:inkind')}` : landKeysOf(E).map((k) => win(E, k)).join('+') || '0'), true],
       ['ret|Construction & Infrastructure', 'Construction', su.construction, (E) => `${win(E, 'fnc:capexall')}-${E.d('ret|Land')}`, true],
       ['ret|su|interest', 'Interest paid during construction', su.interestPaid, (E) => `-${win(E, cf('Interest paid'))}`, true],
       ['ret|su|opcost', 'Operating costs paid during construction', su.operatingCosts, (E) => `${collected(E)}-${win(E, cf('Cash Flow from Operations'))}`, true],

@@ -36,7 +36,7 @@ import React, { useMemo } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useModule1Store } from '../../lib/state/module1-store';
 import { computeAllSellResults } from '../../lib/revenue-resolvers';
-import { computeFinancialsSnapshot } from '../../lib/financials-resolvers';
+import { computeFinancialsSnapshot, exitSettlementIndex } from '../../lib/financials-resolvers';
 import { planRevenueLines, REVENUE_SECTIONS, type RevenueSection } from '../../lib/revenueLines';
 import { buildRevenueLineFeeds } from '../../lib/reports/revenueOutputReports';
 import { currencyHeaderLine, type DisplayScale, type DisplayDecimals } from '@/src/core/formatters';
@@ -235,7 +235,7 @@ export default function Module2Schedules(): React.JSX.Element {
   // at zero (the balance sheet does not) and put the operating receivable on each
   // line's own days (the balance sheet uses the project DSO).
   const perAssetFeed = useMemo<PerAssetFeed[]>(() => {
-    const feeds = buildRevenueLineFeeds(snap, lines, finSnap?.byAssetCostOfSales, project.operatingAr);
+    const feeds = buildRevenueLineFeeds(snap, lines, finSnap?.byAssetCostOfSales, { ...project.operatingAr, settleFromIdx: exitSettlementIndex(project, snap.axisLength) });
     return feeds.flatMap((f) => {
       const line = lines.find((l) => l.key === f.lineKey);
       if (!line) return [];
