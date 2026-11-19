@@ -28,7 +28,7 @@ import { PERIOD_COLS } from '../buildModelWorkbook';
 import { CASH_FLOOR_CHECK_LABEL, EXIT_CLOSE_CHECK_LABEL, CHECK_REL_TOL, PHASE_EBITDA_CHECK_LABEL, buildEmptyInputAdvisories, isEmptyCheckEligible } from '../../reports/checksReport';
 import { PHASE_RECON, PHASE_RECON_LINE } from '../../reports/m4Reports';
 import { computeFinancialsSnapshot } from '../../financials-resolvers';
-import { LOOP_PBT_CHECK, SOURCES_USES_CHECK } from '../buildModelWorkbook';
+import { LOOP_PBT_CHECK, SOURCES_USES_CHECK, FIN_CHECKS } from '../buildModelWorkbook';
 import { resolveFundTerms } from '../../fundTerms';
 import { getFinancialLabels, defaultTerminologyForCountry } from '@/src/core/calculations/financials';
 
@@ -68,6 +68,11 @@ export const stage7cChecks: LiveLayer = {
       // The phases foot to the project EBITDA (2026-10-25): the reconciliation under the phase P&Ls.
       // The phase EBITDAs, the project-level HQ and fund fees, less the project EBITDA (2026-11-15: no block on the P&L).
       { label: PHASE_EBITDA_CHECK_LABEL, a: phaseEb, b: `pl|__all__||${finLabels.ebitda}`, mag: `pl|__all__||${finLabels.ebitda}` },
+      // FINANCING'S OWN CHECKS (2026-11-19, founder): each check row on Financing must read 0 in every year.
+      { label: FIN_CHECKS.interest, a: 'fl:intChk', b: null, mag: 'fnc:main:interest' },
+      { label: FIN_CHECKS.shares, a: 'fl:idcShareChk', b: null, mag: 'fl:idcShare:0' },
+      { label: FIN_CHECKS.lines, a: 'fl:idcLineChk', b: null, mag: 'fl:idcBasis' },
+      { label: FIN_CHECKS.debt, a: w.reg.keys().filter((k) => /^fl:tr:.+:left$/.test(k)), b: null, mag: w.reg.keys().find((k) => /^fl:tr:.+:close$/.test(k)) ?? 'fl:close' },
     ];
     /** The platform sheet's largest and smallest yearly difference sit this far right of the residue (F and G). */
     const HI_OFFSET = 3;

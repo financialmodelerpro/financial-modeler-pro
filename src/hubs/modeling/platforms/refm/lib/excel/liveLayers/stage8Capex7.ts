@@ -34,9 +34,9 @@ import { computeFinancialsSnapshot } from '../../financials-resolvers';
 import { buildCostPerSqmReport } from '../../reports/costPerSqmReport';
 import type { CostLine, SubUnit } from '../../state/module1-types';
 
-// THE COST PER SQM MOVED TO SUMMARY (2026-11-12, founder: export simplification step 2). The rows keep
-// their keys and columns; the layer writes wherever the registry put them.
-const CAPEX = 'Summary';
+// BACK ON CAPEX (2026-11-19, founder: "the same summaries and per-sqm analysis as the platform's Capex results tab"):
+// the Summary it moved to on 2026-11-12 was replaced by the Dashboard, which left Table 7 nowhere.
+const CAPEX = 'Capex';
 
 export const stage8Capex7: LiveLayer = {
   name: 'stage 8: capex table 7',
@@ -47,8 +47,9 @@ export const stage8Capex7: LiveLayer = {
     const w = new LiveWriter(wb, reg, ctx.pending);
     const has = (k: string): boolean => w.has(k);
     const keys = reg.keys().filter((k) => k.startsWith('cx7a|') || k.startsWith('cx7b|'));
+    void keys.length;
     if (!keys.length) return [];
-    const kept = (why: string) => [{ sheet: CAPEX, status: 'partial' as const, formulas: 0, note: `Table 7 stays the platform's values: ${why}.` }];
+    const kept = (why: string) => { if (process.env.DEBUG7) console.log('TABLE7 KEPT', why); return [{ sheet: CAPEX, status: 'partial' as const, formulas: 0, note: `Table 7 stays the platform's values: ${why}.` }]; };
     if (!has('fnc:main:interest')) return kept('the financing solve, which the interest comes from, is not live for this model');
 
     const snap = computeFinancialsSnapshot(state);
@@ -57,7 +58,7 @@ export const stage8Capex7: LiveLayer = {
     const tools = figureTools(wb, w);
     const { cellX, add, near } = tools;
     const visible = state.assets.filter((a) => a.visible !== false);
-    const { perAsset, misses } = liveAssetAreas(tools, state, visible);
+    const { perAsset, misses, builtAreas } = liveAssetAreas(tools, state, visible);
     const costLines = state.costLines as CostLine[];
     const subUnits = state.subUnits as SubUnit[];
 
@@ -79,12 +80,14 @@ export const stage8Capex7: LiveLayer = {
       };
       const construction = byStage((s) => s === 'hard' || s === 'soft' || s === 'operating');
       const land = byStage((s) => s === 'land');
-      const areas = l.memberIds.map((id) => perAsset.get(id));
       if (!construction || !land) { problems.push(`${l.label}: a cost line is not on the working sheet`); continue; }
+      // NSA is the line's one "NSA used" row on Land & Area where it has one (2026-10-27); then a plot needs only its
+      // built areas live (2026-11-19).
+      const lineNsa = has(`nsaline:${l.key}`) ? cellX(`nsaline:${l.key}`) : null;
+      const areas = l.memberIds.map((id) => perAsset.get(id) ?? (lineNsa ? builtAreas.get(id) : undefined));
       if (areas.some((a) => !a)) { problems.push(`${l.label}: an area is not live (${misses.join('; ')})`); continue; }
-      const sumA = (k: 'nsa' | 'bua' | 'gfa'): X => add(areas.map((a) => a![k]));
-      // NSA is the line's one "NSA used" row on Land & Area where it has one (2026-10-27).
-      const nsa = (has(`nsaline:${l.key}`) ? cellX(`nsaline:${l.key}`) : null) ?? sumA('nsa'), bua = sumA('bua'), gfa = sumA('gfa');
+      const sumA = (k: 'bua' | 'gfa'): X => add(areas.map((a) => a![k]));
+      const nsa = lineNsa ?? add(areas.map((a) => (a as unknown as { nsa: X }).nsa)), bua = sumA('bua'), gfa = sumA('gfa');
       const bad = [
         near(construction.v, l.cost.construction) ? '' : 'construction',
         near(land.v, l.land) ? '' : 'land',
@@ -128,34 +131,42 @@ export const stage8Capex7: LiveLayer = {
     }
     if (problems.length) { w.reset(); return kept([...new Set(problems)].slice(0, 4).join('; ')); }
 
-    // ── Writing: one row per line (2026-11-16, founder): GFA in B (NSA since 2026-11-17 only for 7b), then the cost per sqm on each
-    // cumulative base, each adding its own cost over the NSA to the base before it (short formulas). ──
+    // ── Writing, as the platform's Table 7 (costPerSqmTables): per line a heading row holding its NSA, GFA and BUA,
+    // then each cumulative cost base, its amount and its cost per sqm of each; per Sell line the area sold, the base and
+    // realised price per sqm of NSA, each base's cost and the margin at each price, and what escalation earned. ──
     const at = (key: string, col: number) => ({ sheet: w.addr(key).sheet, row: w.addr(key).row, col });
     for (const l of report.lines) {
       const f = figs.get(l.key)!;
-      const k = `cx7a|${l.key}`;
-      if (!has(k)) continue;
-      // COST PER SQM OF GFA (2026-11-17, founder, step 7): the platform's `bua` is the GFA a user reads.
-      w.fA(at(k, 2), f.bua.f);
-      const gfa = w.refA(at(k, 2));
-      w.fA(at(k, 3), `IF(${gfa}>0,(${f.construction.f})/${gfa},"n/a")`);
-      const c1 = w.refA(at(k, 3));
-      w.fA(at(k, 4), `IF(ISNUMBER(${c1}),${c1}+${f.idc}/${gfa},"n/a")`);
-      const c2 = w.refA(at(k, 4));
-      w.fA(at(k, 5), `IF(ISNUMBER(${c2}),${c2}+(${f.land.f})/${gfa},"n/a")`);
-      // The sale price stays against the cost per sqm of NSA: each margin takes its own cost over the
-      // NSA off the margin before it, so no formula restates another.
-      const kb = `cx7b|${l.key}`;
-      if (!l.sale || !has(kb)) continue;
-      w.fA(at(kb, 2), f.nsa.f);
-      const nsa = w.refA(at(kb, 2));
-      w.fA(at(kb, 3), `IF(${f.sold}>0,${f.gdv}/${f.sold},"n/a")`);
-      const price = w.refA(at(kb, 3));
-      w.fA(at(kb, 4), `IF(AND(ISNUMBER(${price}),${nsa}>0),${price}-(${f.construction.f})/${nsa},"n/a")`);
-      const m1 = w.refA(at(kb, 4));
-      w.fA(at(kb, 5), `IF(ISNUMBER(${m1}),${m1}-${f.idc}/${nsa},"n/a")`);
-      const m2 = w.refA(at(kb, 5));
-      w.fA(at(kb, 6), `IF(ISNUMBER(${m2}),${m2}-(${f.land.f})/${nsa},"n/a")`);
+      const hk = `cx7a|${l.key}|head`;
+      if (!has(hk)) continue;
+      // Areas: NSA, GFA (the platform's `bua`, areaTiers) and BUA (its `gfa`).
+      w.fA(at(hk, 3), f.nsa.f); w.fA(at(hk, 4), f.bua.f); w.fA(at(hk, 5), f.gfa.f);
+      const area = (col: number): string => w.refA(at(hk, col));
+      let prev = '';
+      for (const [base, add] of [['construction', f.construction.f], ['withIdc', f.idc], ['withLand', f.land.f]] as const) {
+        const k = `cx7a|${l.key}|${base}`;
+        if (!has(k)) continue;
+        w.fA(at(k, 2), prev ? `${prev}+${add}` : add);
+        prev = w.refA(at(k, 2));
+        for (const col of [3, 4, 5]) w.fA(at(k, col), `IF(${area(col)}>0,${prev}/${area(col)},"n/a")`);
+      }
+      const sk = `cx7b|${l.key}|sold`;
+      if (!l.sale || !has(sk)) continue;
+      w.fA(at(sk, 2), f.sold!);
+      const sold = w.refA(at(sk, 2));
+      w.fA(at(sk, 3), `IF(${sold}>0,${f.atBase}/${sold},"n/a")`);
+      w.fA(at(sk, 4), `IF(${sold}>0,${f.gdv}/${sold},"n/a")`);
+      const base = w.refA(at(sk, 3)), real = w.refA(at(sk, 4));
+      for (const b0 of ['construction', 'withIdc', 'withLand'] as const) {
+        const k = `cx7b|${l.key}|${b0}`;
+        if (!has(k)) continue;
+        w.fA(at(k, 2), w.refA(at(`cx7a|${l.key}|${b0}`, 3)));
+        const cost = w.refA(at(k, 2));
+        w.fA(at(k, 3), `IF(AND(ISNUMBER(${base}),ISNUMBER(${cost})),${base}-${cost},"n/a")`);
+        w.fA(at(k, 4), `IF(AND(ISNUMBER(${real}),ISNUMBER(${cost})),${real}-${cost},"n/a")`);
+      }
+      const ek = `cx7b|${l.key}|esc`;
+      if (has(ek)) w.fA(at(ek, 4), `IF(AND(ISNUMBER(${real}),ISNUMBER(${base})),${real}-${base},"n/a")`);
     }
     // Table 7 was the last part of the sheet that was values. The sheet is live unless
     // stage 2 left a cell waiting (its revenue-based lines, where Revenue is not live).

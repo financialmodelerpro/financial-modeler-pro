@@ -31,10 +31,11 @@ const BUILT_AFTER = new Set(['Cover', 'Guide', 'Summary', 'Dashboard']);
 interface Promote { match: RegExp; name: string | ((m: RegExpExecArray) => string) | null }
 const PROMOTE: Record<string, Promote[]> = {
   Financing: [
-    { match: /^Capex, the exit and operating cash$/, name: 'Operating cash, capex and the exit' },
+    { match: /^Operating cash, capex and the exit$/, name: null },
     { match: /^The funding need$/, name: null },
+    { match: /^Cash short of the minimum$/, name: null },
     { match: /^Debt: (.+)$/, name: (m) => m[1] },
-    { match: /^Interest$/, name: 'Interest and capitalised interest' },
+    { match: /^Interest and capitalised interest$/, name: null },
     { match: /^Zakat$/, name: null },
     { match: /^Tax$/, name: null },
     { match: /^Fund fees$/, name: null },
@@ -53,6 +54,8 @@ const PROMOTE: Record<string, Promote[]> = {
   ],
   Opex: [{ match: /^Summary by line$/, name: null }],
 };
+/** Tabs whose sub-headings are numbered under their bar, x.1, x.2 (2026-11-19, founder: the Financing sub-tables). */
+const SUB_NUMBERED = new Set(['Financing']);
 /** A top bar that only repeats the tab's name goes (its sub-sections become the bars). */
 const DROP_BAR: Record<string, RegExp> = { Returns: /^Returns$/ };
 
@@ -136,6 +139,16 @@ export function applyReferenceLayout(wb: ExcelJS.Workbook, opts: { mirror?: Exce
     // Number the bars in order.
     let n = 0;
     for (const r of [...bars.keys()].sort((a, b) => a - b)) bars.set(r, `${++n}. ${bars.get(r)!}`);
+    // The sub-headings under a bar, numbered with it (x.1, x.2), on the tabs that number them.
+    if (SUB_NUMBERED.has(ws.name) && !mirrorOf?.get(ws.name)) {
+      let major = 0, minor = 0;
+      for (let r = 4; r <= lastOld; r++) {
+        if (bars.has(r)) { major = Number(/^(\d+)\./.exec(bars.get(r)!)?.[1] ?? 0); minor = 0; continue; }
+        if (!major || drop.has(r) || !isSubHeading(ws, r)) continue;
+        const a = ws.getCell(r, 1);
+        a.value = `${major}.${++minor} ${stripNo(textOf(a))}`;
+      }
+    }
 
     // Rows: one blank row before every bar (inserted where the row above it is not empty).
     let newRow = new Array<number | null>(lastOld + 1).fill(null);
@@ -188,15 +201,17 @@ export function applyReferenceLayout(wb: ExcelJS.Workbook, opts: { mirror?: Exce
       d4.value = 'Input';
       ws.getColumn(4).width = 12;
     }
+    // THE HEADER ROWS START IN COLUMN B (2026-11-19, founder), as the bars do: the fill, borders and bottom line run
+    // from B; the words stay in C.
     if (lay.period) {
-      for (let c = 3; c <= last; c++) {
+      for (let c = 2; c <= last; c++) {
         const h = ws.getCell(4, c);
         h.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: HOUSE.band } };
         h.font = { name: 'Calibri', size: 9, bold: true, color: { argb: HOUSE.white } };
       }
       const d4 = ws.getCell(4, 4);
       if (d4.value === 'Input') d4.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
-      for (let c = 3; c <= last; c++) {
+      for (let c = 2; c <= last; c++) {
         const p = ws.getCell(5, c);
         p.border = { bottom: { style: 'medium', color: { argb: HOUSE.band } } };
         if (c === 4 && lay.insertInput) p.font = { name: 'Calibri', size: 8, italic: true, color: { argb: HOUSE.calc } };
@@ -238,8 +253,9 @@ export function applyReferenceLayout(wb: ExcelJS.Workbook, opts: { mirror?: Exce
       if (!f) return;
       // The Timeline legend (its swatches are filled cells) is a key, not a table head.
       if (/^Legend/.test(textOf(row.getCell(3)))) return;
-      for (let c = 3; c <= last; c++) {
+      for (let c = 2; c <= last; c++) {
         const cell = row.getCell(c);
+        if (c === 2) { cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: f } }; cell.border = JSON.parse(JSON.stringify(row.getCell(3).border ?? {})); continue; }
         if (!fillOf(cell)) cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: f } };
         if (c === 3 || (cell.value !== null && cell.value !== undefined && cell.value !== '')) cell.font = { name: 'Calibri', size: 9, bold: true, color: { argb: HOUSE.white } };
       }

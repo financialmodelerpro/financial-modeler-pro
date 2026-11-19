@@ -106,19 +106,12 @@ const isInputTab = (name: string): boolean => INPUT_TABS.includes(name);
 const qSheet = (name: string): string => (/^[A-Za-z_][A-Za-z0-9_.]*$/.test(name) ? name : `'${name}'`);
 const INP_REF = String.raw`(?:'Inputs'|Inputs|'Project Inputs'|'Operating Inputs')`;
 /**
- * A NAMED ALLOWANCE (2026-11-19, founder): a party with no developer fee share on the platform shows 0.0% in
- * input style in the fee shares table, so every party reads a share; the platform holds no share for it, so no
- * formula reads the cell. Allowed by what it is (a fee shares row's literal 0), never by address.
+ * NO ALLOWANCE FOR A SHOWN ZERO (2026-11-19, founder): a party with no fee share on the platform reads a grey "n/a",
+ * not an input-styled 0.0% that no formula reads, so a shaded cell nobody reads is a broken promise again.
  */
-function isShownZeroShare(book: ExcelJS.Workbook, s: { sheet: string; row: number; col: number; value: unknown }): boolean {
-  if (!isInputTab(s.sheet) || s.value !== 0) return false;
-  const ws = book.getWorksheet(s.sheet)!;
-  for (let r = s.row - 1; r > Math.max(1, s.row - 12); r--) { const t = String(ws.getCell(r, 3).value ?? ''); if (/^Party$/.test(t)) return /fee/i.test(String(ws.getCell(r, s.col).value ?? '')); }
-  return false;
-}
 function deadOf(book: ExcelJS.Workbook): string[] {
   const rd = readCells(book);
-  return shadedCells(book).filter((s) => s.isFormula || (!rd.has(cellId(s.sheet, s.row, s.col)) && !(s.isText && isLegendSwatch(String(s.value))) && !isShownZeroShare(book, s)))
+  return shadedCells(book).filter((s) => s.isFormula || (!rd.has(cellId(s.sheet, s.row, s.col)) && !(s.isText && isLegendSwatch(String(s.value)))))
     .map((s) => `${s.sheet}!${colLetterOf(s.col)}${s.row}${s.isFormula ? ' (a formula)' : ''}`);
 }
 const colLetterOf = (n: number): string => { let s = ''; while (n > 0) { const m = (n - 1) % 26; s = String.fromCharCode(65 + m) + s; n = Math.floor((n - 1) / 26); } return s; };
@@ -526,18 +519,15 @@ function perturbations(input: LiveExportInputs, reg: CellRegistry): Perturbation
         edit: (s) => { (s.assets as any[]).find((x) => x.id === target.id).capexPhasing.distribution[2] = v; } } as Perturbation);
     } else out.push({ label: 'a line whose plots differ', skip: 'no line pools two plots' });
   }
-  const firstInp = (id: string): string | undefined => reg.keys().find((k) => k.startsWith('inpcx:') && k.endsWith(`:${id}`));
-  const fixed = (st.costLines as any[]).find((l) => l.windowFollowsConstruction === false && l.endPeriod >= l.startPeriod && firstInp(l.id) && l.startPeriod >= 1);
-  if (fixed) {
-    const v = fixed.endPeriod + 1;
-    // ONE ROW, EVERY LINE ON IT (2026-11-17, step 7): since step 2 a row is shared by the cost lines whose rule
-    // is the same (the cash and the in-kind land of a phase), so typing its window moves every line on it,
-    // and the platform edit does the same.
-    const at0 = reg.get(firstInp(fixed.id)!)!;
-    const onRow = new Set(reg.keys().filter((k) => k.startsWith('inpcx:') && reg.get(k)!.sheet === at0.sheet && reg.get(k)!.row === at0.row).map((k) => k.slice(k.lastIndexOf(':') + 1)));
-    out.push({ movesRevenue: false, label: `a line's own window (${fixed.name}, ${fixed.phaseId}) one period longer`, cell: firstInp(fixed.id)!, value: v, col: 7,
-      edit: (s) => { for (const x of s.costLines as any[]) if (onRow.has(x.id)) x.endPeriod = v; } } as Perturbation);
-  } else out.push({ label: "a line's own window", skip: 'no fixed window shown' });
+  // THE PHASING TABLE (2026-11-19, founder): a line's timing is a row of % by year on Project Inputs, no window cells.
+  // The land of a phase paid from year 1: typing 100% in year 2 beside year 1's 100% pays it half in each (the row is
+  // read over its total), as the platform does for the cash and in-kind land lines on a window one period longer.
+  const landLine = (st.costLines as any[]).find((l) => /^land-cash__/.test(l.id) && l.startPeriod >= 1 && l.windowFollowsConstruction !== true && reg.get(`inpphs:even|${l.phaseId}|${l.id}`));
+  if (landLine) {
+    const v = landLine.endPeriod + 1;
+    out.push({ movesRevenue: false, label: `the land timing on the phasing table (${landLine.phaseId}): 100% in year ${v} too, the land paid half in each year`, cell: `inpphs:even|${landLine.phaseId}|${landLine.id}`, value: 1, period: v,
+      edit: (s) => { for (const x of s.costLines as any[]) if (x.phaseId === landLine.phaseId && /^land-(cash|inkind)__/.test(x.id)) x.endPeriod = v; } } as Perturbation);
+  } else out.push({ label: 'the land timing on the phasing table', skip: 'no phase pays its land from year 1 on its own row' });
 
   // ── STAGE 3, REVENUE ──
   const RC = { TOTAL: 4, OPEN: 5 }; const pcol = (t: number): number => RC.OPEN + 1 + t;

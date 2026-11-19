@@ -379,3 +379,188 @@ export function planCapexBlends(
   }
   return { use, hard, soft, weights, hardLines, other };
 }
+
+/**
+ * THE CONSTRUCTION PHASING TABLE (2026-11-19, founder: "phasing inputs as one working table on Project Inputs").
+ *
+ * Every spend share the Capex tab reads that is not driven by revenue (an even window, a plot's curve) is one
+ * row of % by construction year, typed on the input tab. The Capex share of a year is that year's % over the
+ * row's total (the engine slices a curve to the window and normalises it, and a typed row that does not add to
+ * 100% is read the same way):
+ *
+ *   - one row per spend curve (plots typing the same curve share it, curveGroups), the phase curve;
+ *   - one row per phase for the land value lines (cash and in-kind) and the lines that follow the land cash
+ *     (RETT), as % by year, where they differ from the curve;
+ *   - one row only for a line whose spread differs from its phase's rows (landscape on its own window, a plot
+ *     without a curve): a line whose spread a row reproduces EXACTLY reads that row and has none of its own.
+ *
+ * Year k of a phase is its k-th calendar year (year 0 the year before it starts, shown only when a share falls
+ * there); a phase that starts with the model has no year 0, so the engine's period 0 lands in year 1, where the
+ * project axis puts it. A cell outside a row's years is "n/a".
+ *
+ * Shared by the builder (which writes the rows and the Capex share rows) and the live layer (which writes the
+ * formulas), so the two cannot disagree. Pure.
+ */
+export interface PhasingTableRow {
+  /** Registry keys of the row: `inpcurve:<asset>` for every plot of a curve, else `inpph:<n>`. */
+  keys: string[];
+  /** The row's name on the input tab. */
+  label: string;
+  /** Its name on the Capex tab after the phase ("curve", "land and RETT", "landscape override"). */
+  short: string;
+  /** The phases whose spreads read it (a curve may be shared by plots of several phases). */
+  phaseIds: string[];
+  kind: 'curve' | 'land' | 'line';
+  /** The phase's standard spread (its curve, or even over its construction years where it has no curve). */
+  standard: boolean;
+  /** The % by construction year (a share); a year absent from the map is "n/a" on the row. */
+  values: Map<number, number>;
+  /** The spread rows (planCapexSpread keys) that read it, with their phase. */
+  spreads: Array<{ key: string; phaseId: string }>;
+}
+export interface PhasingTable {
+  rows: PhasingTableRow[];
+  /** The first and last construction year the table shows (0 only when a share falls in the year before a phase). */
+  kMin: number;
+  kMax: number;
+  /** A spread key -> the index of the row it reads. */
+  rowOfSpread: Map<string, number>;
+}
+
+/** The spread rows a formula reads: the one spread of each asset's line, and every plot's spread a blend combines. */
+export function usedSpreads(plan: CapexSpreadPlan, blends: CapexBlendPlan): Set<string> {
+  const out = new Set<string>();
+  for (const v of blends.use.values()) if (v.startsWith('cxw:')) out.add(v.slice(4));
+  for (const b of blends.hard) for (const id of b.plots) { const s = plan.plotLine.get(`${id}|${b.lid}`)?.spread; if (s) out.add(s); }
+  for (const b of blends.soft) for (const id of b.plots) for (const lid of b.lids) { const s = plan.plotLine.get(`${id}|${lid}`)?.spread; if (s) out.add(s); }
+  // A blend (the commission terms) reads its parts.
+  for (const k of [...out]) for (const p of Object.values(plan.rows.get(k)?.parts ?? {})) if (p) out.add(p);
+  return out;
+}
+
+export function planPhasingTable(
+  state: PlanState,
+  plan: CapexSpreadPlan,
+  used: Set<string>,
+  projectStartYear: number,
+  axisLength: number,
+): PhasingTable {
+  const N = axisLength;
+  const phases = state.phases;
+  const offOf = (p: Phase): number => Math.max(0, new Date(p.startDate as string).getUTCFullYear() - projectStartYear);
+  const cpOf = (p: Phase): number => Math.max(1, p.constructionPeriods ?? 0);
+  const phaseById = new Map(phases.map((p) => [p.id, p] as const));
+  const implied = (values: Map<number, number>, off: number): number[] => {
+    let tot = 0; for (const v of values.values()) tot += Math.max(0, v);
+    const out = new Array<number>(N).fill(0);
+    if (!(tot > 0)) return out;
+    for (let t = 0; t < N; t++) out[t] = Math.max(0, values.get(t - off + 1) ?? 0) / tot;
+    return out;
+  };
+  const same = (a: number[], b: number[]): boolean => a.every((v, t) => Math.abs(v - (b[t] ?? 0)) < 1e-9);
+  const byYear = (shares: number[], off: number): Map<number, number> => {
+    const m = new Map<number, number>();
+    shares.forEach((v, t) => { if (Math.abs(v) > 1e-12) m.set(t - off + 1, (m.get(t - off + 1) ?? 0) + v); });
+    return m;
+  };
+  const isStd = (sp: SpreadRow): boolean => sp.win === 'follows' && followedRule(sp.baseId) === 'std';
+  // The curve rows, made when a spread reads one: every plot of a curve group shares its row.
+  const groups = curveGroups(state);
+  const curveCand = [...groups.entries()].map(([first, ids]) => {
+    const a = state.assets.find((x) => x.id === first)!;
+    const ph = [...new Set(ids.map((id) => state.assets.find((x) => x.id === id)?.phaseId).filter((x): x is string => !!x))];
+    const hi = Math.max(1, ...ph.map((id) => cpOf(phaseById.get(id)!)));
+    const dist = a.capexPhasing?.distribution ?? [];
+    const values = new Map<number, number>();
+    for (let k = 1; k <= hi; k++) values.set(k, Math.max(0, dist[k] ?? 0) / 100);
+    return { first, ids, values, phaseIds: ph };
+  });
+  type Row = PhasingTableRow & { who?: Asset[] };
+  const rows: Row[] = [];
+  const rowOfSpread = new Map<string, number>();
+  const curveRowOf = new Map<string, number>();
+  const names = { parcels: state.parcels, phases };
+  // The spreads to place, the curves first (so a line on a curve's years reads the curve row), phase by phase.
+  const order = [...plan.rows.values()].filter((sp) => used.has(sp.key) && (sp.kind === 'even' || sp.kind === 'curve'))
+    .sort((x, y) => phases.findIndex((p) => p.id === x.phaseId) - phases.findIndex((p) => p.id === y.phaseId)
+      || (x.kind === 'curve' ? 0 : 1) - (y.kind === 'curve' ? 0 : 1) || (isStd(x) ? 0 : 1) - (isStd(y) ? 0 : 1));
+  for (const sp of order) {
+    const ph = phaseById.get(sp.phaseId);
+    if (!ph) continue;
+    const off = offOf(ph);
+    const shares = sp.shares.slice(0, N);
+    // 1. A row already made reproduces it: a curve row in any phase, any other row in its own phase.
+    let at = rows.findIndex((r) => (r.kind === 'curve' || r.phaseIds.includes(ph.id)) && same(implied(r.values, off), shares));
+    // 2. A curve not yet on the table reproduces it (its own plot's first).
+    if (at < 0) {
+      const own = sp.kind === 'curve' ? curveCand.find((c) => c.ids.includes(sp.assetId ?? '')) : undefined;
+      const cand = [own, ...curveCand].filter((c): c is typeof curveCand[number] => !!c && !curveRowOf.has(c.first)).find((c) => same(implied(c.values, off), shares));
+      if (cand) {
+        const who = cand.ids.map((id) => state.assets.find((x) => x.id === id)).filter((x): x is Asset => !!x);
+        rows.push({ keys: cand.ids.map((id) => `inpcurve:${id}`), label: '', short: '', phaseIds: [...cand.phaseIds], kind: 'curve', standard: true, values: cand.values, spreads: [], who });
+        at = rows.length - 1;
+        curveRowOf.set(cand.first, at);
+      }
+    }
+    // 3. Its own row of % by year.
+    if (at < 0) {
+      const values = byYear(shares, off);
+      // Year 0 only where a share falls in the year before the phase (a phase that starts with the model has
+      // none on the axis: its period 0 is already in year 1).
+      const first = off > 0 && (values.get(0) ?? 0) > 0 ? 0 : 1;
+      const hi = Math.max(cpOf(ph), ...values.keys());
+      for (let k = first; k <= hi; k++) if (!values.has(k)) values.set(k, 0);
+      const land = isParcelDrivenLandLine({ id: sp.lineId });
+      rows.push({ keys: [], label: '', short: '', phaseIds: [ph.id], kind: land ? 'land' : 'line', standard: !land && isStd(sp), values, spreads: [] });
+      at = rows.length - 1;
+    }
+    const row = rows[at];
+    if (!row.phaseIds.includes(ph.id)) row.phaseIds.push(ph.id);
+    row.spreads.push({ key: sp.key, phaseId: ph.id });
+    rowOfSpread.set(sp.key, at);
+  }
+  // Names: what reads each row, in the platform's words.
+  const linesOf = (r: Row): CostLine[] => {
+    const keys = new Set(r.spreads.map((s) => s.key));
+    const ids = new Set([...plan.plotLine.values()].filter((pl) => keys.has(pl.spread) && !pl.disabled).map((pl) => pl.lineId));
+    return state.costLines.filter((l) => ids.has(l.id));
+  };
+  const phaseName = (id: string): string => phaseById.get(id)?.name ?? id;
+  const multi = phases.length > 1;
+  for (const r of rows) {
+    const ph = [...new Set(r.phaseIds)].sort((a, b) => phases.findIndex((p) => p.id === a) - phases.findIndex((p) => p.id === b)).map(phaseName);
+    const phs = ph.length > 1 ? `${ph.slice(0, -1).join(', ')} and ${ph[ph.length - 1]}` : ph[0] ?? '';
+    const lines = linesOf(r);
+    if (r.kind === 'curve' || r.standard) {
+      const curvesIn = r.phaseIds.map((id) => curveCand.filter((c) => c.phaseIds.includes(id)).length);
+      const named = curvesIn.some((n) => n > 1) && r.who ? `, ${[...new Set(r.who.map((a) => String(a.type ?? '').trim() || assetLabel(a, names)))].join(', ')}` : '';
+      r.standard = true;
+      r.label = `${multi ? `${phs} curve` : 'Phase curve'}${named} (all other ${multi ? `${phs} ` : ''}lines)`;
+      r.short = `curve${named}`;
+      continue;
+    }
+    if (r.kind === 'land') {
+      const cash = lines.some((l) => isLandValueLine(l) && l.method === 'percent_of_cash_land');
+      const kind = lines.some((l) => isLandValueLine(l) && l.method === 'percent_of_inkind_land');
+      const land = cash && kind ? 'Land (cash and in-kind)' : cash ? 'Land (cash)' : 'Land (in-kind)';
+      const rest = [...new Set(lines.filter((l) => !isLandValueLine(l)).map((l) => l.name))];
+      r.label = `${land}${rest.length ? ` and ${rest.join(', ')}` : ''}${multi ? `, ${phs}` : ''}`;
+      r.short = `land${rest.length ? ` and ${rest.join(', ')}` : ''}`;
+      continue;
+    }
+    const nm = [...new Set(lines.map((l) => l.name))];
+    r.label = `${nm.join(', ') || 'Cost line'}${multi ? `, ${phs}` : ''}`;
+    r.short = `${nm.join(', ').toLowerCase() || 'line'} override`;
+  }
+  // Order: the curves, then land, then the other lines, each by phase.
+  const rank = (r: Row): number => (r.standard ? 0 : r.kind === 'land' ? 1 : 2);
+  const phaseRank = (r: Row): number => Math.min(...r.phaseIds.map((id) => phases.findIndex((p) => p.id === id)));
+  const sorted = rows.map((r, i) => ({ r, i })).sort((a, b) => rank(a.r) - rank(b.r) || phaseRank(a.r) - phaseRank(b.r) || a.i - b.i);
+  const remap = new Map(sorted.map((x, j) => [x.i, j] as const));
+  const out: PhasingTableRow[] = sorted.map((x) => { const { who: _who, ...rest } = x.r; void _who; return rest; });
+  out.forEach((r, j) => { if (r.kind !== 'curve') r.keys = [`inpph:${j}`]; });
+  for (const [k, i] of rowOfSpread) rowOfSpread.set(k, remap.get(i)!);
+  const allK = out.flatMap((r) => [...r.values.keys()]);
+  const maxCp = Math.max(1, ...phases.map(cpOf));
+  return { rows: out, kMin: allK.some((k) => k <= 0) ? 0 : 1, kMax: Math.max(maxCp, ...allK), rowOfSpread };
+}

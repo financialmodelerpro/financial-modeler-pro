@@ -190,7 +190,8 @@ export function returnsPlan(state: FinancialsResolverState, snap: Snap, rs: RS, 
   const growthUsed = cfg.terminalMethod === 'perpetuity' || (cfg.terminalMethod === 'cap_rate' && (!manualCap || cfg.applyGrowthToTerminal));
   if (growthUsed) one('ret|Growth g (%)', 'Growth', cfg.perpetuityGrowth, undefined, RF.pct);
   if (cfg.terminalMethod !== 'none') one('ret|Terminal metric', 'Terminal metric', cfg.applyGrowthToTerminal ? 'Grown by (1 + g)' : 'As stated, not grown', (E) => E.ref('ret:tvMetric'), RF.text);
-  one('ret|Basis year', 'Year the terminal value capitalises', basisYear, (E) => `${E.d('ret|Exit Year')}-IF(${E.d('ret|Terminal value basis')}="Exit year",0,1)`, RF.year);
+  // THE EXIT IS WORKED OUT ON FINANCING 1.3 (2026-11-19, founder): Returns links its rows.
+  one('ret|Basis year', 'Year the terminal value capitalises', basisYear, (E) => (E.has('fnc:capYear') ? E.xo('fnc:capYear') : `${E.d('ret|Exit Year')}-IF(${E.d('ret|Terminal value basis')}="Exit year",0,1)`), RF.year);
   if (!booked) refused.push('no terminal value');
   if (cfg.terminalMethod !== 'cap_rate' && cfg.terminalMethod !== 'exit_multiple') refused.push(`a terminal value by ${cfg.terminalMethod}`);
   gap('ret|gap|a');
@@ -201,12 +202,12 @@ export function returnsPlan(state: FinancialsResolverState, snap: Snap, rs: RS, 
   const atExit = (E: REnv, rng: string): string => `SUMPRODUCT(${E.exRng()},${rng})`;
   head('ret|#exit', 'Exit value');
   pRow('rs|noi', 'Held assets\' income (NOI)', yearsToStream(rs.noiPerPeriod), (E, s) => E.loop('fnc:noi', s), { total: 'sum' });
-  one('ret|x|inc', 'Income capitalised (the NOI of the year above)', d.exitMetric, (E) => atBasis(E, E.rngY('rs|noi')));
+  one('ret|x|inc', 'Income capitalised (the NOI of the year above)', d.exitMetric, (E) => (E.has('fnc:inc') ? E.xo('fnc:inc') : atBasis(E, E.rngY('rs|noi'))));
   one('ret|x|tv', cfg.terminalMethod === 'exit_multiple' ? 'Terminal value, gross (income x the exit multiple)' : 'Terminal value, gross (income / the exit cap rate)', d.grossValue,
-    (E) => E.tvOf(E.d('ret|x|inc')), RF.money, { style: 'subtotal' });
+    (E) => (E.has('fnc:gross') ? E.xo('fnc:gross') : E.tvOf(E.d('ret|x|inc'))), RF.money, { style: 'subtotal' });
   // SELLING COSTS AT EXIT (2026-11-18): the gross less the share on Inputs is the net exit value, the proceeds.
-  one('ret|x|cost', 'Less: selling costs at exit', -d.sellingCosts, (E) => `-${E.d('ret|x|tv')}*MAX(0,MIN(1,N(${E.ref('ret:sellCost')})))`);
-  one('ret|x|net', 'Net exit value', d.proceeds, (E) => `${E.d('ret|x|tv')}+${E.d('ret|x|cost')}`, RF.money, { style: 'subtotal' });
+  one('ret|x|cost', 'Less: selling costs at exit', -d.sellingCosts, (E) => (E.has('fnc:sell') ? E.xo('fnc:sell') : `-${E.d('ret|x|tv')}*MAX(0,MIN(1,N(${E.ref('ret:sellCost')})))`));
+  one('ret|x|net', 'Net exit value', d.proceeds, (E) => (E.has('fnc:proceeds') ? E.xo('fnc:proceeds') : `${E.d('ret|x|tv')}+${E.d('ret|x|cost')}`), RF.money, { style: 'subtotal' });
   pRow('rs|debt', 'Debt outstanding', yearsToStream(snap.bs.debtOutstandingPerPeriod), (E, s) => E.x(bsTotalDebtKey(state), s), { total: 'none' });
   const debtX = Math.max(0, snap.bs.debtOutstandingPerPeriod[X] ?? 0);
   one('ret|x|debtX', 'Less: debt at the exit', debtX, (E) => `MAX(0,${atExit(E, E.rngY('rs|debt'))})`);

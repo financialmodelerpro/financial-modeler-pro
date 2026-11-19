@@ -277,7 +277,7 @@ export function blankNonFlowTotals(wb: ExcelJS.Workbook): void {
   const read = referencedCells(wb);
   const val = (c: ExcelJS.Cell): number | null => { const v = c.value as unknown; const n = isFormula(v) ? v.result : v; return typeof n === 'number' ? n : null; };
   const FLOW = /sqm sold|room nights/i;
-  const NOT_FLOW = /\(1 = yes\)|factor|opening|closing|balance|outstanding|year end|unsold|payable|receivable|unearned|velocity|occupancy|margin|rate\b|rent per sqm|per occupied|per available|\bADR\b|RevPAR|price|area let|lettable|\(sqm\)|year no|share of|land under construction|land building|cash available|cumulative|cash after funding|cash before financing|cash above the minimum, before the sweep/i;
+  const NOT_FLOW = /\(1 = yes\)|factor|opening|closing|balance|outstanding|year end|unsold|payable|receivable|unearned|velocity|occupancy|margin|rate\b|rent per sqm|per occupied|per available|\bADR\b|RevPAR|price|area let|lettable|\(sqm\)|year no|share of|land under construction|land building|cash available|cumulative|^(?:= )?cash after funding|^(?:= )?cash before financing|cash above the minimum, before the sweep|^check: .*outstanding after the exit|^check: idc shares|^under construction: |^idc share: /i;
   for (const ws of wb.worksheets) {
     if (ws.name === 'Balance Sheet' || !isPeriodFramed(ws)) continue;
     let totalCol = 0, firstYear = 0;

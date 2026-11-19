@@ -300,6 +300,11 @@ export const stage3Opex: LiveLayer = {
       if (id === 'ebitda') row(`ox|sum|${id}`, (t) => `${sumRows(ks, t)}${has(hqK) ? `-${P(hqK, t)}` : ''}`);
       else row(`ox|sum|${id}`, (t) => sumRows([...ks, ...(id === 'opex' ? [hqK] : [])], t));
     }
+    // Each phase's held lines' EBITDA (NOI), the rows Financing's exit reads (2026-11-19).
+    for (const k of reg.keys().filter((x) => x.startsWith('ox|sum|noi|'))) {
+      const ph = k.slice('ox|sum|noi|'.length);
+      row(k, (t) => sumRows(outs.filter((o) => o.line.phaseId === ph).map((o) => `ox|sum|ebitda|${o.line.key}`).filter(has), t));
+    }
 
     // ── Payables ─────────────────────────────────────────────────────────────
     if (!apOn) {

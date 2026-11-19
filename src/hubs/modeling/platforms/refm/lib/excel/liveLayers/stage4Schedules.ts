@@ -51,7 +51,7 @@ import { buildCapexReport } from '../../reports/capexReports';
 import type { CostLine, Asset } from '../../state/module1-types';
 import { usefulLifeCategory } from '../inputsSheetSections';
 
-const SCH = 'Schedules';
+const SCH = 'Fixed Assets & Inventory';
 
 /** A HELD ASSET'S USEFUL LIFE IN FORCE: column B of its depreciation helper row on Schedules. */
 export function lifeInForce(w: LiveWriter, host: Asset, here?: string): string {

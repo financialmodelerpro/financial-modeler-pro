@@ -209,7 +209,7 @@ export function buildFormulaWorkbook(opts: BuildModelOptions): FormulaWorkbookRe
   const unread = inputsUnreadProblems(wb, deadSwitchCells(registry));
   if (unread.length) throw new Error(`The live workbook failed its input check: ${unread.slice(0, 6).join('; ')}${unread.length > 6 ? ` and ${unread.length - 6} more` : ''}.`);
   const arDays = registry.keys().filter((k) => /^rxin\|.+\|arDays$/.test(k)).map((k) => registry.need(k));
-  const sched = status.get('Schedules')?.status;
+  const sched = status.get('Fixed Assets & Inventory')?.status;
   const ar = receivableDaysProblems(wb, arDays, sched === 'live' || sched === 'partial');
   if (ar.length) throw new Error(`The live workbook failed its receivable days check: ${ar.join('; ')}.`);
   // THE HOUSE STYLE, LAST (2026-11-12, founder): the same pass the values workbook ends with, run
@@ -293,7 +293,7 @@ function applyInputValidation(wb: ExcelJS.Workbook, ws: ExcelJS.Worksheet, regis
  * Capex (selling costs charge on it) and Financing after Schedules (the solve's
  * tax reads depreciation). The front tabs, Scenarios and Checks keep their places.
  */
-export const TAB_ORDER = ['Cover', 'Guide', 'Dashboard', 'Summary', 'Inputs', 'Project Inputs', 'Operating Inputs', 'Timeline', 'Land & Area', 'Revenue', 'Capex', 'Opex', 'Schedules', 'Financing', 'P&L', 'Cash Flow', 'Balance Sheet', 'Returns', 'Scenarios', 'Checks'];
+export const TAB_ORDER = ['Cover', 'Guide', 'Dashboard', 'Summary', 'Inputs', 'Project Inputs', 'Operating Inputs', 'Timeline', 'Land & Area', 'Revenue', 'Capex', 'Opex', 'Financing', 'Fixed Assets & Inventory', 'P&L', 'Cash Flow', 'Balance Sheet', 'Returns', 'Scenarios', 'Checks'];
 function orderTabs(wb: ExcelJS.Workbook): void {
   const rest = wb.worksheets.filter((ws) => !TAB_ORDER.includes(ws.name));
   let n = 0;
@@ -313,7 +313,7 @@ function orderTabs(wb: ExcelJS.Workbook): void {
  * rebuilt. Only the cap rows may read the P&L; any other Financing row that does still fails.
  */
 export const LOOP_LINKS: ReadonlyArray<{ from: string; to: string; fromRow?: RegExp }> = [
-  { from: 'Schedules', to: 'Financing' },
+  // FIXED ASSETS & INVENTORY COMES AFTER FINANCING (2026-11-19, founder): its capitalised interest flows forward.
   { from: 'Capex', to: 'Financing' },
   // The labels as built and as tidied for reading (readability.ts, 2026-11-17).
   // THE DIVIDEND CAP (2026-11-18, founder): the retained earnings available, read from the Balance Sheet
@@ -502,10 +502,11 @@ function writeLoopLinks(wb: ExcelJS.Workbook): void {
   if (!links.length) return;
   const label = (sheet: string, row: number): string => String(wb.getWorksheet(sheet)?.getCell(row, 1).value ?? '').trim();
   const kinds: Array<[boolean, string]> = [
-    [links.some((x) => x.to === 'Financing'), 'Capitalised interest: Schedules reads it from Financing, which solves the financing loop.'],
+    [links.some((x) => x.from === 'Capex' && x.to === 'Financing'), 'Capitalised interest: the cost per sqm on Capex reads it from Financing, which solves the financing loop.'],
     [links.some((x) => x.to === 'P&L' && /(: EBITDA \(the phase P&L\)| EBITDA, from its P&L)$/.test(label(x.from, x.row))), "Phase EBITDA: each phase's dividend cap on Financing reads that phase's EBITDA on the P&L."],
     [links.some((x) => x.to === 'P&L' && /( \(the P&L\)|, from the P&L)$/.test(label(x.from, x.row))), 'Zakat: worked out on the P&L; Financing reads the charge back for the cash.'],
     [links.some((x) => x.from === 'Revenue' && x.to === 'Capex'), 'Selling costs: Revenue links the cells Capex charges them in.'],
+    [links.some((x) => x.from === 'Financing' && x.to === 'Balance Sheet'), 'Retained earnings: the dividend cap on Financing reads them from the Balance Sheet.'],
   ];
   let r = guide.rowCount + 2;
   const head = guide.getCell(r, 2);

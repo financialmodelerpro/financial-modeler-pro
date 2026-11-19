@@ -58,7 +58,8 @@ const LIVE_REPAYMENT = new Set(['cash_sweep', 'equal_repayment', 'straight_line'
  * row prints the figure as an outflow (negative) the reader negates it here, so every reader sees
  * the quantity the key names.
  */
-export const LOOP_NEGATIVE = new Set(['fnc:main:repay', 'fnc:main:intexp', 'fnc:main:div', 'fnc:main:sched', 'fnc:main:idcdisp']);
+// Interest expensed is a positive row since 2026-11-19 (Financing 4.1: of which expensed), read negated by the P&L.
+export const LOOP_NEGATIVE = new Set(['fnc:main:repay', 'fnc:main:div', 'fnc:main:sched', 'fnc:main:idcdisp']);
 export function loopAt(w: LiveWriter, key: string, t: number): string {
   const r = w.perP(key, t);
   return LOOP_NEGATIVE.has(key) ? `(-${r})` : r;
@@ -272,7 +273,8 @@ export const stage6Loop: LiveLayer = {
 
     // ── Capex, the exit and the operating cash ───────────────────────────────
     // Capex paid in cash: Capex Table 2 less Table 5's in-kind land (2026-10-27).
-    put('fl:capex', (t) => `${P('cx2:total', t)}-${P('cx5:total:inkind', t)}`);
+    // A LINK TO ONE ROW (2026-11-19, founder): Capex's "Capex paid in cash (excluding land in kind)".
+    put('fl:capex', (t) => (has('cx:cashCapex') ? P('cx:cashCapex', t) : `${P('cx2:total', t)}-${P('cx5:total:inkind', t)}`));
     put('fl:landCash', (t) => P('cx5:total:cash', t));
     put('fl:nonLand', (t) => `MAX(0,${P('fl:capex', t)}-${P('fl:landCash', t)})`);
     put('fl:inKind', (t) => P('cx5:total:inkind', t));
@@ -281,29 +283,42 @@ export const stage6Loop: LiveLayer = {
     const held = visible.filter((a) => (a.strategy === 'Operate' || a.strategy === 'Lease') && isRev(a));
     const heldRev = [...new Set(held.map((a) => lineForAsset(lines, a.id)).filter((l): l is NonNullable<typeof l> => !!l).map((l) => (l.form === 'operate' ? `rvc:${l.key}:total` : `rvc:${l.key}:rev`)).filter(has))];
     const heldOpex = held.map((a) => `oxo:${a.id}:total`).filter(has);
-    put('fl:noi', (t) => `${heldRev.map((k) => P(k, t)).join('+') || '0'}-(${heldOpex.map((k) => P(k, t)).join('+') || '0'})`);
-    // Exit proceeds: in Timeline's exit year, the terminal value of the income of the year Inputs names.
-    put('fl:proceeds', (t) => {
+    // THE HELD ASSETS' NOI FROM OPEX (2026-11-19, founder): each phase's "EBITDA (NOI)" row in Opex's summary by line,
+    // never rebuilt from Revenue and Opex lines; the total adds the phases.
+    void heldRev; void heldOpex;
+    const noiPh = phases.filter((ph) => has(`fl:ph:${ph.id}:noi`) && has(`ox|sum|noi|${ph.id}`));
+    for (const ph of noiPh) put(`fl:ph:${ph.id}:noi`, (t) => P(`ox|sum|noi|${ph.id}`, t));
+    const noiSrc = noiPh.length ? noiPh.map((ph) => `fl:ph:${ph.id}:noi`) : phases.map((ph) => `ox|sum|noi|${ph.id}`).filter(has);
+    put('fl:noi', (t) => noiSrc.map((k) => P(k, t)).join('+') || '0');
+    // THE EXIT, WORKED OUT ONCE (2026-11-19, founder): the year capitalised, the income it capitalises, the gross value
+    // at the exit terms, the selling costs and the net proceeds; each phase takes its share of the income capitalised.
+    const basisIs = (): string => `${IN('ret:tvBasis')}="Exit year"`;
+    if (has('fl:capYear') && has('inp=ret|Exit Year@4')) putS('fl:capYear', `${IN('inp=ret|Exit Year@4')}-IF(${basisIs()},0,1)`);
+    const incOf = (k: string, t: number): string => `${exitF(t)}*IF(${basisIs()},${P(k, t)},N(${P(k, t, -1)}))`;
+    const sellPct = (): string => (has('ret:sellCost') ? `MAX(0,MIN(1,N(${IN('ret:sellCost')})))` : '0');
+    if (booked && has('fl:inc')) {
+      put('fl:inc', (t) => incOf('fl:noi', t));
+      put('fl:gross', (t) => terminalValueFormula(w, retCfg, P('fl:inc', t), true));
+      put('fl:sell', (t) => `-${P('fl:gross', t)}*${sellPct()}`);
+      put('fl:proceeds', (t) => `${P('fl:gross', t)}+${P('fl:sell', t)}`);
+    } else put('fl:proceeds', (t) => {
       if (!booked) return '0';
       const income = `IF(${IN('ret:tvBasis')}="Exit year",${P('fl:noi', t)},N(${P('fl:noi', t, -1)}))`;
-      // NET OF SELLING COSTS (2026-11-18): the gross value less the share on Inputs.
-      const cost = has('ret:sellCost') ? `*(1-MAX(0,MIN(1,N(${IN('ret:sellCost')}))))` : '';
+      const cost = has('ret:sellCost') ? `*(1-${sellPct()})` : '';
       return `${exitF(t)}*${terminalValueFormula(w, retCfg, income, true)}${cost}`;
     });
-    // Exit proceeds by phase: the proceeds x the phase's share of the held income in the basis year.
-    {
-      const basisOf = (key: string, t: number): string => `IF(${IN('ret:tvBasis')}="Exit year",${P(key, t)},N(${P(key, t, -1)}))`;
-      for (const ph of phases) {
-        const kN = `fl:ph:${ph.id}:noi`, kP = `fl:ph:${ph.id}:proceeds`;
-        if (!has(kN) || !has(kP)) continue;
-        const hp = held.filter((a) => a.phaseId === ph.id);
-        const rev = [...new Set(hp.map((a) => lineForAsset(lines, a.id)).filter((l): l is NonNullable<typeof l> => !!l).map((l) => (l.form === 'operate' ? `rvc:${l.key}:total` : `rvc:${l.key}:rev`)).filter(has))];
-        const opx = hp.map((a) => `oxo:${a.id}:total`).filter(has);
-        put(kN, (t) => `${rev.map((k) => P(k, t)).join('+') || '0'}-(${opx.map((k) => P(k, t)).join('+') || '0'})`);
-        put(kP, (t) => (booked ? `IF(${basisOf('fl:noi', t)}=0,0,${P('fl:proceeds', t)}*${basisOf(kN, t)}/${basisOf('fl:noi', t)})` : '0'));
-        claim(`fnc:ph:${ph.id}:proceeds`, kP);
-      }
+    for (const ph of phases) {
+      const K = (x: string): string => `fl:ph:${ph.id}:${x}`;
+      if (!has(K('proceeds'))) continue;
+      if (booked && has(K('inc')) && has(K('noi'))) {
+        put(K('inc'), (t) => incOf(K('noi'), t));
+        put(K('gross'), (t) => `IF(${P('fl:inc', t)}=0,0,${P('fl:gross', t)}*${P(K('inc'), t)}/${P('fl:inc', t)})`);
+        put(K('sell'), (t) => `-${P(K('gross'), t)}*${sellPct()}`);
+        put(K('proceeds'), (t) => `${P(K('gross'), t)}+${P(K('sell'), t)}`);
+      } else put(K('proceeds'), () => '0');
+      claim(`fnc:ph:${ph.id}:proceeds`, K('proceeds'));
     }
+    for (const [name, key] of [['fnc:inc', 'fl:inc'], ['fnc:gross', 'fl:gross'], ['fnc:sell', 'fl:sell'], ['fnc:capYear', 'fl:capYear']] as const) claim(name, key);
     put('fl:collected', (t) => P('rev|__project__|sum-cash|Total cash collected', t));
     // Payables at 0 days: opex is paid as incurred (2026-11-15), so the cash paid is the project opex.
     put('fl:opexPaid', (t) => `-${P(has('ox|ap|close') ? 'ox|ap|paid' : 'ox|sum|opex', t)}`);
@@ -421,62 +436,57 @@ export const stage6Loop: LiveLayer = {
     put('fl:sched', (t) => sumF(fac.filter((f) => f.kind !== 'sweep'), 'repaid', t));
     const interest = (t: number): string => (has('fl:intAll') ? P('fl:intAll', t) : sumF(fac, 'charge', t));
     put('fl:idcBasis', (t) => `IF(${running(t)},${sumF(newF, 'charge', t)},0)`);
-    put('fl:intExp', (t) => `-(${interest(t)}-${P('fl:idcBasis', t)})`);
-    // Capitalised interest by line, on the land under construction. Each row feeds Schedules (the loop).
+    put('fl:intExp', (t) => `${interest(t)}-${P('fl:idcBasis', t)}`);
+    // 4.1's check: capitalised plus expensed less the interest charged, 0 in every year.
+    put('fl:intChk', (t) => `${P('fl:idcBasis', t)}+${P('fl:intExp', t)}-(${interest(t)})`, 'none');
+    // ── 4.2 THE IDC ALLOCATION (2026-11-19, founder): each line's land area (Input column), its construction years (1 / 0),
+    // and its share of the year's IDC only in a year with IDC (0, shown "-", in any other); 4.3 each line's IDC. ──
     const idcAssets = visible.filter(sharesCapitalisedInterest);
     const sqm = (a: Asset): string => (has(`land:${a.id}:sqm`) ? `MAX(0,N(${w.ref(`land:${a.id}:sqm`)}))` : '0');
     const conFlag = (a: Asset, t: number): string => (has(`tl:flag:${a.phaseId}:con`) ? P(`tl:flag:${a.phaseId}:con`, t) : '0');
-    // Each line's land is its own row (one phase per line, so one construction flag per line).
     const lineAssets = pc0.idcLines.map((l) => l.assetIds.map((id) => idcAssets.find((a) => a.id === id)).filter((a): a is Asset => !!a));
-    const byLine = lineAssets.every((as, i) => has(`fl:sqmLine:${i}`) && as.every((a) => a.phaseId === as[0]?.phaseId))
-      && idcAssets.every((a) => lineAssets.some((as) => as.includes(a)));
-    const helpers = lineAssets.every((_as, i) => has(`fl:idcLand:${i}`) && has(`fl:idcShare:${i}`)) && has('fl:sqmTot') && has('fl:sqmActive');
-    if (byLine || helpers) { /* below */ }
-    if (helpers && lineAssets.every((as) => as.every((a) => a.phaseId === as[0]?.phaseId))) {
-      // Each line's land (Input column) under construction, the total, each line's share (2026-11-15).
-      const B = (k: string): string => w.refA({ sheet: FIN, row: w.addr(k).row, col: 2 }, here);
+    const DIN = (k: string): string => w.refA({ sheet: FIN, row: w.addr(k).row, col: 2 }, here);
+    const span = (keys: string[], cell: (k: string) => string): string => {
+      const rs = keys.map((k) => w.addr(k).row);
+      const together = rs.length > 1 && rs.every((r, i) => i === 0 || r === rs[i - 1] + 1);
+      return together ? `${cell(keys[0])}:${cell(keys[keys.length - 1])}` : '';
+    };
+    const areaK = lineAssets.map((_, i) => `fl:idcArea:${i}`).filter(has), flagK = lineAssets.map((_, i) => `fl:idcFlag:${i}`).filter(has);
+    const tabled = areaK.length === lineAssets.length && flagK.length === lineAssets.length && lineAssets.length > 0;
+    if (tabled) {
       lineAssets.forEach((as, i) => {
-        const k = `fl:idcLand:${i}`;
-        w.fA({ sheet: FIN, row: w.addr(k).row, col: 2 }, as.map(sqm).join('+') || '0', { numFmt: '#,##0' });
-        put(k, (t) => (as[0] ? `${conFlag(as[0], t)}*${B(k)}` : '0'), 'none');
+        w.fA({ sheet: FIN, row: w.addr(`fl:idcArea:${i}`).row, col: 2 }, as.map(sqm).join('+') || '0', { numFmt: '#,##0' });
+        put(`fl:idcFlag:${i}`, (t) => (as[0] ? conFlag(as[0], t) : '0'), 'none');
       });
-      const lk = lineAssets.map((_, i) => `fl:idcLand:${i}`);
-      const rs = lk.map((k) => w.addr(k).row);
-      const together = rs.every((r, i) => i === 0 || r === rs[i - 1] + 1);
-      putS('fl:sqmTot', together && rs.length ? `SUM(${B(lk[0])}:${B(lk[lk.length - 1])})` : lk.map(B).join('+') || '0');
-      put('fl:sqmActive', (t) => (together && rs.length > 1 ? `SUM(${P(lk[0], t)}:${P(lk[lk.length - 1], t)})` : lk.map((k) => P(k, t)).join('+') || '0'), 'none');
-      lineAssets.forEach((_as, i) => {
-        const k = `fl:idcShare:${i}`, lkI = `fl:idcLand:${i}`;
-        put(k, (t) => `IF(${P('fl:sqmActive', t)}>0,${P(lkI, t)}/${P('fl:sqmActive', t)},IF(${T('fl:sqmTot')}>0,${B(lkI)}/${T('fl:sqmTot')},0))`, 'none');
+      const areas = span(areaK, DIN);
+      const areaSum = areas ? `SUM(${areas})` : areaK.map(DIN).join('+');
+      const act = (t: number): string => { const fl = span(flagK, (k) => P(k, t)); return areas && fl ? `SUMPRODUCT(${areas},${fl})` : lineAssets.map((_, i) => `${DIN(`fl:idcArea:${i}`)}*${P(`fl:idcFlag:${i}`, t)}`).join('+'); };
+      lineAssets.forEach((_, i) => {
+        const a = DIN(`fl:idcArea:${i}`), f = (t: number): string => P(`fl:idcFlag:${i}`, t);
+        put(`fl:idcShare:${i}`, (t) => `IF(${P('fl:idcBasis', t)}>0,IF(${act(t)}>0,${a}*${f(t)}/${act(t)},${a}/${areaSum}),0)`, 'none');
       });
-    } else if (byLine) {
-      lineAssets.forEach((as, i) => putS(`fl:sqmLine:${i}`, as.map(sqm).join('+') || '0'));
-      const rs = lineAssets.map((_, i) => w.addr(`fl:sqmLine:${i}`).row);
-      const together = rs.every((r, i) => i === 0 || r === rs[i - 1] + 1);
-      putS('fl:sqmTot', together && rs.length ? `SUM(${T(`fl:sqmLine:0`)}:${T(`fl:sqmLine:${rs.length - 1}`)})` : lineAssets.map((_, i) => T(`fl:sqmLine:${i}`)).join('+') || '0');
-      put('fl:sqmActive', (t) => {
-        // Lines building on the same flag are added once and multiplied once.
-        const groups = new Map<string, string[]>();
-        lineAssets.forEach((as, i) => { if (!as[0]) return; const f = conFlag(as[0], t); groups.set(f, [...(groups.get(f) ?? []), T(`fl:sqmLine:${i}`)]); });
-        return [...groups].map(([f, cells]) => `${f}*${cells.length > 1 ? `(${cells.join('+')})` : cells[0]}`).join('+') || '0';
-      });
-    } else {
-      putS('fl:sqmTot', idcAssets.map(sqm).join('+') || '0');
-      put('fl:sqmActive', (t) => idcAssets.map((a) => `${conFlag(a, t)}*${sqm(a)}`).join('+') || '0');
+      const shareK = lineAssets.map((_, i) => `fl:idcShare:${i}`);
+      put('fl:idcShareChk', (t) => { const sp = span(shareK, (k) => P(k, t)); return `IF(${P('fl:idcBasis', t)}>0,${sp ? `SUM(${sp})` : shareK.map((k) => P(k, t)).join('+')}-1,0)`; }, 'none');
     }
+    const idcK: string[] = [];
     pc0.idcLines.forEach((l, i) => {
       const k = `fl:idc:${i}`;
       if (!has(k)) return;
       const as = lineAssets[i];
-      const sq = byLine && has(`fl:sqmLine:${i}`) ? T(`fl:sqmLine:${i}`) : as.map(sqm).join('+') || '0';
-      const flag = (t: number): string => (as[0] ? conFlag(as[0], t) : '0');
-      // A LINE WITH NO SHARE THIS YEAR NEVER READS THE YEAR'S INTEREST (2026-11-18): a line already built is a
-      // precedent of nothing the facility does later, so overlapping phases cannot close a loop through it.
-      if (has(`fl:idcShare:${i}`)) put(k, (t) => `IF(${P(`fl:idcShare:${i}`, t)}=0,0,${P('fl:idcBasis', t)}*${P(`fl:idcShare:${i}`, t)})`);
-      // A line not building while another builds reads nothing of the year's interest (2026-11-18, the same rule).
-      else put(k, (t) => `IF(AND(${P('fl:sqmActive', t)}>0,${flag(t)}=0),0,IF(${P('fl:idcBasis', t)}=0,0,IF(${P('fl:sqmActive', t)}>0,${flag(t)}*${P('fl:idcBasis', t)}*(${sq})/${P('fl:sqmActive', t)},IF(${T('fl:sqmTot')}>0,${P('fl:idcBasis', t)}*(${sq})/${T('fl:sqmTot')},0))))`);
+      if (tabled) put(k, (t) => `${P('fl:idcBasis', t)}*${P(`fl:idcShare:${i}`, t)}`);
+      else {
+        // No allocation table (a line's assets in two phases): each line's land under construction, in the formula.
+        const sq = as.map(sqm).join('+') || '0';
+        const tot = idcAssets.map(sqm).join('+') || '0';
+        const actv = (t: number): string => idcAssets.map((a) => `${conFlag(a, t)}*${sqm(a)}`).join('+') || '0';
+        const flag = (t: number): string => (as[0] ? conFlag(as[0], t) : '0');
+        put(k, (t) => `IF(${P('fl:idcBasis', t)}=0,0,IF((${actv(t)})>0,${flag(t)}*${P('fl:idcBasis', t)}*(${sq})/(${actv(t)}),${P('fl:idcBasis', t)}*(${sq})/(${tot})))`);
+      }
+      idcK.push(k);
       for (const id of l.assetIds) w.claim(`fnc:main:idc:${id}`, FIN, w.addr(k).row, 1);
     });
+    put('fl:idcLinesTot', (t) => { const sp = span(idcK, (k) => P(k, t)); return sp ? `SUM(${sp})` : idcK.map((k) => P(k, t)).join('+') || '0'; });
+    put('fl:idcLineChk', (t) => `${P('fl:idcLinesTot', t)}-${P('fl:idcBasis', t)}`, 'none');
     const idcPre = (t: number): string => `MAX(0,${P('schv:__project__:idcNbv', t, -1)}+${P('schv:__project__:idcAdd', t)}-${P('schv:__project__:idcDep', t)})`;
     put('fl:idcDisp', (t) => (has('schv:__project__:idcNbv') ? `-(${exitF(t)}*${idcPre(t)})` : '0'));
 
@@ -497,7 +507,8 @@ export const stage6Loop: LiveLayer = {
       putS('fl:firstDraw', firstYearWhere(notDrawn));
       putS('fl:feeEq', `${R()}*${eF()}`);
       putS('fl:feeDebt', `${R()}*${dF()}`);
-      putS('fl:feeFund', fundTerms.fundSizeOverride ? `MAX(0,N(${w.ref('ft:Fund size (typed target)')}))` : `${T('fl:feeEq')}+${T('fl:feeDebt')}`);
+      // The fund size is the fee-free funding need, debt and equity together (2026-11-19: the two halves only where a fee is charged on one).
+      putS('fl:feeFund', fundTerms.fundSizeOverride ? `MAX(0,N(${w.ref('ft:Fund size (typed target)')}))` : has('fl:feeEq') && has('fl:feeDebt') ? `${T('fl:feeEq')}+${T('fl:feeDebt')}` : R());
       // THE BASES OF 2026-11-18 (founder): total development cost, debt share x cash cost, the total
       // facility (fee-free), and equity to date; the Inputs text picks the structure and arranging bases.
       // Development cost excludes the sales commission, a cost to sell (2026-11-18): its Capex rows come off.
@@ -506,14 +517,16 @@ export const stage6Loop: LiveLayer = {
         return !!cl && resolveCatalogId(cl) === 'commission';
       })());
       const lessComm = commKeys.length ? `-(${commKeys.map((k) => `SUM(${rowRange(k)})`).join('+')})` : '';
-      putS('fl:feeTdc', `SUM(${rowRange('cx2:total')})${lessComm}`);
+      // A LINK TO ONE ROW (2026-11-19, founder): Capex's "Total development cost (excl. selling costs)".
+      putS('fl:feeTdc', has('cx:tdc') ? w.one('cx:tdc') : `SUM(${rowRange('cx2:total')})${lessComm}`);
       putS('fl:feeDsc', `${dF()}*(SUM(${rowRange('fl:capex')})${lessComm})`);
       if (has('fl:xIdc')) {
         // The fee-free need (2026-11-18): its own row on the deficit path; on the equity path the funding need IS fee-free.
         const needK = has('fl:needExFee') ? 'fl:needExFee' : 'fl:need';
         const newT = tranches.filter((t) => t.origin !== 'existing');
         const shares = newT.map((t) => (anyShareTyped && has(`tr:${t.id}:share`) ? `MAX(0,N(${w.ref(`tr:${t.id}:share`)}))` : String(1 / Math.max(1, newT.length))));
-        putS('fl:xRate', `IF((${shares.join('+')})>0,(${newT.map((t, j) => `${shares[j]}*${T(`fl:tr:${t.id}:rate`)}`).join('+')})/(${shares.join('+')}),0)`);
+        // ONE LOAN READS ITS OWN RATE; SEVERAL ARE WEIGHTED BY THEIR SHARE CELLS (2026-11-19, founder: no literal weights).
+        putS('fl:xRate', newT.length === 1 ? T(`fl:tr:${newT[0].id}:rate`) : `IF((${shares.join('+')})>0,(${newT.map((t, j) => `${shares[j]}*${T(`fl:tr:${t.id}:rate`)}`).join('+')})/(${shares.join('+')}),0)`);
         const excl = has('fl:idcExcl') ? T('fl:idcExcl') : '0';
         put('fl:xIdc', (t) => `IF(${running(t)},${T('fl:xRate')}*(N(${P('fl:xBal', t, -1)})+${P(needK, t)}*${dF()}/2)/(1-(1-${excl})*${T('fl:xRate')}/2),0)`);
         put('fl:xBal', (t) => `N(${P('fl:xBal', t, -1)})+${P(needK, t)}*${dF()}+${P('fl:xIdc', t)}`, 'last');
@@ -523,7 +536,8 @@ export const stage6Loop: LiveLayer = {
       }
       const eqBase = (t: number): string => (baseKey ? `SUM(${toNow(baseKey, t)})*${eF()}` : `SUM(${toNow('fl:eqDraw', t)})`);
       put('fl:feeEtd', (t) => `${has('tl:flag:upto') ? P('tl:flag:upto', t) : alive(t)}*(${eqBase(t)}+SUM(${toNow('fl:inKind', t)}))`);
-      putS('fl:feeEtdPeak', `MAX(${rowRange('fl:feeEtd')})`);
+      // A balance: its peak in the Total column, labelled "peak" in the Input column (2026-11-19, founder).
+      if (has('fl:feeEtd')) { const ea = w.addr('fl:feeEtd'); w.fA({ sheet: FIN, row: ea.row, col: TOTAL_COL }, `MAX(${rowRange('fl:feeEtd')})`); const pk = w.cellA({ sheet: FIN, row: ea.row, col: 2 }); pk.value = 'peak'; pk.alignment = { horizontal: 'right' }; pk.font = { name: 'Calibri', size: 8, italic: true }; }
       const strBasis = has('ft:Structure fee basis') ? `ISNUMBER(SEARCH("development",${w.ref('ft:Structure fee basis')}))` : 'FALSE';
       const arrBasis = has('ft:Arranging fee basis') ? `ISNUMBER(SEARCH("cash",${w.ref('ft:Arranging fee basis')}))` : 'FALSE';
       const baseOf = (base: string, key: string): string => (key === 'fundStructureFeePct' ? `IF(${strBasis},${T('fl:feeTdc')},${T('fl:feeFund')})`
@@ -551,7 +565,7 @@ export const stage6Loop: LiveLayer = {
       w.claim(`ftcap:${FUND_CAPITAL_LABELS.tdc}`, FIN, w.addr('fl:feeTdc').row, TOTAL_COL);
       w.claim(`ftcap:${FUND_CAPITAL_LABELS.facility}`, FIN, w.addr('fl:feeFac').row, TOTAL_COL);
       w.claim(`ftcap:${FUND_CAPITAL_LABELS.dsc}`, FIN, w.addr('fl:feeDsc').row, TOTAL_COL);
-      w.claim(`ftcap:${FUND_CAPITAL_LABELS.etdPeak}`, FIN, w.addr('fl:feeEtdPeak').row, TOTAL_COL);
+      w.claim(`ftcap:${FUND_CAPITAL_LABELS.etdPeak}`, FIN, w.addr('fl:feeEtd').row, TOTAL_COL);
       claim('fnc:feeEtd', 'fl:feeEtd');
       for (const k of ['fl:feeFund', 'fl:feeTdc', 'fl:feeFac', 'fl:feeDsc', 'fl:firstDraw']) w.claim(`fnc:${k.slice(3)}`, FIN, w.addr(k).row, TOTAL_COL);
     }
@@ -601,6 +615,7 @@ export const stage6Loop: LiveLayer = {
     put('fl:div', (t) => `-(${phaseSum(t)}+${exitF(t)}*IF(AND(${divOn()}=1,${excess(t)}>0,ROUND(${P('fl:forDiv', t)}-(${phaseSum(t)}),2)>0),${P('fl:forDiv', t)}-(${phaseSum(t)}),0))`);
     why('fl:div', 'The phases\' dividends, and in the exit year all the cash above the minimum.');
     put('fl:close', (t) => `${P('fl:forDiv', t)}+${P('fl:div', t)}`, 'last');
+    for (const f of fac) put(`fl:tr:${f.t.id}:left`, (t) => `${booked ? `SUM(${toNow('tl:flag:exit', t)})` : '0'}*${P(f.close, t)}`, 'none');
     for (const f of fac) put(`fl:tr:${f.t.id}:bs`, (t) => `(1-${booked ? `SUM(${toNow('tl:flag:exit', t)})` : '0'})*${P(f.close, t)}`, 'last');
     put('fl:debtBs', (t) => { const ks = fac.map((f) => `fl:tr:${f.t.id}:bs`).filter(has); const rs = ks.map((k) => w.addr(k).row); const tog = rs.length > 1 && rs.every((r, i) => i === 0 || r === rs[i - 1] + 1); return tog ? `SUM(${P(ks[0], t)}:${P(ks[ks.length - 1], t)})` : ks.map((k) => P(k, t)).join('+') || '0'; }, 'last');
 
@@ -650,7 +665,8 @@ export const stage6Loop: LiveLayer = {
       const rows = [...new Set(ids.filter((id) => has(`fnc:main:idc:${id}`)).map((id) => w.addr(`fnc:main:idc:${id}`).row))];
       return rows.map((r) => w.refP({ sheet: FIN, row: r, col: pc(t) })).join('+') || '0';
     };
-    for (const l of lines.filter((x) => has(`cosc:${x.key}:idc`))) liveRow(`cosc:${l.key}:idc`, (t) => `MAX(0,${lineIdc(l.members.map((m) => m.id))(t)})`);
+    // A LINK, NOT A RECOMPUTATION (2026-11-19, founder): a line's IDC on Financing 4.3 is never negative.
+    for (const l of lines.filter((x) => has(`cosc:${x.key}:idc`))) liveRow(`cosc:${l.key}:idc`, lineIdc(l.members.map((m) => m.id)));
     const report = buildFixedAssetReport({ fa: snap.fixedAssets, idc: snap.idc, state, dCtx: disposalContextOf(snap) });
     for (const gr of report.groups) for (const l of gr.lines) {
       if (!has(`schv:${l.hostId}:idcAdd`)) continue;
@@ -661,7 +677,7 @@ export const stage6Loop: LiveLayer = {
     // A CIRCULAR CELL NEEDS A STARTING VALUE. Excel iterates a loop from each cell's cached result;
     // a formula written with none enters the first pass with nothing to start from and the loop never
     // recovers. Every formula on the tabs the loop runs through that carries no value starts from 0.
-    for (const name of [FIN, 'Schedules']) {
+    for (const name of [FIN, 'Fixed Assets & Inventory']) {
       wb.getWorksheet(name)?.eachRow((r) => r.eachCell((c) => {
         const v = c.value as unknown as { formula?: string; result?: unknown } | null;
         if (v && typeof v === 'object' && 'formula' in v && (v.result === undefined || v.result === null)) c.value = { formula: v.formula, result: 0 } as never;

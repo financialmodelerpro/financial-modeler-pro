@@ -64,10 +64,9 @@ export const WORKING_ROWS: ReadonlyArray<RegExp> = [
   // streams (FCFF, FCFE, distributions, the fee waterfall, fee income) under `rs|` too, and a blanket `^rs\|`
   // took every cash flow row off the values file's Returns, leaving its IRR lines with nothing above them.
   /^rs\|(hold|con|cxon|level|floor|close|debt)(\||$)/,
-  /^fl:sqmActive$/,                                           // Financing: land under construction (a working of the land split)
   // Financing: the settings block (2026-11-15, founder: the live file links Inputs and Land & Area directly).
-  /^fl:tr:[^:]+:(rate|td)$/, /^fl:idcLand:/, /^fl:idcShare:/, /^fl:sqmTot$/,
-  /^fl:ph:/, /^fl:(open|avail|after|idcDisp|ebit0)$/,         // Financing: the loop's own workings (per-phase income and proceeds, cash before / after funding)
+  /^fl:tr:[^:]+:(rate|td)$/,
+  /^fl:(open|avail|after|idcDisp|ebit0)$/,         // Financing: the loop's own workings (per-phase income and proceeds, cash before / after funding)
   /^cx5memo:/,                                                // Capex: the land-stage memo, a sum the builder forms
   /^fa\|.+\|idcNbv$/,                                         // Schedules: the capitalised interest NBV memo the loop reads
   /^ret\|pt\|cy(:cash|:kind)?$/,                               // Returns: capital-years, a working of the time-weighted share

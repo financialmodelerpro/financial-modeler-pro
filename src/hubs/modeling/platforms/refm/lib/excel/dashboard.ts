@@ -296,8 +296,9 @@ export function buildDashboard(wb: ExcelJS.Workbook, ctx: DashboardContext): { c
   const plSec = L.section(PL, /^Income Statement \(P&L\): Project$/)!;
   const rRev = L.need(PL, 'TOTAL REVENUE', plSec), rEbitda = L.need(PL, 'EBITDA', plSec), rPat = L.need(PL, /^PROFIT AFTER (ZAKAT|TAX)$/, plSec);
   const plRevFirst = plSec[0] + 0, plRevLast = rRev - 1;
-  const capSum = L.section(CAP, /^Capex summary/)!;
-  const rCapTot = L.need(CAP, 'TOTAL CAPEX', capSum);
+  // THE CAPEX RESULTS AS THE PLATFORM NAMES THEM (2026-11-19): Table 2, incl. all land, with its split by cost type.
+  const capSum = L.section(CAP, /^Total Capex Including Land Value/i)!;
+  const rCapTot = L.need(CAP, /^TOTAL CAPEX, INCL. ALL LAND$/i, capSum);
   const capType = (l: string): number | null => L.row(CAP, l, capSum);
   const rLandCash = capType('Land, cash'), rLandKind = capType('Land, in-kind'), rRett = capType('RETT'), rHard = capType('Hard costs'), rSoft = capType('Soft costs'), rCont = capType('Contingency'), rFee = capType('Developer fee'), rTypeTot = capType('Total capex by cost type');
   const laPlots = L.section(LA, /^Derived areas by plot$/)!, laLines = L.section(LA, /^Merged by line$/)!;

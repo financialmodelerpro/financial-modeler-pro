@@ -34,7 +34,8 @@ export interface FinRow {
   key: string;
   label: string;
   basis?: string;
-  kind: 'title' | 'period' | 'scalar' | 'gap';
+  /** 'units': a sub-table's units row; 'note': a sentence under a table; 'meta': a figure in the Input column only. */
+  kind: 'title' | 'period' | 'scalar' | 'gap' | 'units' | 'note' | 'meta';
   values?: number[];
   value?: number;
   fmt?: FinFmt;
@@ -47,7 +48,7 @@ export interface FinRow {
 }
 
 /** The loop's capitalised interest, sent back to Schedules and Capex: the row says so. */
-export const FEEDS_SCHEDULES = 'Feeds Schedules (interest loop)';
+export const FEEDS_SCHEDULES = 'Feeds Fixed Assets & Inventory';
 
 export type FacilityKind = 'sweep' | 'annuity' | 'principal' | 'bullet' | 'yoy';
 export const sweeps = (t: { repaymentMethod: string; cashSweepConfig?: { enabled?: boolean } }): boolean =>
@@ -115,6 +116,16 @@ export function financingPlan(state: FinancialsResolverState, snap: Snap = compu
   const gapRow = (): void => { rows.push({ key: `fl:gap:${rows.length}`, label: '', kind: 'gap' }); };
   const scalar = (key: string, label: string, value: number, fmt: FinFmt, basis: string): void => { rows.push({ key, label, kind: 'scalar', value, fmt, basis }); };
   const per = (key: string, label: string, values: number[], basis: string, o: Partial<FinRow> = {}): void => { rows.push({ key, label, kind: 'period', values, basis, ...o }); };
+  // A NUMBERED SUB-TABLE (2026-11-19, founder): its sub-heading (numbered x.1, x.2 by the reference layout), its units
+  // row, and one blank row before it unless it is the section's first.
+  const sub = (key: string, label: string, units: string): void => {
+    if (rows.length && rows[rows.length - 1].kind !== 'title') gapRow();
+    rows.push({ key, label, kind: 'title' });
+    rows.push({ key: `${key}:u`, label: units, kind: 'units' });
+  };
+  const note = (key: string, label: string): void => { rows.push({ key, label, kind: 'note' }); };
+  const meta = (key: string, label: string, v: number, basis: string): void => { rows.push({ key, label, kind: 'meta', metaB: v, basis, fmt: 'int' }); };
+  const CCY = p.currency ?? 'SAR';
 
   // ── Settings in force ──────────────────────────────────────────────────────
   title('fl:t:set', 'Settings in force (worked out from Inputs)');
@@ -122,7 +133,7 @@ export function financingPlan(state: FinancialsResolverState, snap: Snap = compu
   const dF = Math.max(0, fin.funding.debtPct ?? 0) / 100;
   scalar('fl:dF', 'Debt share of the funding', dF, 'pct', 'Debt % over debt % plus equity % on Inputs; 0 where neither is typed');
   scalar('fl:eF', 'Equity share of the funding', 1 - dF, 'pct', 'One less the debt share');
-  scalar('fl:idcExcl', 'IDC method excludes same-year IDC (1 = yes)', p.idcConfig?.interestMethod === 'mid_year_excl' ? 1 : 0, 'int', 'The IDC method on Inputs: 1 where it reads "excluding same-year IDC"');
+  scalar('fl:idcExcl', 'IDC method: excludes same-year IDC (1 = yes)', p.idcConfig?.interestMethod === 'mid_year_excl' ? 1 : 0, 'int', 'The IDC method on Inputs: 1 where it reads "excluding same-year IDC"');
   if (method !== 3) {
     const pf = p.financing?.parcelFunding ?? [];
     const typed = (c: { debtPct?: number; equityPct?: number }): boolean => typeof c.debtPct === 'number' || typeof c.equityPct === 'number';
@@ -187,7 +198,7 @@ export function financingPlan(state: FinancialsResolverState, snap: Snap = compu
   let idcSqmTot = 0;
   const idcAssets = [...snap.idc.byAsset.values()];
   const lineState = { assets: state.assets, phases: state.phases, parcels: state.parcels };
-  const idcLines = planReportLines(lineState, (a) => snap.idc.byAsset.has(a.id)).map((l) => ({ title: lineTitle(l, lineState), assetIds: [...l.assetIds] }));
+  const idcLines = planReportLines(lineState, (a) => snap.idc.byAsset.has(a.id)).map((l) => ({ title: lineTitle(l, lineState).replace(/\s*\((?:Land|Plot)[^)]*\)\s*$/, ''), assetIds: [...l.assetIds] }));
   if (idcAssets.length) {
     // ONE LAND ROW PER LINE (2026-11-07): the total, the land under construction and each line's
     // share of the interest read these, so no formula repeats every plot's land.
@@ -204,41 +215,56 @@ export function financingPlan(state: FinancialsResolverState, snap: Snap = compu
   }
   gapRow();
 
-  // ── Capex, the exit and the operating cash ────────────────────────────────
-  title('fl:t:ops', 'Capex, the exit and operating cash');
-  per('fl:capex', 'Capex paid in cash', sl(fin.capex.perPeriod.exclLandInKind), 'Capex: Table 2 less the land contributed in kind (Table 5)');
+  // ── 1. Operating cash, capex and the exit (2026-11-19, founder): three sub-tables, each figure a link to its one source ──
+  title('fl:t:ops', 'Operating cash, capex and the exit');
+  sub('fl:t:ops:cash', 'Operating cash', CCY);
+  per('fl:collected', 'Revenue: cash collected', sl(dcf.revenueReceivedPerPeriod), 'Revenue: each line\'s cash collected');
+  per('fl:opexPaid', 'Opex paid: lines and HQ', add(sl(dcf.opexPaidPerPeriod), sl(dcf.hqOpexPaidPerPeriod)), 'Opex: each line\'s opex less the rise in its payable');
+  if (expensedRowsOf(state, snap, state.assets.filter((a) => a.visible !== false).map((a) => a.id), (_a, _l, valued) => valued).length) per('fl:mkt', 'Selling and marketing paid: as incurred', sl(dcf.sellingExpensePaidPerPeriod), 'Revenue: selling and marketing expensed');
+  if (snap.escrow.byAsset.size > 0 && escrowInForce(state as never)) per('fl:esc', 'Escrow: pre-sales cash held back and released', sl(dcf.netRevenueAdjustmentPerPeriod), 'Revenue: net escrow cash flow');
+  per('fl:taxPaidOps', `${TAX} paid`, sl(dcf.taxPaidPerPeriod), `5.3, ${TAX.toLowerCase()} paid`);
+  if (feeOn && !feeByEquity) per('fl:feeOps', 'Fund fees paid', sl(dcf.fundFeesPaidPerPeriod), 'The fund fees, 6.3: inside the funding need');
+  const opIn = add(sl(dcf.cashFromOperationsPerPeriod), feeOn && feeByEquity ? neg(sl(dcf.fundFeesPaidPerPeriod)) : zeros());
+  per('fl:opIn', 'Operating cash before financing', opIn, 'The rows above', { style: 'subtotal' });
+
+  sub('fl:t:ops:capex', 'Capex', CCY);
+  per('fl:capex', 'Capex paid in cash (excluding land in kind)', sl(fin.capex.perPeriod.exclLandInKind), 'Capex: the row of that name in the capex summary');
   if (method !== 3) {
-    per('fl:landCash', '  of which land paid in cash', sl(fin.capex.perPeriod.landCash), 'Capex Table 5', { indent: 1 });
-    per('fl:nonLand', '  of which capex excluding land', sl(fin.capex.perPeriod.exclAllLand), 'Capex paid in cash less the land paid in cash', { indent: 1 });
+    per('fl:landCash', 'Of which: land paid in cash', sl(fin.capex.perPeriod.landCash), 'Capex: land, cash', { indent: 1 });
+    per('fl:nonLand', 'Of which: capex excluding land', sl(fin.capex.perPeriod.exclAllLand), 'Capex paid in cash less the land paid in cash', { indent: 1 });
   }
-  per('fl:inKind', 'Land contributed in kind (equity, not cash)', sl(fin.equity.inKindPerPeriod), 'Capex Table 5');
+  per('fl:inKind', 'Land contributed in kind (memo)', sl(fin.equity.inKindPerPeriod), 'Capex: total land, in-kind');
+
+  // THE ONLY PLACE THE EXIT VALUE IS WORKED OUT (2026-11-19, founder): the held assets' NOI from Opex, the income the
+  // exit capitalises, the gross value, the selling costs and the net proceeds, by phase and in total. Returns links here.
+  sub('fl:t:ops:exit', 'Held assets and the exit', CCY);
   {
     const noi = zeros();
     for (const pa of snap.perAssetPL.values()) if (pa.strategy === 'Operate' || pa.strategy === 'Lease') for (let t = 0; t < N; t++) noi[t] += (pa.revenuePerPeriod[t] ?? 0) - (pa.opexPerPeriod[t] ?? 0);
-    per('fl:noi', 'Income of the held assets (NOI)', noi, 'Revenue less opex of the hotel and lease lines');
     const proceeds = zeros();
     if (snap.disposal.booked) proceeds[snap.disposal.exitIdx] = snap.disposal.proceeds;
-    per('fl:proceeds', 'Exit proceeds (the held assets sold, net of selling costs)', proceeds, 'Timeline\'s exit year: the income of the year Inputs names valued at the exit terms, less the selling costs at exit');
-    // EXIT PROCEEDS BY PHASE (2026-10-29): each phase's share of the proceeds is its held lines'
-    // income in the basis year over the project's, so the phases add to the project exactly.
-    if (state.phases.length > 1) {
-      for (const ph of state.phases) {
-        const v = heldIncomePerPeriod(snap, state, ph.id);
-        per(`fl:ph:${ph.id}:noi`, `${ph.name}: income of its held assets (NOI)`, v, 'Revenue less opex of the phase\'s hotel and lease lines', { indent: 1 });
-        const share = phaseProceedsShare(snap, state, ph.id);
-        per(`fl:ph:${ph.id}:proceeds`, `${ph.name}: exit proceeds`, proceeds.map((x) => x * share), 'The exit proceeds x the phase\'s share of the income in the basis year', { indent: 1 });
-      }
+    const X = snap.disposal.exitIdx;
+    const sc = Math.max(0, Math.min(1, retCfg.exitSellingCostRate ?? 0));
+    const basisIdx = retCfg.terminalValueBasis === 'exit_year' ? X : X - 1;
+    const phs = state.phases.map((ph) => ({ ph, noi: heldIncomePerPeriod(snap, state, ph.id), share: phaseProceedsShare(snap, state, ph.id) })).filter((x) => x.noi.some((v) => Math.abs(v) > 0.005));
+    const multi = state.phases.length > 1;
+    for (const x of phs) per(`fl:ph:${x.ph.id}:noi`, `EBITDA (NOI): ${x.ph.name}`, x.noi, 'Opex: EBITDA (NOI) of the phase, in the summary by line', { indent: 1 });
+    per('fl:noi', multi ? 'EBITDA (NOI): held assets, total' : 'EBITDA (NOI): held assets', noi, multi ? 'The phases above' : 'Opex: EBITDA (NOI), in the summary by line');
+    if (booked) {
+      scalar('fl:capYear', 'Year capitalised', snap.projectStartYear + Math.max(0, basisIdx), 'year', 'The exit year on Project Inputs, less one where the basis is the year before the exit');
+      const at = (v: number): number[] => { const o = zeros(); if (snap.disposal.booked && X >= 0 && X < N) o[X] = v; return o; };
+      const incTot = snap.disposal.booked && basisIdx >= 0 ? noi[basisIdx] ?? 0 : 0;
+      const gross = snap.disposal.booked ? snap.disposal.proceeds / Math.max(1e-12, 1 - sc) : 0;
+      for (const x of phs) per(`fl:ph:${x.ph.id}:inc`, `Income capitalised: ${x.ph.name}`, at(snap.disposal.booked && basisIdx >= 0 ? x.noi[basisIdx] ?? 0 : 0), 'In the exit year: the phase\'s NOI of the year capitalised', { indent: 1 });
+      per('fl:inc', multi ? 'Income capitalised: total' : 'Income capitalised', at(incTot), 'In the exit year: the NOI of the year capitalised');
+      for (const x of phs) per(`fl:ph:${x.ph.id}:gross`, `Gross exit value: ${x.ph.name}`, at(gross * x.share), 'The gross exit value x the phase\'s share of the income capitalised', { indent: 1 });
+      per('fl:gross', multi ? 'Gross exit value: total' : 'Gross exit value', at(gross), 'The income capitalised at the exit terms on Project Inputs');
+      for (const x of phs) per(`fl:ph:${x.ph.id}:sell`, `Less selling costs at exit: ${x.ph.name}`, at(-gross * x.share * sc), 'The phase\'s gross value x the selling cost % on Project Inputs', { indent: 1 });
+      per('fl:sell', multi ? 'Less selling costs at exit: total' : 'Less selling costs at exit', at(-gross * sc), 'The gross value x the selling cost % on Project Inputs');
     }
+    for (const x of phs) per(`fl:ph:${x.ph.id}:proceeds`, `Net exit proceeds: ${x.ph.name}`, proceeds.map((v) => v * x.share), 'Its gross value less its selling costs', { indent: 1 });
+    per('fl:proceeds', multi ? 'Net exit proceeds: total' : 'Net exit proceeds', proceeds, 'The gross value less the selling costs, in the exit year on Timeline', { style: 'subtotal' });
   }
-  per('fl:collected', 'Revenue: cash collected', sl(dcf.revenueReceivedPerPeriod), 'Revenue: each line\'s cash collected');
-  per('fl:opexPaid', '(-) Opex paid, lines and HQ', add(sl(dcf.opexPaidPerPeriod), sl(dcf.hqOpexPaidPerPeriod)), 'Opex: each line\'s opex less the rise in its payable');
-  // Selling and marketing expensed has a block on Capex only where a line is expensed; escrow on Revenue only where a line holds escrow.
-  if (expensedRowsOf(state, snap, state.assets.filter((a) => a.visible !== false).map((a) => a.id), (_a, _l, valued) => valued).length) per('fl:mkt', '(-) Selling and marketing paid as incurred', sl(dcf.sellingExpensePaidPerPeriod), 'Capex: selling and marketing expensed');
-  if (snap.escrow.byAsset.size > 0 && escrowInForce(state as never)) per('fl:esc', 'Escrow: pre-sales cash held back and released', sl(dcf.netRevenueAdjustmentPerPeriod), 'Revenue: net escrow cash flow');
-  per('fl:taxPaidOps', `(-) ${TAX} paid`, sl(dcf.taxPaidPerPeriod), `The ${TAX.toLowerCase()} paid, below`);
-  if (feeOn && !feeByEquity) per('fl:feeOps', '(-) Fund fees paid', sl(dcf.fundFeesPaidPerPeriod), 'The fund fees, below: inside the funding need');
-  const opIn = add(sl(dcf.cashFromOperationsPerPeriod), feeOn && feeByEquity ? neg(sl(dcf.fundFeesPaidPerPeriod)) : zeros());
-  per('fl:opIn', '= Operating cash before financing', opIn, 'The rows above', { style: 'subtotal' });
   gapRow();
 
   // ── The funding need ──────────────────────────────────────────────────────
@@ -269,9 +295,11 @@ export function financingPlan(state: FinancialsResolverState, snap: Snap = compu
     per('fl:feeDraw', 'Equity drawn for the fund fees', sl(w.managementFeeEquityDrawPerPeriod), 'The whole fee, in a year construction runs; outside the funding need');
   }
   per('fl:after', 'Cash after funding', inWin(sl(w.closingCashAfterFundingPerPeriod)), 'Cash before financing plus the funding need', { balance: true, style: 'subtotal' });
+  note('fl:needNote', `${TAX} is paid from cash on hand and is not part of the funding need.`);
   gapRow();
 
   // ── Each facility ─────────────────────────────────────────────────────────
+  const chargeRows: Array<{ key: string; label: string; values: number[]; basis: string }> = [];
   for (const t of tranches) {
     const f = fin.facilities.get(t.id);
     if (!f) continue;
@@ -281,61 +309,75 @@ export function financingPlan(state: FinancialsResolverState, snap: Snap = compu
     const closing = sl(f.outstanding);
     per(`fl:tr:${t.id}:open`, 'Opening', closing.map((_, i) => (i === 0 ? 0 : closing[i - 1])), 'The closing balance of the year before', { balance: true });
     per(`fl:tr:${t.id}:draw`, isEx ? 'Drawn in its origination year' : 'Capex drawdown', sl(f.drawSchedule), isEx ? 'The opening balance on Inputs, in the origination year on Inputs' : 'Debt drawn for the funding x the facility\'s share');
-    per(`fl:tr:${t.id}:idc`, 'Interest drawn as debt', sl(f.interestCapitalized), isEx ? 'None: an existing loan pays its interest in cash' : 'The interest charged in a year construction runs, capitalised in full');
-    per(`fl:tr:${t.id}:repaid`, kind === 'sweep' ? '(-) Swept from cash above the minimum' : '(-) Scheduled principal', neg(sl(f.principalRepaid)), kind === 'sweep' ? 'From the sweep start, the cash above the minimum after debt service x the sweep %' : 'The repayment terms on Inputs');
+    per(`fl:tr:${t.id}:idc`, 'IDC added', sl(f.interestCapitalized), isEx ? 'None: an existing loan pays its interest in cash' : 'The interest charged in a year construction runs, capitalised in full');
+    per(`fl:tr:${t.id}:repaid`, kind === 'sweep' ? 'Swept from cash above the minimum' : 'Scheduled principal repaid', neg(sl(f.principalRepaid)), kind === 'sweep' ? 'From the sweep start, the cash above the minimum after debt service x the sweep %' : 'The repayment terms on Inputs');
     per(`fl:tr:${t.id}:close`, 'Closing', closing, 'Opening plus the draws less the principal repaid', { balance: true, style: 'subtotal' });
-    per(`fl:tr:${t.id}:charge`, 'Interest charged', sl(f.interestAccrued), isEx ? 'Opening plus the drawdown, at the rate on Inputs (interbank plus spread)' : 'Construction: rate x (opening + drawdown / 2), divided by (1 - rate / 2) unless the IDC method excludes same-year IDC. Otherwise rate x opening');
+    const afterX = closing.map((x, u) => (snap.disposal.booked && u >= snap.disposal.exitIdx ? 0 : x));
+    per(`fl:tr:${t.id}:bs`, `${t.name}: outstanding after the exit repayment`, afterX, 'Its closing balance, nothing from the exit year (the Balance Sheet)', { balance: true });
+    per(`fl:tr:${t.id}:left`, `Check: ${t.name} after the exit, should be 0`, zeros(), 'Its closing balance in and after the exit year', { balance: true });
+    chargeRows.push({ key: `fl:tr:${t.id}:charge`, label: tranches.length > 1 ? `Interest charged: ${t.name}` : 'Interest charged', values: sl(f.interestAccrued), basis: isEx ? 'Opening plus the drawdown, at the rate on Inputs (interbank plus spread)' : 'Construction: rate x (opening + drawdown / 2), divided by (1 - rate / 2) unless the IDC method excludes same-year IDC. Otherwise rate x opening' });
   }
+  if (tranches.length > 1) per('fl:debtBs', 'Debt outstanding after the exit repayment', (() => { const v = add(...tranches.map((t) => sl(fin.facilities.get(t.id)?.outstanding))); return v.map((x, u) => (snap.disposal.booked && u >= snap.disposal.exitIdx ? 0 : x)); })(), 'The facilities above', { balance: true });
   gapRow();
 
-  // ── Interest ──────────────────────────────────────────────────────────────
-  title('fl:t:int', 'Interest');
+  // ── 4. Interest and capitalised interest (2026-11-19, founder): 4.1 the interest and its split, 4.2 the IDC allocation
+  // on land area, 4.3 the IDC by line, each with its check. ──
+  title('fl:t:int', 'Interest and capitalised interest');
   const c = fin.combined;
+  sub('fl:t:int:1', 'Interest', CCY);
+  for (const cr of chargeRows) per(cr.key, cr.label, cr.values, cr.basis);
   if (tranches.length > 1) {
-    per('fl:drawAll', 'Capex drawdown, all facilities', sl(c.totalDrawdown), 'The facilities above');
-    per('fl:idcAll', 'Interest drawn as debt, all facilities', sl(c.totalInterestCapitalized), 'The facilities above');
-    per('fl:intAll', 'Interest charged, all facilities', add(...tranches.map((t) => sl(fin.facilities.get(t.id)?.interestAccrued))), 'The facilities above');
+    per('fl:drawAll', 'Capex drawdown: all facilities', sl(c.totalDrawdown), 'The facilities in section 3');
+    per('fl:idcAll', 'IDC added: all facilities', sl(c.totalInterestCapitalized), 'The facilities in section 3');
+    per('fl:intAll', 'Interest charged: all facilities', add(...tranches.map((t) => sl(fin.facilities.get(t.id)?.interestAccrued))), 'The rows above');
   }
   if (tranches.some((t) => facilityKind(t) !== 'sweep') && tranches.length > 1) {
-    per('fl:sched', '(-) Scheduled principal, all facilities', neg(sl(c.totalPrincipalRepaid.map((v, i) => Math.max(0, (v ?? 0) - (c.totalSweepRepaid[i] ?? 0))))), 'The facilities repaid on a schedule');
+    per('fl:sched', 'Scheduled principal repaid: all facilities', neg(sl(c.totalPrincipalRepaid.map((v, i) => Math.max(0, (v ?? 0) - (c.totalSweepRepaid[i] ?? 0))))), 'The facilities repaid on a schedule');
   }
-  per('fl:idcBasis', 'Capitalised interest', sl(snap.idc.totalIdcPerPeriod), 'The new facilities\' interest in a year construction runs');
-  per('fl:intExp', '(-) Interest expensed', neg(sl(c.totalInterestExpensed)), 'Interest charged less what is capitalised');
+  per('fl:idcBasis', 'Of which capitalised (IDC)', sl(snap.idc.totalIdcPerPeriod), 'The new facilities\' interest in a year construction runs');
+  per('fl:intExp', 'Of which expensed (P&L)', sl(c.totalInterestExpensed), 'Interest charged less what is capitalised');
+  per('fl:intChk', 'Check: capitalised + expensed - charged = 0', zeros(), 'Must read 0 in every year');
   {
     const tbl = buildIdcAllocationTables(snap, state, String)[0];
-    // THE IDC ALLOCATION BY LINE (2026-11-12, founder: kept, compact): one row per line under one heading.
-    if (idcLines.some((_l, i) => tbl?.rows[i])) title('fl:t:idc', 'Capitalised interest (IDC) allocated by line');
-    // THE IDC ALLOCATION IN SIMPLE ROWS (2026-11-15, founder): each line's land under construction (its land
-    // from Land & Area in the Input column), the total, each line's share, then its IDC (rows below).
-    if (sqmActive) {
-      scalar('fl:sqmTot', 'Land of the assets that share capitalised interest (sqm)', idcSqmTot, 'int', 'The lines\' land below');
+    // 4.2: each line's land (Input column), its construction years, and its share of the year's IDC, only in a year
+    // with IDC; the check that the shares add to 100%.
+    if (sqmActive && idcLines.length) {
+      sub('fl:t:int:2', 'IDC allocation, by land area', 'sqm; 1 = under construction; % of the year\'s IDC');
+      note('fl:idcBasisNote', 'Basis: land area, as set on Project Inputs.');
+      const idcOn = sl(snap.idc.totalIdcPerPeriod).map((v) => Math.abs(v) > 0.005);
       const landUC: number[][] = [];
       idcLines.forEach((l, i) => {
         const sqmOfLine = idcAssets.filter((x) => l.assetIds.includes(x.assetId)).reduce((a, x) => a + x.landSqm, 0);
+        meta(`fl:idcArea:${i}`, `Land area: ${l.title}`, sqmOfLine, 'Land & Area: the plots of the line');
+      });
+      idcLines.forEach((l, i) => {
         const a0 = state.assets.find((y) => y.id === l.assetIds.find((id) => idcAssets.some((x) => x.assetId === id)));
         const ph = a0 && state.phases.find((q) => q.id === a0.phaseId);
         const v = zeros();
-        if (ph) { const s0 = clamp(yearOf(ph) - Y0, 0, N1), cp = ph.constructionPeriods ?? 0; for (let t = s0; t <= (cp > 0 ? Math.min(N1, s0 + cp - 1) : -1); t++) v[t] = sqmOfLine; }
-        landUC.push(v);
-        per(`fl:idcLand:${i}`, `${l.title}: land under construction (sqm)`, v, 'Its land (Input column) in its construction years', { fmt: 'int', metaB: sqmOfLine, indent: 1 });
+        if (ph) { const s0 = clamp(yearOf(ph) - Y0, 0, N1), cp = ph.constructionPeriods ?? 0; for (let t = s0; t <= (cp > 0 ? Math.min(N1, s0 + cp - 1) : -1); t++) v[t] = 1; }
+        const sqmOfLine = idcAssets.filter((x) => l.assetIds.includes(x.assetId)).reduce((a, x) => a + x.landSqm, 0);
+        landUC.push(v.map((f) => f * sqmOfLine));
+        per(`fl:idcFlag:${i}`, `Under construction: ${l.title}`, v, 'Timeline: the line\'s construction years', { fmt: 'int' });
       });
-      per('fl:sqmActive', 'Land under construction (sqm)', sqmActive, 'The lines above', { fmt: 'int' });
+      const shareRows: number[][] = [];
       idcLines.forEach((l, i) => {
         const sqmOfLine = idcAssets.filter((x) => l.assetIds.includes(x.assetId)).reduce((a, x) => a + x.landSqm, 0);
-        const sh = sqmActive!.map((act, t) => (act > 0 ? landUC[i][t] / act : idcSqmTot > 0 ? sqmOfLine / idcSqmTot : 0));
-        per(`fl:idcShare:${i}`, `${l.title}: share of the capitalised interest`, sh, 'Its land under construction over the total', { fmt: 'pct', indent: 1 });
+        const sh = sqmActive!.map((act, t) => (!idcOn[t] ? 0 : act > 0 ? landUC[i][t] / act : idcSqmTot > 0 ? sqmOfLine / idcSqmTot : 0));
+        shareRows.push(sh);
+        per(`fl:idcShare:${i}`, `IDC share: ${l.title}`, sh, 'Its land x under construction over the lines\' total, in a year with IDC', { fmt: 'pct' });
       });
+      per('fl:idcShareChk', 'Check: IDC shares - 100% = 0', zeros(), 'The shares add to 100% in every year with IDC', { fmt: 'pct' });
     }
-    idcLines.forEach((l, i) => {
-      const row = tbl?.rows[i];
-      if (row) per(`fl:idc:${i}`, l.title, sl(row.values), FEEDS_SCHEDULES, { indent: 1 });
-    });
-    if (snap.idc.capitalize) {
-      const heldIdc = idcLines.some((l) => l.assetIds.some((id) => { const a = state.assets.find((x) => x.id === id); return a?.strategy === 'Operate' || a?.strategy === 'Lease'; }));
-      const tables = buildIdcAllocationTables(snap, state, String);
-      const disp = tables.flatMap((t) => t.rows).find((r) => r.label.startsWith('Disposed at Exit'));
-      // Read by nothing (2026-11-15, founder): Schedules writes the capitalised interest off at the exit.
-      if (heldIdc && booked && (false as boolean)) per('fl:idcDisp', '(-) Capitalised interest written off at the exit', sl(disp?.values ?? zeros()), 'Schedules: the held lines\' capitalised interest left at the exit, sold with the asset');
+    // 4.3: each line's IDC, the total and its check.
+    if (idcLines.some((_l, i) => tbl?.rows[i])) {
+      sub('fl:t:int:3', 'IDC by line', CCY);
+      const tot = zeros();
+      idcLines.forEach((l, i) => {
+        const row = tbl?.rows[i];
+        if (row) { per(`fl:idc:${i}`, `IDC: ${l.title}`, sl(row.values), FEEDS_SCHEDULES); sl(row.values).forEach((v, t) => { tot[t] += v; }); }
+      });
+      per('fl:idcLinesTot', 'IDC by line: total', tot, 'The lines above', { style: 'subtotal' });
+      per('fl:idcLineChk', 'Check: IDC by line - capitalised = 0', zeros(), 'Must read 0 in every year');
     }
   }
   gapRow();
@@ -343,28 +385,32 @@ export function financingPlan(state: FinancialsResolverState, snap: Snap = compu
   // ── Zakat: worked out on the P&L, read back here for the cash (2026-11-15, founder) ──
   const pl = snap.pl;
   title('fl:t:pbt', TAX);
-  per('fl:tax', `${TAX} (the P&L)`, sl(pl.taxPerPeriod), 'The charge on the P&L');
+  sub('fl:t:pbt:1', `${TAX} from the P&L`, CCY);
+  per('fl:tax', `${TAX} charge, from the P&L`, sl(pl.taxPerPeriod), 'The charge on the P&L');
   // Paid in the year (0 payment days): no payable, and the charge is what is paid (2026-11-15, founder).
   if (featureUsed(state as never, 'taxPayable')) {
+    sub('fl:t:pbt:2', 'Payable at the year end', CCY);
     per('fl:taxPay', `${TAX} payable at the year end`, sl(snap.bs.taxPayablePerPeriod), 'The charge x the payment days on Inputs over 365', { balance: true });
+    sub('fl:t:pbt:3', `${TAX} paid`, CCY);
     per('fl:taxPaid', `${TAX} paid`, neg(sl(dcf.taxPaidPerPeriod)), 'The charge less the rise in what is payable');
   }
   gapRow();
 
   // ── The fund fees ─────────────────────────────────────────────────────────
   if (feeOn) {
-    title('fl:t:fee', 'Fund fees (on bases worked out with no fund fee in the funding)');
+    title('fl:t:fee', 'Fund fees');
     const ff = snap.fundFees;
-    scalar('fl:feeEq', 'Capex equity of the funding need', ff.totalEquity.amount, 'money', 'The fee-free funding need x the equity share');
-    scalar('fl:feeDebt', 'Capex debt of the funding need', ff.debtFacility.amount, 'money', 'The fee-free funding need x the debt share');
-    scalar('fl:feeFund', '= Fund size (debt + equity funding need)', ff.fundSize.amount, 'money', fundTerms.fundSizeOverride ? 'The fund size typed on Inputs' : 'The two rows above');
-    scalar('fl:feeTdc', 'Total development cost (excl. IDC)', ff.totalDevelopmentCost, 'money', 'Capex Table 2: all capex including land, less the sales commission; no capitalised interest');
+    sub('fl:t:fee:1', 'Fee bases', CCY);
+    scalar('fl:feeFund', 'Fund size', ff.fundSize.amount, 'money', fundTerms.fundSizeOverride ? 'The fund size typed on Project Inputs' : 'The funding need with no fund fee in it (debt and equity)');
+    scalar('fl:feeTdc', 'Total development cost (excl. selling costs)', ff.totalDevelopmentCost, 'money', 'Capex: the row of that name in the capex summary');
     scalar('fl:feeDsc', 'Debt share x cash development cost', ff.debtShareCashCost, 'money', 'The debt share x the capex paid in cash, less the sales commission');
     if (method === 3) {
       // THE SHADOW FACILITY (2026-11-18): the fee-free draws and the interest capitalised on them.
       let wS = 0, rS = 0;
       for (const t of tranches) { if (t.origin === 'existing') continue; const sh = fin.shares.get(t.id) ?? 0; wS += sh; rS += sh * effectiveTrancheRatePct(t) / 100; }
       const rW = wS > 0 ? rS / wS : 0;
+      per('fl:feeEtd', 'Equity to date (cash equity for capex plus land in kind)', sl(ff.equityToDatePerPeriod), 'Cumulative capex equity of the fee-free funding plus land in kind, up to the exit; its peak in Total', { balance: true });
+      sub('fl:t:fee:2', 'Fee-free facility, for the arranging fee only', CCY);
       scalar('fl:xRate', 'Interest rate, share-weighted across the loans', rW, 'pct', 'Each new loan\'s rate on Inputs, weighted by its share of the debt');
       const dFv = Math.max(0, fin.funding.debtPct ?? 0) / 100;
       // THE ENGINE'S SHADOW, READ (2026-11-19): the export printed its own working of it, which a monthly model did
@@ -377,13 +423,14 @@ export function financingPlan(state: FinancialsResolverState, snap: Snap = compu
       per('fl:xBal', 'Fee-free debt balance (construction)', xBal, 'Last year\'s balance plus the fee-free debt drawn and its capitalised interest', { balance: true });
     }
     scalar('fl:feeFac', 'Total facility (capex debt + IDC)', ff.totalFacility, 'money', method === 3 ? 'The fee-free debt drawn plus its capitalised interest' : 'Every new loan\'s capex drawdown plus its interest drawn as debt');
-    per('fl:feeEtd', 'Equity to date (cash equity for capex plus land in kind)', sl(ff.equityToDatePerPeriod), 'Cumulative capex equity of the fee-free funding plus land in kind, up to the exit');
-    scalar('fl:feeEtdPeak', 'Equity to date, at its peak', Math.max(0, ...sl(ff.equityToDatePerPeriod)), 'money', 'The largest balance above');
+    if (!rows.some((x) => x.key === 'fl:feeEtd')) per('fl:feeEtd', 'Equity to date (cash equity for capex plus land in kind)', sl(ff.equityToDatePerPeriod), 'Cumulative capex equity of the fee-free funding plus land in kind, up to the exit; its peak in Total', { balance: true });
+    if (method === 3) note('fl:xNote', 'Shadow walk without fees or the sweep, so the arranging fee does not depend on itself (keeps the model non-circular).');
+    sub('fl:t:fee:3', 'Fees', CCY);
     FUND_FEE_SPECS.forEach((spec, i) => {
       const base = (FEE_BASE_LABELS[feeBaseFor(spec, fundTerms)] ?? spec.base).toLowerCase();
       per(`fl:fee:${i}`, spec.label, sl(ff.lines[i]?.amountPerPeriod), spec.kind === 'amount' ? 'The amount on Inputs, each year to the exit' : spec.timing === 'one_time' ? `The rate on Inputs x the basis on Inputs, in the first draw year (now the ${base})` : `The rate on Inputs x the ${base}, each year to the exit`, { indent: 1 });
     });
-    per('fl:feeTot', 'Total fund fees', sl(ff.totalPerPeriod), 'The fees above', { style: 'subtotal' });
+    per('fl:feeTot', 'Fund fees: total', sl(ff.totalPerPeriod), 'The fees above', { style: 'subtotal' });
     gapRow();
   }
 
@@ -442,11 +489,7 @@ export function financingPlan(state: FinancialsResolverState, snap: Snap = compu
   }
   per('fl:div', '(-) Dividends paid', neg(sl(snap.dividends.totalDividendsPerPeriod)), 'The dividend, and in the exit year all the cash above the minimum');
   per('fl:close', '= Closing cash', sl(dcf.closingCashPerPeriod), 'Cash available for dividends less the dividends (ties to the Cash Flow and the Balance Sheet)', { balance: true, style: 'total' });
-  // Each facility's balance after the exit repayment (2026-11-03): the Balance Sheet links each one.
-  const afterExit = (v: number[]): number[] => v.map((x, t) => (snap.disposal.booked && t >= snap.disposal.exitIdx ? 0 : x));
-  for (const t of tranches) per(`fl:tr:${t.id}:bs`, `${t.name}: outstanding after the exit repayment`, afterExit(sl(fin.facilities.get(t.id)?.outstanding)), 'Its closing balance, nothing from the exit year (the Balance Sheet)', { balance: true, indent: 1 });
-  // With one facility its own row says it (2026-11-15, founder).
-  if (tranches.length > 1) per('fl:debtBs', 'Debt outstanding after the exit repayment', afterExit(add(...tranches.map((t) => sl(fin.facilities.get(t.id)?.outstanding)))), 'The facilities above', { balance: true });
+  // Each facility's balance after the exit repayment sits in section 3 (2026-11-19, founder).
 
   // A SETTING SITS IN THE SECTION THAT USES IT (2026-11-15, founder): no settings block on top. A plain copy
   // of an Inputs cell is not a row at all (the live workbook links Inputs directly: formulaWorkbook.ts).
@@ -464,7 +507,8 @@ export function financingPlan(state: FinancialsResolverState, snap: Snap = compu
   place((k) => ['fl:lastCon', 'fl:sweepStart'].includes(k), (k) => k.startsWith('fl:t:tr:'));
   for (const t of tranches) place((k) => new RegExp(`^fl:tr:${t.id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}:(rate|td|start|n|fin|pmt)$`).test(k), (k) => k === `fl:t:tr:${t.id}`);
   place((k) => k === 'fl:divStart', (k) => k === 'fl:payout');
-  place((k) => k === 'fl:firstDraw', (k) => k === 'fl:t:fee');
+  place((k) => k === 'fl:firstDraw', (k) => k === 'fl:t:fee:1:u');
+  place((k) => k === 'fl:idcExcl', (k) => k === 'fl:t:int:1:u');
   // The first gap row a removed block leaves at the top goes.
   while (rows[0]?.kind === 'gap') rows.shift();
   return { rows, ctx: { method, feeOn, feeByEquity, zakat, cit, taxLag, anySweep, booked, idcLines } };

@@ -134,7 +134,7 @@ export const stage5Statements: LiveLayer = {
           case 'mkt': f = costOf(s.phaseId === ALL && has('cx1e:total') ? ['cx1e:total'] : expensedKeys.filter((k) => s.phaseId === ALL || phaseOfAsset.get(k.split(':')[1]) === s.phaseId)); break;
           case 'fee': f = costOf([`fnc:fee:${s.index}`]); break;
           case 'dep': f = keyF('schv:__project__:dep'); break;
-          case 'int': f = keyF('fnc:main:intexp'); break;
+          case 'int': f = costOf(['fnc:main:intexp']); break; // positive on Financing 4.1 (2026-11-19)
           case 'gain': f = keyF('fl:gain'); break;
           case 'tax': f = costOf(['fnc:tax']); break;
           // ZAKAT ON THE P&L (2026-11-15, founder): the gain, the profit it is charged on, the corporate tax

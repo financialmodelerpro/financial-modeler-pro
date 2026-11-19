@@ -30,8 +30,8 @@ export const TAB_LINES: ReadonlyArray<[string, string]> = [
   ['Revenue', 'Sales and collections for each sell line; occupancy, rate and revenue for the hotel and lease lines; selling costs.'],
   ['Capex', 'Development cost for each asset: rate x quantity x spend share x escalation, by year, and the capex summary.'],
   ['Opex', 'Operating costs for the hotel and lease lines, and EBITDA by line.'],
-  ['Schedules', 'Fixed assets and depreciation for each held asset; cost of sales and inventory for each sell line.'],
   ['Financing', 'Funding need, debt and equity, interest and capitalised interest, %TAX%, fund fees and the cash waterfall.'],
+  ['Fixed Assets & Inventory', 'Fixed assets and depreciation for each held asset; cost of sales and inventory for each sell line.'],
   ['P&L', 'Revenue to profit after %TAX% for the project, and each phase to EBITDA.'],
   ['Cash Flow', 'Cash in and out by the direct method; opening and closing cash.'],
   ['Balance Sheet', 'Year-end balances and the equity roll-forward; the balance check must read zero.'],
@@ -244,7 +244,7 @@ function buildGuide(ws: ExcelJS.Worksheet, wb: ExcelJS.Workbook, ctx: FrontConte
     const t = text.replace(/%TAX%/g, tax);
     line({ text: tab, hyperlink: `#'${tab.replace(/'/g, "''")}'!A1` } as ExcelJS.CellValue, t, { labelFont: { ...f(9, LINK, true), underline: true }, height: t.length > 120 ? 27 : 15 });
   }
-  line('Flow', 'Inputs  ->  Timeline  ->  Land & Area  ->  Revenue, Capex, Opex  ->  Schedules  ->  Financing  ->  P&L, Cash Flow, Balance Sheet  ->  Returns  ->  Dashboard', { height: 27 });
+  line('Flow', 'Inputs  ->  Timeline  ->  Land & Area  ->  Revenue, Capex, Opex  ->  Financing  ->  Fixed Assets & Inventory  ->  P&L, Cash Flow, Balance Sheet  ->  Returns  ->  Dashboard', { height: 27 });
   r++;
 
   bar('Reading the results');
@@ -263,7 +263,9 @@ function buildGuide(ws: ExcelJS.Worksheet, wb: ExcelJS.Workbook, ctx: FrontConte
   r++;
 
   bar('Links that read a later tab');
-  line('Capitalised interest', 'Schedules reads it from Financing, which works it out from the opening debt and the draw of the year.');
+  // FIXED ASSETS & INVENTORY COMES AFTER FINANCING (2026-11-19): its capitalised interest now flows forward; only the
+  // cost per sqm on Capex reads Financing's IDC back.
+  line('Capitalised interest', 'The cost per sqm on Capex (construction + IDC) reads it from Financing, which works it out from the opening debt and the draw of the year.');
   line('Retained earnings', 'The dividend cap on Financing reads the retained earnings available on the Balance Sheet (last year\'s retained earnings and this year\'s profit after tax), none of which reads this year\'s dividend.');
   line(tax === 'zakat' ? 'Zakat' : 'Tax', 'Worked out on the P&L; Financing reads the charge back for the cash.');
   r++;

@@ -301,7 +301,8 @@ export const stage1LandArea: LiveLayer = {
       const typeUnit = typeRef(a, 'unit');
       const fallback = typeUnit ?? '0';
       const cnt = sized.map((x) => `COUNTIF(${x},">0")`).join('+'), sm = sized.map((x) => `SUMIF(${x},">0")`).join('+');
-      if (sized.length || typeUnit) w.f(ch('usize'), sized.length ? `IF(${cnt}>0,(${sm})/(${cnt}),${fallback})` : fallback);
+      // ONE SIZED ROW (2026-11-19, founder): its size where stated, else the type's, with no COUNTIF over one cell.
+      if (sized.length || typeUnit) w.f(ch('usize'), sized.length === 1 ? `IF(${sized[0]}>0,${sized[0]},${fallback})` : sized.length ? `IF(${cnt}>0,(${sm})/(${cnt}),${fallback})` : fallback);
       // Units: a sub-unit count wins, else NSA / unit size rounded.
       const countUnits = computeAssetUnitCount(a, state.subUnits as SubUnit[]) > 0;
       const unitCells = (suByAsset.get(a.id) ?? []).filter((u) => u.category !== 'Support' && w.has(`su:${u.id}:units`)).map((u) => R(`su:${u.id}:units`));

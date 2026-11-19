@@ -82,11 +82,14 @@ export function figureTools(wb: ExcelJS.Workbook, w: LiveWriter): FigureTools {
 export type AreaRow = { land: X; landValue: X; gfa: X; bua: X; nsa: X; units: X; keys: X; leasable: X };
 
 /** Each visible asset's area figures, proved against the platform's rules; the misses are named. */
-export function liveAssetAreas(tools: FigureTools, state: Pick<FinancialsResolverState, 'project' | 'parcels' | 'subUnits' | 'landAllocationMode'>, visible: Asset[]): { perAsset: Map<string, AreaRow>; misses: string[] } {
+export function liveAssetAreas(tools: FigureTools, state: Pick<FinancialsResolverState, 'project' | 'parcels' | 'subUnits' | 'landAllocationMode'>, visible: Asset[]): { perAsset: Map<string, AreaRow>; misses: string[]; builtAreas: Map<string, { bua: X; gfa: X }> } {
   const { cellX, add, all, near } = tools;
   type Row = AreaRow;
     const perAsset = new Map<string, Row>();
     const misses: string[] = [];
+    // AN ASSET WHOSE BUILT AREAS ARE LIVE (2026-11-19) even where another of its figures is not (a plot of a merged line
+    // whose NSA is the line's one "NSA used" row): Table 7 divides a line by its plots' GFA and BUA and its own NSA.
+    const builtAreas = new Map<string, { bua: X; gfa: X }>();
     const subUnits = state.subUnits as SubUnit[];
     const NSA_CATS = new Set(['Sellable', 'Operable', 'Leasable']);
     for (const a of visible) {
@@ -154,8 +157,9 @@ export function liveAssetAreas(tools: FigureTools, state: Pick<FinancialsResolve
       const got: Record<string, X | null> = { bua, gfa, nsa, units, keys, leasable };
       const bad = Object.keys(want).filter((k) => !got[k] || !near(got[k]!.v, want[k]));
       if (!land || !landValue) bad.push('land');
+      if (bua && gfa && near(bua.v, m.bua) && near(gfa.v, m.gfa)) builtAreas.set(a.id, { bua, gfa });
       if (bad.length) { misses.push(`${a.name} (${bad.join(', ')})`); continue; }
       perAsset.set(a.id, { land: land!, landValue: landValue!, bua: bua!, gfa: gfa!, nsa: nsa!, units: units!, keys: keys!, leasable: leasable! });
     }
-  return { perAsset, misses };
+  return { perAsset, misses, builtAreas };
 }

@@ -25,8 +25,8 @@ export const LIVE_TAB_GUIDE: Array<[string, string]> = [
   ['Revenue', 'One path per line: sales and collections for a sell line; occupancy, rate and revenue for a hotel or lease line.'],
   ['Capex', 'Each cost line per asset: rate x quantity x spend share x escalation, by year, with and without land.'],
   ['Opex', 'Operating costs per hotel and lease line, by year of operation.'],
-  ['Schedules', 'Fixed assets and depreciation per held asset, and cost of sales and inventory per sell line.'],
   ['Financing', 'The funding need, draws, interest, repayments, sweep, dividends and the exit, in year order with no circular reference.'],
+  ['Fixed Assets & Inventory', 'Fixed assets and depreciation per held asset, and cost of sales and inventory per sell line.'],
   ['P&L', 'Revenue to EBITDA by line, then depreciation, interest, the gain on disposal and zakat; phases to EBITDA.'],
   ['Cash Flow', 'Cash in and out by the direct method, and opening and closing cash.'],
   ['Balance Sheet', 'Balances at each year end with the equity roll-forward; the check row must read zero.'],
@@ -234,6 +234,8 @@ export function shortenTexts(ws: ExcelJS.Worksheet): void {
     if (typeof v !== 'string' || v.length <= 60) return;
     // A cell set to wrap is meant to be read in full (an "Applies to" list, 2026-11-15).
     if (c.alignment?.wrapText === true) return;
+    // An italic note or units row under a table (2026-11-19, founder): read in full.
+    if ((c.font as { italic?: boolean } | undefined)?.italic && Number(c.col) === 1) return;
     // A shaded cell is an input (its text is the choice made): never rewritten.
     const f = c.fill as { pattern?: string; fgColor?: { argb?: string } } | undefined;
     if (f?.pattern === 'solid' && f.fgColor?.argb === ARGB.inputFill) return;

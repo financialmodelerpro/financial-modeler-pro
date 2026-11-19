@@ -340,7 +340,7 @@ export function splitInputs(wb: ExcelJS.Workbook, opts: { readFrom?: ExcelJS.Wor
           else claim(r, c);
         }
         // A table whose columns are typed shares shows a 0 where a party has none (the fee shares).
-        if (opts.zeroBlankInputs) for (const [c, to] of table) { if (c === 3 || row.cells.has(to)) continue; const typed = tableRows.some((tr) => isInput(tr, c)); if (typed) row.set(to, lit(0, { font: font({ color: { argb: 'FF0000FF' } }), fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: INPUT_FILL } } as ExcelJS.Fill, numFmt: '0.0%' })); }
+        if (opts.zeroBlankInputs) for (const [c, to] of table) { if (c === 3 || row.cells.has(to)) continue; const typed = tableRows.some((tr) => isInput(tr, c)); if (typed) row.set(to, lit('n/a', S_NA)); }
         if (row.cells.size) out.push(row);
         continue;
       }
@@ -817,33 +817,31 @@ export function splitInputs(wb: ExcelJS.Workbook, opts: { readFrom?: ExcelJS.Wor
       g.subs.push({ rows });
       continue;
     }
-    // 5 Construction phasing: the curves as a % grid by construction year.
+    // 5 Construction phasing (2026-11-19, founder): the working table, the phase curves, land and RETT, and a row only for
+    // a line spread differently, each its % by construction year with a Check. The year numbers are the cells the Capex
+    // tab looks a year up in, so they move with their addresses.
     if (/^construction phasing/.test(u)) {
       const head = b.rows.find(isHeadRow);
       if (head !== undefined) {
-        const yearCols = rowCells(head).filter((c) => /^Year \d+$/i.test(str(head, c)));
-        for (const c of rowCells(head)) claim(head, c);
+        const yearCols = rowCells(head).filter((c) => c > 3 && (typeof val(head, c) === 'number' || /^Year \d+$/i.test(str(head, c))));
+        const kOf = (c: number): number => { const v = val(head, c); return typeof v === 'number' ? v : Number(/(\d+)/.exec(str(head, c))?.[1] ?? 0); };
+        for (const c of rowCells(head)) if (!yearCols.includes(c)) claim(head, c);
         const nY = yearCols.length;
         const h = new ORow('head').set(3, lit('Construction year', S_HEAD(true))).set(4, lit('Unit', S_HEAD(false))).set(5, lit('Check', S_HEAD(false)));
-        for (let k = 1; k <= nY; k++) h.set(5 + k, lit(k, S_HEAD(false)));
+        yearCols.forEach((c, i) => h.set(6 + i, { from: [head, c], value: kOf(c), style: S_HEAD(false) }));
         const rows: ORow[] = [h];
-        const applies = rowCells(head).find((c) => /^Applies to$/i.test(str(head, c)));
         for (const r of b.rows) {
           if (r <= head || emptyRow(r) || isHeadRow(r)) continue;
-          const who = applies ? str(r, applies) : '';
-          const phases = [...new Set([...who.matchAll(/\bP(\d+)\b/g)].map((m) => m[1]))];
-          const label = phases.length === 1 ? `Spend phasing: Phase ${phases[0]} (all Phase ${phases[0]} lines)` : `Spend phasing: ${str(r, 3)}${who ? ` (${who})` : ''}`;
+          if (!yearCols.some((c) => free(r, c))) { for (const c of rowCells(r)) if (free(r, c)) claim(r, c); continue; }
           claim(r, 3);
-          const row = new ORow('data').set(3, lit(label)).set(4, lit('% of cost', S_UNIT));
-          const first = yearCols[0] ?? 4;
+          const row = new ORow('data').set(3, lit(str(r, 3))).set(4, lit('% of cost', S_UNIT));
           for (let c = 4; c <= srcLastCol; c++) {
             if (!free(r, c)) continue;
-            const isYear = c >= first && c < first + nY;
-            if (isYear) row.set(c - first + 6, mv(r, c));
-            else if (isRead(r, c)) row.set(c - first + 6, ghost(r, c));
+            const i = yearCols.indexOf(c);
+            if (i >= 0) row.set(6 + i, /^n\/a$/i.test(str(r, c)) ? { from: [r, c], value: 'n/a', style: S_NA, na: true } : mv(r, c));
+            else if (isRead(r, c)) row.set(6 + Math.max(0, c - (yearCols[0] ?? 4)), ghost(r, c));
             else claim(r, c);
           }
-          if (phases.length === 1 && phaseYears.has(phases[0])) naBeyond(row, phaseYears.get(phases[0])!, nY);
           row.set(5, { value: { formula: `@SUMCHECK:${nY}@` } as unknown as ExcelJS.CellValue, style: S_FORMULA, final: true });
           rows.push(row);
         }
@@ -851,52 +849,27 @@ export function splitInputs(wb: ExcelJS.Workbook, opts: { readFrom?: ExcelJS.Wor
         continue;
       }
     }
-    // The timing rules, as sentences; the windows a formula reads go to hidden helper cells on the sentence row.
+    // THE TIMING IS THE PHASING TABLE'S (2026-11-19, founder): no sentence restates it. What the cost line table still
+    // holds that a formula reads (a selling cost's own window, a locked land rate) goes to the technical settings; one
+    // note says what the table does not: every other line follows its phase curve, the commission its terms.
     if (b === capexLinesBlock) {
       const head = b.rows.find((r) => isHeadRow(r) && /^(Cost line|Timing exceptions)/.test(str(r, 3)))!;
       const hc = rowCells(head);
-      const col = (re: RegExp): number | undefined => hc.find((c) => re.test(str(head, c)));
-      const cRate = col(/^Rate$/i), cPh = col(/^Phasing$/i), cS = col(/^Start/i), cE = col(/^End/i), cA = col(/^Applies to$/i);
+      const cPh = hc.find((c) => /^Phasing$/i.test(str(head, c)));
       for (const c of hc) claim(head, c);
-      const pre = generic(b.rows.filter((r) => r < head));
-      const rows: ORow[] = [...pre];
-      const land: Array<{ r: number; s: number; e: number }> = [];
-      const others: ORow[] = [];
-      const phasesOf = (r: number): string => { const ps = [...new Set([...(cA ? str(r, cA) : '').matchAll(/\bP(\d+)\b/g)].map((m) => m[1]))].sort(); return ps.length === 1 ? `Phase ${ps[0]}` : ps.length ? `Phases ${ps.slice(0, -1).join(', ')} and ${ps[ps.length - 1]}` : 'every phase'; };
-      // A line that follows its phase is the default and says nothing; its window, which a formula reads, rides hidden on a sentence row.
+      const rows: ORow[] = [...generic(b.rows.filter((r) => r < head))];
       const quiet: Array<[number, number]> = [];
+      let commission = false, sold = false;
       for (const r of b.rows) {
         if (r <= head || emptyRow(r) || isHeadRow(r)) continue;
-        if (rowCells(r).every((c) => !free(r, c)) && !/commission terms/i.test(cPh ? str(r, cPh) : '')) continue;
-        const name = str(r, 3); claim(r, 3);
-        const s = cS ? numOf(r, cS) : undefined, e = cE ? numOf(r, cE) : undefined;
         const ph = cPh ? str(r, cPh) : '';
-        const stated = rowCells(r).some((c) => isInput(r, c)) || /commission terms|sales|collections/i.test(ph);
-        if (!stated) { for (const c of rowCells(r)) if (free(r, c)) { if (isRead(r, c)) { claim(r, c); quiet.push([r, c]); } else claim(r, c); } continue; }
-        let row: ORow;
-        if (/^Land\b/i.test(name)) { land.push({ r, s: s ?? 1, e: e ?? 1 }); row = new ORow('data'); }
-        else if (/commission terms/i.test(ph)) row = noteRow(`${name}: paid per the commission terms on Operating Inputs (${commissionSentenceAt.sub || 'A'}).`);
-        else if (/sales|collections/i.test(ph)) row = noteRow(`${name}: paid as sales are made.`);
-        else row = noteRow(`${name}, ${phasesOf(r)}: ${/even/i.test(ph) || !ph ? 'spread evenly' : ph.toLowerCase()} over construction years ${s ?? 1} to ${e ?? s ?? 1}.`);
-        for (const c of rowCells(r)) if (free(r, c)) { if (isRead(r, c) || isInput(r, c)) hide(row, r, c); else claim(r, c); }
-        if (/^Land\b/i.test(name)) (land[land.length - 1] as { row?: ORow }).row = row; else others.push(row);
+        if (/commission terms/i.test(ph)) commission = true; else if (/as units are sold|sales|collections/i.test(ph)) sold = true;
+        for (const c of rowCells(r)) if (free(r, c)) { if (isRead(r, c) || isInput(r, c)) { claim(r, c); quiet.push([r, c]); } else claim(r, c); }
       }
-      if (land.length) {
-        const merge = (into: ORow, from: ORow | undefined): void => { if (from) for (const [, cell] of from.cells) { let kk = HID; while (into.cells.has(kk)) kk++; into.set(kk, cell); } };
-        if (land.every((x) => x.e <= 1)) {
-          const row = noteRow('Land and RETT are paid in construction year 1 of each phase.');
-          for (const x of land) merge(row, (x as { row?: ORow }).row);
-          rows.push(row);
-        } else for (const x of land) {
-          const row = noteRow(`Land, ${phasesOf(x.r)}: paid over construction years ${Math.max(1, x.s)} to ${Math.max(1, x.e)}.`);
-          merge(row, (x as { row?: ORow }).row);
-          rows.push(row);
-        }
-      }
-      rows.push(...others);
-      { const holder = rows.find((x) => x.kind === 'note') ?? (rows.push(new ORow('blank')), rows[rows.length - 1]); for (const [qr, qc] of quiet) { let k = HID; while (holder.cells.has(k)) k++; holder.set(k, { from: [qr, qc] }); } }
-      void cRate;
-      // The sentences sit under the grid, in section 5.
+      const rest = [commission ? `sales commission follows the commission terms on Operating Inputs (${commissionSentenceAt.sub || 'A'})` : '', sold ? 'marketing is paid as units are sold' : ''].filter(Boolean);
+      const holder = noteRow(`All other lines follow the phase curve${rest.length ? `; ${rest.join('; ')}` : ''}.`);
+      for (const [qr, qc] of quiet) { let k = HID; while (holder.cells.has(k)) k++; holder.set(k, { from: [qr, qc] }); }
+      rows.push(holder);
       g.subs.push({ rows, title: undefined });
       (g.subs[g.subs.length - 1] as OSub & { after?: boolean }).after = true;
       continue;
@@ -1031,7 +1004,14 @@ export function splitInputs(wb: ExcelJS.Workbook, opts: { readFrom?: ExcelJS.Wor
       const unit = /period/i.test(col) ? 'period' : fmt.includes('%') ? '%' : /\bsqm\b/i.test(label) ? 'sqm' : undefined;
       rows.push(scalar(splitUnit(label).label, unit, { from: [r, c], style: unit === 'period' ? { ...S_TECH, numFmt: '0' } : S_TECH, tech: true }));
     }
-    group(PROJECT_INPUTS, '99', 'Technical settings (set on the platform)').subs.push({ rows });
+    // Phase 1 before Phase 2 (2026-11-19, founder): a setting's rows by phase, the settings in their first order.
+    const nameOf = (row: ORow): string => String(row.cells.get(3)?.value ?? '');
+    const phaseNo = (t: string): number => Number(/\bPhases? (\d+)/.exec(t)?.[1] ?? 0);
+    const baseOf = (t: string): string => t.replace(/,? \(?Phases? \d+(?: and \d+)?\)?,?/g, '').replace(/\(Phase \d+, /, '(');
+    const firstAt = new Map<string, number>();
+    rows.forEach((row, i) => { const b0 = baseOf(nameOf(row)); if (!firstAt.has(b0)) firstAt.set(b0, i); });
+    const ordered = rows.map((row, i) => ({ row, i })).sort((x, y) => (x.i === 0 ? -1 : y.i === 0 ? 1 : 0) || firstAt.get(baseOf(nameOf(x.row)))! - firstAt.get(baseOf(nameOf(y.row)))! || phaseNo(nameOf(x.row)) - phaseNo(nameOf(y.row)) || x.i - y.i).map((x) => x.row);
+    group(PROJECT_INPUTS, '99', 'Technical settings (set on the platform)').subs.push({ rows: ordered });
   }
 
   // ── Order: groups by tab and key; the sentences after the grid in section 5 ──
