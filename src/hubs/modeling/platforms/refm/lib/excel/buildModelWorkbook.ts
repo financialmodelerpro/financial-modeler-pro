@@ -2440,6 +2440,7 @@ function addCapex(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancial
     };
   });
   const inputLine = (hostId: string, lineId: string) => inputById.get(hostId)?.lines.find((l) => l.id === lineId);
+  const linesWithCommission = lines;
   const methodLabel = (method: string, basis: string): string => (COST_METHOD_LABELS as Record<string, string>)[method] ?? basis;
 
   if (live) return liveCapex();
@@ -2450,6 +2451,18 @@ function addCapex(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancial
   // asset's plots spread a line differently), Table 1 by asset, the selling and marketing expensed,
   // Tables 2, 4, 5 and 7. Every figure is the platform's; stage 2 writes the formulas.
   function liveCapex(): CapexAddrs {
+    // THE SALES COMMISSION LEAVES CAPEX (2026-11-19, founder A2): it is a selling cost, worked out and paid on Revenue
+    // 5.2 and capitalised as a contract cost on Fixed Assets & Inventory. Every Capex table is the line less it.
+    const isCommLine = (lid: string): boolean => { const cl = costLineById.get(lid); return !!cl && resolveCatalogId(cl) === 'commission'; };
+    const commOf = (m: LineMeta): number[] => { const acc = zeros(); for (const ln of m.ref.lines) if (isCommLine(ln.id)) addInto(acc, inputLine(m.hostId, ln.id)?.perPeriod); return acc; };
+    const lines: Array<LineMeta & { commLines: CapexLineRef[] }> = linesWithCommission.map((m) => {
+      const c = commOf(m);
+      const commLines = m.ref.lines.filter((ln) => isCommLine(ln.id));
+      const less = (a: number[]): number[] => a.map((v, t) => v - (c[t] ?? 0));
+      return { ...m, ref: { ...m.ref, lines: m.ref.lines.filter((ln) => !isCommLine(ln.id)), total: m.ref.total - commLines.reduce((s, ln) => s + ln.amount, 0) }, incl: less(m.incl), exclInKind: less(m.exclInKind), exclAll: less(m.exclAll), commLines };
+    });
+    const commAll = zeros();
+    for (const m of linesWithCommission) addInto(commAll, commOf(m));
     const escPct = state.project.costEscalationPct ?? 0;
     const facOf = (t: number): number => Math.pow(1 + escPct / 100, t);
     const plan = phasingFor(wb, state, refs.capexMembers ?? new Map(), snap).plan;
@@ -2510,8 +2523,8 @@ function addCapex(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancial
     // ONE CAPEX ROW PER TABLE ROW, PHASE AND RULE (2026-11-19): a line on its own window that reads a curve row (landscape
     // on 1 to 4 beside a 4-year build) keeps its own share row, which reads the whole row, so a change in the construction
     // years moves the curve lines and not it, as on the platform.
-    const sharePairs: Array<{ row: PhasingTable['rows'][number]; phaseId: string; capped: boolean }> = [];
-    for (const row of phT.rows) for (const ph of state.phases) for (const capped of [true, false]) if (row.spreads.some((x) => x.phaseId === ph.id && x.capped === capped)) sharePairs.push({ row, phaseId: ph.id, capped });
+    const sharePairs: Array<{ row: PhasingTable['rows'][number]; phaseId: string; capped: boolean; rule?: string }> = [];
+    for (const row of phT.rows) for (const ph of state.phases) for (const rule of ['std', 'half', 'preop', undefined]) if (row.spreads.some((x) => x.phaseId === ph.id && x.rule === rule)) sharePairs.push({ row, phaseId: ph.id, capped: rule !== undefined, rule });
     // Each phase's construction year of every model year (1 in its first year), the number the share rows look up.
     for (const ph of state.phases.filter((p) => sharePairs.some((x) => x.phaseId === p.id))) {
       const off = Math.max(0, new Date(ph.startDate as string).getUTCFullYear() - snap.projectStartYear);
@@ -2522,16 +2535,17 @@ function addCapex(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancial
     }
     for (const x of sharePairs) {
       const ph = state.phases.find((p) => p.id === x.phaseId)!;
-      const sps = x.row.spreads.filter((sp) => sp.phaseId === x.phaseId && sp.capped === x.capped).map((sp) => plan.rows.get(sp.key)).filter((sp): sp is SpreadRow => !!sp);
+      const sps = x.row.spreads.filter((sp) => sp.phaseId === x.phaseId && sp.rule === x.rule).map((sp) => plan.rows.get(sp.key)).filter((sp): sp is SpreadRow => !!sp);
       if (!sps.length) continue;
       const own = x.row.standard && !x.capped;
       const ownNames = own ? [...new Set([...plan.plotLine.values()].filter((pl) => sps.some((sp) => sp.key === pl.spread) && !pl.disabled).map((pl) => state.costLines.find((c) => c.id === pl.lineId)?.name).filter((n): n is string => !!n))].join(', ').toLowerCase() : '';
-      const nm = `Spend share: ${multiPhase ? `${ph.name} ` : ''}${own ? `${ownNames}, own timing` : x.row.short}`;
+      const lineNames = [...new Set([...plan.plotLine.values()].filter((pl) => sps.some((sp) => sp.key === pl.spread) && !pl.disabled).map((pl) => state.costLines.find((c) => c.id === pl.lineId)?.name).filter((n): n is string => !!n))].join(', ').toLowerCase();
+      const nm = `Spend share: ${multiPhase ? `${ph.name} ` : ''}${x.rule === 'half' ? `${lineNames}, from mid-build` : x.rule === 'preop' ? `${lineNames}, last seven build years` : own ? `${ownNames}, own timing` : x.row.short}`;
       setLabel(ws.getCell(r, C_LBL), nm, { indent: 1 });
       for (const sp of sps) registerCell(`cxw:${sp.key}`, ws, ws.getCell(r, C_LBL));
       // The row's total over the years it reads (the denominator), in the Input column.
       // Only a row read over the construction years needs it; any other reads its whole row in the formula.
-      if (x.capped) { const cpN = Math.max(1, ph.constructionPeriods ?? 0); let den = 0; for (const [k, v] of x.row.values) if (k <= cpN) den += Math.max(0, v); put(r, C_UOM, den, NUMFMT.pct2); }
+      if (x.capped) { const cpN = Math.max(1, ph.constructionPeriods ?? 0); const lo = x.rule === 'half' ? Math.max(1, Math.floor(cpN / 2)) : x.rule === 'preop' ? Math.max(1, cpN - 6) : 1; let den = 0; for (const [k, v] of x.row.values) if (k >= lo && k <= cpN) den += Math.max(0, v); put(r, C_UOM, den, NUMFMT.pct2); }
       for (let t = 0; t < N; t++) put(r, cP(t), sps[0].shares[t] ?? 0, NUMFMT.pct2);
       put(r, C_TOT, sumN(sps[0].shares), NUMFMT.pct2);
       r += 1;
@@ -2642,7 +2656,7 @@ function addCapex(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancial
       subRows.push(headRow);
       perAssetCapex.set(m.hostId, { inclRow: headRow, exclInKindRow: headRow, exclAllRow: headRow });
     }
-    const grandIncl = snap.financing.capex.perPeriod.inclAllLand.slice(0, N);
+    const grandIncl = snap.financing.capex.perPeriod.inclAllLand.slice(0, N).map((v, t) => v - (commAll[t] ?? 0));
     const projTotalRow = r;
     registerCell('cx1:total', ws, ws.getCell(r, C_LBL));
     moneyRow(r, 'Project total', grandIncl, { style: 'navy', total: sumN(grandIncl) });
@@ -2724,7 +2738,7 @@ function addCapex(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancial
     };
     // THE SALES COMMISSION ON REVENUE 5.2 (2026-11-19, founder B3): each line's commission, read from its Capex row.
     selling.commission = [];
-    for (const m of lines) for (const ln of m.ref.lines) {
+    for (const m of lines) for (const ln of m.commLines) {
       const cl = state.costLines.find((c) => c.id === ln.id);
       if (!cl || resolveCatalogId(cl) !== 'commission') continue;
       const per = inputLine(m.hostId, ln.id)?.perPeriod ?? zeros();
@@ -2761,13 +2775,11 @@ function addCapex(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancial
       registerCell('cxty:total', ws, ws.getCell(r, C_LBL));
       moneyRow(r, 'Total capex by cost type', all, { style: 'subtotal' }); r += 2;
       // THE TWO FIGURES FINANCING READS (2026-11-19, founder): one row each here, linked there, never rebuilt.
-      const cashCx = snap.financing.capex.perPeriod.exclLandInKind.slice(0, N);
+      const cashCx = snap.financing.capex.perPeriod.exclLandInKind.slice(0, N).map((v, t) => v - (commAll[t] ?? 0));
       registerCell('cx:cashCapex', ws, ws.getCell(r, C_LBL));
       moneyRow(r, 'Capex paid in cash (excluding land in kind)', cashCx, {}); r += 1;
-      const comm = zeros();
-      for (const m of lines) for (const ln of m.ref.lines) { const cl = state.costLines.find((c) => c.id === ln.id); if (cl && resolveCatalogId(cl) === 'commission') addInto(comm, inputLine(m.hostId, ln.id)?.perPeriod); }
       registerCell('cx:tdc', ws, ws.getCell(r, C_LBL));
-      moneyRow(r, 'Total development cost (excl. selling costs)', grandIncl.map((v, t) => v - (comm[t] ?? 0)), {}); r += 2;
+      moneyRow(r, 'Total development cost', grandIncl, {}); r += 2;
     }
     summaryTable('Capex Excluding Land In-Kind (cash-impact schedule)', (m) => m.exclInKind, 'cx3', 'Total capex, excl. land in-kind'); r += 1;
     const exclAllTotalRow = summaryTable('Capex Excluding Total Land (pure development cost)', (m) => m.exclAll, 'cx4', 'Total capex, excl. all land'); r += 1;
@@ -5041,7 +5053,7 @@ function addOpexLive(ctx: EmitCtx, ws: ExcelJS.Worksheet, em: ReturnType<typeof 
         money(K('rev'), 'Total revenue', rev, { style: 'subtotal' });
       } else {
         rev = vals('Lease revenue');
-        money(K('rev'), 'Lease revenue', rev, { style: 'subtotal' });
+        money(K('rev'), 'Lease revenue', rev, { indent: 1 }); // a link to Revenue, shown as one (2026-11-19, founder B8)
       }
       const groupVals = new Map<string, number[]>();
       for (const g of plan.groups) {
@@ -5119,6 +5131,11 @@ function addOpexLive(ctx: EmitCtx, ws: ExcelJS.Worksheet, em: ReturnType<typeof 
   for (const ph of state.phases) {
     const xs = lineRows.filter((x) => x.line.phaseId === ph.id);
     if (xs.length) money(`ox|sum|noi|${ph.id}`, `EBITDA (NOI): ${ph.name}`, sumOf(xs.map((x) => x.ebitda)), { indent: 1 });
+  }
+  // EACH PHASE'S OPEX (2026-11-19, founder B8): the one row the phase P&L reads.
+  if (state.phases.length > 1) for (const ph of state.phases) {
+    const xs = lineRows.filter((x) => x.line.phaseId === ph.id);
+    if (xs.length) money(`ox|sum|opexph|${ph.id}`, `Operating expenses: ${ph.name}`, sumOf(xs.map((x) => x.opex)), { indent: 1 });
   }
   em.gap();
   // PAYABLES AT 0 DAYS: no payables block; each line pays its opex as incurred (2026-11-15, founder).
@@ -5970,6 +5987,12 @@ function addSchedulesLive(ctx: EmitCtx, ws: ExcelJS.Worksheet, E: ReturnType<typ
         money(K('idcDep'), 'of which: depreciation on capitalised interest', idcDep.map((v, t) => v * upToExit(state, N)(t)), { indent: 2 });
         money(K('idcNbv'), 'of which: capitalised interest, closing', D((s) => s.includes('of which: IDC NBV')), { indent: 2, noTotal: true });
       }
+      // THE GAIN ON DISPOSAL IS WORKED OUT HERE (2026-11-19, founder B8): the net exit proceeds less what was
+      // written off; the P&L links it.
+      if (base === '__project__' && dCtx.booked) {
+        money(K('proceeds'), 'Net exit proceeds', padded(snap.directCF.proceedsFromDisposalPerPeriod), { indent: 1 });
+        money(K('gain'), 'Gain on disposal', padded(snap.pl.gainOnDisposalPerPeriod), { style: 'subtotal' });
+      }
     };
     for (const l of lines) {
       const input = report.inputs.find((i) => i.hostId === l.hostId);
@@ -6012,8 +6035,13 @@ function addSchedulesLive(ctx: EmitCtx, ws: ExcelJS.Worksheet, E: ReturnType<typ
       const v = (label: string): number[] => padded(rows.find((r) => r.label === label)?.values);
       const K = (id: string): string => `cs|${l.key}|${id}`;
       E.subTitle(revenueLineName(l));
-      money(K('capex'), 'Capex', v('Capex, from Module 1'), { indent: 1 });
+      // THE SALES COMMISSION IS A CONTRACT COST (2026-11-19, founder A2): out of Capex, on its own row, in the base
+      // released with cost of sales, so the base and the release are unchanged.
+      const comm = Array.from({ length: N }, (_, t) => l.members.reduce((s0, m) => s0 + (snap.perAssetCF.get(m.id)?.salesCommissionPerPeriod?.[t] ?? 0), 0));
+      const hasComm = comm.some((x) => Math.abs(x) > 0.005);
+      money(K('capex'), 'Capex', v('Capex, from Module 1').map((x, t) => x - (comm[t] ?? 0)), { indent: 1 });
       setBasis(ws.getCell(money(K('idc'), 'Capitalised interest', v('Capitalised IDC'), { indent: 1 }), META_B), LOOP);
+      if (hasComm) money(K('comm'), 'Sales commission (contract cost)', comm, { indent: 1 });
       money(K('base'), 'Cost base', v('Total base charged through cost of sales'), { style: 'subtotal' });
       money(K('share'), 'Recognition share of lifetime revenue', v('Recognition share of lifetime revenue'), { indent: 1, numFmt: NUMFMT.pct });
       const cos = v('Cost of Sales, total base x recognition share');

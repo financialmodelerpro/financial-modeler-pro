@@ -225,7 +225,9 @@ export function financingPlan(state: FinancialsResolverState, snap: Snap = compu
   sub('fl:t:ops:cash', 'Operating cash', CCY);
   per('fl:collected', 'Revenue: cash collected', sl(dcf.revenueReceivedPerPeriod), 'Revenue: each line\'s cash collected');
   per('fl:opexPaid', 'Opex paid: lines and HQ', add(sl(dcf.opexPaidPerPeriod), sl(dcf.hqOpexPaidPerPeriod)), 'Opex: each line\'s opex less the rise in its payable');
-  if (expensedRowsOf(state, snap, state.assets.filter((a) => a.visible !== false).map((a) => a.id), (_a, _l, valued) => valued).length) per('fl:mkt', 'Selling and marketing paid: as incurred', sl(dcf.sellingExpensePaidPerPeriod), 'Revenue: selling and marketing expensed');
+  // SELLING COSTS PAID (2026-11-19, founder A2): marketing and the sales commission, Revenue 5.3's total.
+  const commPaidF = sl(dcf.salesCommissionPaidPerPeriod);
+  if (expensedRowsOf(state, snap, state.assets.filter((a) => a.visible !== false).map((a) => a.id), (_a, _l, valued) => valued).length || commPaidF.some((v) => Math.abs(v) > 0.005)) per('fl:mkt', 'Selling costs paid', add(sl(dcf.sellingExpensePaidPerPeriod), commPaidF), 'Revenue 5.3: marketing and sales commission');
   if (snap.escrow.byAsset.size > 0 && escrowInForce(state as never)) per('fl:esc', 'Escrow: pre-sales cash held back and released', sl(dcf.netRevenueAdjustmentPerPeriod), 'Revenue: net escrow cash flow');
   per('fl:taxPaidOps', `${TAX} paid`, sl(dcf.taxPaidPerPeriod), `5.3, ${TAX.toLowerCase()} paid`);
   if (feeOn && !feeByEquity) per('fl:feeOps', 'Fund fees paid', sl(dcf.fundFeesPaidPerPeriod), 'The fund fees, 6.3: inside the funding need');
@@ -233,7 +235,7 @@ export function financingPlan(state: FinancialsResolverState, snap: Snap = compu
   per('fl:opIn', 'Operating cash before financing', opIn, 'The rows above', { style: 'subtotal' });
 
   sub('fl:t:ops:capex', 'Capex', CCY);
-  per('fl:capex', 'Capex paid in cash (excluding land in kind)', sl(fin.capex.perPeriod.exclLandInKind), 'Capex: the row of that name in the capex summary');
+  per('fl:capex', 'Capex paid in cash (excluding land in kind)', add(sl(fin.capex.perPeriod.exclLandInKind), sl(dcf.salesCommissionPaidPerPeriod)), 'Capex: the row of that name in the capex summary');
   if (method !== 3) {
     per('fl:landCash', 'Of which: land paid in cash', sl(fin.capex.perPeriod.landCash), 'Capex: land, cash', { indent: 1 });
     per('fl:nonLand', 'Of which: capex excluding land', sl(fin.capex.perPeriod.exclAllLand), 'Capex paid in cash less the land paid in cash', { indent: 1 });
@@ -281,6 +283,9 @@ export function financingPlan(state: FinancialsResolverState, snap: Snap = compu
   // ZAKAT IS PAID FROM CASH ON HAND, NEVER FUNDED (2026-11-18), and an equity-funded fund fee is
   // drawn in full: neither enters the funding test, so the test reads no figure that reads it back.
   per('fl:opSize', 'Operating cash for the funding test (before ' + TAX.toLowerCase() + ' and fund fees)', add(sl(dcf.cashFromOperationsPerPeriod), neg(sl(dcf.taxPaidPerPeriod)), neg(sl(dcf.fundFeesPaidPerPeriod))), 'Cash collected less opex, selling and marketing, and escrow');
+  // THE FUNDING IS SIZED ON THE CAPEX AND THE SALES COMMISSION (2026-11-19, founder A2): the statement pays the
+  // commission in operations, the engine funds it with the capex, so the test's years run while either is paid.
+  if (sl(dcf.salesCommissionPaidPerPeriod).some((v) => Math.abs(v) > 0.005)) per('fl:spend', 'Capex and sales commission paid (the years the test runs)', capexS, 'Capex paid in cash (1.2) plus the sales commission paid (1.1)');
   per('fl:open', 'Opening cash', inWin(sl(w.openingCashPerPeriod)), 'The year before: cash after funding', { balance: true });
   per('fl:avail', '= Cash before financing', inWin(sl(w.cashAvailableBeforeNewDebtPerPeriod)), feeOn && !feeByEquity ? 'Opening cash plus the operating cash above, less the fund fees and capex, plus exit proceeds' : 'Opening cash plus the operating cash above, less capex, plus exit proceeds', { balance: true, style: 'subtotal' });
   per('fl:need', 'Funding need: the cash short of the minimum, in a year capex is paid', sl(w.netCashRequiredPerPeriod), 'Minimum cash on Inputs less the cash before financing, where capex exceeds exit proceeds', { style: 'total' });
@@ -437,6 +442,13 @@ export function financingPlan(state: FinancialsResolverState, snap: Snap = compu
       const base = (FEE_BASE_LABELS[feeBaseFor(spec, fundTerms)] ?? spec.base).toLowerCase();
       per(`fl:fee:${i}`, spec.label, sl(ff.lines[i]?.amountPerPeriod), spec.kind === 'amount' ? 'The amount on Inputs, each year to the exit' : spec.timing === 'one_time' ? `The rate on Inputs x the basis on Inputs, in the first draw year (now the ${base})` : `The rate on Inputs x the ${base}, each year to the exit`, { indent: 1 });
     });
+    // THE FUND MANAGER'S FEES (2026-11-19, founder B8): every fee but the flat other expenses (paid to third parties),
+    // the one row Returns links for the manager's management fees.
+    {
+      const mgr = zeros();
+      FUND_FEE_SPECS.forEach((_spec, i) => { const l = ff.lines[i]; if (l && l.base !== 'flat_amount') sl(l.amountPerPeriod).forEach((v, t) => { mgr[t] += v; }); });
+      if (FUND_FEE_SPECS.some((_s, i) => ff.lines[i]?.base === 'flat_amount')) per('fl:feeMgr', 'Fees earned by the fund manager', mgr, 'The fees above but the other expenses', { style: 'subtotal' });
+    }
     per('fl:feeTot', 'Fund fees: total', sl(ff.totalPerPeriod), 'The fees above', { style: 'subtotal' });
     gapRow();
   }
@@ -448,7 +460,9 @@ export function financingPlan(state: FinancialsResolverState, snap: Snap = compu
   per('fl:cfo', '(+) Cash from operations', sl(dcf.cashFromOperationsPerPeriod), feeByEquity ? 'Operating cash before financing, less the fund fees' : 'Operating cash before financing');
   // Two rows, one each (2026-11-15, founder): the capex paid in cash, and the exit proceeds.
   {
-    const capexCash = sl(fin.capex.perPeriod.exclLandInKind);
+    // Capex paid in cash, the sales commission out (2026-11-19, founder A2: it is paid in operations).
+    const commP = sl(dcf.salesCommissionPaidPerPeriod);
+    const capexCash = sl(fin.capex.perPeriod.exclLandInKind).map((v, t) => v + (commP[t] ?? 0));
     const cfi = sl(dcf.cashFromInvestmentPerPeriod);
     per('fl:cfiCapex', '(-) Capex paid in cash', capexCash.map((v) => -v), 'Above');
     per('fl:cfiExit', '(+) Exit proceeds', cfi.map((v, t) => v + (capexCash[t] ?? 0)), 'Above');

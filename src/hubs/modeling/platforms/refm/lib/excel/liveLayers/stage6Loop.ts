@@ -276,7 +276,10 @@ export const stage6Loop: LiveLayer = {
     // A LINK TO ONE ROW (2026-11-19, founder): Capex's "Capex paid in cash (excluding land in kind)".
     put('fl:capex', (t) => (has('cx:cashCapex') ? P('cx:cashCapex', t) : `${P('cx2:total', t)}-${P('cx5:total:inkind', t)}`));
     put('fl:landCash', (t) => P('cx5:total:cash', t));
-    put('fl:nonLand', (t) => `MAX(0,${P('fl:capex', t)}-${P('fl:landCash', t)})`);
+    // What the funding is sized on (2026-11-19, founder A2): the capex and the sales commission paid.
+    if (has('fl:spend')) put('fl:spend', (t) => `${P('fl:capex', t)}${has('sell:comm') ? `+${P('sell:comm', t)}` : ''}`);
+    const SPEND = has('fl:spend') ? 'fl:spend' : 'fl:capex';
+    put('fl:nonLand', (t) => `MAX(0,${P(SPEND, t)}-${P('fl:landCash', t)})`);
     put('fl:inKind', (t) => P('cx5:total:inkind', t));
     // The held lines' income, from Revenue and Opex.
     const isRev = (a: Asset): boolean => state.subUnits.some((u) => u.assetId === a.id);
@@ -322,7 +325,7 @@ export const stage6Loop: LiveLayer = {
     put('fl:collected', (t) => P('rev|__project__|sum-cash|Total cash collected', t));
     // Payables at 0 days: opex is paid as incurred (2026-11-15), so the cash paid is the project opex.
     put('fl:opexPaid', (t) => `-${P(has('ox|ap|close') ? 'ox|ap|paid' : 'ox|sum|opex', t)}`);
-    put('fl:mkt', (t) => (has('cx1e:total') ? `-${P('cx1e:total', t)}` : '0'));
+    put('fl:mkt', (t) => (has('sell:total') ? `-${P('sell:total', t)}` : has('cx1e:total') ? `-${P('cx1e:total', t)}` : '0'));
     const escNet = 'esc||C. Cash Flow Impact (project totals)|Net escrow cash flow';
     put('fl:esc', (t) => (has(escNet) ? P(escNet, t) : '0'));
     // Paid in the year (0 payment days): the charge is the cash paid, so its row is read as the tax paid.
@@ -338,14 +341,14 @@ export const stage6Loop: LiveLayer = {
     // ── The funding need ─────────────────────────────────────────────────────
     // THE FUNDING TEST ONLY WHILE CAPEX IS STILL TO BE PAID (2026-11-17, founder): each row of it is 0 once no
     // capex is left (this year onward), so it reads blank after the build; inside the window the chain runs as before.
-    const cxRow = w.addr('fl:capex').row;
-    const win = (t: number, e: string): string => `IF(SUM(${P('fl:capex', t)}:$${colLetter(pc(N - 1))}$${cxRow})>0,${e},0)`;
+    const cxRow = w.addr(SPEND).row;
+    const win = (t: number, e: string): string => `IF(SUM(${P(SPEND, t)}:$${colLetter(pc(N - 1))}$${cxRow})>0,${e},0)`;
     put('fl:open', (t) => win(t, `N(${P('fl:after', t, -1)})`), 'last');
     const fee = (t: number): string => (feeOn && has('fl:feeTot') ? P('fl:feeTot', t) : '0');
     const feeInNeed = feeOn && !byEq;
     put('fl:avail', (t) => win(t, `${P('fl:open', t)}+${P('fl:opSize', t)}${feeInNeed ? `-${fee(t)}` : ''}-${P('fl:capex', t)}+${P('fl:proceeds', t)}`), 'last');
     // A year needs funding only while capex (net of exit proceeds) is paid, to the cent.
-    const spending = (t: number): string => `(ROUND(${P('fl:capex', t)}-${P('fl:proceeds', t)},2)>0)`;
+    const spending = (t: number): string => `(ROUND(${P(SPEND, t)}-${P('fl:proceeds', t)},2)>0)`;
     put('fl:need', (t) => `IF(${spending(t)},MAX(0,${MINT(t)}-${P('fl:avail', t)}),0)`);
     // The fee-free walk: its own opening (last year's cash plus its need), no fee anywhere in it.
     put('fl:xAvail', (t) => win(t, `N(${P('fl:xAvail', t, -1)})+N(${P('fl:needExFee', t, -1)})+${P('fl:opSize', t)}-${P('fl:capex', t)}+${P('fl:proceeds', t)}`), 'last');
@@ -355,14 +358,14 @@ export const stage6Loop: LiveLayer = {
     // read #VALUE! outside Excel. SUMPRODUCT evaluates its argument as an array in Excel and LibreOffice
     // alike: the smallest year, every year where the test fails pushed out of reach; none, the first year.
     const firstYearWhere = (notIt: string): string => { const m = `SUMPRODUCT(MIN(${yearRow()}+(${notIt})*100000))`; return `IF(${m}>99999,${Y0()},${m})`; };
-    const firstCapex = (): string => firstYearWhere(`${rowRange('fl:capex')}<=0`);
+    const firstCapex = (): string => firstYearWhere(`${rowRange(SPEND)}<=0`);
     // Raised in the first capex year, or the year the minimum starts to apply if later (2026-11-18).
     const minAt = (t: number): string => `IF(${Y(t)}=MAX(${firstCapex()},${FROM()}),${MIN()},0)`;
     if (METHOD === 2) {
       const cashPre = [...new Set(visible.filter((a) => a.strategy === 'Sell' || a.strategy === 'Sell + Manage').map((a) => lineForAsset(lines, a.id)).filter((l): l is NonNullable<typeof l> => !!l && has(`rvc:${l.key}:cashPre`)).map((l) => `rvc:${l.key}:cashPre`))];
       const escB = (label: string): string => `esc||B. Escrow Balance Roll-Forward|${label}`;
       put('fl:m2pre', (t) => `${cashPre.map((k) => P(k, t)).join('+') || '0'}${has(escB('Total Additions')) ? `-${P(escB('Total Additions'), t)}` : ''}${has(escB('Less: Release of Locked Funds')) ? `-${P(escB('Less: Release of Locked Funds'), t)}` : ''}`);
-      put('fl:m2gap', (t) => `MAX(0,${P('fl:capex', t)}-N(${P('fl:m2pre', t, -1)}))`);
+      put('fl:m2gap', (t) => `MAX(0,${P(SPEND, t)}-N(${P('fl:m2pre', t, -1)}))`);
     }
     const drawBase = (t: number): string => (METHOD === 3 ? P('fl:need', t) : METHOD === 2 ? `(${P('fl:m2gap', t)}+${minAt(t)})` : `(${P('fl:nonLand', t)}+${minAt(t)})`);
     put('fl:debtDraw', (t) => `${drawBase(t)}*${dF()}${METHOD === 1 ? `+${P('fl:landCash', t)}*${T('fl:landDebt')}` : ''}`);
@@ -373,7 +376,7 @@ export const stage6Loop: LiveLayer = {
     // (Timeline's construction flags) and capex is spent; a gap year paying only a commission is not construction.
     const conFlags = state.phases.filter((ph) => ph.status !== 'operational').map((ph) => `tl:flag:${ph.id}:con`).filter(has);
     const building = (t: number): string => (conFlags.length ? `,(${conFlags.map((k) => P(k, t)).join('+')})>0` : '');
-    const running = (t: number): string => `AND(${Y(t)}<=${lastCon()}${building(t)},${P('fl:capex', t)}+${P('fl:inKind', t)}>0)`;
+    const running = (t: number): string => `AND(${Y(t)}<=${lastCon()}${building(t)},${P(SPEND, t)}+${P('fl:inKind', t)}>0)`;
     put('fl:feeDraw', (t) => `IF(${running(t)},${fee(t)},0)`);
     put('fl:after', (t) => win(t, `${P('fl:avail', t)}+${P('fl:need', t)}`), 'last');
 
@@ -525,7 +528,8 @@ export const stage6Loop: LiveLayer = {
       const lessComm = commKeys.length ? `-(${commKeys.map((k) => `SUM(${rowRange(k)})`).join('+')})` : '';
       // A LINK TO ONE ROW (2026-11-19, founder): Capex's "Total development cost (excl. selling costs)".
       putS('fl:feeTdc', has('cx:tdc') ? w.one('cx:tdc') : `SUM(${rowRange('cx2:total')})${lessComm}`);
-      putS('fl:feeDsc', `${dF()}*(SUM(${rowRange('fl:capex')})${lessComm})`);
+      // Capex paid in cash already leaves the sales commission out (2026-11-19, founder A2).
+      putS('fl:feeDsc', `${dF()}*SUM(${rowRange('fl:capex')})`);
       if (has('fl:xIdc')) {
         // The fee-free need (2026-11-18): its own row on the deficit path; on the equity path the funding need IS fee-free.
         const needK = has('fl:needExFee') ? 'fl:needExFee' : 'fl:need';
@@ -562,7 +566,14 @@ export const stage6Loop: LiveLayer = {
         feeKeys.push(k);
         w.claim(`fnc:fee:${i}`, FIN, w.addr(k).row, 1);
       });
-      put('fl:feeTot', (t) => chain(feeKeys, t));
+      // The manager's fees (2026-11-19, founder B8): every fee but the flat other expenses; the total adds those.
+      const flatKeys = feeKeys.filter((k) => snap.fundFees.lines[Number(k.slice('fl:fee:'.length))]?.base === 'flat_amount');
+      if (has('fl:feeMgr')) {
+        put('fl:feeMgr', (t) => chain(feeKeys.filter((k) => !flatKeys.includes(k)), t));
+        put('fl:feeTot', (t) => chain(['fl:feeMgr', ...flatKeys], t));
+        claim('fnc:feeMgr', 'fl:feeMgr');
+      } else put('fl:feeTot', (t) => chain(feeKeys, t));
+      claim('fnc:feeTot', 'fl:feeTot');
       why('fl:feeTot', CHAIN);
       claim('fnc:fee:base', baseKey ?? 'fl:debtDraw');
       claim('fnc:fee:fundsize', 'fl:feeFund');

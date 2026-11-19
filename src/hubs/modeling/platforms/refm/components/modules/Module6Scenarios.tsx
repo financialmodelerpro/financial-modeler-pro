@@ -23,7 +23,7 @@
 import React, { useMemo, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useModule1Store, type HydrateSnapshot } from '../../lib/state/module1-store';
-import { buildOverrides, applyOverrides, getByPath, baseCaseId, enumerateOverridableFields } from '../../lib/cases/applyOverrides';
+import { buildOverrides, applyOverrides, getByPath, baseCaseId, enumerateOverridableFields, isPctChange, pctChangeValue } from '../../lib/cases/applyOverrides';
 import { withoutDerivedOverrides } from '../../lib/cases/caseModel';
 import {
   curatedDefaultFields, describeAssumption, assumptionFor, buildGridContext,
@@ -65,6 +65,8 @@ interface GridCellProps {
   isOverride: boolean;
   isBaseCol: boolean;
   baseValue: unknown;
+  /** The case's stored override as stored: a value, or a % change from base (2026-11-19, founder A5). */
+  rawOverride?: unknown;
   onCommit: (v: unknown) => void;
   onReset: () => void;
   testid?: string;
@@ -75,11 +77,20 @@ const resetBtn = (onReset: () => void): React.JSX.Element => (
     style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: 'var(--color-muted)', fontSize: 12, lineHeight: 1 }}>✕</button>
 );
 
-function GridCell({ value, format, isOverride, isBaseCol, baseValue, onCommit, onReset, testid }: GridCellProps): React.JSX.Element {
+function GridCell({ value, format, isOverride, isBaseCol, baseValue, rawOverride, onCommit, onReset, testid }: GridCellProps): React.JSX.Element {
   // Draft is seeded in the DISPLAY unit (percent ×100 at 2dp, accounting grouped)
   // and re-seeds via the React key when the stored value changes.
   const initial = formatAssumptionValue(value, format);
   const [draft, setDraft] = useState(initial);
+  // "% CHANGE FROM BASE" (2026-11-19, founder A5): the default way to flex a money or number lever on a scenario;
+  // a percentage lever (a rate) keeps a value, since a point change is what a rate is flexed by.
+  const moneyLike = format === 'accounting' || format === 'number';
+  const baseNum = Number(baseValue);
+  const pctAllowed = !isBaseCol && format !== 'text' && format !== 'boolean' && Number.isFinite(baseNum) && baseNum !== 0;
+  const storedPct = isPctChange(rawOverride) ? rawOverride.pctChange : null;
+  const [mode, setMode] = useState<'pct' | 'value'>(storedPct !== null ? 'pct' : isOverride || !moneyLike ? 'value' : 'pct');
+  const pctInitial = storedPct !== null ? String(Number(storedPct.toFixed(4))) : isOverride && Number.isFinite(Number(value)) ? String(Number(((Number(value) / baseNum - 1) * 100).toFixed(4))) : '';
+  const [pctDraft, setPctDraft] = useState(pctInitial);
 
   if (format === 'boolean') {
     const cur = value === true || value === 'true';
@@ -108,6 +119,31 @@ function GridCell({ value, format, isOverride, isBaseCol, baseValue, onCommit, o
     );
   }
 
+  if (pctAllowed && mode === 'pct') {
+    const commitPct = (): void => {
+      const t = pctDraft.trim();
+      if (t === pctInitial) return;
+      const n = t === '' ? 0 : Number(t.replace(/[%,\s]/g, ''));
+      if (!Number.isFinite(n)) return;
+      if (n === 0) { if (isOverride) onReset(); return; }
+      onCommit({ pctChange: n });
+    };
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+        <button type="button" data-view-mutates="true" onClick={() => setMode('value')} title="Change from base in %. Click to type a value instead." data-testid={testid ? `${testid}-mode` : undefined}
+          style={{ border: '1px solid var(--color-border)', borderRadius: 4, background: 'var(--color-surface)', cursor: 'pointer', fontSize: 10, padding: '1px 4px', color: 'var(--color-primary)' }}>%</button>
+        <input value={pctDraft} onChange={(e) => setPctDraft(e.target.value)} onBlur={commitPct}
+          onFocus={(e) => e.currentTarget.select()}
+          onKeyDown={(e) => { if (e.key === 'Enter') { commitPct(); (e.currentTarget as HTMLInputElement).blur(); } }}
+          inputMode="decimal" type="text" placeholder="0" data-testid={testid}
+          style={{ ...cellInputStyle(isOverride, isBaseCol), width: 64, textAlign: 'right' }} />
+        <span style={{ fontSize: 11, color: 'var(--color-meta)' }}>% vs base</span>
+        {isOverride && <span style={{ fontSize: 10, color: 'var(--color-meta)' }}>= {formatAssumptionValue(value, format)}{assumptionUnitSuffix(format)}</span>}
+        {isOverride && resetBtn(onReset)}
+      </div>
+    );
+  }
+
   // Numeric: percent-fraction / percent-whole / accounting / number. Parse the
   // typed display value back to the stored scale on commit; equal-to-base clears.
   const suffix = assumptionUnitSuffix(format);
@@ -119,6 +155,10 @@ function GridCell({ value, format, isOverride, isBaseCol, baseValue, onCommit, o
   };
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+      {pctAllowed && (
+        <button type="button" data-view-mutates="true" onClick={() => setMode('pct')} title="A value. Click to type a change from base in % instead." data-testid={testid ? `${testid}-mode` : undefined}
+          style={{ border: '1px solid var(--color-border)', borderRadius: 4, background: 'var(--color-surface)', cursor: 'pointer', fontSize: 10, padding: '1px 4px', color: 'var(--color-meta)' }}>=</button>
+      )}
       <input value={draft} onChange={(e) => setDraft(e.target.value)} onBlur={commitNum}
         onFocus={(e) => e.currentTarget.select()}
         onKeyDown={(e) => { if (e.key === 'Enter') { commitNum(); (e.currentTarget as HTMLInputElement).blur(); } }}
@@ -279,14 +319,17 @@ export default function Module6Scenarios(): React.JSX.Element {
   }, [rowPaths, fieldByPath, currentBaseModel, gridCtx, allOverridePaths, extraPaths]);
 
   // Per-cell value + whether this case overrides the field at this path.
-  const cellFor = (c: typeof s.cases[number], path: string): { value: unknown; isOverride: boolean } => {
+  const cellFor = (c: typeof s.cases[number], path: string): { value: unknown; isOverride: boolean; raw?: unknown } => {
     if (c.role === 'base') return { value: getByPath(currentBaseModel, path), isOverride: false };
+    const raw = (c.overrides ?? {})[path];
     if (c.id === s.activeCaseId) {
-      return { value: getByPath(liveModel, path), isOverride: Object.prototype.hasOwnProperty.call(overrides, path) };
+      return { value: getByPath(liveModel, path), isOverride: Object.prototype.hasOwnProperty.call(overrides, path), raw };
     }
     const ov = c.overrides ?? {};
     const has = Object.prototype.hasOwnProperty.call(ov, path);
-    return { value: has ? ov[path] : getByPath(currentBaseModel, path), isOverride: has };
+    // A % change shows the value it gives (2026-11-19, founder A5).
+    const value = has ? (isPctChange(raw) ? pctChangeValue(currentBaseModel, path, raw) : raw) : getByPath(currentBaseModel, path);
+    return { value, isOverride: has, raw };
   };
 
   const addRow = (): void => {
@@ -547,12 +590,12 @@ export default function Module6Scenarios(): React.JSX.Element {
                                 </div>
                               </td>
                               {s.cases.map((c) => {
-                                const { value, isOverride } = cellFor(c, p);
+                                const { value, isOverride, raw } = cellFor(c, p);
                                 return (
                                   <td key={c.id} style={{ ...td, textAlign: 'left', background: c.id === s.activeCaseId ? 'color-mix(in srgb, var(--color-primary) 6%, transparent)' : undefined }}>
                                     <GridCell
-                                      key={`${c.id}:${p}:${String(value)}`}
-                                      value={value} format={row.descriptor.format} isOverride={isOverride} isBaseCol={c.role === 'base'} baseValue={baseValue}
+                                      key={`${c.id}:${p}:${String(value)}:${isPctChange(raw) ? raw.pctChange : ''}`}
+                                      value={value} format={row.descriptor.format} isOverride={isOverride} isBaseCol={c.role === 'base'} baseValue={baseValue} rawOverride={raw}
                                       onCommit={(v) => s.setCaseFieldValue(c.id, p, v)}
                                       onReset={() => s.resetCaseFieldValue(c.id, p)}
                                       testid={`m6-cell-${c.id}-${p}`}

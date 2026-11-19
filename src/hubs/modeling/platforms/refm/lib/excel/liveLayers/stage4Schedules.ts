@@ -40,6 +40,7 @@
 import type { LayerContext, LiveLayer } from '../formulaWorkbook';
 import { LiveWriter } from './writer';
 import { PERIOD_COLS } from '../buildModelWorkbook';
+import { resolveCatalogId } from '../../state/costCatalog';
 import { withResolvedAssetNames } from '@/src/core/calculations/assetName';
 import { isLandValueLine, resolveUsefulLifeYears } from '@/src/core/calculations';
 import { computeFinancialsSnapshot } from '../../financials-resolvers';
@@ -244,6 +245,12 @@ export const stage4Schedules: LiveLayer = {
       row(K('landDisp'), (t) => `-${exit(t)}*(${p(K('landOpen'), t)}+${p(K('landAdd'), t)})`, 'sum');
       row(K('landClose'), (t) => `${p(K('landOpen'), t)}+${p(K('landAdd'), t)}${has(K('landDisp')) ? `+${p(K('landDisp'), t)}` : ''}`, 'none');
       for (const name of CLAIMED) claim(`schv:__project__:${name}`, K(name));
+      // The gain on disposal (2026-11-19, founder B8): Financing 1.3's net exit proceeds less the written-off value.
+      if (has(K('proceeds')) && has('fl:proceeds')) row(K('proceeds'), (t) => p('fl:proceeds', t), 'sum');
+      if (has(K('gain'))) {
+        row(K('gain'), (t) => [K('proceeds'), K('landDisp'), K('disp')].filter(has).map((k) => p(k, t)).join('+') || '0', 'sum');
+        claim('schv:__project__:gain', K('gain'));
+      }
     }
 
     // ── Cost of sales and inventory, per Sell line ───────────────────────────
@@ -256,10 +263,14 @@ export const stage4Schedules: LiveLayer = {
       // The line's capex: Capex's subtotal for the line where its plots are exactly these, else the plots' rows.
       const ids = new Set(parts.map((m) => m.id));
       const hostKey = [...capexLines].find(([, xs]) => xs.length === ids.size && xs.every((x) => ids.has(x)))?.[0];
-      const plotRows = parts.flatMap((m) => w.reg.keys().filter((k) => k.startsWith(`cxc:${m.id}:`) && k.split(':').length === 3));
+      const isComm = (k: string): boolean => { const cl = state.costLines.find((c) => c.id === k.split(':')[2]); return !!cl && resolveCatalogId(cl) === 'commission'; };
+      const plotRows = parts.flatMap((m) => w.reg.keys().filter((k) => k.startsWith(`cxc:${m.id}:`) && k.split(':').length === 3 && !isComm(k)));
+      const commRows = parts.flatMap((m) => w.reg.keys().filter((k) => k.startsWith(`cxc:${m.id}:`) && k.split(':').length === 3 && isComm(k)));
       row(K('capex'), (t) => (hostKey && has(`cx1sub:${hostKey}`) ? p(`cx1sub:${hostKey}`, t) : plotRows.map((k) => p(k, t)).join('+') || '0'), 'sum');
       pendingRow(K('idc'));
-      row(K('base'), (t) => sumOf([K('capex'), K('idc')], t), 'sum');
+      // The sales commission, a contract cost (2026-11-19, founder A2): Revenue 5.2's row for the line.
+      if (has(K('comm'))) row(K('comm'), (t) => (hostKey && has(`sell:comm:${hostKey}`) ? p(`sell:comm:${hostKey}`, t) : commRows.map((k) => p(k, t)).join('+') || '0'), 'sum');
+      row(K('base'), (t) => sumOf([K('capex'), K('idc'), ...(has(K('comm')) ? [K('comm')] : [])], t), 'sum');
       const rec = `rvc:${l.key}:recognised`;
       const recTot = fx(rec, TOTAL_COL);
       row(K('share'), (t) => `IF(${recTot}>0,MAX(0,${p(rec, t)})/${recTot},0)`, 'sum');

@@ -305,6 +305,10 @@ export const stage3Opex: LiveLayer = {
       const ph = k.slice('ox|sum|noi|'.length);
       row(k, (t) => sumRows(outs.filter((o) => o.line.phaseId === ph).map((o) => `ox|sum|ebitda|${o.line.key}`).filter(has), t));
     }
+    for (const k of reg.keys().filter((x) => x.startsWith('ox|sum|opexph|'))) {
+      const ph = k.slice('ox|sum|opexph|'.length);
+      row(k, (t) => sumRows(outs.filter((o) => o.line.phaseId === ph).map((o) => `ox|sum|opex|${o.line.key}`).filter(has), t));
+    }
 
     // ── Payables ─────────────────────────────────────────────────────────────
     if (!apOn) {

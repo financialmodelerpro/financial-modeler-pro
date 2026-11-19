@@ -357,14 +357,18 @@ export const stage2Capex: LiveLayer = {
       const head = w.addr('inpph:head').row, tr = w.addr(trow.keys[0]).row;
       const c1 = 2, c2 = 1 + (table.kMax - table.kMin + 1);
       const hdr = w.rangeA(INPUTS, head, c1, c2), rng = w.rangeA(INPUTS, tr, c1, c2);
-      const capped = trow.spreads.find((x) => x.key === sp.key)?.capped === true;
-      if (capped) w.fA({ sheet: CAPEX, row: r, col: 2 }, `SUMIF(${hdr},"<="&${w.ref(`tl:phase:${ph.id}:cp`)},${rng})`);
+      const tsp = trow.spreads.find((x) => x.key === sp.key);
+      const capped = tsp?.capped === true;
+      const cpRef = w.ref(`tl:phase:${ph.id}:cp`);
+      // The window's first construction year by its rule (deriveCostWindow): 1, half the construction years, or the last seven.
+      const loF = tsp?.rule === 'half' ? `MAX(1,INT(${cpRef}/2))` : tsp?.rule === 'preop' ? `MAX(1,${cpRef}-6)` : '';
+      if (capped) w.fA({ sheet: CAPEX, row: r, col: 2 }, loF ? `SUMIFS(${rng},${hdr},">="&${loF},${hdr},"<="&${cpRef})` : `SUMIF(${hdr},"<="&${cpRef},${rng})`);
       for (let t = 0; t < N; t++) {
         const c = cP(t);
         // A standard row (a curve, or even over the construction years) is read over the phase's construction years only;
         // the row's total over the years it reads sits in the Input column (2026-11-19, founder: no formula over 150).
         const k = P(ppr, c);
-        w.fA({ sheet: CAPEX, row: r, col: c }, capped ? `IF(${k}>${w.ref(`tl:phase:${ph.id}:cp`)},0,IFERROR(SUMIF(${hdr},${k},${rng})/${A(r, 2)},0))` : `IFERROR(SUMIF(${hdr},${k},${rng})/SUM(${rng}),0)`);
+        w.fA({ sheet: CAPEX, row: r, col: c }, capped ? `IF(${loF ? `OR(${k}<${loF},${k}>${cpRef})` : `${k}>${cpRef}`},0,IFERROR(SUMIF(${hdr},${k},${rng})/${A(r, 2)},0))` : `IFERROR(SUMIF(${hdr},${k},${rng})/SUM(${rng}),0)`);
       }
       w.fA({ sheet: CAPEX, row: r, col: C_TOT }, sumAcross(r));
     }
@@ -378,6 +382,8 @@ export const stage2Capex: LiveLayer = {
     const plsOf = (host: string, lid: string): PlotLine[] => membersOf(host).map((id) => plotLines.get(`${id}|${lid}`)).filter((x): x is PlotLine => !!x);
     const rowOf = new Map<string, number>();
     const hostOfRep = new Map<string, string>();
+    /** A line priced off Capex (marketing, and since 2026-11-19 the sales commission), on Revenue's selling section. */
+    const sheetOfRep = new Map<string, string>();
     for (const [host, lids] of hostLines) {
       for (const lid of lids) {
         const rep = repOf(host, lid);
@@ -395,6 +401,19 @@ export const stage2Capex: LiveLayer = {
       if (rep && w.has(ek) && !rowOf.has(`${rep.asset.id}|${pl.line.id}`)) {
         rowOf.set(`${rep.asset.id}|${pl.line.id}`, w.addr(ek).row);
         hostOfRep.set(`${rep.asset.id}|${pl.line.id}`, host);
+        sheetOfRep.set(`${rep.asset.id}|${pl.line.id}`, w.addr(ek).sheet);
+      }
+    }
+    // THE SALES COMMISSION IS PRICED ON REVENUE 5.2 (2026-11-19, founder A2): its row there is the line's only row.
+    for (const pl of plotLines.values()) {
+      if (resolveCatalogId(pl.line) !== 'commission') continue;
+      const host = hostOf.get(pl.asset.id) ?? pl.asset.id;
+      const rep = repOf(host, pl.line.id);
+      const ck = `sell:comm:${host}`;
+      if (rep && w.has(ck) && !rowOf.has(`${rep.asset.id}|${pl.line.id}`)) {
+        rowOf.set(`${rep.asset.id}|${pl.line.id}`, w.addr(ck).row);
+        hostOfRep.set(`${rep.asset.id}|${pl.line.id}`, host);
+        sheetOfRep.set(`${rep.asset.id}|${pl.line.id}`, w.addr(ck).sheet);
       }
     }
     for (const pl of plotLines.values()) {
@@ -480,8 +499,7 @@ export const stage2Capex: LiveLayer = {
       const rep = plotLines.get(pk)!;
       const host = hostOfRep.get(pk)!;
       const pls = plsOf(host, rep.line.id);
-      const ek = `cx1e:${host}:${rep.line.id}`;
-      const S = rep.key.startsWith('cxe:') && w.has(ek) ? w.addr(ek).sheet : CAPEX;
+      const S = sheetOfRep.get(pk) ?? CAPEX;
       if (S !== CAPEX) {
         // ON REVENUE (2026-11-15, founder): rate x the line's sale value x its collections share.
         w.claim(rep.key, S, row, 1);
@@ -553,26 +571,14 @@ export const stage2Capex: LiveLayer = {
       const commRows: Array<{ sheet: string; row: number }> = [];
       for (const k of reg.keys().filter((x) => x.startsWith('sell:comm:'))) {
         const host = k.slice('sell:comm:'.length);
-        const src = t1Keys(host).find((x) => { const l = costLines.find((c) => c.id === x.split(':')[2]); return !!l && resolveCatalogId(l) === 'commission'; });
         const a = w.addr(k);
-        const lid = src?.split(':')[2];
-        const rep = lid ? repOf(host, lid) : undefined;
-        const use = lid ? blends.use.get(`${host}|${lid}`) : undefined;
-        const sp = use && w.has(use) ? w.addr(use) : undefined;
-        if (src && rep && sp) {
-          // THE COMMISSION IS WORKED OUT ON REVENUE (2026-11-19, founder B3): rate x the line's sale value x its timing
-          // share, beside the marketing; Capex's row links it (forward), so no row reads a later tab.
-          w.fA({ sheet: a.sheet, row: a.row, col: 2 }, rateRef(rep));
-          w.fA({ sheet: a.sheet, row: a.row, col: C_QTY }, assetQty(host, plsOf(host, lid!)));
-          const RA = (col: number): string => w.refA({ sheet: a.sheet, row: a.row, col }, a.sheet);
-          const cr = w.addr(src).row;
-          for (let t = 0; t < N; t++) {
-            const c = cP(t);
-            w.fA({ sheet: a.sheet, row: a.row, col: c }, `${RA(2)}*${RA(C_QTY)}*${w.refP({ sheet: sp.sheet, row: sp.row, col: c }, a.sheet)}`);
-            w.fA({ sheet: CAPEX, row: cr, col: c }, w.refP({ sheet: a.sheet, row: a.row, col: c }, CAPEX));
-          }
-        } else for (let t = 0; t < N; t++) w.valueA({ sheet: a.sheet, row: a.row, col: cP(t) }, 0);
-        w.fA({ sheet: a.sheet, row: a.row, col: C_TOT }, `SUM(${w.rangeA(a.sheet, a.row, cP(0), cP(N - 1)).replace(/^'?[^!]+'?!/, '')})`);
+        // Priced above, by the line's own rate, sale value and timing (the generic Revenue path); a host with no
+        // commission line reads zero.
+        const priced = [...hostOfRep].some(([pk2, h]) => h === host && sheetOfRep.get(pk2) === a.sheet && rowOf.get(pk2) === a.row);
+        if (!priced) {
+          for (let t = 0; t < N; t++) w.valueA({ sheet: a.sheet, row: a.row, col: cP(t) }, 0);
+          w.fA({ sheet: a.sheet, row: a.row, col: C_TOT }, `SUM(${w.rangeA(a.sheet, a.row, cP(0), cP(N - 1)).replace(/^'?[^!]+'?!/, '')})`);
+        }
         commRows.push(a);
       }
       const totalOf = (key: string, parts: Array<{ sheet: string; row: number }>): void => {

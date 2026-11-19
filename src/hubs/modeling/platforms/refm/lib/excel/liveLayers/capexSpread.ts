@@ -418,7 +418,7 @@ export interface PhasingTableRow {
   /** The spread rows (planCapexSpread keys) that read it, with their phase. */
   /** `capped`: the spread follows the construction years, so it reads the row only over them; otherwise (its own
    *  window) it reads the whole row, whatever the construction years (2026-11-19). */
-  spreads: Array<{ key: string; phaseId: string; capped: boolean }>;
+  spreads: Array<{ key: string; phaseId: string; capped: boolean; rule?: 'std' | 'half' | 'preop' }>;
 }
 export interface PhasingTable {
   rows: PhasingTableRow[];
@@ -454,11 +454,13 @@ export function planPhasingTable(
   const phaseById = new Map(phases.map((p) => [p.id, p] as const));
   // A STANDARD ROW IS READ ONLY OVER ITS PHASE'S CONSTRUCTION YEARS (2026-11-19): the engine slices a curve to the
   // line's window, 1 to the construction years, so a phase built in fewer years reads fewer of the row's years.
-  const implied = (values: Map<number, number>, off: number, cap?: number): number[] => {
-    let tot = 0; for (const [k, v] of values) if (cap === undefined || k <= cap) tot += Math.max(0, v);
+  // A row read over a window [lo, cap] of construction years (a following line: its start rule to the last year).
+  const implied = (values: Map<number, number>, off: number, cap?: number, lo = 1): number[] => {
+    const inWin = (k: number): boolean => cap === undefined || (k >= lo && k <= cap);
+    let tot = 0; for (const [k, v] of values) if (inWin(k)) tot += Math.max(0, v);
     const out = new Array<number>(N).fill(0);
     if (!(tot > 0)) return out;
-    for (let t = 0; t < N; t++) { const k = t - off + 1; out[t] = cap !== undefined && k > cap ? 0 : Math.max(0, values.get(k) ?? 0) / tot; }
+    for (let t = 0; t < N; t++) { const k = t - off + 1; out[t] = !inWin(k) ? 0 : Math.max(0, values.get(k) ?? 0) / tot; }
     return out;
   };
   const same = (a: number[], b: number[]): boolean => a.every((v, t) => Math.abs(v - (b[t] ?? 0)) < 1e-9);
@@ -495,12 +497,17 @@ export function planPhasingTable(
     const shares = sp.shares.slice(0, N);
     // 1. A row already made reproduces it: a curve row in any phase, any other row in its own phase.
     // A spread that follows the construction years reads a row over them; one on its own window reads the whole row.
-    const capped = sp.win === 'follows';
-    let at = rows.findIndex((r) => (r.kind === 'curve' || r.phaseIds.includes(ph.id)) && same(implied(r.values, off, r.standard && capped ? cpOf(ph) : undefined), shares));
+    // A FOLLOWING LINE SPENDS OVER ITS RULE'S WINDOW (2026-11-19, deriveCostWindow): the construction years, or from
+    // half of them (landscaping, marketing, commission), or the last seven (pre-operating), so a change in the
+    // construction years moves its window as on the platform.
+    const rule = sp.win === 'follows' ? followedRule(sp.baseId) : 'land';
+    const capped = sp.win === 'follows' && rule !== 'land';
+    const lo = capped ? followedWindow(sp.baseId, cpOf(ph)).start : 1;
+    let at = rows.findIndex((r) => (r.kind === 'curve' || r.phaseIds.includes(ph.id)) && same(implied(r.values, off, r.standard && capped ? cpOf(ph) : undefined, r.standard && capped ? lo : 1), shares));
     // 2. A curve not yet on the table reproduces it (its own plot's first).
     if (at < 0) {
       const own = sp.kind === 'curve' ? curveCand.find((c) => c.ids.includes(sp.assetId ?? '')) : undefined;
-      const cand = [own, ...curveCand].filter((c): c is typeof curveCand[number] => !!c && !curveRowOf.has(c.first)).find((c) => same(implied(c.values, off, capped ? cpOf(ph) : undefined), shares));
+      const cand = [own, ...curveCand].filter((c): c is typeof curveCand[number] => !!c && !curveRowOf.has(c.first)).find((c) => same(implied(c.values, off, capped ? cpOf(ph) : undefined, capped ? lo : 1), shares));
       if (cand) {
         const who = cand.ids.map((id) => state.assets.find((x) => x.id === id)).filter((x): x is Asset => !!x);
         rows.push({ keys: cand.ids.map((id) => `inpcurve:${id}`), label: '', short: '', phaseIds: [...cand.phaseIds], kind: 'curve', standard: true, values: cand.values, spreads: [], who });
@@ -517,12 +524,12 @@ export function planPhasingTable(
       const hi = Math.max(cpOf(ph), ...values.keys());
       for (let k = first; k <= hi; k++) if (!values.has(k)) values.set(k, 0);
       const land = isParcelDrivenLandLine({ id: sp.lineId });
-      rows.push({ keys: [], label: '', short: '', phaseIds: [ph.id], kind: land ? 'land' : 'line', standard: !land && isStd(sp), values, spreads: [] });
+      rows.push({ keys: [], label: '', short: '', phaseIds: [ph.id], kind: land ? 'land' : 'line', standard: !land && capped, values, spreads: [] });
       at = rows.length - 1;
     }
     const row = rows[at];
     if (!row.phaseIds.includes(ph.id)) row.phaseIds.push(ph.id);
-    row.spreads.push({ key: sp.key, phaseId: ph.id, capped: capped && row.standard });
+    row.spreads.push({ key: sp.key, phaseId: ph.id, capped: capped && row.standard, rule: capped && row.standard ? (rule as 'std' | 'half' | 'preop') : undefined });
     rowOfSpread.set(sp.key, at);
   }
   // Names: what reads each row, in the platform's words.

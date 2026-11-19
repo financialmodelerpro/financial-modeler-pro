@@ -33,6 +33,8 @@ import { exitSettlementIndex } from '../financials-resolvers';
 
 type Labels = ReturnType<typeof getFinancialLabels>;
 
+/** The sales commission paid (2026-11-19, founder A2): in operations, capitalised as a contract cost. */
+export const SALES_COMMISSION_PAID_LABEL = 'Sales commission paid';
 /** Selling and marketing expensed as incurred (2026-10-08): the one label every statement prints. */
 export const SELLING_EXPENSE_LABEL = 'Selling & Marketing Expenses';
 
@@ -797,7 +799,7 @@ function buildInvestmentRows(ctx: M4ReportCtx, capexSubtotal: number[], cfiSubto
   const assetCash = (id: string): number[] => {
     const cf = snap.perAssetCF.get(id);
     if (!cf) return new Array<number>(N).fill(0);
-    return cf.capexPerPeriod.map((v, t) => (v ?? 0) - (cf.landInKindPerPeriod[t] ?? 0));
+    return cf.capexPerPeriod.map((v, t) => (v ?? 0) - (cf.landInKindPerPeriod[t] ?? 0) - (cf.salesCommissionPerPeriod?.[t] ?? 0));
   };
   const seriesTotal = (list: typeof residentialAssets, pick: (id: string) => number[]): number[] => {
     const out = new Array<number>(N).fill(0);
@@ -1104,6 +1106,13 @@ export function buildDirectCFRows(ctx: M4ReportCtx): M4Row[] {
   if ((all || sellingPaid.some((v) => v !== 0))) {
     rows.push({ label: SELLING_EXPENSE_LABEL, values: sellingPaid, indent: 1 });
   }
+  // THE SALES COMMISSION IS PAID IN OPERATIONS (2026-11-19, founder A2): capitalised as a contract cost, out of capex.
+  const commissionPaid = phaseFiltered
+    ? (() => { const out = new Array<number>(N).fill(0); for (const a of visibleAssets) { if (!matchesPhase(a)) continue; const c = snap.perAssetCF.get(a.id)?.salesCommissionPerPeriod ?? []; for (let t = 0; t < N; t++) out[t] -= c[t] ?? 0; } return out; })()
+    : (d.salesCommissionPaidPerPeriod ?? new Array<number>(N).fill(0));
+  if ((all || commissionPaid.some((v) => v !== 0))) {
+    rows.push({ label: SALES_COMMISSION_PAID_LABEL, values: commissionPaid, indent: 1 });
+  }
 
   // ITEM E (2026-08-18b): PER-CLASS CONTRIBUTION, struck from the rows above.
   //
@@ -1143,7 +1152,7 @@ export function buildDirectCFRows(ctx: M4ReportCtx): M4Row[] {
       for (const c of contribution) rows.push({ label: c.label, values: c.series, isSubtotal: true });
     }
   }
-  const totalOpexPaid = opexPaid.map((v, i) => v + (hqPaid[i] ?? 0) + (sellingPaid[i] ?? 0));
+  const totalOpexPaid = opexPaid.map((v, i) => v + (hqPaid[i] ?? 0) + (sellingPaid[i] ?? 0) + (commissionPaid[i] ?? 0));
   rows.push({ label: 'Total Operating Expenses Paid', values: totalOpexPaid, isSubtotal: true });
 
   // Fund fees paid (2026-08-05). They were ALWAYS inside cash from operations
@@ -1229,10 +1238,11 @@ export function buildIndirectCFRows(ctx: M4ReportCtx): M4Row[] {
       // CASH capex, matching the unfiltered branch (`ic.capexPerPeriod`, which
       // is `exclLandInKind`). Summing the full cost here meant the phase filter
       // changed the BASIS of the subtotal, not just its scope.
-      for (let t = 0; t < N; t++) out[t] += -((cf.capexPerPeriod[t] ?? 0) - (cf.landInKindPerPeriod[t] ?? 0));
+      for (let t = 0; t < N; t++) out[t] += -((cf.capexPerPeriod[t] ?? 0) - (cf.landInKindPerPeriod[t] ?? 0) - (cf.salesCommissionPerPeriod?.[t] ?? 0));
     }
     return out;
   })();
+  const commCapPhase = sumAssets((id) => snap.perAssetCF.get(id)?.salesCommissionPerPeriod).map((v) => -v);
 
   const trancheIds = new Set(
     filtered
@@ -1265,7 +1275,7 @@ export function buildIndirectCFRows(ctx: M4ReportCtx): M4Row[] {
   for (let t = 0; t < N; t++) {
     cfoFiltered[t] = (patPhase[t] ?? 0) + (daPhase[t] ?? 0) + (intExpPhase[t] ?? 0) - (changeArPhase[t] ?? 0)
       + cosAddBackPhase[t] + changeInAp[t] + changeInUnearned[t] + changeInEscrow[t]
-      + (ic.gainOnDisposalPerPeriod?.[t] ?? 0);
+      + (ic.gainOnDisposalPerPeriod?.[t] ?? 0) + (commCapPhase[t] ?? 0);
     cffFiltered[t] = (equityDrawPhase[t] ?? 0) + debtDrawFiltered[t] + debtRepayFiltered[t] + interestPaidFiltered[t];
   }
   const netCfFiltered = zerosN();
@@ -1298,6 +1308,8 @@ export function buildIndirectCFRows(ctx: M4ReportCtx): M4Row[] {
   const taxPay = filtered ? [] : (ic.changeInTaxPayablePerPeriod ?? []);
   if (taxPay.some((v) => Math.abs(v) > 1e-9)) rows.push({ label: `(+) Change in ${labels.tax} payable`, values: taxPay, indent: 1 });
   rows.push({ label: '(+) Change in Escrow balance', values: esc, indent: 1 });
+  const commCap = filtered ? commCapPhase : (ic.salesCommissionCapitalisedPerPeriod ?? []);
+  if ((all || commCap.some((v) => Math.abs(v) > 1e-9))) rows.push({ label: '(−) Sales commission paid (contract cost, capitalised)', values: commCap, indent: 1 });
   rows.push({ label: 'Cash Flow from Operations', values: cfo, isSubtotal: true });
 
   rows.push(...buildInvestmentRows(ctx, cpx, cfi));

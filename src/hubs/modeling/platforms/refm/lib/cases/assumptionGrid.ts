@@ -1442,6 +1442,11 @@ export function assumptionUnitSuffix(format: AssumptionFormat): string {
 /** Render a stored value in its display unit (percent at 2dp, accounting grouped). */
 export function formatAssumptionValue(value: unknown, format: AssumptionFormat): string {
   if (value === undefined || value === null) return '';
+  // A % change from base (2026-11-19, founder A5) reads as one.
+  if (typeof value === 'object' && value !== null && typeof (value as { pctChange?: unknown }).pctChange === 'number') {
+    const p = (value as { pctChange: number }).pctChange;
+    return `${p > 0 ? '+' : ''}${Number(p.toFixed(2))}% vs base`;
+  }
   if (format === 'boolean') return String(value === true || value === 'true');
   if (format === 'text') return String(value);
   const n = Number(value);

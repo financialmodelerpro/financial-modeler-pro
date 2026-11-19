@@ -35,6 +35,7 @@ export type CfSrc =
   | { kind: 'link'; key: string }                                  // one cell, as it stands
   | { kind: 'add'; keys: string[] }                                // cells added, as they stand
   | { kind: 'mkt'; phaseId: string | null }                        // Capex: selling and marketing expensed, negated
+  | { kind: 'comm'; phaseId: string | null }                       // Revenue 5.2: the sales commission paid, negated
   | { kind: 'cost'; keys: string[] }                               // costs, negated once
   | { kind: 'cash'; key: string; less: string[] }                  // a cost less its non-cash part (the rows that exist), negated
   | { kind: 'paid'; keys: string[] }                               // Opex: the cash paid rows that exist, negated once
@@ -127,6 +128,16 @@ export function cfPlan(state: FinancialsResolverState, snap: Snap = computeFinan
       rows.push({ key: K('Selling and marketing paid'), label: 'Selling and marketing paid', kind: 'row', values: v, src: { kind: 'mkt', phaseId } });
       opGroups.push(K('Selling and marketing paid')); opVals.push(v);
     }
+    // THE SALES COMMISSION IS PAID IN OPERATIONS (2026-11-19, founder A2): Revenue 5.2, out of the capex below.
+    {
+      const v = phaseId
+        ? neg(add(state.assets.filter((a) => a.visible !== false && a.phaseId === phaseId).map((a) => sl(snap.perAssetCF.get(a.id)?.salesCommissionPerPeriod))))
+        : sl(dcf.salesCommissionPaidPerPeriod);
+      if (v.some((x) => Math.abs(x) > 0.005)) {
+        rows.push({ key: K('Sales commission paid'), label: 'Sales commission paid', kind: 'row', values: v, src: { kind: 'comm', phaseId } });
+        opGroups.push(K('Sales commission paid')); opVals.push(v);
+      }
+    }
     const totPaid = add(opVals);
     rows.push({ key: K('Total opex paid'), label: 'Total opex paid', kind: 'row', style: 'subtotal', values: totPaid, sum: opGroups });
     parts.push(K('Total opex paid')); partV.push(totPaid);
@@ -150,7 +161,7 @@ export function cfPlan(state: FinancialsResolverState, snap: Snap = computeFinan
     // (2026-11-15, founder; it stays in share capital on the Balance Sheet).
     const cxGroups: string[] = []; const cxVals: number[][] = [];
     for (const l of groupRevenueLines(vl.filter((l) => ids(l).some((id) => snap.perAssetCF.has(id)))).flatMap((g) => g.lines)) {
-      const v = neg(add(ids(l).map((id) => { const c = snap.perAssetCF.get(id); return c ? sl(c.capexPerPeriod).map((x, t) => x - (c.landInKindPerPeriod?.[t] ?? 0)) : sl(undefined); })));
+      const v = neg(add(ids(l).map((id) => { const c = snap.perAssetCF.get(id); return c ? sl(c.capexPerPeriod).map((x, t) => x - (c.landInKindPerPeriod?.[t] ?? 0) - (c.salesCommissionPerPeriod?.[t] ?? 0)) : sl(undefined); })));
       rows.push({ key: K(`capex:${l.key}`), label: `Capex: ${revenueLineName(l)}`, kind: 'row', indent: 1, values: v, src: { kind: 'cash', key: capexKeyOf(l), less: inKindKeysOf(l) } });
       cxGroups.push(K(`capex:${l.key}`)); cxVals.push(v);
     }

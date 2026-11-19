@@ -68,6 +68,7 @@ import { chainMassingFor } from './state/assetTypeStandards';
 import { valueAtExit, writeOffAtExit, stopAfterExit, type TerminalValueBasis } from '@/src/core/calculations/returns/disposal';
 import { resolveReturnsConfig } from './returns-resolvers';
 import { settleAtExit } from '@/src/core/calculations/exitSettlement';
+import { resolveCatalogId } from './state/costCatalog';
 
 /** Lifetime sum of a per-period series. Local to the fund-size resolution. */
 const sumSeries = (a: readonly number[] | undefined): number =>
@@ -129,6 +130,11 @@ export interface AssetCF {
    *  visible asset this equals `financing.capex.perPeriod.landInKind`, which
    *  is what lets the Cash Flow's asset rows foot to its Total Capex. */
   landInKindPerPeriod: number[];
+  /** THE SALES COMMISSION (2026-11-19, founder A2): the slice of `capexPerPeriod` that is the sales commission,
+   *  POSITIVE. It stays in the asset's carrying cost (a contract cost, released with cost of sales) and is PAID in
+   *  operating cash, so a cash flow statement prints `capexPerPeriod - landInKindPerPeriod - salesCommissionPerPeriod`
+   *  as the asset's capex. */
+  salesCommissionPerPeriod?: number[];
   /** Residential WIP inventory: Sell strategies only (else zeros). */
   inventoryPerPeriod: number[];
 }
@@ -202,6 +208,8 @@ export interface ProjectDirectCF {
   hqOpexPaidPerPeriod: number[];           // negative
   /** Selling and marketing paid, in the period it is charged (2026-10-08). */
   sellingExpensePaidPerPeriod: number[];   // negative
+  /** The sales commission paid (2026-11-19, founder A2), negative: inside cash from operations, out of capex. */
+  salesCommissionPaidPerPeriod?: number[];
   /** Fund layer Step 3 (2026-08-04): fund fees PAID, negative. Paid in the
    *  period charged (no payable), which is what keeps the balance sheet
    *  balanced by construction: the expense reduces retained earnings through
@@ -275,6 +283,8 @@ export interface ProjectIndirectCF {
   /** +Δ zakat / tax payable (2026-10-05): the charge not yet paid. Zero when paid in the year. */
   changeInTaxPayablePerPeriod: number[];
   changeInEscrowPerPeriod: number[];       // −ΔEscrow (restricted-cash asset build consumes cash)
+  /** The sales commission capitalised as a contract cost and paid (2026-11-19, founder A2), negative. */
+  salesCommissionCapitalisedPerPeriod?: number[];
   cashFromOperationsPerPeriod: number[];
   capexPerPeriod: number[];
   /** Same four IDC / drawdown series the direct method carries, so a reader
@@ -1535,9 +1545,12 @@ export function computeFundingGap(snap: ProjectFinancialsSnapshot): FundingGapSn
   // operating cash flow (we don't receive ops cash on Day 1 of the
   // year). preFinancingNetCfLagged[t] = cashFromInv[t] + cashFromOps[t-1].
   // First period gap = full |cashFromInv[0]| (no prior-year ops).
-  const cashFromOpsPerPeriod = snap.directCF.cashFromOperationsPerPeriod.slice(0, N);
+  // The split the funding was sized on (2026-11-19): the statement pays the sales commission in operations, the
+  // funding counts it with the capex, so it is put back here.
+  const commBack = (snap.directCF.salesCommissionPaidPerPeriod ?? []).slice(0, N);
+  const cashFromOpsPerPeriod = snap.directCF.cashFromOperationsPerPeriod.slice(0, N).map((v, t) => (v ?? 0) - (commBack[t] ?? 0));
   while (cashFromOpsPerPeriod.length < N) cashFromOpsPerPeriod.push(0);
-  const cashFromInvPerPeriod = snap.directCF.cashFromInvestmentPerPeriod.slice(0, N);
+  const cashFromInvPerPeriod = snap.directCF.cashFromInvestmentPerPeriod.slice(0, N).map((v, t) => (v ?? 0) + (commBack[t] ?? 0));
   while (cashFromInvPerPeriod.length < N) cashFromInvPerPeriod.push(0);
   const preFinancingNetCfPerPeriod = zeros(N);
   const methodBGapPerPeriod = zeros(N);
@@ -2029,6 +2042,7 @@ function computeFinancialsSnapshotOnce(
     const opexPaid = zeros(N);
     const capex = zeros(N);
     const landInKind = zeros(N);
+    const salesCommission = zeros(N);
 
     // Revenue per strategy
     if (a.strategy === 'Sell' || a.strategy === 'Sell + Manage') {
@@ -2119,6 +2133,11 @@ function computeFinancialsSnapshotOnce(
       });
       const per = breakdown.perPeriod ?? [];
       const perInK = breakdown.perPeriodLandInKind ?? [];
+      for (const [lineId, dist] of Object.entries(breakdown.perLinePerPeriod ?? {})) {
+        const cl = costLines.find((c) => c.id === lineId);
+        if (!cl || resolveCatalogId(cl) !== 'commission') continue;
+        for (let i = 0; i < dist.length; i++) { const pj = phaseLocalToProjectIndex(i, offset); if (pj >= 0 && pj < N) salesCommission[pj] += dist[i] ?? 0; }
+      }
       for (let i = 0; i < Math.max(per.length, perInK.length); i++) {
         // M4 Pass 2W (2026-05-24) rescues phase 1's i=0 lump. 2026-08-18: this
         // site used to spell that rule out again by hand; it now calls the one
@@ -2190,6 +2209,7 @@ function computeFinancialsSnapshotOnce(
       opexPaidPerPeriod: opexPaid,
       capexPerPeriod: capex,
       landInKindPerPeriod: landInKind,
+      salesCommissionPerPeriod: salesCommission,
       inventoryPerPeriod: inventoryRow,
     });
   }
@@ -2821,6 +2841,10 @@ function computeFinancialsSnapshotOnce(
     }
   }
 
+  // THE SALES COMMISSION IS PAID IN OPERATIONS (2026-11-19, founder A2): it leaves the capex and the investing
+  // section and joins the selling costs paid; every total, the funding and the returns are the same cash.
+  const commPaid = (financing.capex.commissionPerPeriod ?? []).slice(0, N).map((v) => v ?? 0);
+  while (commPaid.length < N) commPaid.push(0);
   const directCF: ProjectDirectCF = {
     revenueReceivedPerPeriod: revRcvProject,
     escrowHeldPerPeriod: escrowHeld.map((v) => -v),
@@ -2829,10 +2853,11 @@ function computeFinancialsSnapshotOnce(
     opexPaidPerPeriod: opexPaidProject.map((v) => -v),
     hqOpexPaidPerPeriod: hqOpexPaid.map((v) => -v),
     sellingExpensePaidPerPeriod: sellingExpense.map((v) => -v),
+    salesCommissionPaidPerPeriod: commPaid.map((v) => -v),
     fundFeesPaidPerPeriod: fundFees.map((v) => -v),
     taxPaidPerPeriod: taxPaidArr.map((v) => -v),
-    cashFromOperationsPerPeriod: cashFromOps,
-    capexPerPeriod: capexProj.map((v) => -v),
+    cashFromOperationsPerPeriod: cashFromOps.map((v, t) => v - commPaid[t]),
+    capexPerPeriod: capexProj.map((v, t) => -(v - commPaid[t])),
     capexDrawdownPerPeriod: capexDrawArr,
     idcDrawdownPerPeriod: idcDrawArr,
     idcAccruedPerPeriod: idcAccruedArr,
@@ -2841,7 +2866,7 @@ function computeFinancialsSnapshotOnce(
     equityDevelopmentDrawdownPerPeriod: equityDevelopmentArr,
     equityManagementFeeDrawdownPerPeriod: equityManagementFeeArr,
     managementFeeFundedByEquity: feeFundedByEquity,
-    cashFromInvestmentPerPeriod: cashFromInv,
+    cashFromInvestmentPerPeriod: cashFromInv.map((v, t) => v + commPaid[t]),
     proceedsFromDisposalPerPeriod: proceedsFromDisposal,
     equityDrawdownPerPeriod: equityCashArr,
     equityInKindDrawdownPerPeriod: equityInKindArr,
@@ -2888,8 +2913,9 @@ function computeFinancialsSnapshotOnce(
     changeInUnearnedPerPeriod: unearnedChange,
     changeInTaxPayablePerPeriod: taxPayableChange,
     changeInEscrowPerPeriod: escrowChange.map((v) => -v),
-    cashFromOperationsPerPeriod: cashFromOpsIndirect,
-    capexPerPeriod: capexProj.map((v) => -v),
+    salesCommissionCapitalisedPerPeriod: commPaid.map((v) => -v),
+    cashFromOperationsPerPeriod: cashFromOpsIndirect.map((v, t) => v - commPaid[t]),
+    capexPerPeriod: capexProj.map((v, t) => -(v - commPaid[t])),
     capexDrawdownPerPeriod: capexDrawArr,
     idcDrawdownPerPeriod: idcDrawArr,
     idcAccruedPerPeriod: idcAccruedArr,
@@ -2898,7 +2924,7 @@ function computeFinancialsSnapshotOnce(
     equityDevelopmentDrawdownPerPeriod: equityDevelopmentArr,
     equityManagementFeeDrawdownPerPeriod: equityManagementFeeArr,
     managementFeeFundedByEquity: feeFundedByEquity,
-    cashFromInvestmentPerPeriod: cashFromInv,
+    cashFromInvestmentPerPeriod: cashFromInv.map((v, t) => v + commPaid[t]),
     proceedsFromDisposalPerPeriod: proceedsFromDisposal,
     // CASH equity only on CF. In-kind kept as a memo field.
     equityDrawdownPerPeriod: equityCashArr,

@@ -232,7 +232,7 @@ export function returnsPlan(state: FinancialsResolverState, snap: Snap, rs: RS, 
 
   // ════ FCFE ══════════════════════════════════════════════════════════════
   head('ret|#fcfe', 'FCFE, levered equity');
-  pRow('rs|fe:debt', 'Net debt (drawn less principal repaid)', stream(bu.netDebtPerPeriod),
+  pRow('rs|fe:debt', 'Net debt drawn / (repaid)', stream(bu.netDebtPerPeriod),
     (E, s) => `${H(E, s)}*(${E.loop('fnc:main:draw', s)}+${E.loop('fnc:main:idcdraw', s)}-${E.loop('fnc:main:repay', s)})`, { indent: 1 });
   pRow('rs|fe:int', 'Finance cost (the full accrued charge)', stream(bu.financeCostPerPeriod), (E, s) => `-${H(E, s)}*${E.loop('fnc:main:interest', s)}`, { indent: 1 });
   // The cash the model holds back: the minimum reserve, and the sweep's claim where a sweep runs.
@@ -362,7 +362,8 @@ export function returnsPlan(state: FinancialsResolverState, snap: Snap, rs: RS, 
     // The manager's fees (2026-11-18): every fund fee line but the flat other expenses, which pay third parties.
     const mg = yearsToStream(fe0.managementFeePerPeriod.slice(1));
     if (fundOn) {
-      pRow('rs|fee:mgmt', 'Management fees', mg, (E, s) => snap.fundFees.lines.map((l, i) => (l.base === 'flat_amount' ? '' : E.loop(`fnc:fee:${i}`, s))).filter(Boolean).join('+') || '0', { indent: 1 });
+      // One link (2026-11-19, founder B8): Financing 6.3's manager's fees, or its total where every fee is the manager's.
+      pRow('rs|fee:mgmt', 'Management fees', mg, (E, s) => (E.has('fnc:feeMgr') ? E.loop('fnc:feeMgr', s) : E.has('fnc:feeTot') ? E.loop('fnc:feeTot', s) : snap.fundFees.lines.map((l, i) => (l.base === 'flat_amount' ? '' : E.loop(`fnc:fee:${i}`, s))).filter(Boolean).join('+') || '0'), { indent: 1 });
       pRow('rs|fee:perf', 'Performance fee', stream(rs.waterfall.performanceFeePerPeriod).map((v, s) => (s === 0 ? null : v)), (E, s) => E.s('rs|wf:fee', s), { indent: 1 });
     }
     // THE DEVELOPER FEE AND THE SALES COMMISSION (2026-11-18, founder), each the Capex rows of its lines.
@@ -374,8 +375,9 @@ export function returnsPlan(state: FinancialsResolverState, snap: Snap, rs: RS, 
     const dvS = [null, ...fe0.developerFeePerPeriod.slice(1, N + 1)];
     const cmS = [null, ...fe0.commissionPerPeriod.slice(1, N + 1)];
     const hasDev = fe0.totalDeveloperFee > 0.005, hasCom = fe0.totalCommission > 0.005;
-    if (hasDev) pRow('rs|fee:dev', 'Developer fee', dvS, (E, s) => identityKeys(E, 'developer-fee').map((k) => E.x(k, s)).join('+') || '0', { indent: 1 });
-    if (hasCom) pRow('rs|fee:com', 'Sales commission', cmS, (E, s) => identityKeys(E, 'commission').map((k) => E.x(k, s)).join('+') || '0', { indent: 1 });
+    // One link each (2026-11-19, founder B8): Capex's developer fee row by cost type, Revenue 5.2's commission total.
+    if (hasDev) pRow('rs|fee:dev', 'Developer fee', dvS, (E, s) => (E.has('cxty:developerFee') ? E.x('cxty:developerFee', s) : identityKeys(E, 'developer-fee').map((k) => E.x(k, s)).join('+') || '0'), { indent: 1 });
+    if (hasCom) pRow('rs|fee:com', 'Sales commission', cmS, (E, s) => (E.has('sell:comm') ? E.x('sell:comm', s) : identityKeys(E, 'commission').map((k) => E.x(k, s)).join('+') || '0'), { indent: 1 });
     const feeKeys = [fundOn ? 'rs|fee:mgmt' : '', fundOn ? 'rs|fee:perf' : '', hasDev ? 'rs|fee:dev' : '', hasCom ? 'rs|fee:com' : ''].filter(Boolean);
     pRow('rs|fee:all', 'Total fee income', [null, ...Array.from({ length: N }, (_, t) => (fundOn ? (mg[t + 1] ?? 0) + (rs.waterfall.performanceFeePerPeriod[t + 1] ?? 0) : 0) + (dvS[t + 1] ?? 0) + (cmS[t + 1] ?? 0))],
       (E, s) => feeKeys.map((k) => E.s(k, s)).join('+') || '0', { style: 'subtotal' });

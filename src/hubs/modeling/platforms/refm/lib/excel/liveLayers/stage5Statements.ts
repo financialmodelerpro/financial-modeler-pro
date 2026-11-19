@@ -140,13 +140,15 @@ export const stage5Statements: LiveLayer = {
           // ZAKAT ON THE P&L (2026-11-15, founder): the gain, the profit it is charged on, the corporate tax
           // losses and the charge are worked out here; Financing reads the charge back.
           case 'feeTot': f = costOf(['fl:feeTot']); break;
-          case 'gainP': f = (t) => ['fl:proceeds', 'schv:__project__:landDisp', 'schv:__project__:disp'].filter(has).map((k) => R(k, t)).join('+') || '0'; break;
+          // Worked out once on Fixed Assets & Inventory (2026-11-19, founder B8).
+          case 'gainP': f = has('schv:__project__:gain') ? keyF('schv:__project__:gain') : (t) => ['fl:proceeds', 'schv:__project__:landDisp', 'schv:__project__:disp'].filter(has).map((k) => R(k, t)).join('+') || '0'; break;
           case 'taxable': f = (t) => `${R(s.pbt, t)}-${R(s.gain, t)}`; break;
           case 'taxRel': f = (t) => citReliefF(R(s.taxable, t), `N(${plPrev(s.pool, t)})`); break;
           case 'taxPool': f = (t) => citPoolF(R(s.taxable, t), `N(${plPrev(row.key, t)})`, R(s.rel, t)); break;
           case 'taxP': f = (t) => `-${taxF(R(s.taxable, t), `MAX(0,N(${w.ref('project:taxRate')}))`, s.rel ? R(s.rel, t) : undefined)}`; break;
           case 'cosLines': f = costOf(s.lines.map((l) => `cosc:${l}:cos`)); break;
-          case 'opexPhase': f = costOf([...s.assetIds.map((id) => `oxo:${id}:total`), ...expensedKeys.filter((k) => phaseOfAsset.get(k.split(':')[1]) === s.phaseId)]); break;
+          // The phase's opex is Opex's one row for it (2026-11-19, founder B8), plus its own marketing.
+          case 'opexPhase': f = costOf([...(has(`ox|sum|opexph|${s.phaseId}`) ? [`ox|sum|opexph|${s.phaseId}`] : s.assetIds.map((id) => `oxo:${id}:total`)), ...expensedKeys.filter((k) => phaseOfAsset.get(k.split(':')[1]) === s.phaseId)]); break;
           case 'link': f = keyF(s.key); break;
           case 'diff': f = (t) => `${R(s.a, t)}-${R(s.b, t)}`; break;
         }
@@ -199,6 +201,7 @@ export const stage5Statements: LiveLayer = {
             case 'add': f = (t) => s.keys.filter(has).map((k) => R(k, t)).join('+') || '0'; break;
             case 'cost': if (!s.keys.every(has)) { cfRefused = `"${row.label}" has nothing to link (${s.keys.join(', ')})`; break; } f = costOf(s.keys); break;
             case 'mkt': f = costOf(mktKeys(s.phaseId)); break;
+            case 'comm': f = costOf(s.phaseId === null && has('sell:comm') ? ['sell:comm'] : w.reg.keys().filter((k) => k.startsWith('sell:comm:') && (s.phaseId === null || phaseOfAsset.get(k.slice('sell:comm:'.length)) === s.phaseId))); break;
             case 'cash': { if (!has(s.key)) { cfRefused = `"${row.label}" has nothing to link (${s.key})`; break; } const ls = s.less.filter(has); f = (t) => (ls.length ? `-(${R(s.key, t)}-${ls.map((k) => R(k, t)).join('-')})` : `-${R(s.key, t)}`); break; }
             case 'paid': f = costOf(s.keys); break;
             case 'rise': f = (t) => `${s.sign < 0 ? '-' : ''}(${R(s.key, t)}-${prev(s.key, t)})`; break;

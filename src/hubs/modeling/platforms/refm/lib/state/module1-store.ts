@@ -70,6 +70,7 @@ import {
   seedCases,
   baseCaseId,
   normaliseCases,
+  keepPctMarkers,
 } from '../cases/applyOverrides';
 
 // ── Project-axis array shift helpers ────────────────────────────────────────
@@ -1243,7 +1244,7 @@ export function createModule1Store() {
       if (s.activeCaseId === baseId) {
         baseSnapshot = liveModel;
       } else {
-        cases = s.cases.map((c) => c.id === s.activeCaseId ? { ...c, overrides: withoutDerivedOverrides(buildOverrides(s.baseSnapshot, liveModel), liveModel) } : c);
+        cases = s.cases.map((c) => c.id === s.activeCaseId ? { ...c, overrides: keepPctMarkers(s.cases.find((c) => c.id === s.activeCaseId)?.overrides, withoutDerivedOverrides(buildOverrides(s.baseSnapshot, liveModel), liveModel), s.baseSnapshot) } : c);
       }
       const target = cases.find((c) => c.id === caseId) ?? cases.find((c) => c.id === baseId)!;
       const model = target.role === 'base' ? baseSnapshot : caseModelOf(baseSnapshot, target.overrides);
@@ -1308,7 +1309,7 @@ export function createModule1Store() {
       const baseId = baseCaseId(s.cases);
       if (s.activeCaseId === baseId) return {}; // base has no overrides
       const liveModel = pickModel(s as unknown as Record<string, unknown>);
-      const current = withoutDerivedOverrides(buildOverrides(s.baseSnapshot, liveModel), liveModel);
+      const current = keepPctMarkers(s.cases.find((c) => c.id === s.activeCaseId)?.overrides, withoutDerivedOverrides(buildOverrides(s.baseSnapshot, liveModel), liveModel), s.baseSnapshot);
       deleteWithSplitPair(current, path);
       const cases = s.cases.map((c) => c.id === s.activeCaseId ? { ...c, overrides: current } : c);
       const model = caseModelOf(s.baseSnapshot, current);
@@ -1324,7 +1325,7 @@ export function createModule1Store() {
       const baseId = baseCaseId(s.cases);
       if (s.activeCaseId === baseId) return {};
       const liveModel = pickModel(s as unknown as Record<string, unknown>);
-      const current = { ...withoutDerivedOverrides(buildOverrides(s.baseSnapshot, liveModel), liveModel), ...withSplitPair(path, value) };
+      const current = { ...keepPctMarkers(s.cases.find((c) => c.id === s.activeCaseId)?.overrides, withoutDerivedOverrides(buildOverrides(s.baseSnapshot, liveModel), liveModel), s.baseSnapshot), ...withSplitPair(path, value) };
       const cases = s.cases.map((c) => c.id === s.activeCaseId ? { ...c, overrides: current } : c);
       const model = caseModelOf(s.baseSnapshot, current);
       return { ...model, migrationsApplied: model.migrationsApplied ?? [], cases, activePhaseId: model.phases[0]?.id ?? DEFAULT_PHASE_ID, activeAssetId: null };
@@ -1354,7 +1355,7 @@ export function createModule1Store() {
         return reseat(model, { baseSnapshot });
       }
       if (caseId === s.activeCaseId) {
-        const current = { ...withoutDerivedOverrides(buildOverrides(s.baseSnapshot, liveModel), liveModel), ...pair };
+        const current = { ...keepPctMarkers(s.cases.find((c) => c.id === s.activeCaseId)?.overrides, withoutDerivedOverrides(buildOverrides(s.baseSnapshot, liveModel), liveModel), s.baseSnapshot), ...pair };
         const cases = s.cases.map((c) => c.id === caseId ? { ...c, overrides: current } : c);
         return reseat(caseModelOf(s.baseSnapshot, current), { cases });
       }
@@ -1370,7 +1371,7 @@ export function createModule1Store() {
       if (caseId === baseId) return {};
       if (caseId === s.activeCaseId) {
         const liveModel = pickModel(s as unknown as Record<string, unknown>);
-        const current = withoutDerivedOverrides(buildOverrides(s.baseSnapshot, liveModel), liveModel);
+        const current = keepPctMarkers(s.cases.find((c) => c.id === s.activeCaseId)?.overrides, withoutDerivedOverrides(buildOverrides(s.baseSnapshot, liveModel), liveModel), s.baseSnapshot);
         deleteWithSplitPair(current, path);
         const cases = s.cases.map((c) => c.id === caseId ? { ...c, overrides: current } : c);
         const model = caseModelOf(s.baseSnapshot, current);
@@ -1434,7 +1435,7 @@ export function createModule1Store() {
       if (s.activeCaseId === baseId) {
         baseModel = liveModel;
       } else {
-        cases = s.cases.map((c) => c.id === s.activeCaseId ? { ...c, overrides: withoutDerivedOverrides(buildOverrides(s.baseSnapshot, liveModel), liveModel) } : c);
+        cases = s.cases.map((c) => c.id === s.activeCaseId ? { ...c, overrides: keepPctMarkers(s.cases.find((c) => c.id === s.activeCaseId)?.overrides, withoutDerivedOverrides(buildOverrides(s.baseSnapshot, liveModel), liveModel), s.baseSnapshot) } : c);
       }
       return { ...baseModel, cases, activeCaseId: s.activeCaseId };
     },

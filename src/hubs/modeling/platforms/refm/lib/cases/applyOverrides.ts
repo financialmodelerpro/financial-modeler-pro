@@ -104,11 +104,59 @@ export function getByPath(root: HydrateSnapshot, path: string): unknown {
   return cur;
 }
 
+/**
+ * A "% CHANGE FROM BASE" OVERRIDE (2026-11-19, founder A5). A scenario may state a number as a share of the
+ * Management value, `{ pctChange: -10 }`, rather than a value, so a sale price set 10% below base keeps following the
+ * base when the base is edited. It sits in the SAME override map under the same path, and is resolved against the
+ * base value here, before anything else reads the map, so every surface that builds a case's model (the store,
+ * the comparison, the year-on-year report, both exports) sees an ordinary number. A path whose base value is not a
+ * finite number is skipped, as a value override on a missing entity is.
+ */
+export interface PctChange { pctChange: number }
+export function isPctChange(v: unknown): v is PctChange {
+  return !!v && typeof v === 'object' && !Array.isArray(v) && typeof (v as PctChange).pctChange === 'number'
+    && Number.isFinite((v as PctChange).pctChange) && Object.keys(v as object).length === 1;
+}
+/** The value a % change gives on `base` (undefined where the base value is not a number). */
+export function pctChangeValue(base: HydrateSnapshot, path: string, v: PctChange): number | undefined {
+  const b = getByPath(base, path);
+  return typeof b === 'number' && Number.isFinite(b) ? b * (1 + v.pctChange / 100) : undefined;
+}
+/** The override map with every % change replaced by the number it gives on `base`. */
+export function resolvePctChanges(base: HydrateSnapshot, overrides: Record<string, unknown>): Record<string, unknown> {
+  let any = false;
+  for (const v of Object.values(overrides)) if (isPctChange(v)) { any = true; break; }
+  if (!any) return overrides;
+  const out: Record<string, unknown> = {};
+  for (const [p, v] of Object.entries(overrides)) {
+    if (!isPctChange(v)) { out[p] = v; continue; }
+    const n = pctChangeValue(base, p, v);
+    if (n !== undefined) out[p] = n;
+  }
+  return out;
+}
+/**
+ * AN OVERRIDE MAP REBUILT FROM A DIFF KEEPS ITS % CHANGES. The active scenario's map is re-derived from the live
+ * model (a diff gives numbers), so a % change would become the number it gave. Where the rebuilt number is still
+ * what the % change gives, the % change is kept.
+ */
+export function keepPctMarkers(prev: Record<string, unknown> | undefined, rebuilt: Record<string, unknown>, base: HydrateSnapshot): Record<string, unknown> {
+  if (!prev) return rebuilt;
+  const out = { ...rebuilt };
+  for (const [p, v] of Object.entries(prev)) {
+    if (!isPctChange(v) || !(p in out)) continue;
+    const n = pctChangeValue(base, p, v), r = Number(out[p]);
+    if (n !== undefined && Number.isFinite(r) && Math.abs(r - n) <= 1e-9 * Math.max(1, Math.abs(n))) out[p] = v;
+  }
+  return out;
+}
+
 /** Deep-clone `base` and apply every override path. Returns the case's
  *  effective model snapshot. */
-export function applyOverrides(base: HydrateSnapshot, overrides: Record<string, unknown> | undefined): HydrateSnapshot {
+export function applyOverrides(base: HydrateSnapshot, rawOverrides: Record<string, unknown> | undefined): HydrateSnapshot {
   const out = clone(base);
-  if (!overrides) return out;
+  if (!rawOverrides) return out;
+  const overrides = resolvePctChanges(base, rawOverrides);
   for (const [path, value] of Object.entries(overrides)) {
     setByPath(out as unknown as Indexable, path, value);
   }

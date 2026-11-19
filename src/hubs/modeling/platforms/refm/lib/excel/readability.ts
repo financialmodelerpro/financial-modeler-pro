@@ -25,7 +25,7 @@ const SKIP_TABS = new Set(['Cover', 'Guide']);
 // ── Labels ───────────────────────────────────────────────────────────────────────
 
 /** Bracketed words that are a name, a unit, a sign or an abbreviation, never an explanation. */
-const KEEP_BRACKET = /^(indexed|Cash|In-Kind|in kind|cash and in-kind|cash|in-kind|excluding land in kind|memo|excl. selling costs|all other(?: Phases? [0-9, and]+)? lines|Retail|sqm|sqm per slot|%|x|1 = yes|\+|-|years?|USD|[A-Z][A-Z&]{1,6}|Land \d+(?: \+ Land \d+)*|Sell|Operate|Lease)$/;
+const KEEP_BRACKET = /^(indexed|Cash|In-Kind|in kind|cash and in-kind|cash|in-kind|excluding land in kind|memo|excl. selling costs|all other(?: Phases? [0-9, and]+)? lines|Retail|sqm|sqm per slot|%|x|1 = yes|\+|-|years?|USD|[A-Z][A-Z&]{1,6}|Land \d+(?: \+ Land \d+)*|Sell|Operate|Lease|repaid|contract cost)$/;
 
 /** Labels reworded by hand, where taking the brackets out is not enough (or says too little). */
 const RENAME: Array<[RegExp, string]> = [

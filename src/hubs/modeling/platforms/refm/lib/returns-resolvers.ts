@@ -812,7 +812,8 @@ export function computeReturnsSnapshot(snap: ProjectFinancialsSnapshot, project:
     // OVER THE WINDOW (2026-11-18), like every other figure: a cost paid after the last construction year (a
     // commission paid as units sell) is not a use of the construction funding.
     land: upToL(fin.capex.perPeriod.inclAllLand.map((v, t) => (v ?? 0) - (fin.capex.perPeriod.exclAllLand[t] ?? 0))),
-    construction: upToL(fin.capex.perPeriod.exclAllLand),
+    // The sales commission is paid in operations (2026-11-19, founder A2), so it is an operating cost here.
+    construction: upToL(fin.capex.perPeriod.exclAllLand) - upToL(fin.capex.commissionPerPeriod ?? []),
     interestPaid: -upToL(dcf.interestPaidPerPeriod),
     operatingCosts: collectedL - upToL(dcf.cashFromOperationsPerPeriod),
     debtRepaid: -upToL(dcf.debtRepaymentPerPeriod),

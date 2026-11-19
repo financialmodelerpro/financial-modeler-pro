@@ -22,7 +22,7 @@ import {
   formatAssumptionValue, assumptionUnitSuffix, isAppliedValue,
   type AssumptionFormat,
 } from '../cases/assumptionGrid';
-import { enumerateOverridableFields, getByPath, type OverridableField } from '../cases/applyOverrides';
+import { enumerateOverridableFields, getByPath, type OverridableField, isPctChange, pctChangeValue } from '../cases/applyOverrides';
 import type { HydrateSnapshot } from '../state/module1-store';
 import type { CaseComparisonInput } from './caseComparisonReport';
 
@@ -118,10 +118,13 @@ export function buildAssumptionGrid(input: CaseComparisonInput): AssumptionGrid 
           cells: columns.map((c) => {
             const ov = c.isBase ? {} : overridesOf(c.id);
             const has = Object.prototype.hasOwnProperty.call(ov, p);
-            const value = has ? ov[p] : baseValue;
+            const raw = has ? ov[p] : baseValue;
+            // A % change reads as the value it gives, and says so (2026-11-19, founder A5).
+            const pct = isPctChange(raw) ? raw : null;
+            const value = pct ? pctChangeValue(base, p, pct) : raw;
             return {
               caseId: c.id,
-              text: `${formatAssumptionValue(value, row.descriptor.format)}${assumptionUnitSuffix(row.descriptor.format)}`,
+              text: `${formatAssumptionValue(value, row.descriptor.format)}${assumptionUnitSuffix(row.descriptor.format)}${pct ? ` (${formatAssumptionValue(pct, row.descriptor.format)})` : ''}`,
               overridden: has && !c.isBase,
               value: numericValue(value, row.descriptor.format),
               format: row.descriptor.format,
