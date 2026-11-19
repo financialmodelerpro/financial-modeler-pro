@@ -31,6 +31,7 @@
  */
 import type ExcelJS from 'exceljs';
 import { localTimingFlags } from './timingFlags';
+import { unitEconomicsToReturns } from './unitEconomics';
 import { buildModelWorkbook, finalizeCalcSettings, houseContextOf, type BuildModelOptions } from './buildModelWorkbook';
 import { applyHouseStyle, timelinePhaseFormula } from './houseStyle';
 import { CellRegistry, setCellSink } from './cellRegistry';
@@ -252,6 +253,9 @@ export function buildFormulaWorkbook(opts: BuildModelOptions): FormulaWorkbookRe
     const tfMoves = localTimingFlags(wb, true);
     registry.remap(tfMoves.move);
     frame = composeMoves(frame, tfMoves);
+    // The cost per sqm and the sale price against cost to Returns as its unit economics (2026-11-19, founder B4).
+    const ueMove = unitEconomicsToReturns(wb);
+    if (ueMove) registry.relocate(ueMove);
     // THE FRONT TABS (2026-11-17, founder): the Guide, the Dashboard in place of the Summary, the Cover's navigation.
     const front = buildFrontTabs(wb, { valuesOutput: !!opts.valuesOutput, scale: house.scale });
     charts = front.charts;
