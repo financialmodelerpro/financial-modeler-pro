@@ -122,7 +122,7 @@ export const stage7cChecks: LiveLayer = {
         finish(res);
         liveIds.push(label);
       };
-      scalarCheck(MODEL_CHECKS.shares, has('fl:dF') && has('fl:eF') ? `${w.ref('fl:dF')}+${w.ref('fl:eF')}-1` : null, '1');
+      scalarCheck(MODEL_CHECKS.shares, has('fl:dF') && has('fl:eF') ? `${w.one('fl:dF')}+${w.one('fl:eF')}-1` : null, '1');
       const ex = has('inp=ret|Exit Year@4') ? w.ref('inp=ret|Exit Year@4') : null;
       const yAs = w.reg.keys().filter((k) => /^tl:year:/.test(k)).map((k) => w.addr(k));
       const yRng = yAs.length ? w.rangeA(yAs[0].sheet, yAs[0].row, Math.min(...yAs.map((a) => a.col)), Math.max(...yAs.map((a) => a.col))) : '';

@@ -7528,7 +7528,7 @@ function addChecks(ctx: EmitCtx, capexAddrs: CapexAddrs, retLinks: RetLinks): vo
       const N0 = snap.axisLength;
       const okc = (label: string, p: number): void => checkRow(label, 'OK', 0, p === 0 ? 'Nothing to reconcile' : 'Within tolerance', `chk|id|${label}`, p, { hi: 0, lo: 0 });
       okc(MODEL_CHECKS.cash, Math.max(0, ...snap.bs.cashPerPeriod.slice(0, N0).map((v) => Math.abs(v ?? 0))));
-      okc(MODEL_CHECKS.capex, Math.max(0, ...snap.financing.capex.perPeriod.inclAllLand.slice(0, N0).map((v) => Math.abs(v ?? 0))));
+      okc(MODEL_CHECKS.capex, Math.max(0, ...snap.financing.capex.perPeriod.inclAllLand.slice(0, N0).map((v, t) => Math.abs((v ?? 0) - (snap.financing.capex.commissionPerPeriod?.[t] ?? 0)))));
       okc(MODEL_CHECKS.shares, 1);
       okc(MODEL_CHECKS.years, 1);
     }
