@@ -156,6 +156,12 @@ export function financingPlan(state: FinancialsResolverState, snap: Snap = compu
   }
   if (anySweep) {
     const cs = p.financing?.cashSweep?.startingYear;
+    // THE FIRST YEAR THE SWEEP REPAYS (2026-11-19, founder C16): what the Dashboard says, not the year it may start.
+    {
+      let fy = 0;
+      for (const t of orderedFacilities(state.financingTranches ?? [])) { const f = fin.facilities.get(t.id); if (!f) continue; sl(f.principalRepaid).forEach((v, i) => { if (Math.abs(v) > 0.005 && (!fy || Y0 + i < fy)) fy = Y0 + i; }); }
+      if (fy) scalar('fl:firstSweep', 'First year the sweep repays', fy, 'year', 'The first year any loan is repaid from the cash above the minimum');
+    }
     scalar('fl:sweepStart', 'Sweep starts (year)', Y0 + (cs !== undefined ? clamp(cs - Y0, 0, N1) : clamp(cend, 0, N1)), 'year', 'The year on Inputs, else the year after construction');
   }
   {
@@ -529,7 +535,7 @@ export function financingPlan(state: FinancialsResolverState, snap: Snap = compu
   const setIdx = rows.findIndex((x) => x.key === 'fl:t:set');
   if (setIdx >= 0) rows.splice(setIdx, 1);
   place((k) => ['fl:dF', 'fl:eF', 'fl:landDebt'].includes(k), (k) => k === 'fl:t:need');
-  place((k) => ['fl:lastCon', 'fl:sweepStart'].includes(k), (k) => k.startsWith('fl:t:tr:'));
+  place((k) => ['fl:lastCon', 'fl:sweepStart', 'fl:firstSweep'].includes(k), (k) => k.startsWith('fl:t:tr:'));
   for (const t of tranches) place((k) => new RegExp(`^fl:tr:${t.id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}:(rate|td|start|n|fin|pmt)$`).test(k), (k) => k === `fl:t:tr:${t.id}`);
   place((k) => k === 'fl:divStart', (k) => k === 'fl:payout');
   place((k) => k === 'fl:firstDraw', (k) => k === 'fl:t:fee:1:u');

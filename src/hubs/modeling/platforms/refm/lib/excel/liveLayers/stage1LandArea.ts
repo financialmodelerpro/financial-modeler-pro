@@ -167,7 +167,7 @@ export const stage1LandArea: LiveLayer = {
       w.f('tl:project:count', `COUNTA($A$${Math.min(...rows)}:$A$${Math.max(...rows)})`);
     }
     w.f('tl:project:end', `MAX(${state.phases.map((ph) => R(`phase:${ph.id}:oEnd`)).join(',')})`, 'mmm yyyy');
-    for (const c of yearCols) if (w.has(`tl:ganttYear:${c}`)) w.f(`tl:ganttYear:${c}`, R(`tl:year:${c}`));
+    for (const c of yearCols) if (w.has(`tl:ganttYear:${c}`)) { const ya = reg.need(`tl:year:${c}`); w.f(`tl:ganttYear:${c}`, `${colLetter(ya.col)}$${ya.row}`); } // relative across (2026-11-19, founder C16)
     liveGantt(wb, reg, state.phases.map((ph) => ph.id), yearCols);
     livePeriodFlags(w, reg, state.phases.map((ph) => ph.id), yearCols);
 

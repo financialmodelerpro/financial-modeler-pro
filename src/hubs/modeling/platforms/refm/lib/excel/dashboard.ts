@@ -317,7 +317,13 @@ export function buildDashboard(wb: ExcelJS.Workbook, ctx: DashboardContext): { c
   const cCs = L.colOf(TL, tlHead, 'Construction start')!, cCe = L.colOf(TL, tlHead, 'Construction end')!, cOs = L.colOf(TL, tlHead, 'Operations start')!;
   const rProj = L.need(TL, 'Project', tlSched);
   const tlRow = (name: string): number => L.need(TL, name, tlSched);
-  const rFinSweep = L.row(FIN, 'Sweep starts (year)');
+  const rFinSweep0 = L.row(FIN, 'Sweep starts (year)');
+  // THE FIRST YEAR THE SWEEP REPAYS (2026-11-19, founder C16), not the year it may start.
+  const rSwept = L.row(FIN, /^Swept from cash/);
+  void rSwept;
+  const rFirstSweep = L.row(FIN, 'First year the sweep repays');
+  const sweepYear = rFirstSweep ? A(FIN, rFirstSweep, 6) : null;
+  const rFinSweep = rFinSweep0;
   const finDebt = L.section(FIN, /^Senior debt$|^(?!Operating|The funding|Interest|Zakat|Tax|Fund fees|Cash waterfall).+/);
   const rDebtClose = finDebt ? L.row(FIN, 'Closing', finDebt) : null;
   const fy = L.years(FIN);
@@ -369,7 +375,7 @@ export function buildDashboard(wb: ExcelJS.Workbook, ctx: DashboardContext): { c
   tile(11, 9, rFeeRet ? 'INVESTOR IRR, NET OF THE FEE' : 'DISTRIBUTIONS IRR', `=${A(RET, netRet, 6)}`, '0.0%', hurdle ? `="MOIC "&TEXT(${A(RET, netRet, 7)},"0.00")&"x  |  hurdle "&TEXT(${A(INP, hurdle, 4)},"0.0%")` : `="MOIC "&TEXT(${A(RET, netRet, 7)},"0.00")&"x"`);
   const debtRange = rDebtClose ? RG(FIN, rDebtClose, fy.first, rDebtClose, fy.last) : null;
   tile(11, 13, 'PEAK DEBT', debtRange ? `=MAX(${debtRange})` : '=0', cx.tile,
-    debtRange ? `="Peaks in "&INDEX(${RG(TL, 4, tly.first, 4, tly.last)},MATCH(MAX(${debtRange}),${debtRange},0))${rFinSweep ? `&", swept from "&${A(FIN, rFinSweep, 6)}` : ''}` : '="No debt"');
+    debtRange ? `="Peaks in "&INDEX(${RG(TL, 4, tly.first, 4, tly.last)},MATCH(MAX(${debtRange}),${debtRange},0))${rFinSweep ? `&", swept from "&${sweepYear ?? A(FIN, rFinSweep, 6)}` : ''}` : '="No debt"');
   for (const r of [11, 13]) ws.getRow(r).height = 14;
   ws.getRow(12).height = 27;
 
@@ -404,7 +410,7 @@ export function buildDashboard(wb: ExcelJS.Workbook, ctx: DashboardContext): { c
     ? `="The returns:  equity IRR of "&TEXT(${A(RET, rFcfeRet, 6)},"0.0%")&" ("&TEXT(${A(RET, rFcfeRet, 7)},"0.00")&"x); investors net "&TEXT(${A(RET, rFeeRet, 6)},"0.0%")&" after the performance fee, "&IF(${A(RET, rFeeRet, 6)}>=${A(INP, hurdle, 4)},"above","below")&" the "&TEXT(${A(INP, hurdle, 4)},"0.0%")&" hurdle. Project IRR "&TEXT(${A(RET, rFcffRet, 6)},"0.0%")&" against a "&TEXT(${disc},"0.0%")&" discount rate."`
     : `="The returns:  equity IRR of "&TEXT(${A(RET, rFcfeRet, 6)},"0.0%")&" ("&TEXT(${A(RET, rFcfeRet, 7)},"0.00")&"x). Project IRR "&TEXT(${A(RET, rFcffRet, 6)},"0.0%")&" against a "&TEXT(${disc},"0.0%")&" discount rate."`);
   if (debtRange && rCovDscr && rCovLtv) {
-    msgs.push(`="The debt:  peaks at "&TEXT(MAX(${debtRange})/1000000,"#,##0.0")&"m${rFinSweep ? `, is swept from "&${A(FIN, rFinSweep, 6)}&"` : ''}, and the worst-year DSCR is "&TEXT(${A(RET, rCovDscr, 7)},"0.00")&"x against a "&TEXT(${A(RET, rCovDscr, 6)},"0.00")&"x covenant; peak LTV "&TEXT(${A(RET, rCovLtv, 7)},"0.0%")&" against "&TEXT(${A(RET, rCovLtv, 6)},"0.0%")&"."`);
+    msgs.push(`="The debt:  peaks at "&TEXT(MAX(${debtRange})/1000000,"#,##0.0")&"m${rFinSweep ? `, is swept from "&${sweepYear ?? A(FIN, rFinSweep, 6)}&"` : ''}, and the worst-year DSCR is "&TEXT(${A(RET, rCovDscr, 7)},"0.00")&"x against a "&TEXT(${A(RET, rCovDscr, 6)},"0.00")&"x covenant; peak LTV "&TEXT(${A(RET, rCovLtv, 7)},"0.0%")&" against "&TEXT(${A(RET, rCovLtv, 6)},"0.0%")&"."`);
   } else msgs.push('="The debt:  the project draws no debt."');
   const scnHead = L.row(SCN, 'Metric') ?? 0;
   const scnCol = (re: RegExp): number | null => (scnHead ? L.colOf(SCN, scnHead, re) : null);
@@ -519,7 +525,7 @@ export function buildDashboard(wb: ExcelJS.Workbook, ctx: DashboardContext): { c
   const buildRows = buildTypes.map((t) => (consTbl ? L.row(INP, t, consTbl) : null));
   const cRateStd = consTbl ? (() => { const h = L.row(INP, 'Item', consTbl); return h ? L.colOf(INP, h, /^Rate/) : null; })() : null;
   if (buildRows.length && buildRows.every((x) => x !== null) && cRateStd) {
-    assumptions.push({ label: `Build cost, ${buildTypes.map((t) => t.toLowerCase()).join(' / ')}`, value: `=${buildRows.map((r) => `TEXT(${A(INP, r!, cRateStd)},"#,##0")`).join('&" / "&')}`, fmt: '@', unit: 'per sqm GFA' });
+    assumptions.push({ label: `Development cost excl. land, ${buildTypes.map((t) => t.toLowerCase()).join(' / ')}`, value: `=${buildRows.map((r) => `TEXT(${A(INP, r!, cRateStd)},"#,##0")`).join('&" / "&')}`, fmt: '@', unit: 'per sqm GFA' });
   }
   if (rLandCash && rLandKind) assumptions.push({ label: 'Land value, average', value: `=(${A(CAP, rLandCash, 6)}+${A(CAP, rLandKind, 6)})/${A(LA, rPlotTot, cLand)}`, fmt: INT, unit: 'per sqm of land' });
   const contRow = costStd ? L.row(INP, 'Contingency', costStd) : null, feeRow = costStd ? L.row(INP, 'Developer Fee', costStd) : null;
@@ -793,7 +799,7 @@ export function buildDashboard(wb: ExcelJS.Workbook, ctx: DashboardContext): { c
   r = p2c;
   if (sl.length) {
     bar(r, 3, 16, `${S()}. Unit economics of the homes for sale, per sqm of NSA`);
-    const heads: Array<[number, string, Style]> = [[3, 'Sell line', 'head'], [4, 'NSA (sqm)', 'headR'], [5, 'Sale price', 'headR'], [6, 'Build cost', 'headR'], [7, '+ IDC', 'headR'], [8, '+ land', 'headR'], [9, 'All-in cost', 'headR'], [10, 'Margin', 'headR'], [11, 'Margin %', 'headR']];
+    const heads: Array<[number, string, Style]> = [[3, 'Sell line', 'head'], [4, 'NSA (sqm)', 'headR'], [5, 'Sale price', 'headR'], [6, 'Development cost excl. land', 'headR'], [7, '+ IDC', 'headR'], [8, '+ land', 'headR'], [9, 'All-in cost', 'headR'], [10, 'Margin', 'headR'], [11, 'Margin %', 'headR']];
     for (const [c, t, s] of heads) put(r + 1, c, t, s);
     fillRun(r + 1, 12, 16, NAVY);
     r += 2;

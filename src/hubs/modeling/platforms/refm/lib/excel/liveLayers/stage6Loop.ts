@@ -357,6 +357,7 @@ export const stage6Loop: LiveLayer = {
     // alike: the smallest year, every year where the test fails pushed out of reach; none, the first year.
     const firstYearWhere = (notIt: string): string => { const m = `SUMPRODUCT(MIN(${yearRow()}+(${notIt})*100000))`; return `IF(${m}>99999,${Y0()},${m})`; };
     const firstCapex = (): string => firstYearWhere(`${rowRange(SPEND)}<=0`);
+    if (has('fl:firstSweep')) { const rep = w.reg.keys().filter((k) => /^fl:tr:.+:repaid$/.test(k)); if (rep.length) putS('fl:firstSweep', `IF(${rep.map((k) => `COUNTIF(${rowRange(k)},"<0")`).join('+')}=0,"never",${firstYearWhere(`(${rep.map((k) => rowRange(k)).join('+')})>=0`)})`); }
     // Raised in the first capex year, or the year the minimum starts to apply if later (2026-11-18).
     const minAt = (t: number): string => `IF(${Y(t)}=MAX(${firstCapex()},${FROM()}),${MIN()},0)`;
     if (METHOD === 2) {

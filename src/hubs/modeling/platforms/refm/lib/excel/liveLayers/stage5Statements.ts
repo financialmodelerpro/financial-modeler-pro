@@ -289,7 +289,7 @@ export const stage5Statements: LiveLayer = {
         else if (tot === 'last') w.fA(T, w.refA({ sheet, row: r, col: pc(N - 1) }, sheet));
         else if (tot === 'maxabs') w.fA(T, `MAX(ABS(MAX(${rng})),ABS(MIN(${rng})))`);
         // The opening column inside the sum (a blank or text there reads as nothing, as N did).
-        else if (tot === 'sum') w.fA(T, `SUM(${w.rangeA(sheet, r, OPEN_COL, pc(N - 1))})`);
+        else if (tot === 'sum') w.fA(T, `SUM(${w.rangeA(sheet, r, sheet === PL ? pc(0) : OPEN_COL, pc(N - 1))})`); // the P&L sums the model years only (2026-11-19, founder C16)
       }
     };
     apply(plWrites);

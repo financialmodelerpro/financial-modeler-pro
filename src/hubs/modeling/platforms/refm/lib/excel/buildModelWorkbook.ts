@@ -5189,14 +5189,15 @@ function addOpexLive(ctx: EmitCtx, ws: ExcelJS.Worksheet, em: ReturnType<typeof 
     const r = money(`ox|ap|${rl.assetIds.join('+')}`, l ? revenueLineName(l) : lineTitle(rl, lineState), padded(pooled.result.perPeriod), { indent: 1, totalLast: true });
     days(r, members[0].effectiveApDays);
   }
-  days(money('ox|ap|hq', 'HQ overheads', padded(snap.ap.hq.result.perPeriod), { indent: 1, totalLast: true }), snap.ap.hq.apDays);
+  // No HQ row where the project has no HQ overheads (2026-11-19, founder C16).
+  if (featureUsed(state as never, 'hq')) days(money('ox|ap|hq', 'HQ overheads', padded(snap.ap.hq.result.perPeriod), { indent: 1, totalLast: true }), snap.ap.hq.apDays);
   // CASH PAID (2026-11-03): each line's opex less the rise in its payable, so the Cash Flow links one row.
   head('Cash paid');
   for (const rl of planReportLines(lineState, (a) => snap.ap.byAsset.has(a.id))) {
     const l = lineForAsset(revLines, rl.assetIds[0]);
     money(`ox|paid|${rl.assetIds.join('+')}`, l ? revenueLineName(l) : lineTitle(rl, lineState), sumOf(rl.assetIds.map((id) => padded(snap.perAssetCF.get(id)?.opexPaidPerPeriod))), { indent: 1 });
   }
-  money('ox|paid|hq', 'HQ overheads', padded(snap.directCF.hqOpexPaidPerPeriod).map((v) => -v), { indent: 1 });
+  if (featureUsed(state as never, 'hq')) money('ox|paid|hq', 'HQ overheads', padded(snap.directCF.hqOpexPaidPerPeriod).map((v) => -v), { indent: 1 });
   head('Payables roll-forward');
   const apt = snap.ap.projectTotals;
   money('ox|ap|open', 'Opening payables', padded(apt.openingApPerPeriod), { indent: 1, totalValue: apt.openingApPerPeriod[0] ?? 0 });
