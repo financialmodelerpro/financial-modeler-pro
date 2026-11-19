@@ -2526,7 +2526,10 @@ function addCapex(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancial
     const sharePairs: Array<{ row: PhasingTable['rows'][number]; phaseId: string; capped: boolean; rule?: string }> = [];
     for (const row of phT.rows) for (const ph of state.phases) for (const rule of ['std', 'half', 'preop', undefined]) if (row.spreads.some((x) => x.phaseId === ph.id && x.rule === rule)) sharePairs.push({ row, phaseId: ph.id, capped: rule !== undefined, rule });
     // Each phase's construction year of every model year (1 in its first year), the number the share rows look up.
-    for (const ph of state.phases.filter((p) => sharePairs.some((x) => x.phaseId === p.id))) {
+    // Even over a window (no table row): one share row per phase and rule.
+    const evenPairs: Array<{ phaseId: string; rule: string; keys: string[] }> = [];
+    for (const [k, e] of phT.even) { const g = evenPairs.find((x) => x.phaseId === e.phaseId && x.rule === e.rule); if (g) g.keys.push(k); else evenPairs.push({ phaseId: e.phaseId, rule: e.rule, keys: [k] }); }
+    for (const ph of state.phases.filter((p) => sharePairs.some((x) => x.phaseId === p.id) || evenPairs.some((x) => x.phaseId === p.id))) {
       const off = Math.max(0, new Date(ph.startDate as string).getUTCFullYear() - snap.projectStartYear);
       setLabel(ws.getCell(r, C_LBL), multiPhase ? `${ph.name} construction year` : 'Construction year', { indent: 1 });
       registerCell(`cxpp:${ph.id}`, ws, ws.getCell(r, C_LBL));
@@ -2546,6 +2549,17 @@ function addCapex(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancial
       // The row's total over the years it reads (the denominator), in the Input column.
       // Only a row read over the construction years needs it; any other reads its whole row in the formula.
       if (x.capped) { const cpN = Math.max(1, ph.constructionPeriods ?? 0); const lo = x.rule === 'half' ? Math.max(1, Math.floor(cpN / 2)) : x.rule === 'preop' ? Math.max(1, cpN - 6) : 1; let den = 0; for (const [k, v] of x.row.values) if (k >= lo && k <= cpN) den += Math.max(0, v); put(r, C_UOM, den, NUMFMT.pct2); }
+      for (let t = 0; t < N; t++) put(r, cP(t), sps[0].shares[t] ?? 0, NUMFMT.pct2);
+      put(r, C_TOT, sumN(sps[0].shares), NUMFMT.pct2);
+      r += 1;
+    }
+    for (const x of evenPairs) {
+      const ph = state.phases.find((p) => p.id === x.phaseId)!;
+      const sps = x.keys.map((k) => plan.rows.get(k)).filter((sp): sp is SpreadRow => !!sp);
+      if (!sps.length) continue;
+      const names = [...new Set([...plan.plotLine.values()].filter((pl) => x.keys.includes(pl.spread) && !pl.disabled).map((pl) => state.costLines.find((c) => c.id === pl.lineId)?.name).filter((n): n is string => !!n))].join(', ').toLowerCase();
+      setLabel(ws.getCell(r, C_LBL), `Spend share: ${multiPhase ? `${ph.name} ` : ''}${x.rule === 'std' ? 'even over the build' : `${names}, even${x.rule === 'half' ? ' from mid-build' : ', last seven years'}`}`, { indent: 1 });
+      for (const sp of sps) registerCell(`cxw:${sp.key}`, ws, ws.getCell(r, C_LBL));
       for (let t = 0; t < N; t++) put(r, cP(t), sps[0].shares[t] ?? 0, NUMFMT.pct2);
       put(r, C_TOT, sumN(sps[0].shares), NUMFMT.pct2);
       r += 1;
@@ -2783,6 +2797,27 @@ function addCapex(wb: ExcelJS.Workbook, snap: ReturnType<typeof computeFinancial
     }
     summaryTable('Capex Excluding Land In-Kind (cash-impact schedule)', (m) => m.exclInKind, 'cx3', 'Total capex, excl. land in-kind'); r += 1;
     const exclAllTotalRow = summaryTable('Capex Excluding Total Land (pure development cost)', (m) => m.exclAll, 'cx4', 'Total capex, excl. all land'); r += 1;
+    // LAND AND DEVELOPMENT COST BY LINE (2026-11-19, founder B8): one row each per line, the rows Fixed Assets &
+    // Inventory links (its land and capex additions), so no reader adds a line's Capex rows again.
+    {
+      setSectionHeader(ws.getRow(r), 'Land and Development Cost by Line', cLast); r += 1;
+      subHeader(r, [[C_LBL, 'Line', 'left'], [C_UOM, 'Phase', 'left'], [C_TOT, 'Total', 'right']]);
+      r += 1;
+      const landOf = (m: LineMeta): number[] => { const acc = zeros(); for (const ln of m.ref.lines) { const cl = costLineById.get(ln.id); if (cl && isLandValueLine(cl)) addInto(acc, inputLine(m.hostId, ln.id)?.perPeriod); } return acc; };
+      const held = zeros(); let anyHeld = false;
+      for (const m of lines) {
+        const land = landOf(m), dev = m.incl.map((v, t) => v - (land[t] ?? 0));
+        if (Math.abs(sumN(m.incl)) <= 0.5) continue;
+        registerCell(`cxl:land:${m.hostId}`, ws, ws.getCell(r, C_LBL));
+        moneyRow(r, `Land: ${m.label}`, land, { b: m.phaseName, indent: 1 }); r += 1;
+        registerCell(`cxl:dev:${m.hostId}`, ws, ws.getCell(r, C_LBL));
+        moneyRow(r, `Development cost excl. land: ${m.label}`, dev, { b: m.phaseName, indent: 1 }); r += 1;
+        const st = state.assets.find((a) => a.id === m.hostId)?.strategy;
+        if (st === 'Operate' || st === 'Lease') { addInto(held, land); anyHeld = true; }
+      }
+      if (anyHeld) { registerCell('cxl:land:held', ws, ws.getCell(r, C_LBL)); moneyRow(r, 'Land: held lines (fixed assets)', held, { style: 'subtotal' }); r += 1; }
+      r += 1;
+    }
 
     // ── Table 5: land cash and in-kind, per phase (what Financing funds), and the land-stage memo ──
     setSectionHeader(ws.getRow(r), 'Land: Cash and In-Kind (what Financing funds)', cLast); r += 1;

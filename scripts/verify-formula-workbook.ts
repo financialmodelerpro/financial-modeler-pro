@@ -233,6 +233,11 @@ function compareLive(basePlain: ExcelJS.Workbook, pertPlain: ExcelJS.Workbook, w
       }
       const addr = cellKey(ws.name, r, c);
       const e = rec.cells.get(addr);
+      // A SPEND SHARE'S "ROW TOTAL" IS A NORMALISER OVER THE EXPORTED PHASING ROW (2026-11-19): after a change in the
+      // construction years the platform re-plans its table (each row re-sliced to the new window) while the live file
+      // keeps the row as typed, so the two totals differ by construction while every share it divides, compared
+      // exactly in the year columns beside it, agrees. It is layout, as a re-keyed grid is.
+      if (ws.name === 'Capex' && basePlain !== pertPlain && c === 4 && /^Spend share:/.test(String(ws.getCell(r, 3).value ?? ''))) { if (e !== undefined) layout.push(addr); return; }
       const m = rows.get(r);
       if (m === undefined) { if (e !== undefined && e !== 0) layout.push(addr); return; }
       const o = plainAt(pertPlain, ws.name, m, c);

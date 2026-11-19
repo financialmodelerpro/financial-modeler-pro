@@ -201,7 +201,9 @@ export const stage4Schedules: LiveLayer = {
       row(K('landClose'), (t) => `${p(K('landOpen'), t)}+${p(K('landAdd'), t)}${has(K('landDisp')) ? `+${p(K('landDisp'), t)}` : ''}`, 'none');
       // Building.
       row(K('open'), (t) => p(K('close'), t, -1), 'none');
-      row(K('capAdd'), byTables ? (t) => p(c4!, t) : (t) => otherKeys.map((k) => p(k, t)).join('+') || '0', 'sum');
+      // One link (2026-11-19, founder B8): Capex's development cost excluding land for the line.
+      const devK = l.memberIds.map((id) => `cxl:dev:${id}`).find(has);
+      row(K('capAdd'), devK ? (t) => p(devK, t) : byTables ? (t) => p(c4!, t) : (t) => otherKeys.map((k) => p(k, t)).join('+') || '0', 'sum');
       if (withIdc) pendingRow(K('idcAdd'));
       const flows = [K('capAdd'), ...(withIdc ? [K('idcAdd')] : [])];
       // SIMPLE ROWS (2026-11-15, founder): what was added before depreciation starts, over the life, in a year
@@ -241,7 +243,8 @@ export const stage4Schedules: LiveLayer = {
       // Land, once for the project: every held line's land value rows on Capex.
       const landAll = faLines.flatMap((l) => l.memberIds.flatMap((id) => w.reg.keys().filter((k) => k.startsWith(`cxc:${id}:`) && k.split(':').length === 3 && isLandValueLine(costLineOf(k.split(':')[2])))));
       row(K('landOpen'), (t) => p(K('landClose'), t, -1), 'none');
-      row(K('landAdd'), (t) => landAll.map((k) => p(k, t)).join('+') || '0', 'sum');
+      // One link (2026-11-19, founder B8): Capex's land of the held lines.
+      row(K('landAdd'), has('cxl:land:held') ? (t) => p('cxl:land:held', t) : (t) => landAll.map((k) => p(k, t)).join('+') || '0', 'sum');
       row(K('landDisp'), (t) => `-${exit(t)}*(${p(K('landOpen'), t)}+${p(K('landAdd'), t)})`, 'sum');
       row(K('landClose'), (t) => `${p(K('landOpen'), t)}+${p(K('landAdd'), t)}${has(K('landDisp')) ? `+${p(K('landDisp'), t)}` : ''}`, 'none');
       for (const name of CLAIMED) claim(`schv:__project__:${name}`, K(name));

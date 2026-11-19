@@ -427,6 +427,9 @@ export interface PhasingTable {
   kMax: number;
   /** A spread key -> the index of the row it reads. */
   rowOfSpread: Map<string, number>;
+  /** EVEN OVER ITS WINDOW (2026-11-19): a following line spread evenly has no row to type; Capex works out
+   *  1 / the years in its window, so a longer or shorter build is followed. */
+  even: Map<string, { phaseId: string; rule: 'std' | 'half' | 'preop' }>;
 }
 
 /** The spread rows a formula reads: the one spread of each asset's line, and every plot's spread a blend combines. */
@@ -478,12 +481,15 @@ export function planPhasingTable(
     const hi = Math.max(1, ...ph.map((id) => cpOf(phaseById.get(id)!)));
     const dist = a.capexPhasing?.distribution ?? [];
     const values = new Map<number, number>();
-    for (let k = 1; k <= hi; k++) values.set(k, Math.max(0, dist[k] ?? 0) / 100);
+    // EVERY YEAR THE CURVE TYPES (2026-11-19): a later year typed beyond today's build is read when the build grows.
+    const hiT = Math.max(hi, dist.reduce((m: number, v: number, i: number) => ((v ?? 0) > 0 ? i : m), 0));
+    for (let k = 1; k <= hiT; k++) values.set(k, Math.max(0, dist[k] ?? 0) / 100);
     return { first, ids, values, phaseIds: ph };
   });
   type Row = PhasingTableRow & { who?: Asset[] };
   const rows: Row[] = [];
   const rowOfSpread = new Map<string, number>();
+  const even = new Map<string, { phaseId: string; rule: 'std' | 'half' | 'preop' }>();
   const curveRowOf = new Map<string, number>();
   const names = { parcels: state.parcels, phases };
   // The spreads to place, the curves first (so a line on a curve's years reads the curve row), phase by phase.
@@ -503,6 +509,7 @@ export function planPhasingTable(
     const rule = sp.win === 'follows' ? followedRule(sp.baseId) : 'land';
     const capped = sp.win === 'follows' && rule !== 'land';
     const lo = capped ? followedWindow(sp.baseId, cpOf(ph)).start : 1;
+    if (capped && sp.kind === 'even') { even.set(sp.key, { phaseId: ph.id, rule: rule as 'std' | 'half' | 'preop' }); continue; }
     let at = rows.findIndex((r) => (r.kind === 'curve' || r.phaseIds.includes(ph.id)) && same(implied(r.values, off, r.standard && capped ? cpOf(ph) : undefined, r.standard && capped ? lo : 1), shares));
     // 2. A curve not yet on the table reproduces it (its own plot's first).
     if (at < 0) {
@@ -575,5 +582,5 @@ export function planPhasingTable(
   for (const [k, i] of rowOfSpread) rowOfSpread.set(k, remap.get(i)!);
   const allK = out.flatMap((r) => [...r.values.keys()]);
   const maxCp = Math.max(1, ...phases.map(cpOf));
-  return { rows: out, kMin: allK.some((k) => k <= 0) ? 0 : 1, kMax: Math.max(maxCp, ...allK), rowOfSpread };
+  return { rows: out, kMin: allK.some((k) => k <= 0) ? 0 : 1, kMax: Math.max(maxCp, ...allK), rowOfSpread, even };
 }

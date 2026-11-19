@@ -203,7 +203,7 @@ export const stage2Capex: LiveLayer = {
       const tabled = sp.kind === 'even' || sp.kind === 'curve';
       if (tabled && !used.has(sp.key)) continue;
       if (!w.has(`cxw:${sp.key}`)) refuse.push(`the spend share "${sp.label}" is not on the sheet`);
-      if (tabled && !(tableRowOf(sp.key) && w.has(tableRowOf(sp.key)!.keys[0]))) refuse.push(`the phasing of ${sp.label} is not on the construction phasing table`);
+      if (tabled && !table.even.has(sp.key) && !(tableRowOf(sp.key) && w.has(tableRowOf(sp.key)!.keys[0]))) refuse.push(`the phasing of ${sp.label} is not on the construction phasing table`);
       if (sp.kind === 'collections' && !w.has(`rvc:${sp.assetId}:${SPREAD_BASIS_ROW[sp.basis ?? 'cash']}`)) refuse.push(`the revenue row ${sp.label} reads is not on Revenue`);
       if (sp.kind === 'blend' && (!w.has(`ctin|${sp.assetId}|pct`) || !w.has(`ctin|${sp.assetId}|rem`))) refuse.push(`the commission terms of ${sp.label} are not on Inputs`);
     }
@@ -353,6 +353,18 @@ export const stage2Capex: LiveLayer = {
       const ppKey = `cxpp:${ph.id}`;
       if (!w.has(ppKey)) return values(`the construction years of ${ph.name} are not on the sheet`);
       const ppr = w.addr(ppKey).row;
+      const ev = table.even.get(sp.key);
+      if (ev) {
+        // EVEN OVER THE WINDOW (2026-11-19): 1 / the years from its rule's first construction year to the last.
+        const cpE = w.ref(`tl:phase:${ph.id}:cp`);
+        const loE = ev.rule === 'half' ? `MAX(1,INT(${cpE}/2))` : ev.rule === 'preop' ? `MAX(1,${cpE}-6)` : '1';
+        for (let t = 0; t < N; t++) {
+          const c = cP(t), k = P(ppr, c);
+          w.fA({ sheet: CAPEX, row: r, col: c }, `IF(OR(${k}<${loE},${k}>${cpE}),0,1/(${cpE}-${loE}+1))`);
+        }
+        w.fA({ sheet: CAPEX, row: r, col: C_TOT }, sumAcross(r));
+        continue;
+      }
       const trow = tableRowOf(sp.key)!;
       const head = w.addr('inpph:head').row, tr = w.addr(trow.keys[0]).row;
       const c1 = 2, c2 = 1 + (table.kMax - table.kMin + 1);
@@ -628,6 +640,21 @@ export const stage2Capex: LiveLayer = {
       sumKeys('cx5:total:cash', cashK.length ? cashK : hosts.flatMap((h) => landKeys(h, isCashLand)));
       sumKeys('cx5:total:inkind', inkK.length ? inkK : hosts.flatMap((h) => landKeys(h, isInKindLand)));
       sumKeys('cx5:total:land', ['cx5:total:cash', 'cx5:total:inkind']);
+    }
+    // Land and development cost by line (2026-11-19, founder B8): the line's land value rows, and its capex less them.
+    {
+      const heldLand: string[] = [];
+      for (const h of hosts) {
+        const lk = `cxl:land:${h}`, dk = `cxl:dev:${h}`;
+        if (!w.has(lk) || !w.has(dk)) continue;
+        sumKeys(lk, landKeys(h, (l) => isLandValueLine(l)));
+        const dr = w.addr(dk).row;
+        for (let t = 0; t < N; t++) w.fA({ sheet: CAPEX, row: dr, col: cP(t) }, `${KP(`cx1sub:${h}`, cP(t))}-${KP(lk, cP(t))}`);
+        w.fA({ sheet: CAPEX, row: dr, col: C_TOT }, sumAcross(dr));
+        const st = state.assets.find((a) => a.id === h)?.strategy;
+        if (st === 'Operate' || st === 'Lease') heldLand.push(lk);
+      }
+      sumKeys('cxl:land:held', heldLand);
     }
     // The capex paid in cash and the development cost less the selling costs (2026-11-19): Financing links both.
     if (w.has('cx:cashCapex') && w.has('cx2:total') && w.has('cx5:total:inkind')) {
