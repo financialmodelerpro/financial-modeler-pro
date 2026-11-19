@@ -101,10 +101,12 @@ export function plPlan(state: FinancialsResolverState, snap: Snap = computeFinan
     // ONE ROW PER LINE, NO CATEGORY ROWS (2026-11-15, founder).
     const revKeys: string[] = [];
     const revVals: number[][] = [];
+    const sellRev: Array<[string, number[]]> = [], opRev: Array<[string, number[]]> = [];
     for (const g of groupRevenueLines(vl.filter(earns))) for (const l of g.lines) {
       const v = perAsset(l, (x) => x.revenuePerPeriod);
       const k = K(`rev:${l.key}`);
       revKeys.push(k); revVals.push(v);
+      (l.form === 'sell' ? sellRev : opRev).push([k, v]);
       rows.push({ key: k, label: revenueLineName(l), kind: 'row', indent: 1, values: v, src: { kind: 'rev', line: l.key } });
     }
     const totRev = add(revVals);
@@ -133,7 +135,8 @@ export function plPlan(state: FinancialsResolverState, snap: Snap = computeFinan
     }
     const totCos = add(cosVals);
     rows.push({ key: K('Residential cost of sales'), label: 'Total cost of sales', kind: 'row', style: 'subtotal', values: totCos, sum: cosKeys });
-    rows.push({ key: K('Gross profit'), label: 'Gross profit', kind: 'row', style: 'total', values: add([totRev, totCos]), sum: [K('Total Revenue'), K('Residential cost of sales')] });
+    // RESIDENTIAL GROSS PROFIT AND OPERATING NOI, EACH ITS OWN SUBTOTAL BEFORE THE PROJECT EBITDA (2026-11-19, founder C13).
+    rows.push({ key: K('Residential gross profit'), label: 'Residential gross profit', kind: 'row', style: 'total', values: add([...sellRev.map((x) => x[1]), totCos]), sum: [...sellRev.map((x) => x[0]), K('Residential cost of sales')] });
 
     // Operating expenses, one row per line.
     const opexKeys: string[] = [];
@@ -144,24 +147,24 @@ export function plPlan(state: FinancialsResolverState, snap: Snap = computeFinan
       opexKeys.push(k); opexVals.push(v);
       rows.push({ key: k, label: revenueLineName(l), kind: 'row', indent: 1, values: v, src: { kind: 'opex', assetIds: l.members.filter((m) => visIds.has(m.id)).map((m) => m.id) } });
     }
+    if (opRev.length || opexKeys.length) rows.push({ key: K('Operating NOI'), label: 'Operating NOI', kind: 'row', style: 'total', values: add([...opRev.map((x) => x[1]), ...opexVals]), sum: [...opRev.map((x) => x[0]), ...opexKeys] });
+    const ebitdaKeys = [K('Residential gross profit'), ...(opRev.length || opexKeys.length ? [K('Operating NOI')] : [])];
     // HQ off: no HQ row (2026-11-15).
     if (featureUsed(state as never, 'hq')) {
       const v = neg(sl(snap.pl.hqOpexPerPeriod));
       rows.push({ key: K('HQ overheads'), label: 'HQ overheads', kind: 'row', values: v, src: { kind: 'hq' } });
-      opexKeys.push(K('HQ overheads')); opexVals.push(v);
+      opexKeys.push(K('HQ overheads')); opexVals.push(v); ebitdaKeys.push(K('HQ overheads'));
     }
     {
       const v = neg(sl(snap.pl.sellingExpensePerPeriod));
       rows.push({ key: K('Selling and marketing'), label: 'Selling and marketing', kind: 'row', values: v, src: { kind: 'mkt', phaseId: view } });
-      opexKeys.push(K('Selling and marketing')); opexVals.push(v);
+      opexKeys.push(K('Selling and marketing')); opexVals.push(v); ebitdaKeys.push(K('Selling and marketing'));
     }
-    const totOpex = add(opexVals);
-    rows.push({ key: K('Total Operating Expenses'), label: 'Total operating expenses', kind: 'row', style: 'subtotal', values: totOpex, sum: opexKeys });
 
     // The fund fees: one row, the total on Financing (2026-11-15, founder); EBITDA is struck after them.
     // PROJECT EBITDA, THEN THE FUND FEES, THEN EBITDA AFTER THEM (2026-11-19, founder B1): the covenants read the
     // project EBITDA; the fund fees are their total on Financing (the arranging fee inside them, not in finance cost).
-    const ebitdaParts = [K('Gross profit'), K('Total Operating Expenses')];
+    const ebitdaParts = ebitdaKeys;
     if (fundOn) {
       rows.push({ key: K('ebitdaPre'), label: `Project ${labels.ebitda}`, kind: 'row', style: 'total', values: sl(snap.pl.ebitdaBeforeFundFeesPerPeriod), sum: ebitdaParts });
       rows.push({ key: K('Total Fund Management Fee'), label: 'Fund fees', kind: 'row', values: neg(sl(snap.fundFees.totalPerPeriod)), src: { kind: 'feeTot' } });
